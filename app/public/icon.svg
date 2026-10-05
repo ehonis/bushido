@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!--
+    The Bushido mark — drawn 2026-09-15.
+
+    An ECG trace, which is the one figure that reads as a heartbeat at 40 pixels on a
+    home screen without needing a word next to it. Drawn rather than lettered
+    because a letter at that size is indistinguishable from every other app whose
+    icon is its first initial.
+
+    Two things it is doing at once, and the second only shows if you look: the
+    trace ends on a CLIMB rather than returning to the baseline — a rising step
+    that reads as a heartbeat's recovery and as an elevation profile, which is
+    what this app is actually about now.
+
+    Carbon palette: the lime accent on the app's own near-black, so the icon and
+    the first screen are obviously the same thing.
+  -->
+  <rect width="512" height="512" rx="114" fill="#0b0c0b"/>
+  <!-- A faint lime wash, so the square is not a dead black hole on a dark phone. -->
+  <rect width="512" height="512" rx="114" fill="#b8f23d" opacity="0.06"/>
+  <g fill="none" stroke="#b8f23d" stroke-width="30"
+     stroke-linecap="round" stroke-linejoin="round">
+    <!-- Baseline in, the spike, then the step up and out. Kept inside the
+         maskable safe zone (the inner 80%), so a circular mask cannot clip it. -->
+    <path d="M108 286 H168 L196 286 L222 196 L258 366 L288 262 L316 262 L344 226 H404"/>
+  </g>
+</svg>

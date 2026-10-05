@@ -1,0 +1,28 @@
+# Build output — regenerate with `cd app && npm run build`
+dist/
+app/node_modules/
+app/.smoke.mjs
+app/.mdtest.mjs
+
+# Your actual training log and its snapshots. Runtime state, not source:
+# it changes on every session and would be pure merge noise. Back it up with
+# `GET /api/export` instead.
+data/
+
+# Never commit secrets. Local settings go in .env / app/.env; the .env.example
+# files are the templates.
+.env
+*.env.local
+.env.*
+!.env.example
+
+# Editor and OS junk, logs
+.DS_Store
+*.log
+*.swp
+.vscode/
+.idea/
+
+# The owner's deployment-specific notes for agents. Private; never committed.
+AGENTS.local.md
+CLAUDE.local.md

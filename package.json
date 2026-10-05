@@ -1,0 +1,22 @@
+{
+  "name": "bushido",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Self-hosted health and training log: weekly quotas, every sport, an AI coach, WHOOP and Strava.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ehonis/bushido.git"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "postinstall": "npm --prefix app ci --no-audit --no-fund",
+    "start": "node scripts/start.js",
+    "build": "npm --prefix app run build",
+    "dev": "npm --prefix app run dev",
+    "test": "npm --prefix app test && npm run test:server",
+    "test:server": "cd server && for t in *.test.js; do echo \"== $t\"; node \"$t\" || exit 1; done"
+  }
+}

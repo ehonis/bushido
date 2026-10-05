@@ -1,0 +1,45 @@
+{
+  "name": "bushido-app",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ehonis/bushido.git",
+    "directory": "app"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "smoke": "esbuild smoke.jsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --outfile=.smoke.mjs --log-level=error && node .smoke.mjs",
+    "test:rec": "node recommend.test.js",
+    "test:workout": "node workout.test.js",
+    "test": "node handoff.test.js && npm run palette && npm run test:rec && npm run test:quota && npm run test:ach && npm run test:streak && npm run test:gear && npm run test:progress && npm run test:workout && npm run test:coach && npm run test:checkin && npm run test:lifts && npm run test:presc && npm run test:naming && npm run test:md && npm run test:goals && npm run test:starter && npm run test:signout && npm run smoke",
+    "test:lifts": "node lifts.test.js",
+    "test:coach": "node coach.test.js",
+    "test:checkin": "node checkin.test.js",
+    "test:quota": "node quota.test.js",
+    "test:gear": "node gear.test.js",
+    "test:progress": "node progress.test.js",
+    "palette": "node validate_palette.js",
+    "test:md": "esbuild markdown.test.jsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --outfile=.mdtest.mjs --log-level=error && node .mdtest.mjs",
+    "test:goals": "node goals.test.js",
+    "test:ach": "node achievements.test.js",
+    "test:streak": "node streak.test.js",
+    "test:presc": "node prescription.test.js",
+    "test:naming": "node naming.test.js",
+    "test:starter": "node starter.test.mjs",
+    "test:signout": "node signout.test.js"
+  },
+  "dependencies": {
+    "lucide-react": "^1.28.0",
+    "react": "^19.2.0",
+    "react-body-highlighter": "^2.0.5",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.0",
+    "vite": "^7.1.5"
+  }
+}

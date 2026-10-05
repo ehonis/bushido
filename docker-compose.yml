@@ -1,0 +1,21 @@
+# docker compose up -d, then: docker compose logs bushido | grep setup
+# and open the one-time setup link it printed.
+services:
+  bushido:
+    build: .
+    ports:
+      - "8099:8099"
+    volumes:
+      - bushido-data:/data
+    environment:
+      # The address you open the app at, so the setup link printed in the log is
+      # one you can click. Optional.
+      # BUSHIDO_PUBLIC_URL: "https://bushido.example.com"
+      # Behind an auth proxy (Cloudflare Access, oauth2-proxy) that already
+      # decides who gets in, turn the built-in sign-in off:
+      # BUSHIDO_AUTH: "proxy"
+      TZ: "UTC"
+    restart: unless-stopped
+
+volumes:
+  bushido-data:

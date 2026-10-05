@@ -1,0 +1,20 @@
+[Unit]
+Description=bushido — training log API + app (tailnet only)
+After=network-online.target
+
+[Service]
+Type=simple
+# node lives under nvm, which is not on systemd's PATH. %h/.local/bin/apps-node is a
+# stable symlink to it — after an nvm upgrade, just repoint that symlink.
+ExecStart=%h/.local/bin/apps-node %h/bushido/server/server.js
+Environment=BUSHIDO_PORT=8099
+Environment=BUSHIDO_BIND=0.0.0.0
+# Optional overrides, one VAR=value per line (see .env.example). The leading "-"
+# means a missing file is fine. Values here win over the Environment= lines above.
+EnvironmentFile=-%h/bushido/.env
+Restart=always
+RestartSec=3
+WorkingDirectory=%h/bushido
+
+[Install]
+WantedBy=default.target
