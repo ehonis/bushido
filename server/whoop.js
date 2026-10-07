@@ -663,6 +663,31 @@ export function readinessFor(cache, date) {
  * calendar `recovery` is on, which is what lets the two sit on one card.
  */
 
+/**
+ * Keep the daily rows (sleep nights, recovery days) a pull returns AND the ones
+ * already cached, one per date, the fresh pull winning, for up to `keepDays`.
+ *
+ * The bridge answers at most 60 days a pull, and the sleep graph is read over a
+ * quarter or a year. So each pull is laid over what the cache already held rather
+ * than replacing it, and the history fills in as the app is used. It is still a
+ * mirror, not a record: every row is WHOOP's own and refetchable from WHOOP, the
+ * newest copy always wins, and nothing is kept past a year. Deleting the cache
+ * loses only the part of the graph older than the next pull reaches.
+ */
+export function mergeDaily(prev, next, { today, keepDays = 400 } = {}) {
+  const byDate = new Map()
+  for (const row of Array.isArray(prev) ? prev : []) if (row?.date) byDate.set(row.date, row)
+  for (const row of Array.isArray(next) ? next : []) if (row?.date) byDate.set(row.date, row)
+  let floor = ''
+  if (today) {
+    const [y, m, d] = today.split('-').map(Number)
+    floor = new Date(Date.UTC(y, m - 1, d - keepDays)).toISOString().slice(0, 10)
+  }
+  return [...byDate.values()]
+    .filter(r => r.date >= floor)
+    .sort((a, b) => b.date.localeCompare(a.date))
+}
+
 /** The night that ended on this morning, or null. */
 export function sleepFor(cache, date) {
   if (!date) return null

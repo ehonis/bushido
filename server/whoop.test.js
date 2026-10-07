@@ -14,6 +14,7 @@ import {
   attachedIds, rankForSession, recoveryFor, workoutsOn, baselineFor, readinessFor,
   normalizeSport, sportFamily, sportMatches, partOf, attachedMinutes, isSplit,
   choiceForSport, attachTo, detachFrom, sleepFor, sleepNights,
+  mergeDaily,
 } from './whoop.js'
 
 let failed = 0
@@ -533,6 +534,20 @@ check('detaching gives back the blanks it took, and only those', () => {
 check('attaching nothing changes nothing', () => {
   eq(attachTo(otherCard, { rpe: 7 }, null), { rpe: 7 })
   eq(detachFrom({ rpe: 7 }), { rpe: 7 }, 'detaching with nothing attached')
+})
+
+check('sleep and recovery history builds up across pulls, newest copy winning', () => {
+  const cached = [{ date: '2026-08-10', score: 60 }, { date: '2026-10-01', score: 70 }]
+  const pulled = [{ date: '2026-10-01', score: 75 }, { date: '2026-10-06', score: 88 }]
+  const out = mergeDaily(cached, pulled, { today: '2026-10-07' })
+  eq(out.map(n => n.date), ['2026-10-06', '2026-10-01', '2026-08-10'], 'an older night was dropped, or the order is wrong')
+  eq(out.find(n => n.date === '2026-10-01').score, 75, 'the cached copy beat the fresh pull')
+})
+
+check('history is kept for a year and no further, and junk rows are ignored', () => {
+  const out = mergeDaily([{ date: '2025-01-01' }, null, { score: 1 }], [{ date: '2026-10-06' }], { today: '2026-10-07', keepDays: 400 })
+  eq(out.map(n => n.date), ['2026-10-06'])
+  eq(mergeDaily(undefined, undefined, { today: '2026-10-07' }), [])
 })
 
 console.log(failed ? `\n${failed} whoop test(s) failed` : '\nall whoop tests pass')

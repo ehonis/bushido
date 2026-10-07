@@ -18,11 +18,11 @@
 
 import { Icon } from './lib/icons.jsx'
 import { gateResolver } from './lib/activities.js'
-import { useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import {
   useWhoop, rankForSession, snapshotOf, hardMinutes, recordedPct, readinessFor, workoutsOn,
   partOf, attachedMinutes, isSplit, sessionWindow, overlapMinutes, workoutWindow,
-  attachTo, detachFrom, attachedWhoop, sleepFor, sleepNights,
+  attachTo, detachFrom, attachedWhoop,
 } from './lib/whoop.jsx'
 import { pruneAttached } from './lib/outputs.js'
 
@@ -466,8 +466,13 @@ export function WhoopReadiness({ date }) {
   )
 }
 
-/* ------------------------------------------------------------------- last night */
+/* -------------------------------------------------------------------- sleep */
 
+/** 452 minutes as "7h32m": the label above a night's bar. */
+const hmTight = (min) => {
+  const t = Math.round(min)
+  return Math.floor(t / 60) ? `${Math.floor(t / 60)}h${String(t % 60).padStart(2, '0')}m` : `${t}m`
+}
 /** 452 minutes as "7:32". */
 const hm = (min) => (min == null ? null : `${Math.floor(min / 60)}:${String(Math.round(min % 60)).padStart(2, '0')}`)
 
@@ -479,76 +484,335 @@ const wallClock = (stamp) => {
   return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`
 }
 
-// Stage order and colours for the night's bar, deepest first.
+// Stage order and colours, deepest first. The validated series slots plus the
+// muted grey, so the palette gate covers them (app/validate_palette.js).
 const STAGES = [
-  { key: 'deep', label: 'deep', color: 'var(--series-1)' },
+  { key: 'deep', label: 'Deep', color: 'var(--series-1)' },
   { key: 'rem', label: 'REM', color: 'var(--series-3)' },
-  { key: 'light', label: 'light', color: 'var(--viz-muted)' },
-  { key: 'awake', label: 'awake', color: 'var(--series-2)' },
+  { key: 'light', label: 'Light', color: 'var(--viz-muted)' },
+  { key: 'awake', label: 'Awake', color: 'var(--series-2)' },
 ]
 
+/* WHOOP's own recovery bands: red to 33, yellow to 66, green above. */
+const recoveryColor = (v) => (v >= 67 ? 'var(--good)' : v >= 34 ? 'var(--warn)' : 'var(--bad)')
+
+export const SLEEP_RANGES = [
+  { days: 30, label: '30d' },
+  { days: 90, label: '90d' },
+  { days: 365, label: '1y' },
+]
+const SLEEP_GOAL = 85
+
+const isoShift = (iso, n) => {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10)
+}
+const dayLabel = (iso, opts) => new Date(`${iso}T12:00:00`).toLocaleDateString([], opts)
+
+/*
+ * A night on the clock. Minutes are measured from noon of the night's own
+ * evening, so 22:36 and 00:13 bedtimes sit on one continuous scale rather than
+ * a day apart. Same anchoring as Totem's chart, for the same reason.
+ */
+function nightSpan(n) {
+  const at = (stamp) => {
+    const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(stamp || '')
+    return m ? { date: m[1], min: Number(m[2]) * 60 + Number(m[3]) } : null
+  }
+  const a = at(n?.bedtime)
+  const b = at(n?.wake)
+  if (!a || !b) return null
+  const anchor = a.min < 12 * 60 ? isoShift(a.date, -1) : a.date
+  const dayDiff = (iso) => Math.round((Date.parse(`${iso}T12:00:00Z`) - Date.parse(`${anchor}T12:00:00Z`)) / 86_400_000)
+  const from = dayDiff(a.date) * 1440 + a.min - 12 * 60
+  const to = dayDiff(b.date) * 1440 + b.min - 12 * 60
+  return to > from ? { from, to } : null
+}
+
+/** The noon-anchored minute as a clock: 660 -> "11 PM". */
+const spanClock = (mins) => {
+  const mod = (((Math.round(mins) + 720) % 1440) + 1440) % 1440
+  const h = Math.floor(mod / 60)
+  const m = mod % 60
+  return `${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''} ${h < 12 ? 'AM' : 'PM'}`
+}
+
 /**
- * Last night, and the fortnight it sits in.
+ * One row per calendar day in the range, oldest first, nights WHOOP has nothing
+ * for included as gaps: a missed night has to read as missing, not be closed up.
+ */
+export function sleepSeries(cache, end, days) {
+  const nights = new Map((cache?.sleep || []).filter(n => n?.date).map(n => [n.date, n]))
+  const rec = new Map((cache?.recovery || []).filter(r => r?.date).map(r => [r.date, r]))
+  const out = []
+  for (let i = days - 1; i >= 0; i--) {
+    const date = isoShift(end, -i)
+    const n = nights.get(date) || null
+    const r = rec.get(date)
+    const stages = n?.stages || {}
+    out.push({
+      date,
+      night: n,
+      score: Number.isFinite(n?.score) ? n.score : null,
+      recovery: r && r.calibrating !== true && Number.isFinite(r.recovery) ? r.recovery : null,
+      span: n ? nightSpan(n) : null,
+      staged: STAGES.reduce((sum, s) => sum + (Number(stages[s.key]) || 0), 0),
+    })
+  }
+  return out
+}
+
+/** Latest, the last seven days against the seven before, and the range's mean. */
+export function sleepStats(series) {
+  const mean = (rows) => {
+    const v = rows.map(r => r.score).filter(x => x != null)
+    return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null
+  }
+  const scored = series.filter(r => r.score != null)
+  const recent = mean(series.slice(-7))
+  const prior = mean(series.slice(-14, -7))
+  return {
+    latest: scored.length ? scored[scored.length - 1] : null,
+    recent, prior,
+    delta: recent != null && prior != null ? recent - prior : null,
+    avg: mean(series),
+  }
+}
+
+const pct = (v) => (v == null ? '—' : `${Math.round(v)}%`)
+
+/**
+ * Sleep over time: the graph that used to live on Totem's Habits tab.
+ *
+ * Two panels on one x-axis and one crosshair. On top, sleep performance (0–100,
+ * a dashed line at the goal) and recovery coloured by WHOOP's bands. Beneath,
+ * each night as a bar on a clock that runs top to bottom, bedtime to wake, split
+ * into stages, with its length above it. A score and a clock time are different
+ * units, so they get different panels rather than two y-scales in one frame.
  *
  * Nothing here is logged by hand: the Totem bridge fills sleep from WHOOP each
- * morning and Bushido only shows it. Renders nothing on a morning with no scored
- * night, which keeps the app looking as it did before sleep was here.
+ * morning. Renders nothing when there are no nights at all, which keeps the app
+ * looking as it did before sleep was here.
  */
 export function WhoopSleep({ date }) {
   const { cache } = useWhoop()
-  const night = sleepFor(cache, date)
-  const nights = sleepNights(cache, date, 14)
-  if (!night && !nights.some(n => n.night)) return null
+  const [days, setDays] = useState(30)
+  const [hover, setHover] = useState(null)
+  const [showTable, setShowTable] = useState(false)
+  const [ref, width] = useBoxWidth()
 
-  const stages = STAGES.filter(s => night?.stages?.[s.key] > 0)
-  const stageTotal = stages.reduce((sum, s) => sum + night.stages[s.key], 0)
-  const tallest = Math.max(...nights.map(n => n.night?.asleepMin || 0), 1)
-  const scoreTone = (v) => (v == null ? '' : v >= 85 ? 'good' : v >= 70 ? 'flat' : 'warn')
+  const series = date ? sleepSeries(cache, date, days) : []
+  if (!series.some(r => r.night)) return null
+  const stats = sleepStats(series)
+  const firstNight = (cache?.sleep || []).reduce((min, n) => (n?.date && n.date < min ? n.date : min), '9999')
+  const shortHistory = firstNight > series[0].date
+
+  const W = Math.max(width, 280)
+  const padL = 44, padR = 10
+  const innerW = W - padL - padR
+  const slot = innerW / series.length
+  const xAt = (i) => padL + (i + 0.5) * slot
+  const barW = Math.max(1, Math.min(22, slot * 0.72))
+
+  // Panel 1: scores, 0–100.
+  const H1 = 150, t1 = 12, b1 = 8
+  const y1 = (v) => t1 + (H1 - t1 - b1) * (1 - v / 100)
+  const line = (key) => series.reduce((d, r, i) => (r[key] == null ? d : `${d}${d ? 'L' : 'M'}${xAt(i).toFixed(1)},${y1(r[key]).toFixed(1)}`), '')
+  const dots = series.filter(r => r.score != null).length <= 60
+
+  // Panel 2: the nights on a clock, snapped out to whole hours.
+  const spans = series.map(r => r.span).filter(Boolean)
+  const lo = spans.length ? Math.floor(Math.min(...spans.map(s => s.from)) / 60) * 60 : 600
+  const hi = spans.length ? Math.ceil(Math.max(...spans.map(s => s.to)) / 60) * 60 : 1260
+  const H2 = 190, t2 = 18, b2 = 22
+  const y2 = (m) => t2 + ((m - lo) / (hi - lo || 1)) * (H2 - t2 - b2)
+  const step = hi - lo > 900 ? 240 : hi - lo > 480 ? 120 : 60
+  const clockTicks = []
+  for (let m = lo; m <= hi; m += step) clockTicks.push(m)
+  // Thin the duration labels to what fits, counting back from the newest night.
+  const labelEvery = Math.max(1, Math.ceil(46 / slot))
+  const dateTicks = [0, Math.floor((series.length - 1) / 2), series.length - 1]
+
+  const onMove = (e) => {
+    const pt = e.touches?.[0] ?? e
+    if (pt.clientX == null) return
+    const box = e.currentTarget.getBoundingClientRect()
+    const x = ((pt.clientX - box.left) / box.width) * W
+    setHover(Math.max(0, Math.min(series.length - 1, Math.floor((x - padL) / slot))))
+  }
+  const hoverProps = { onMouseMove: onMove, onMouseLeave: () => setHover(null), onTouchStart: onMove, onTouchMove: onMove }
+  const cross = hover != null && (
+    <rect x={xAt(hover) - slot / 2} width={slot} y={0} height="100%" fill="var(--viz-axis)" opacity="0.18" />
+  )
+
+  const good = stats.delta == null ? null : stats.delta > 0
+  const flat = stats.delta != null && Math.abs(stats.delta) < 0.5
+  const shown = hover != null ? series[hover] : null
+  const hasRest = series.some(r => r.span && r.span.to - r.span.from - r.staged > 1)
 
   return (
-    <div className="card wh-card">
-      <h2><Icon name="Moon" size={16} /> Last night</h2>
-      {night ? (
-        <>
-          <div className="wh-stats">
-            <Stat label="asleep" value={hm(night.asleepMin)} unit=""
-              sub={night.neededMin ? `of ${hm(night.neededMin)} needed` : null}
-              toneName={night.neededMin ? tone(Math.round(((night.asleepMin - night.neededMin) / night.neededMin) * 100), 'up') : ''} />
-            <Stat label="sleep" value={night.score} unit="%" toneName={scoreTone(night.score)} />
-            <Stat label="efficiency" value={night.efficiency} unit="%" />
-            <Stat label="debt" value={night.debtMin ? hm(night.debtMin) : null} unit="" />
-          </div>
-          {(night.bedtime || night.wake) && (
-            <p className="sub wh-sleep-window">{wallClock(night.bedtime) || '?'} to {wallClock(night.wake) || '?'}</p>
-          )}
-          {stageTotal > 0 && (
-            <>
-              <div className="wh-sleep-stages" role="img"
-                aria-label={stages.map(s => `${s.label} ${hm(night.stages[s.key])}`).join(', ')}>
-                {stages.map(s => (
-                  <span key={s.key} style={{ flexGrow: night.stages[s.key], background: s.color }} />
-                ))}
-              </div>
-              <div className="wh-sleep-legend">
-                {stages.map(s => (
-                  <span key={s.key}><i style={{ background: s.color }} />{s.label} {hm(night.stages[s.key])}</span>
-                ))}
-              </div>
-            </>
-          )}
-        </>
-      ) : (
-        <p className="wh-empty">No scored night yet this morning.</p>
-      )}
-      <div className="wh-sleep-strip" aria-label="Hours asleep, last 14 nights">
-        {nights.map(({ date: d, night: n }) => (
-          <span key={d} className={d === date ? 'today' : ''}
-            title={n ? `${d}: ${hm(n.asleepMin)} asleep${n.score != null ? `, ${n.score}%` : ''}` : `${d}: no data`}>
-            <span style={{ height: `${Math.round(((n?.asleepMin || 0) / tallest) * 100)}%` }} />
-          </span>
-        ))}
+    <div className="card wh-card sleep-card" ref={ref}>
+      <div className="sleep-head">
+        <h2><Icon name="Moon" size={16} /> Sleep</h2>
+        <div className="seg sleep-range" role="group" aria-label="Range">
+          {SLEEP_RANGES.map(r => (
+            <button key={r.days} className={days === r.days ? 'on' : ''} aria-pressed={days === r.days}
+              onClick={() => { setDays(r.days); setHover(null) }}>{r.label}</button>
+          ))}
+        </div>
       </div>
-      <p className="sub wh-card-note">Two weeks of time asleep. Synced from WHOOP each morning; nothing to log.</p>
+
+      <div className="sleep-stats">
+        <span className="lead"><b>{pct(stats.latest?.score)}</b><small>latest</small></span>
+        <span><b>{pct(stats.recent)}</b><small>7-day avg</small></span>
+        {stats.delta != null && !flat && (
+          <span className={good ? 'up' : 'down'}><b>{good ? '▲' : '▼'} {Math.round(Math.abs(stats.delta))}</b><small>vs prior week</small></span>
+        )}
+        <span className="faint"><b>{pct(stats.avg)}</b><small>average</small></span>
+        <button className="viz-toggle" onClick={() => setShowTable(t => !t)} aria-pressed={showTable}>
+          {showTable ? 'chart' : 'table'}
+        </button>
+      </div>
+
+      {showTable ? (
+        <table className="viz-table">
+          <thead><tr><th>Night</th><th>Sleep</th><th>Recovery</th><th>Asleep</th><th>Bed</th></tr></thead>
+          <tbody>
+            {[...series].reverse().filter(r => r.night).map(r => (
+              <tr key={r.date}>
+                <td className="num">{dayLabel(r.date, { month: 'short', day: 'numeric' })}</td>
+                <td className="num">{pct(r.score)}</td>
+                <td className="num">{pct(r.recovery)}</td>
+                <td className="num">{hm(r.night.asleepMin) || '—'}</td>
+                <td className="num">{wallClock(r.night.bedtime) || '—'} → {wallClock(r.night.wake) || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <>
+          <svg width="100%" height={H1} viewBox={`0 0 ${W} ${H1}`} role="img" className="sleep-svg"
+            aria-label={`Sleep performance over ${days} days, latest ${pct(stats.latest?.score)}`} {...hoverProps}>
+            <defs>
+              {/* Recovery's colour is a function of its value, so the gradient runs up the axis. */}
+              <linearGradient id="sleep-recovery" gradientUnits="userSpaceOnUse" x1="0" x2="0" y1={y1(0)} y2={y1(100)}>
+                <stop offset="0.33" stopColor="var(--bad)" /><stop offset="0.34" stopColor="var(--warn)" />
+                <stop offset="0.66" stopColor="var(--warn)" /><stop offset="0.67" stopColor="var(--good)" />
+              </linearGradient>
+            </defs>
+            {cross}
+            {[0, 25, 50, 75, 100].map(t => (
+              <g key={t}>
+                <line x1={padL} x2={W - padR} y1={y1(t)} y2={y1(t)} stroke="var(--viz-grid)" />
+                <text x={padL - 8} y={y1(t) + 4} textAnchor="end" className="viz-tick">{t}</text>
+              </g>
+            ))}
+            <line x1={padL} x2={W - padR} y1={y1(SLEEP_GOAL)} y2={y1(SLEEP_GOAL)} stroke="var(--viz-muted)" strokeDasharray="4 4" />
+            <text x={W - padR} y={y1(SLEEP_GOAL) - 4} textAnchor="end" className="viz-tick">goal {SLEEP_GOAL}%</text>
+            <path d={line('recovery')} fill="none" stroke="url(#sleep-recovery)" strokeWidth="2" strokeLinejoin="round" />
+            <path d={line('score')} fill="none" stroke="var(--ink)" strokeWidth="2" strokeLinejoin="round" />
+            {series.map((r, i) => (
+              <g key={r.date}>
+                {r.recovery != null && (dots || hover === i) && (
+                  <circle cx={xAt(i)} cy={y1(r.recovery)} r={hover === i ? 4.5 : 3} fill={recoveryColor(r.recovery)} stroke="var(--panel)" strokeWidth="2" />
+                )}
+                {r.score != null && (dots || hover === i) && (
+                  <circle cx={xAt(i)} cy={y1(r.score)} r={hover === i ? 4.5 : 3} fill="var(--ink)" stroke="var(--panel)" strokeWidth="2" />
+                )}
+              </g>
+            ))}
+          </svg>
+
+          <svg width="100%" height={H2} viewBox={`0 0 ${W} ${H2}`} role="img" className="sleep-svg"
+            aria-label="Each night from bedtime to wake, split into stages" {...hoverProps}>
+            {cross}
+            {clockTicks.map(m => (
+              <g key={m}>
+                <line x1={padL} x2={W - padR} y1={y2(m)} y2={y2(m)} stroke="var(--viz-grid)" />
+                <text x={padL - 8} y={y2(m) + 4} textAnchor="end" className="viz-tick">{spanClock(m)}</text>
+              </g>
+            ))}
+            {series.map((r, i) => {
+              if (!r.span) return null
+              let at = r.span.from
+              const x = xAt(i) - barW / 2
+              const segs = STAGES.map(s => {
+                const len = Number(r.night.stages?.[s.key]) || 0
+                const seg = len > 0 ? <rect key={s.key} x={x} width={barW} y={y2(at)} height={Math.max(y2(at + len) - y2(at), 0.5)} fill={s.color} /> : null
+                at += len
+                return seg
+              })
+              const rest = r.span.to - at
+              const showLabel = (series.length - 1 - i) % labelEvery === 0
+              return (
+                <g key={r.date}>
+                  {segs}
+                  {rest > 1 && (
+                    <rect x={x} width={barW} y={y2(at)} height={y2(r.span.to) - y2(at)} fill="var(--viz-muted)" opacity="0.3" />
+                  )}
+                  {showLabel && (
+                    <text x={Math.min(Math.max(xAt(i), padL + 16), W - padR - 16)} y={Math.max(y2(r.span.from) - 4, 10)} textAnchor="middle" className="viz-tick sleep-len">
+                      {hmTight(r.span.to - r.span.from)}
+                    </text>
+                  )}
+                </g>
+              )
+            })}
+            {dateTicks.map((i, k) => (
+              <text key={k} x={xAt(i)} y={H2 - 6} textAnchor={k === 0 ? 'start' : k === 2 ? 'end' : 'middle'} className="viz-tick">
+                {dayLabel(series[i].date, { month: 'short', day: 'numeric' })}
+              </text>
+            ))}
+          </svg>
+
+          <div className="sleep-readout" aria-live="polite">
+            {shown ? (
+              <>
+                <strong>{dayLabel(shown.date, { weekday: 'short', month: 'short', day: 'numeric' })}</strong>
+                {shown.night ? (
+                  <>
+                    <span>sleep {pct(shown.score)}</span>
+                    {shown.recovery != null && <span style={{ color: recoveryColor(shown.recovery) }}>recovery {pct(shown.recovery)}</span>}
+                    {shown.night.asleepMin != null && <span>{hm(shown.night.asleepMin)} asleep</span>}
+                    {shown.night.bedtime && <span>{wallClock(shown.night.bedtime)} → {wallClock(shown.night.wake)}</span>}
+                    {STAGES.filter(s => shown.night.stages?.[s.key] > 0).map(s => (
+                      <span key={s.key}><i style={{ background: s.color }} />{s.label} {hm(shown.night.stages[s.key])}</span>
+                    ))}
+                  </>
+                ) : <span>no night from WHOOP</span>}
+              </>
+            ) : <span className="faint">Touch a night for its numbers.</span>}
+          </div>
+
+          <div className="sleep-legend">
+            <span><i className="line" style={{ background: 'var(--ink)' }} />Sleep performance</span>
+            <span><i className="line sleep-rec-key" />Recovery · red 0–33 · yellow 34–66 · green 67–100</span>
+            {STAGES.map(s => <span key={s.key}><i style={{ background: s.color }} />{s.label}</span>)}
+            {hasRest && <span><i style={{ background: 'var(--viz-muted)', opacity: 0.3 }} />In bed, unscored</span>}
+          </div>
+        </>
+      )}
+      <p className="sub wh-card-note">
+        Bar ends are the real bedtime and wake; segment sizes are real minutes, not the order the
+        stages came in.{shortHistory && ` History here starts ${dayLabel(firstNight, { month: 'short', day: 'numeric' })} and fills in as the app pulls from WHOOP.`}
+      </p>
     </div>
   )
+}
+
+/**
+ * The rendered width of an element, for drawing the SVG at its real size. A
+ * callback ref, because the card mounts only once there are nights to show.
+ */
+function useBoxWidth() {
+  const [w, setW] = useState(0)
+  const observer = useRef(null)
+  const ref = useCallback((el) => {
+    observer.current?.disconnect()
+    observer.current = null
+    if (!el || typeof ResizeObserver === 'undefined') return
+    observer.current = new ResizeObserver(([e]) => setW(Math.round(e.contentRect.width)))
+    observer.current.observe(el)
+  }, [])
+  return [ref, w]
 }

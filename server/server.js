@@ -55,6 +55,7 @@ const { createConfig } = require('./config.js')
 const { ISOLATION } = require('./agentflags.js')
 const { createAuth, clientAddress, isLoopback, isHttps } = require('./auth.js')
 const { createUsers, createAccessVerifier, identify, actAsCookie, OWNER } = require('./users.js')
+const { mergeDaily } = require('./whoop.js')
 const pages = require('./pages.js')
 
 const ROOT = path.resolve(__dirname, '..')
@@ -563,6 +564,12 @@ async function syncHabitDay(dateIso, state) {
  */
 
 const WHOOP_DAYS = Number(process.env.BUSHIDO_WHOOP_DAYS || 21)
+/*
+ * The most the bridge answers in one pull. A cache that has never had a long pull
+ * gets one, once, so the sleep graph opens on two months rather than three weeks;
+ * after that the ordinary pulls extend it (see mergeDaily in server/whoop.js).
+ */
+const WHOOP_BACKFILL_DAYS = 60
 // How stale the cache may be before opening the app refreshes it. Ten minutes is
 // well inside WHOOP's 100/min limit even with the app open on two devices, and
 // the band usually has not synced by the time the user leaves the gym anyway — which is
@@ -598,6 +605,8 @@ function pullWhoop({ days = WHOOP_DAYS } = {}) {
   if (!config.totem().whoop) return Promise.resolve({ ok: false, error: NOT_CONFIGURED })
   if (whoopInFlight) return whoopInFlight
   const TOTEM_URL = totemUrl()
+  const prev = readWhoopCache()
+  if (!prev?.backfilledAt) days = Math.max(days, WHOOP_BACKFILL_DAYS)
   whoopInFlight = (async () => {
     const secret = totemSecret()
     if (!secret) {
@@ -621,14 +630,20 @@ function pullWhoop({ days = WHOOP_DAYS } = {}) {
         whoopState = { at: new Date().toISOString(), ok: false, detail }
         return { ok: false, error: detail }
       }
+      const today = new Date().toISOString().slice(0, 10)
+      const sleep = Array.isArray(body.sleep) ? body.sleep : []
       const doc = {
         fetchedAt: body.fetchedAt || new Date().toISOString(),
         days: body.days ?? days,
         maxHeartRate: body.maxHeartRate ?? null,
         workouts: Array.isArray(body.workouts) ? body.workouts : [],
-        recovery: Array.isArray(body.recovery) ? body.recovery : [],
+        // Laid over what was cached, so the sleep graph can look back further than one pull.
+        recovery: mergeDaily(prev?.recovery, Array.isArray(body.recovery) ? body.recovery : [], { today }),
         // Absent from a bridge older than 2026-10-07; the sleep card just stays away.
-        sleep: Array.isArray(body.sleep) ? body.sleep : [],
+        sleep: mergeDaily(prev?.sleep, sleep, { today }),
+        // Only once a long pull actually brought nights back: an old bridge with no
+        // sleep[] gets the long pull again when it learns to send them.
+        backfilledAt: prev?.backfilledAt || (days >= WHOOP_BACKFILL_DAYS && sleep.length ? new Date().toISOString() : null),
       }
       await writeWhoopCache(doc)
       whoopState = {

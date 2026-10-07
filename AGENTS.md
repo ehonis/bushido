@@ -696,6 +696,11 @@ grant; a second copy silently kills one of them. Read through the bridge.
   applied after the hard blocks, against the user's own fortnight median (`baselineFor`),
   null with fewer than four prior days or when WHOOP reports `calibrating`. Null must
   compute identically to the app before WHOOP existed (`recommend.test.js` pins it).
+- **Sleep and recovery rows accumulate in the cache** (`mergeDaily`): each pull is laid
+  over what was cached, newest copy winning, kept for a year, so the Today tab's sleep
+  graph (30d / 90d / 1y, ported from Totem's Habits tab) can look back further than the
+  bridge's 60-day maximum. A cache with no `backfilledAt` gets one 60-day pull. It is still
+  a refetchable mirror; deleting it loses only graph history.
 - WHOOP has no journal, behaviour or survey endpoint; the journal is native by necessity.
 
 ### 8.3 Strava (`server/strava.js`, `app/src/lib/strava.jsx`, `app/src/strava.jsx`)

@@ -907,15 +907,27 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .wh-card-note { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 0 0; }
 
 /* --- last night (WhoopSleep) --- */
-.wh-sleep-window { margin: 10px 0 0; font-variant-numeric: tabular-nums; }
-.wh-sleep-stages { display: flex; gap: 2px; height: 10px; margin-top: 10px; border-radius: 5px; overflow: hidden; }
-.wh-sleep-stages span { min-width: 2px; }
-.wh-sleep-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
-.wh-sleep-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
-.wh-sleep-strip { display: flex; align-items: flex-end; gap: 3px; height: 44px; margin-top: 14px; }
-.wh-sleep-strip > span { flex: 1; height: 100%; display: flex; align-items: flex-end; background: var(--panel-2); border-radius: 3px; }
-.wh-sleep-strip > span > span { width: 100%; background: var(--series-1); opacity: 0.55; border-radius: 3px; }
-.wh-sleep-strip > span.today > span { opacity: 1; }
+.sleep-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.sleep-head h2 { margin: 0; }
+.sleep-range { margin: 0; flex: 0 0 auto; }
+.sleep-range button { flex: 0 0 auto; min-width: 48px; min-height: 36px; padding: 6px 10px; }
+.sleep-stats { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin: 12px 0 6px; font-variant-numeric: tabular-nums; }
+.sleep-stats > span { display: flex; flex-direction: column; line-height: 1.15; }
+.sleep-stats b { font-size: 15px; font-weight: 600; }
+.sleep-stats .lead b { font-size: 22px; }
+.sleep-stats small { font-size: 11px; color: var(--ink-faint); }
+.sleep-stats .up b { color: var(--good); }
+.sleep-stats .down b { color: var(--bad); }
+.sleep-stats .faint b { color: var(--ink-dim); }
+.sleep-stats .viz-toggle { margin-left: auto; }
+.sleep-svg { display: block; touch-action: pan-y; }
+.sleep-len { font-size: 9.5px; }
+.sleep-readout { display: flex; flex-wrap: wrap; gap: 4px 12px; min-height: 22px; margin-top: 6px; font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.sleep-readout strong { color: var(--ink); font-weight: 600; }
+.sleep-readout i, .sleep-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+.sleep-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; font-size: 11px; color: var(--ink-faint); }
+.sleep-legend i.line { width: 12px; height: 2px; vertical-align: middle; border-radius: 1px; }
+.sleep-legend i.sleep-rec-key { background: linear-gradient(90deg, var(--bad) 33%, var(--warn) 33% 66%, var(--good) 66%); }
 
 /* Strava shares the WHOOP block's bones; only the accents differ. */
 .wh-head svg.sv-ico { color: #fc4c02; }
