@@ -39,7 +39,7 @@ import { resolveCeiling } from './src/lib/force.js'
 import { WorkoutMode, Face, Review } from './src/workout.jsx'
 import { CheckIn } from './src/checkin.jsx'
 import { WhoopProvider } from './src/lib/whoop.jsx'
-import { WhoopWorkouts, WhoopReadiness, WhoopSleep } from './src/whoop.jsx'
+import { WhoopWorkouts, WhoopReadiness, WhoopSleep, sleepSeries, sleepStats } from './src/whoop.jsx'
 import { StravaProvider } from './src/lib/strava.jsx'
 import { StravaActivities } from './src/strava.jsx'
 import { UnloggedWorkouts } from './src/unlogged.jsx'
@@ -199,6 +199,7 @@ const cfEntries = [
 /* React SSR splits adjacent text nodes with <!-- -->, so assertions that care
  * about rendered wording have to read through it. */
 const text = (html) => html.replace(/<!--.*?-->/g, '')
+const isoShift = (iso, n) => { const [y, m, d] = iso.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10) }
 
 /** Just the first calibration day, with no later retest to supersede it. */
 const augOnly = cfEntries.filter(e => e.date === '2026-08-08')
@@ -1994,18 +1995,47 @@ const cases = [
         html => {
           if (html.length > 0) throw new Error('WHOOP saying it does not trust its own number is taken at its word')
         }],
-      ['WhoopSleep(last night)',
-        wrap({ cache: { sleep: [{
-          date: day, score: 88, asleepMin: 452, neededMin: 480, efficiency: 91, debtMin: 28,
-          stages: { deep: 95, rem: 110, light: 247, awake: 31 }, bedtime: '2026-08-19T23:14', wake: '2026-08-20T07:16',
-        }] } }, <WhoopSleep date={day} />),
+      /*
+       * Sleep over time, as Totem drew it (2026-10-07): a range to choose, the
+       * score and recovery on one panel, each night on a clock beneath. The old
+       * last-night breakdown is gone on purpose; the absence is pinned.
+       */
+      ['WhoopSleep(over time, not last night in depth)',
+        wrap({ cache: {
+          sleep: [
+            { date: day, score: 88, asleepMin: 452, neededMin: 480, efficiency: 91, debtMin: 28,
+              stages: { deep: 95, rem: 110, light: 247, awake: 31 }, bedtime: `${isoShift(day, -1)}T23:14`, wake: `${day}T07:16` },
+            { date: isoShift(day, -1), score: 70, asleepMin: 400,
+              stages: { deep: 80, rem: 90, light: 230 }, bedtime: `${isoShift(day, -2)}T22:40`, wake: `${isoShift(day, -1)}T06:10` },
+          ],
+          recovery: [{ date: day, recovery: 74 }, { date: isoShift(day, -1), recovery: 30 }],
+        } }, <WhoopSleep date={day} />),
         html => {
           const t2 = text(html)
-          if (!/7:32/.test(t2)) throw new Error('time asleep as hours and minutes')
-          if (!/of 8:00 needed/.test(t2)) throw new Error('read against what WHOOP says was needed')
-          if (!/11:14 PM to 7:16 AM/.test(t2)) throw new Error('bedtime and wake, as the clock read')
-          if (!/REM 1:50/.test(t2)) throw new Error('the stages, labelled')
+          for (const r of ['30d', '90d', '1y']) if (!t2.includes(r)) throw new Error(`no ${r} range`)
+          if (!/88%.*latest/.test(t2)) throw new Error('the latest score is not the headline')
+          if (!/7-day avg/.test(t2) || !/average/.test(t2)) throw new Error('no averages')
+          if (!/goal 85%/.test(t2)) throw new Error('no goal line')
+          if (!/8h02m/.test(t2)) throw new Error('a night is not labelled with its length')
+          if (!/Recovery · red 0–33/.test(t2)) throw new Error('recovery is not on the graph')
+          for (const st of ['Deep', 'REM', 'Light', 'Awake']) if (!t2.includes(st)) throw new Error(`no ${st} in the legend`)
+          if (/of 8:00 needed|efficiency/.test(t2)) throw new Error('the in-depth last-night block came back')
+          if (!/11 PM|10 PM/.test(t2)) throw new Error('the clock axis is not labelled')
         }],
+      ['WhoopSleep(series keeps the gaps, stats compare weeks)', null, () => {
+        const nights = []
+        for (let i = 0; i < 14; i++) if (i !== 3) nights.push({ date: isoShift(day, -i), score: i < 7 ? 90 : 70, bedtime: `${isoShift(day, -i - 1)}T23:00`, wake: `${isoShift(day, -i)}T07:00` })
+        const series = sleepSeries({ sleep: nights }, day, 30)
+        if (series.length !== 30) throw new Error('one row per day of the range')
+        if (series[series.length - 1].date !== day) throw new Error('the range does not end on the day viewed')
+        if (series.find(r => r.date === isoShift(day, -3)).night) throw new Error('a missed night was filled in')
+        const span = series[series.length - 1].span
+        if (!span || span.to - span.from !== 480) throw new Error(`an 11 PM to 7 AM night is not eight hours: ${JSON.stringify(span)}`)
+        const midnight = sleepSeries({ sleep: [{ date: day, bedtime: `${day}T00:30`, wake: `${day}T08:00` }] }, day, 1)[0].span
+        if (!midnight || midnight.from <= span.from) throw new Error('a 12:30 AM bedtime is not later than an 11 PM one')
+        const st = sleepStats(series)
+        if (Math.round(st.recent) !== 90 || Math.round(st.prior) !== 70 || Math.round(st.delta) !== 20) throw new Error(`week on week: ${JSON.stringify(st)}`)
+      }],
       ['WhoopSleep(nothing)', wrap({ cache: { sleep: [] } }, <WhoopSleep date={day} />),
         html => { if (html.length > 0) throw new Error('no nights must render nothing') }],
       ['WhoopReadiness(nothing)', wrap({ cache: null }, <WhoopReadiness date={day} />),
