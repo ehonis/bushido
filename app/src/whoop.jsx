@@ -22,7 +22,7 @@ import { useState } from 'react'
 import {
   useWhoop, rankForSession, snapshotOf, hardMinutes, recordedPct, readinessFor, workoutsOn,
   partOf, attachedMinutes, isSplit, sessionWindow, overlapMinutes, workoutWindow,
-  attachTo, detachFrom, attachedWhoop,
+  attachTo, detachFrom, attachedWhoop, sleepFor, sleepNights,
 } from './lib/whoop.jsx'
 import { pruneAttached } from './lib/outputs.js'
 
@@ -462,6 +462,93 @@ export function WhoopReadiness({ date }) {
           {pulling ? 'pulling…' : 'pull'}
         </button>
       </p>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------- last night */
+
+/** 452 minutes as "7:32". */
+const hm = (min) => (min == null ? null : `${Math.floor(min / 60)}:${String(Math.round(min % 60)).padStart(2, '0')}`)
+
+/** "2026-10-06T23:14" as the clock it was: "11:14 PM". Wall-clock, so no timezone maths. */
+const wallClock = (stamp) => {
+  const m = /T(\d{2}):(\d{2})/.exec(stamp || '')
+  if (!m) return null
+  const h = Number(m[1])
+  return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`
+}
+
+// Stage order and colours for the night's bar, deepest first.
+const STAGES = [
+  { key: 'deep', label: 'deep', color: 'var(--series-1)' },
+  { key: 'rem', label: 'REM', color: 'var(--series-3)' },
+  { key: 'light', label: 'light', color: 'var(--viz-muted)' },
+  { key: 'awake', label: 'awake', color: 'var(--series-2)' },
+]
+
+/**
+ * Last night, and the fortnight it sits in.
+ *
+ * Nothing here is logged by hand: the Totem bridge fills sleep from WHOOP each
+ * morning and Bushido only shows it. Renders nothing on a morning with no scored
+ * night, which keeps the app looking as it did before sleep was here.
+ */
+export function WhoopSleep({ date }) {
+  const { cache } = useWhoop()
+  const night = sleepFor(cache, date)
+  const nights = sleepNights(cache, date, 14)
+  if (!night && !nights.some(n => n.night)) return null
+
+  const stages = STAGES.filter(s => night?.stages?.[s.key] > 0)
+  const stageTotal = stages.reduce((sum, s) => sum + night.stages[s.key], 0)
+  const tallest = Math.max(...nights.map(n => n.night?.asleepMin || 0), 1)
+  const scoreTone = (v) => (v == null ? '' : v >= 85 ? 'good' : v >= 70 ? 'flat' : 'warn')
+
+  return (
+    <div className="card wh-card">
+      <h2><Icon name="Moon" size={16} /> Last night</h2>
+      {night ? (
+        <>
+          <div className="wh-stats">
+            <Stat label="asleep" value={hm(night.asleepMin)} unit=""
+              sub={night.neededMin ? `of ${hm(night.neededMin)} needed` : null}
+              toneName={night.neededMin ? tone(Math.round(((night.asleepMin - night.neededMin) / night.neededMin) * 100), 'up') : ''} />
+            <Stat label="sleep" value={night.score} unit="%" toneName={scoreTone(night.score)} />
+            <Stat label="efficiency" value={night.efficiency} unit="%" />
+            <Stat label="debt" value={night.debtMin ? hm(night.debtMin) : null} unit="" />
+          </div>
+          {(night.bedtime || night.wake) && (
+            <p className="sub wh-sleep-window">{wallClock(night.bedtime) || '?'} to {wallClock(night.wake) || '?'}</p>
+          )}
+          {stageTotal > 0 && (
+            <>
+              <div className="wh-sleep-stages" role="img"
+                aria-label={stages.map(s => `${s.label} ${hm(night.stages[s.key])}`).join(', ')}>
+                {stages.map(s => (
+                  <span key={s.key} style={{ flexGrow: night.stages[s.key], background: s.color }} />
+                ))}
+              </div>
+              <div className="wh-sleep-legend">
+                {stages.map(s => (
+                  <span key={s.key}><i style={{ background: s.color }} />{s.label} {hm(night.stages[s.key])}</span>
+                ))}
+              </div>
+            </>
+          )}
+        </>
+      ) : (
+        <p className="wh-empty">No scored night yet this morning.</p>
+      )}
+      <div className="wh-sleep-strip" aria-label="Hours asleep, last 14 nights">
+        {nights.map(({ date: d, night: n }) => (
+          <span key={d} className={d === date ? 'today' : ''}
+            title={n ? `${d}: ${hm(n.asleepMin)} asleep${n.score != null ? `, ${n.score}%` : ''}` : `${d}: no data`}>
+            <span style={{ height: `${Math.round(((n?.asleepMin || 0) / tallest) * 100)}%` }} />
+          </span>
+        ))}
+      </div>
+      <p className="sub wh-card-note">Two weeks of time asleep. Synced from WHOOP each morning; nothing to log.</p>
     </div>
   )
 }

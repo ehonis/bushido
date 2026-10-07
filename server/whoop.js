@@ -653,3 +653,31 @@ export function readinessFor(cache, date) {
     skinTempC: num(row.skinTempC),
   }
 }
+
+/* -------------------------------------------------------------------- sleep */
+
+/*
+ * Sleep is WHOOP's, filled in by the Totem bridge's nightly sync and handed over in
+ * the same pull as recovery (`sleep[]` on /api/whoop/training). One night per WAKE
+ * date, so the night you woke up from today is filed under today — the same
+ * calendar `recovery` is on, which is what lets the two sit on one card.
+ */
+
+/** The night that ended on this morning, or null. */
+export function sleepFor(cache, date) {
+  if (!date) return null
+  return (cache?.sleep || []).find(n => n?.date === date) || null
+}
+
+/** Up to `count` nights ending on `date`, oldest first, with nulls for nights WHOOP has nothing. */
+export function sleepNights(cache, date, count = 14) {
+  if (!date) return []
+  const byDate = new Map((cache?.sleep || []).filter(n => n?.date).map(n => [n.date, n]))
+  const [y, m, d] = date.split('-').map(Number)
+  const out = []
+  for (let i = count - 1; i >= 0; i--) {
+    const iso = new Date(Date.UTC(y, m - 1, d - i)).toISOString().slice(0, 10)
+    out.push({ date: iso, night: byDate.get(iso) || null })
+  }
+  return out
+}

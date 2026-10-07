@@ -35,6 +35,8 @@ export {
   attachTo, detachFrom, choiceForSport,
   // Several workouts on one session, since 2026-09-21.
   attachedWhoop, hasWhoop,
+  // Last night and the fortnight before it, since 2026-10-07.
+  sleepFor, sleepNights,
 } from '../../../server/whoop.js'
 
 const WhoopCtx = createContext(null)

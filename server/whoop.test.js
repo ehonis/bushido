@@ -13,7 +13,7 @@ import {
   overlapMinutes, sessionWindow, workoutWindow, snapshotOf, hardMinutes, recordedPct,
   attachedIds, rankForSession, recoveryFor, workoutsOn, baselineFor, readinessFor,
   normalizeSport, sportFamily, sportMatches, partOf, attachedMinutes, isSplit,
-  choiceForSport, attachTo, detachFrom,
+  choiceForSport, attachTo, detachFrom, sleepFor, sleepNights,
 } from './whoop.js'
 
 let failed = 0
@@ -413,6 +413,18 @@ check('no reading at all, rather than a made-up one', () => {
   // WHOOP saying it does not trust its own number yet is taken at its word.
   const calibrating = { recovery: [{ date: '2026-08-20', recovery: 44, hrv: 40, calibrating: true }] }
   eq(readinessFor(calibrating, '2026-08-20'), null)
+})
+
+check('sleep is filed under the morning woken into, and gaps stay gaps', () => {
+  const c = { sleep: [{ date: '2026-08-20', asleepMin: 452 }, { date: '2026-08-18', asleepMin: 401 }] }
+  eq(sleepFor(c, '2026-08-20').asleepMin, 452)
+  eq(sleepFor(c, '2026-08-19'), null, 'a night with no record')
+  eq(sleepFor(null, '2026-08-20'), null)
+  const n = sleepNights(c, '2026-08-20', 3)
+  eq(n.map(x => x.date).join(','), '2026-08-18,2026-08-19,2026-08-20', 'oldest first, ending on the day')
+  eq(n[1].night, null, 'the missing night is null, not zero')
+  // Across a month end, by calendar day.
+  eq(sleepNights(c, '2026-03-01', 2)[0].date, '2026-02-28')
 })
 
 /* ------------------------------------------------- filling the card in --- */

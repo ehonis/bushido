@@ -12,7 +12,7 @@
  *   GET  /api/health          liveness + paths ({ ok } only, when not signed in)
  *   GET  /api/content         the program definition (read-only; see config.planFile)
  *   GET  /api/coach           today's coach note (read-only, from data/coach.json)
- *   GET  /api/whoop           cached WHOOP workouts + daily recovery (data/whoop.json)
+ *   GET  /api/whoop           cached WHOOP workouts, daily recovery and sleep (data/whoop.json)
  *   POST /api/whoop/pull      refetch from WHOOP now (the "Pull from WHOOP" button)
  *   GET  /api/strava          cached Strava activities + gear + athlete (data/strava.json)
  *   POST /api/strava/pull     refetch from Strava now (the "pull" button)
@@ -559,12 +559,14 @@ function pullWhoop({ days = WHOOP_DAYS } = {}) {
         maxHeartRate: body.maxHeartRate ?? null,
         workouts: Array.isArray(body.workouts) ? body.workouts : [],
         recovery: Array.isArray(body.recovery) ? body.recovery : [],
+        // Absent from a bridge older than 2026-10-07; the sleep card just stays away.
+        sleep: Array.isArray(body.sleep) ? body.sleep : [],
       }
       await writeWhoopCache(doc)
       whoopState = {
         at: doc.fetchedAt,
         ok: true,
-        detail: `${doc.workouts.length} workouts, ${doc.recovery.length} days`,
+        detail: `${doc.workouts.length} workouts, ${doc.recovery.length} days, ${doc.sleep.length} nights`,
       }
       return { ok: true, ...doc }
     } catch (err) {
@@ -1548,10 +1550,10 @@ const server = http.createServer(async (req, res) => {
       refreshWhoopIfStale()
       const cache = readWhoopCache()
       if (!config.totem().whoop) {
-        return send(res, 200, { fetchedAt: null, workouts: [], recovery: [], maxHeartRate: null, configured: false, status: null }, { 'Cache-Control': 'no-cache' })
+        return send(res, 200, { fetchedAt: null, workouts: [], recovery: [], sleep: [], maxHeartRate: null, configured: false, status: null }, { 'Cache-Control': 'no-cache' })
       }
       return send(res, 200, {
-        ...(cache || { fetchedAt: null, workouts: [], recovery: [], maxHeartRate: null }),
+        ...(cache || { fetchedAt: null, workouts: [], recovery: [], sleep: [], maxHeartRate: null }),
         configured: true,
         status: whoopState,
       }, { 'Cache-Control': 'no-cache' })

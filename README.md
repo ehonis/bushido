@@ -51,8 +51,9 @@ Thursday shouldn't cost the session, only move it.
   you tap one.
 - **WHOOP and Strava.** Unlogged workouts are offered as one-tap cards with time and
   distance filled in. The same ride recorded by both services becomes one entry. Recovery,
-  HRV and resting heart rate are read against your own two-week baseline, and Strava
-  bikes and shoes arrive with their odometers.
+  HRV and resting heart rate are read against your own two-week baseline, last night's
+  sleep (time asleep against what was needed, stages, bedtime and wake) sits beside them
+  with a two-week strip, and Strava bikes and shoes arrive with their odometers.
 - **Gear.** Bikes and shoes come from Strava. Ropes, shoes, plates and boards you add
   yourself, and their use is counted from your log in miles, hours or reps.
 - **Journal.** 42 optional behaviours (sleep, intake, state), plus your own, compared
