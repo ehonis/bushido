@@ -54,6 +54,7 @@ import { ExerciseSection } from './exercises.jsx'
 import { useWhoop, readinessFor } from './lib/whoop.jsx'
 import { usePlan } from './lib/planctx.jsx'
 import { progress as quotaProgress } from './lib/quota.js'
+import { currentMe } from './lib/whoami.js'
 
 /** The `type: "lifts"` field spec, which carries the exercise catalog. */
 export function liftFieldOf(plan) {
@@ -405,15 +406,20 @@ function KindStep({ plan, custom, setCustom, picked, setPicked, onNext, onBuild 
           <Icon name="ListPlus" size={17} />
           Build it myself
         </button>
-        <button className="btn big" disabled={!picked.length} onClick={onNext}>
-          <Icon name="Sparkles" size={17} />
-          {picked.length > 1 ? `Write me ${picked.length} in one` : 'Write it for me'}
-        </button>
+        {/* Not offered to someone the AI is not set up for (lib/whoami.js). */}
+        {currentMe().features.ai && (
+          <button className="btn big" disabled={!picked.length} onClick={onNext}>
+            <Icon name="Sparkles" size={17} />
+            {picked.length > 1 ? `Write me ${picked.length} in one` : 'Write it for me'}
+          </button>
+        )}
       </div>
-      <p className="sub plan-fine">
-        Building it yourself sends nothing anywhere and takes no time; the model takes about a
-        minute and asks how long you have first.
-      </p>
+      {currentMe().features.ai && (
+        <p className="sub plan-fine">
+          Building it yourself sends nothing anywhere and takes no time; the model takes about a
+          minute and asks how long you have first.
+        </p>
+      )}
     </>
   )
 }

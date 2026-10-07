@@ -61,9 +61,9 @@ const nonEmpty = (v) => v !== undefined && v !== null && v !== ''
  * Initials when there is no picture, and "You" when there is no Strava at all,
  * because a header that says `null` is worse than a header that says nothing.
  */
-export function athleteOf(strava) {
+export function athleteOf(strava, fallbackName = null) {
   const a = strava?.athlete || null
-  const name = a?.name || a?.firstname || null
+  const name = a?.name || a?.firstname || (fallbackName ? String(fallbackName).trim() : null) || null
   return {
     name: name || 'You',
     firstName: a?.firstname || (name ? String(name).split(' ')[0] : null),

@@ -5,6 +5,7 @@ import './styles.css'
 import { reportOpen } from './lib/push.js'
 import { CHANNEL, clearSignedOut, signOutDevice } from './lib/signout.js'
 import { retirePushSubscription } from './lib/handoff.js'
+import { loadMe, withUserHeader } from './lib/whoami.js'
 
 /*
  * Signed out (session expired, password changed on another device): the server
@@ -13,12 +14,22 @@ import { retirePushSubscription } from './lib/handoff.js'
  */
 const realFetch = window.fetch.bind(window)
 let leaving = false
-window.fetch = async (...args) => {
-  const res = await realFetch(...args)
+/*
+ * Once boot knows whose log this is (lib/whoami.js), every API call says so.
+ * A 409 `switched` means the server is now answering for someone else: reload,
+ * so the store remounts on the right person's cache rather than mixing two.
+ */
+let userId = null
+window.fetch = async (input, init) => {
+  const res = await realFetch(...(userId ? withUserHeader(input, init, userId, location.origin) : [input, init]))
   if (res.status === 401 && res.headers.get('X-Bushido-Auth') === 'login' && !leaving) {
     leaving = true
     const here = location.pathname + location.search + location.hash
     location.assign(`/login?next=${encodeURIComponent(here)}`)
+  }
+  if (res.status === 409 && res.headers.get('X-Bushido-Auth') === 'switched' && !leaving) {
+    leaving = true
+    location.replace('/')
   }
   return res
 }
@@ -58,6 +69,8 @@ function liftSignedOutMarker() {
 async function start() {
   if (new URLSearchParams(location.search).has('signout') && await signOutHere()) return
   liftSignedOutMarker()
+  // Before the store mounts: it reads the cache of the person this decides.
+  userId = (await loadMe({ fetchFn: realFetch, storage: window.localStorage })).id
   createRoot(document.getElementById('root')).render(
     <StrictMode>
       <App />

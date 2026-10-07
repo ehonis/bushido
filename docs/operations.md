@@ -122,6 +122,43 @@ them in the environment or in `data/settings.json`.
 If you lose the password: stop the server, delete `data/auth.json`, start it, and use
 the new setup link. The training log is untouched.
 
+## More than one person
+
+An install can hold several people's logs. The owner (whoever set it up) keeps the data
+dir exactly as it was: `data/state.json`, `data/plan.json`, `data/coach/`, `data/backups/`.
+Everyone else has the same files under `data/users/<id>/`. `data/users.json` (`0600`) lists
+the people and the emails they sign in with; edit it in Settings → People.
+
+People are told apart by **Cloudflare Access**, in proxy mode. Set the team and the
+application's AUD tag (`BUSHIDO_ACCESS_TEAM`, `BUSHIDO_ACCESS_AUD`, or `access.team` /
+`access.aud` in `data/settings.json`; they are read-only on the Settings page, like the
+auth mode). Access then signs every request with a JWT in `Cf-Access-Jwt-Assertion`; the
+server verifies it against the team's public keys and looks the email up:
+
+| The request carries | It is |
+|---|---|
+| a valid token for a listed email | that person |
+| a valid token for an email nobody has | refused, `403` |
+| a token that does not verify | refused, `403` |
+| no token (the box itself, the tailnet) | the owner, as plain proxy mode always was |
+
+Add each person's email to the Access application's policy as well, or Cloudflare will
+not let them reach the server at all. With built-in sign-in there is one account, the owner.
+
+**The owner can act as anyone** (profile → Settings → People → *Log for …*). That sets a
+12-hour `bushido_as` cookie, honoured only for the owner, and the app reloads into that
+person's log with a banner saying whose it is. Each person's log is cached on a device
+under its own key, and every API call from the app says whose log it holds
+(`X-Bushido-User`); if the server is answering for someone else it refuses with `409` and
+`X-Bushido-Auth: switched`, and the app reloads. One person's cached log can never be
+merged into another's.
+
+For anyone but the owner: Settings are refused; the AI coach and planners are off (the
+Coach tab and "Write it for me" are not shown); WHOOP, Strava, linked goals, habit sync and
+notifications are off, because they hold the owner's accounts; the plan is their own
+`data/users/<id>/plan.json` if one was imported while acting as them, else the starter.
+Removing someone in Settings stops them getting in and leaves their folder on disk.
+
 ## API
 
 Every route below needs a session cookie, a bearer token, or `BUSHIDO_AUTH=proxy`.
@@ -134,7 +171,9 @@ Signed out, `/api/*` answers `401` with `X-Bushido-Auth: login` and pages redire
 | `GET /login` · `POST /login` · `POST /logout` | sign in and out |
 | `GET /settings` | the Settings page |
 | `GET /api/health` | liveness; with a session, also entry count, resolved paths and integration state |
-| `GET /api/auth/me` · `POST /api/auth/password` | who is signed in; change the password |
+| `GET /api/auth/me` · `POST /api/auth/password` | who is signed in, whose log this is and what it offers; change the password |
+| `POST /api/act-as` | `{ id }` — the owner acts as someone (`null`: back to themselves) |
+| `GET`/`POST`/`PUT /api/settings/users` · `DELETE /api/settings/users/<id>` | the people on this install (owner only) |
 | `GET /api/settings` · `PUT /api/settings` | the settings, secrets masked; a partial update |
 | `POST /api/settings/ai/test` | one tiny request through the configured CLI |
 | `GET /api/content` | the content file in use (see Settings → Training plan) |
@@ -156,7 +195,9 @@ Signed out, `/api/*` answers `401` with `X-Bushido-Auth: login` and pages redire
 | `GET /api/export` | download the whole log as JSON |
 | `POST /api/import` | replace the log from an export |
 
-AI routes answer `503` with `code: "ai-not-configured"` when no CLI is found.
+Every route that reads or writes a log, a plan or coach files does so for the person the
+request is for (see *More than one person*). AI routes answer `503` with
+`code: "ai-not-configured"` when no CLI is found, or for someone the AI is not set up for.
 
 ## How sync works
 

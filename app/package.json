@@ -15,7 +15,7 @@
     "smoke": "esbuild smoke.jsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --outfile=.smoke.mjs --log-level=error && node .smoke.mjs",
     "test:rec": "node recommend.test.js",
     "test:workout": "node workout.test.js",
-    "test": "node handoff.test.js && npm run palette && npm run test:rec && npm run test:quota && npm run test:ach && npm run test:streak && npm run test:gear && npm run test:progress && npm run test:workout && npm run test:coach && npm run test:checkin && npm run test:lifts && npm run test:presc && npm run test:naming && npm run test:md && npm run test:goals && npm run test:starter && npm run test:signout && npm run smoke",
+    "test": "node handoff.test.js && npm run palette && npm run test:rec && npm run test:quota && npm run test:ach && npm run test:streak && npm run test:gear && npm run test:progress && npm run test:workout && npm run test:coach && npm run test:checkin && npm run test:lifts && npm run test:presc && npm run test:naming && npm run test:md && npm run test:goals && npm run test:starter && npm run test:signout && npm run test:whoami && npm run smoke",
     "test:lifts": "node lifts.test.js",
     "test:coach": "node coach.test.js",
     "test:checkin": "node checkin.test.js",
@@ -30,7 +30,8 @@
     "test:presc": "node prescription.test.js",
     "test:naming": "node naming.test.js",
     "test:starter": "node starter.test.mjs",
-    "test:signout": "node signout.test.js"
+    "test:signout": "node signout.test.js",
+    "test:whoami": "node whoami.test.js"
   },
   "dependencies": {
     "lucide-react": "^1.28.0",

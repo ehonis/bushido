@@ -37,6 +37,8 @@ const blank = () => ({
   createdAt: new Date().toISOString(),
   /* '' = built-in sign-in. 'proxy' = trust whatever is in front of the port. */
   auth: { mode: '' },
+  /* Cloudflare Access in front: who each request is (server/users.js). Off until both are set. */
+  access: { team: '', aud: '' },
   athlete: { name: '', notes: '' },
   ai: { provider: 'claude-cli', bin: '', apiKey: '', model: '' },
   plan: { file: '' },
@@ -124,6 +126,7 @@ function createConfig({ root, dataDir, env = process.env }) {
       doc = {
         ...b, ...raw,
         auth: { ...b.auth, ...(raw.auth || {}) },
+        access: { ...b.access, ...(raw.access || {}) },
         athlete: { ...b.athlete, ...(raw.athlete || {}) },
         ai: { ...b.ai, ...(raw.ai || {}) },
         plan: { ...b.plan, ...(raw.plan || {}) },
@@ -311,6 +314,25 @@ function createConfig({ root, dataDir, env = process.env }) {
     return { value: String(v.value).toLowerCase() === 'proxy' ? 'proxy' : 'password', source: v.source }
   }
 
+  /*
+   * Cloudflare Access: the team (its *.cloudflareaccess.com domain) and the
+   * application's AUD tag. Both are needed to verify the token Access signs each
+   * request with; with either missing, nobody is identified by Access and the
+   * install has one user, as before. Not editable through update(), for the
+   * reason authMode() is not: a wrong value saved from a phone would refuse every
+   * request that comes through Access, including the owner's.
+   */
+  function access() {
+    const s = read().access
+    const team = src('BUSHIDO_ACCESS_TEAM', s.team, null)
+    const aud = src('BUSHIDO_ACCESS_AUD', s.aud, null)
+    return {
+      team: team.value || '', teamSource: team.source,
+      aud: aud.value || '', audSource: aud.source,
+      enabled: Boolean(team.value && aud.value),
+    }
+  }
+
   function athlete() {
     const a = read().athlete
     return { name: String(a.name || '').trim(), notes: String(a.notes || '').trim() }
@@ -326,7 +348,7 @@ function createConfig({ root, dataDir, env = process.env }) {
     return out
   }
 
-  return { file, migrate, read, update, clearPlanFile, ai, totem, links, tz, planFile, athlete, authMode, publicView, root, dataDir }
+  return { file, migrate, read, update, clearPlanFile, ai, totem, links, tz, planFile, athlete, access, authMode, publicView, root, dataDir }
 }
 
 module.exports = { createConfig, LEGACY, DEFAULT_MODEL, FILE_ONLY }

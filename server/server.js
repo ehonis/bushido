@@ -27,6 +27,12 @@
  *   POST /api/entry           { entry } -> upsert one entry, returns merged doc
  *   GET  /api/export          full state as a download
  *   POST /api/import          replace state wholesale (from an export file)
+ *   POST /api/act-as          { id } -> the owner acts as someone else (null: back to themselves)
+ *   GET  /api/settings/users  the people on this install; POST/PUT/DELETE to change them
+ *
+ * More than one person can use an install (server/users.js). Everything above
+ * that reads or writes a log does so for the person the request is for: the
+ * owner's files are the data dir itself, anyone else's are data/users/<id>/.
  *
  * Writes are last-write-wins per entry id, using each entry's own updatedAt.
  * That means two devices can both be offline, both write, and neither loses
@@ -47,20 +53,17 @@ const { createBushidoNotify } = require('./notify.js')
 const notifyFacts = require('./notify-facts.js')
 const { createConfig } = require('./config.js')
 const { ISOLATION } = require('./agentflags.js')
-const { createAuth, clientAddress, isLoopback } = require('./auth.js')
+const { createAuth, clientAddress, isLoopback, isHttps } = require('./auth.js')
+const { createUsers, createAccessVerifier, identify, actAsCookie, OWNER } = require('./users.js')
 const pages = require('./pages.js')
 
 const ROOT = path.resolve(__dirname, '..')
 const DATA_DIR = process.env.BUSHIDO_DATA_DIR ? path.resolve(process.env.BUSHIDO_DATA_DIR) : path.join(ROOT, 'data')
 /* Everything the owner can change in the browser. See server/config.js. */
 const config = createConfig({ root: ROOT, dataDir: DATA_DIR })
-const planPath = () => config.planFile().file
 const DIST_DIR = process.env.BUSHIDO_DIST_DIR || path.join(ROOT, 'dist')
-const STATE_FILE = path.join(DATA_DIR, 'state.json')
-const COACH_FILE = path.join(DATA_DIR, 'coach.json')
 const WHOOP_FILE = path.join(DATA_DIR, 'whoop.json')
 const STRAVA_FILE = path.join(DATA_DIR, 'strava.json')
-const BACKUP_DIR = path.join(DATA_DIR, 'backups')
 /*
  * Whether the check-in coach runs at all. See the guard on /api/chat.
  * `BUSHIDO_COACH=1` forces it back on for anyone testing the rewrite.
@@ -88,6 +91,66 @@ const auth = createAuth({
 })
 const MAX_BACKUPS = 60
 
+/*
+ * The people on this install and how a request says which one it is. See
+ * server/users.js. With no Cloudflare Access settings, every request is the
+ * owner's and nothing below behaves any differently from a one-person install.
+ */
+const users = createUsers({ dataDir: DATA_DIR, ownerName: () => config.athlete().name })
+// BUSHIDO_ACCESS_CERTS_URL is for the test suite, which plays Cloudflare on localhost.
+const access = createAccessVerifier({ settings: () => config.access(), certsUrl: process.env.BUSHIDO_ACCESS_CERTS_URL || '' })
+const STARTER_PLAN = path.join(ROOT, 'content', 'starter.json')
+
+/**
+ * Everything that belongs to one person: their log, its backups, their plan and
+ * their coach files. The owner's space is the data dir itself, which is where
+ * all of it lived before there was more than one person, so nothing moved.
+ */
+function spaceFor(user) {
+  const id = user?.id || OWNER
+  const owner = id === OWNER
+  const dir = users.dirOf(id)
+  return {
+    id, owner, dir,
+    name: user?.name || '',
+    stateFile: path.join(dir, 'state.json'),
+    backupDir: path.join(dir, 'backups'),
+    coachFile: path.join(dir, 'coach.json'),
+    coachDir: path.join(dir, 'coach'),
+    /*
+     * The owner's plan resolves through config (env, data/plan.json, settings,
+     * starter). Anyone else runs on their own imported plan or the starter;
+     * an env-pinned plan is the owner's programme, not theirs.
+     */
+    planFile() {
+      if (owner) return config.planFile()
+      const own = path.join(dir, 'plan.json')
+      return fs.existsSync(own) ? { file: own, source: 'imported' } : { file: STARTER_PLAN, source: 'starter' }
+    },
+  }
+}
+const OWNER_SPACE = spaceFor({ id: OWNER })
+
+/*
+ * What a person's app may offer. Integrations hold the owner's accounts (the
+ * bridge's WHOOP and Strava grants, Totem goals and habits, the push identity,
+ * the brain file), so for anyone else they are off, which renders exactly as
+ * an install that never set them up. AI is the owner's for now too: its
+ * prompts read the owner's About you and brain file.
+ */
+function featuresFor(space) {
+  const t = config.totem()
+  const own = space.owner
+  return {
+    ai: own,
+    whoop: own && t.whoop,
+    strava: own && t.strava,
+    goals: own && t.goals,
+    habitSync: own && t.habitSync,
+    notifications: own && Boolean(notify),
+  }
+}
+
 // The coach. Sonnet rather than Opus, deliberately: this is a conversation the user is
 // having standing in the kitchen deciding whether to train, so it is answering in
 // seconds that matters, and everything it can decide is capped anyway.
@@ -95,8 +158,7 @@ const MAX_BACKUPS = 60
  * The binary, the key and the models all come from config.ai(), resolved per
  * request so a change in Settings applies without a restart.
  */
-/* One JSON per conversation. See server/coach.js on why these are files. */
-const COACH_DIR = path.join(DATA_DIR, 'coach')
+/* One JSON per conversation, under each person's coach/. See server/coach.js on why these are files. */
 /* Totem's goals, cached like WHOOP and Strava are. See /api/goals below. */
 const GOALS_FILE = path.join(DATA_DIR, 'goals.json')
 const GOALS_TTL_MS = Number(process.env.BUSHIDO_GOALS_TTL_MS) || 10 * 60 * 1000
@@ -158,15 +220,19 @@ const EMPTY_STATE = {
 
 // ---------------------------------------------------------------- state I/O
 
-let writeChain = Promise.resolve() // serialises writes so concurrent PUTs can't interleave
+/*
+ * One write chain per person: two people saving at once touch different files
+ * and need not wait for each other, but two devices of the same person must.
+ */
+const writeChains = new Map()
 
-function ensureDirs() {
-  for (const d of [DATA_DIR, BACKUP_DIR]) fs.mkdirSync(d, { recursive: true })
+function ensureDirs(space = OWNER_SPACE) {
+  for (const d of [space.dir, space.backupDir]) fs.mkdirSync(d, { recursive: true })
 }
 
-function readStateSync() {
+function readStateSync(space = OWNER_SPACE) {
   try {
-    const raw = fs.readFileSync(STATE_FILE, 'utf8')
+    const raw = fs.readFileSync(space.stateFile, 'utf8')
     const doc = JSON.parse(raw)
     return {
       version: Number(doc.version) || 0,
@@ -175,30 +241,30 @@ function readStateSync() {
     }
   } catch (err) {
     if (err.code !== 'ENOENT') {
-      console.error('[bushido] state.json unreadable, refusing to clobber it:', err.message)
+      console.error(`[bushido] ${space.stateFile} unreadable, refusing to clobber it:`, err.message)
       throw err
     }
     return { version: 0, updatedAt: new Date(0).toISOString(), state: structuredClone(EMPTY_STATE) }
   }
 }
 
-async function backup(doc) {
+async function backup(space, doc) {
   if (!doc || doc.version === 0) return
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const file = path.join(BACKUP_DIR, `state-${stamp}-v${doc.version}.json`)
+  const file = path.join(space.backupDir, `state-${stamp}-v${doc.version}.json`)
   await fsp.writeFile(file, JSON.stringify(doc), 'utf8')
   // Only state snapshots rotate. Anything else in backups/ (plan backups live in
   // backups/plans/, but a hand-placed file too) is never pruned by this.
-  const files = (await fsp.readdir(BACKUP_DIR)).filter(f => f.startsWith('state-') && f.endsWith('.json')).sort()
+  const files = (await fsp.readdir(space.backupDir)).filter(f => f.startsWith('state-') && f.endsWith('.json')).sort()
   for (const stale of files.slice(0, Math.max(0, files.length - MAX_BACKUPS))) {
-    await fsp.unlink(path.join(BACKUP_DIR, stale)).catch(() => {})
+    await fsp.unlink(path.join(space.backupDir, stale)).catch(() => {})
   }
 }
 
-async function writeAtomic(doc) {
-  const tmp = `${STATE_FILE}.tmp-${process.pid}`
+async function writeAtomic(space, doc) {
+  const tmp = `${space.stateFile}.tmp-${process.pid}`
   await fsp.writeFile(tmp, JSON.stringify(doc, null, 2), 'utf8')
-  await fsp.rename(tmp, STATE_FILE)
+  await fsp.rename(tmp, space.stateFile)
 }
 
 /** Last-write-wins merge, per entry id and per settings blob. */
@@ -221,21 +287,23 @@ function mergeState(base, incoming) {
   return out
 }
 
-function commit(mutate) {
-  // Queue behind any in-flight write, then read-modify-write under that lock.
-  const next = writeChain.then(async () => {
-    const current = readStateSync()
+function commit(space, mutate) {
+  // Queue behind any in-flight write of this person's log, then read-modify-write under that lock.
+  const chain = writeChains.get(space.id) || Promise.resolve()
+  const next = chain.then(async () => {
+    ensureDirs(space) // someone else's folder appears on their first save
+    const current = readStateSync(space)
     const merged = mutate(current.state)
     const doc = {
       version: current.version + 1,
       updatedAt: new Date().toISOString(),
       state: merged,
     }
-    await backup(current)
-    await writeAtomic(doc)
+    await backup(space, current)
+    await writeAtomic(space, doc)
     return doc
   })
-  writeChain = next.catch(() => {}) // a failed write must not poison the chain
+  writeChains.set(space.id, next.catch(() => {})) // a failed write must not poison the chain
   return next
 }
 
@@ -319,7 +387,7 @@ async function notifyTick() {
   try {
     const now = Date.now()
     const snapshot = () => ({
-      state: readStateSync().state,
+      state: readStateSync(OWNER_SPACE).state,
       whoop: readCache(WHOOP_FILE),
       strava: readCache(STRAVA_FILE),
       goals: cachedGoals(),
@@ -908,10 +976,10 @@ function modelOf(doc) {
 }
 
 async function checkIn(request) {
-  const plan = readJson(planPath(), {})
-  const state = readStateSync().state
+  const plan = readJson(OWNER_SPACE.planFile().file, {})
+  const state = readStateSync(OWNER_SPACE).state
   const BRAIN_FILE = config.links().brainFile
-  const note = readJson(COACH_FILE, null)
+  const note = readJson(OWNER_SPACE.coachFile, null)
   // Absent is fine and must stay fine: the profile lives in another repo, and a
   // coach with no profile is worse than one with no answer only if it pretends.
   let brain = null
@@ -973,9 +1041,10 @@ async function checkIn(request) {
 }
 
 async function writeCoachNote(note) {
-  const tmp = `${COACH_FILE}.tmp-${process.pid}`
+  const file = OWNER_SPACE.coachFile
+  const tmp = `${file}.tmp-${process.pid}`
   await fsp.writeFile(tmp, JSON.stringify(note, null, 2), 'utf8')
-  await fsp.rename(tmp, COACH_FILE)
+  await fsp.rename(tmp, file)
 }
 
 // ------------------------------------------------------------ http plumbing
@@ -1225,14 +1294,22 @@ function testAi() {
 
 const PLAN_LABELS = { starter: 'Starter content (no plan of your own yet)', imported: 'Your own plan (data/plan.json)', settings: 'A file chosen in settings' }
 
-async function settingsView(who) {
+async function settingsView(who, ctx) {
   const ai = config.ai()
   const t = config.totem()
-  const pf = config.planFile()
+  const space = spaceFor(ctx.user)
+  const pf = space.planFile()
+  const acc = config.access()
   const envFileSource = process.env.BUSHIDO_TOTEM_ENV ? 'env BUSHIDO_TOTEM_ENV' : (t.envFile ? 'settings' : 'off')
   return {
     auth: { mode: auth.mode, source: config.authMode().source, user: who?.user?.username || auth.owner() },
     settings: config.publicView(),
+    people: {
+      users: users.list(),
+      access: { enabled: acc.enabled, team: acc.team, teamSource: acc.teamSource, aud: acc.aud, audSource: acc.audSource },
+      /* The plan card below is this person's: acting as someone changes whose plan it imports. */
+      planFor: space.owner ? null : ctx.user.name,
+    },
     effective: {
       ai: {
         installed: ai.installed, bin: ai.bin, binSource: ai.binSource,
@@ -1267,23 +1344,24 @@ function checkPlan(plan) {
  * data/plan.json may be the owner's only copy of a plan they wrote by hand, so
  * replacing or removing it always keeps the old one in data/backups/ first.
  */
-async function backupOwnPlan() {
-  const file = path.join(DATA_DIR, 'plan.json')
+async function backupOwnPlan(space) {
+  const file = path.join(space.dir, 'plan.json')
   if (!fs.existsSync(file)) return null
-  const dir = path.join(BACKUP_DIR, 'plans')
+  const dir = path.join(space.backupDir, 'plans')
   await fsp.mkdir(dir, { recursive: true })
   const to = path.join(dir, `plan-${new Date().toISOString().replace(/[:.]/g, '-')}.json`)
   await fsp.copyFile(file, to)
   return to
 }
 
-async function writeOwnPlan(plan) {
-  await backupOwnPlan()
-  const file = path.join(DATA_DIR, 'plan.json')
+async function writeOwnPlan(space, plan) {
+  await backupOwnPlan(space)
+  ensureDirs(space)
+  const file = path.join(space.dir, 'plan.json')
   const tmp = `${file}.tmp-${process.pid}`
   await fsp.writeFile(tmp, JSON.stringify(plan, null, 2))
   await fsp.rename(tmp, file)
-  config.clearPlanFile()
+  if (space.owner) config.clearPlanFile()
 }
 
 /*
@@ -1383,6 +1461,51 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  /*
+   * Which person this is, and whose log it is for. See server/users.js. A
+   * signed-out request that got this far is a public notify path; it is nobody's.
+   */
+  let ctx = null
+  if (who.ok) {
+    try {
+      ctx = await identify({ req, gate: who, mode: auth.mode, users, access })
+    } catch (err) {
+      console.error('[bushido] identify failed:', err.message)
+      return send(res, 500, { error: err.message })
+    }
+    if (ctx.refused) {
+      if (p.startsWith('/api/')) return send(res, ctx.refused.status, { error: ctx.refused.error })
+      return html(res, ctx.refused.status, pages.refusedPage({ message: ctx.refused.error }))
+    }
+    /*
+     * The app says whose log it thinks it is holding. If that is not who this
+     * request is for (the owner stopped acting as someone in another tab, the
+     * act-as cookie expired), nothing is read or written: one person's cached log
+     * must never be merged into another's. The app reloads on this answer.
+     */
+    const claimed = req.headers['x-bushido-user']
+    if (claimed && p.startsWith('/api/') && claimed !== ctx.user.id) {
+      return send(res, 409, { error: 'this device was showing someone else\'s log; reloading', code: 'user-changed' },
+        { 'X-Bushido-Auth': 'switched', 'Cache-Control': 'no-store' })
+    }
+  }
+  const space = ctx ? spaceFor(ctx.user) : OWNER_SPACE
+  const features = featuresFor(space)
+
+  /*
+   * Notifications are the owner's: one push identity, and every fact it sends
+   * is about the owner's log. Anyone else is told they are off, in the shape the
+   * client already reads, and cannot subscribe a device to the owner's pushes.
+   */
+  if (ctx && !space.owner && p.startsWith('/api/push')) {
+    if (p === '/api/push/key' && req.method === 'GET') {
+      return send(res, 200, { configured: false, publicKey: null, error: 'Notifications are not available on this account yet.' })
+    }
+    const pub = notify?.publicPaths
+    const isPublic = Boolean(pub && (typeof pub.has === 'function' ? pub.has(p) : Array.isArray(pub) && pub.includes(p)))
+    if (!isPublic) return send(res, 403, { error: 'notifications are not available on this account yet' })
+  }
+
   // The push routes come from Totem's notify/http.mjs, mounted whole, when a
   // notify core is configured. They sit behind the same gate as the rest.
   if (notify && p.startsWith('/api/push')) {
@@ -1394,10 +1517,45 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
+    /*
+     * Settings are the install's, so they are the owner's (the admin's) alone.
+     * Someone else signed in through Access gets the app and their own log.
+     */
+    const adminOnly = p === '/settings' || p.startsWith('/api/settings') || p === '/api/act-as'
+    if (adminOnly && !ctx?.real.admin) {
+      if (p === '/settings') return html(res, 403, pages.refusedPage({ message: 'Settings are for the owner of this install.' }))
+      return send(res, 403, { error: 'only the owner can do that' })
+    }
+
     if (p === '/settings' && req.method === 'GET') return html(res, 200, pages.settingsPage())
 
+    /*
+     * Who this is, for the app's boot (lib/whoami.js): whose log to cache, under
+     * which key, and what to offer. `people` only for an admin, for the switcher.
+     */
     if (p === '/api/auth/me' && req.method === 'GET') {
-      return send(res, 200, { mode: auth.mode, via: who.via, user: who.user?.username || null })
+      return send(res, 200, {
+        mode: auth.mode, via: who.via, user: who.user?.username || null,
+        me: { id: ctx.user.id, name: ctx.user.name, owner: space.owner },
+        real: { id: ctx.real.id, name: ctx.real.name, admin: ctx.real.admin },
+        acting: ctx.acting,
+        features,
+        people: ctx.real.admin ? users.list().map(u => ({ id: u.id, name: u.name })) : undefined,
+      }, { 'Cache-Control': 'no-store' })
+    }
+
+    /*
+     * Act as someone (the owner marking a partner's sets for them), or stop.
+     * A cookie, so every request after it, including a download or the Settings
+     * page, is for that person; the app reloads into their log on the answer.
+     */
+    if (p === '/api/act-as' && req.method === 'POST') {
+      const body = await readBody(req, 4 * 1024)
+      const id = body?.id ? String(body.id) : null
+      if (id && id !== ctx.real.id && !users.get(id)) return send(res, 404, { error: 'no such person' })
+      const target = id && id !== ctx.real.id ? id : null
+      return send(res, 200, { ok: true, acting: Boolean(target), id: target || ctx.real.id },
+        { 'Set-Cookie': actAsCookie(target, { secure: isHttps(req) }), 'Cache-Control': 'no-store' })
     }
 
     /*
@@ -1410,7 +1568,7 @@ const server = http.createServer(async (req, res) => {
       if (auth.mode === 'proxy') return send(res, 409, { error: 'sign-in is handled by the proxy (BUSHIDO_AUTH=proxy); there is nothing to sign out of' })
       auth.revokeSessions()
       return send(res, 200, { ok: true }, {
-        'Set-Cookie': auth.cookieHeader(req, '', { clear: true }),
+        'Set-Cookie': [auth.cookieHeader(req, '', { clear: true }), actAsCookie(null, { secure: isHttps(req) })],
         'Clear-Site-Data': '"cache"',
         'Cache-Control': 'no-store',
       })
@@ -1426,7 +1584,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/api/settings' && req.method === 'GET') {
-      return send(res, 200, await settingsView(who), { 'Cache-Control': 'no-store' })
+      return send(res, 200, await settingsView(who, ctx), { 'Cache-Control': 'no-store' })
     }
 
     /*
@@ -1441,7 +1599,31 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/settings' && req.method === 'PUT') {
       const body = await readBody(req, 64 * 1024)
       config.update(body || {})
-      return send(res, 200, await settingsView(who), { 'Cache-Control': 'no-store' })
+      return send(res, 200, await settingsView(who, ctx), { 'Cache-Control': 'no-store' })
+    }
+
+    /*
+     * The people on this install. Under /api/settings, so in proxy mode it is
+     * loopback-only like every other settings write, and admin-only above. Taking
+     * someone off the list stops them getting in; their folder stays on disk.
+     */
+    if (p === '/api/settings/users' && req.method === 'GET') {
+      return send(res, 200, { users: users.list() }, { 'Cache-Control': 'no-store' })
+    }
+    if (p === '/api/settings/users' && (req.method === 'POST' || req.method === 'PUT')) {
+      const body = await readBody(req, 16 * 1024)
+      try {
+        const user = req.method === 'POST'
+          ? users.add({ name: body?.name, emails: body?.emails })
+          : users.update(String(body?.id || ''), { name: body?.name, emails: body?.emails })
+        return send(res, 200, { user, users: users.list() })
+      } catch (err) { return send(res, 400, { error: err.message }) }
+    }
+    if (p.startsWith('/api/settings/users/') && req.method === 'DELETE') {
+      try {
+        users.remove(decodeURIComponent(p.slice('/api/settings/users/'.length)))
+        return send(res, 200, { users: users.list() })
+      } catch (err) { return send(res, 400, { error: err.message }) }
     }
 
     if (p === '/api/settings/ai/test' && req.method === 'POST') {
@@ -1449,13 +1631,13 @@ const server = http.createServer(async (req, res) => {
     }
 
     if ((p === '/api/plan/import' || p === '/api/plan/example' || p === '/api/plan/reset') && req.method === 'POST') {
-      const pinned = config.planFile().source
+      const pinned = space.planFile().source
       if (pinned.startsWith('env ')) return send(res, 409, { error: `the plan is pinned by ${pinned.slice(4)}` })
       if (p === '/api/plan/reset') {
-        await backupOwnPlan()
-        await fsp.unlink(path.join(DATA_DIR, 'plan.json')).catch(() => {})
-        config.clearPlanFile()
-        return send(res, 200, { ok: true, plan: config.planFile() })
+        await backupOwnPlan(space)
+        await fsp.unlink(path.join(space.dir, 'plan.json')).catch(() => {})
+        if (space.owner) config.clearPlanFile()
+        return send(res, 200, { ok: true, plan: space.planFile() })
       }
       let plan
       if (p === '/api/plan/example') {
@@ -1465,8 +1647,8 @@ const server = http.createServer(async (req, res) => {
       }
       const problem = checkPlan(plan)
       if (problem) return send(res, 400, { error: problem })
-      await writeOwnPlan(plan)
-      return send(res, 200, { ok: true, plan: config.planFile() })
+      await writeOwnPlan(space, plan)
+      return send(res, 200, { ok: true, plan: space.planFile() })
     }
 
     // Notifications off: say so in the shape the client already reads.
@@ -1475,7 +1657,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/api/health') {
-      const doc = readStateSync()
+      const doc = readStateSync(space)
       const ai = config.ai()
       const t = config.totem()
       const links = config.links()
@@ -1483,15 +1665,16 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         version: doc.version,
         entries: Object.keys(doc.state.entries || {}).length,
-        stateFile: STATE_FILE,
-        contentFile: planPath(),
-        auth: { mode: auth.mode, owner: auth.hasOwner() },
+        user: space.id,
+        stateFile: space.stateFile,
+        contentFile: space.planFile().file,
+        auth: { mode: auth.mode, owner: auth.hasOwner(), access: config.access().enabled, people: users.list().length },
         distDir: DIST_DIR,
-        coach: { file: COACH_FILE, present: fs.existsSync(COACH_FILE) },
+        coach: { file: space.coachFile, present: fs.existsSync(space.coachFile) },
         chat: { model: ai.chatModel, claude: ai.installed, brain: Boolean(links.brainFile && fs.existsSync(links.brainFile)), last: chatLast },
         goals: goalsState,
-        coach: { model: ai.coachModel, effort: COACH_EFFORT, dir: COACH_DIR,
-                 threads: (() => { try { return coach.listThreads(COACH_DIR).length } catch { return 0 } })(),
+        coach: { model: ai.coachModel, effort: COACH_EFFORT, dir: space.coachDir,
+                 threads: (() => { try { return coach.listThreads(space.coachDir).length } catch { return 0 } })(),
                  last: coachLast },
         totem: { enabled: t.enabled, url: t.url, habit: t.habit, secret: Boolean(t.secret()), lastSync: totemLast },
         notify: Boolean(notify),
@@ -1506,16 +1689,26 @@ const server = http.createServer(async (req, res) => {
      * HTTP call and "did my ride come through" deserves an answer.
      */
     if (p === '/api/strava' && req.method === 'GET') {
-      refreshStravaIfStale()
-      const cache = readStravaCache()
-      if (!config.totem().strava) {
+      if (!features.strava) {
         return send(res, 200, { fetchedAt: null, activities: [], gear: {}, athlete: null, configured: false, status: null }, { 'Cache-Control': 'no-cache' })
       }
+      refreshStravaIfStale()
+      const cache = readStravaCache()
       return send(res, 200, {
         ...(cache || { fetchedAt: null, activities: [], gear: {}, athlete: null }),
         configured: true,
         status: stravaState,
       }, { 'Cache-Control': 'no-cache' })
+    }
+
+    if ((p === '/api/strava/pull' || p === '/api/strava/activity') && !features.strava) {
+      return send(res, 409, { error: 'Strava is not connected for this account' })
+    }
+    if ((p === '/api/whoop/pull') && !features.whoop) {
+      return send(res, 409, { error: 'WHOOP is not connected for this account' })
+    }
+    if (p === '/api/goals/pull' && !features.goals) {
+      return send(res, 409, { error: 'linked goals are not available for this account' })
     }
 
     if (p === '/api/strava/pull' && req.method === 'POST') {
@@ -1547,11 +1740,11 @@ const server = http.createServer(async (req, res) => {
      * so the payload always carries `status` even when there is no data at all.
      */
     if (p === '/api/whoop' && req.method === 'GET') {
-      refreshWhoopIfStale()
-      const cache = readWhoopCache()
-      if (!config.totem().whoop) {
+      if (!features.whoop) {
         return send(res, 200, { fetchedAt: null, workouts: [], recovery: [], sleep: [], maxHeartRate: null, configured: false, status: null }, { 'Cache-Control': 'no-cache' })
       }
+      refreshWhoopIfStale()
+      const cache = readWhoopCache()
       return send(res, 200, {
         ...(cache || { fetchedAt: null, workouts: [], recovery: [], sleep: [], maxHeartRate: null }),
         configured: true,
@@ -1577,7 +1770,7 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/api/content' && req.method === 'GET') {
       try {
-        const raw = await fsp.readFile(planPath(), 'utf8')
+        const raw = await fsp.readFile(space.planFile().file, 'utf8')
         return send(res, 200, raw, { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-cache' })
       } catch {
         return send(res, 404, { error: 'plan.json not present yet' })
@@ -1596,7 +1789,7 @@ const server = http.createServer(async (req, res) => {
      */
     if (p === '/api/coach' && req.method === 'GET') {
       try {
-        const raw = await fsp.readFile(COACH_FILE, 'utf8')
+        const raw = await fsp.readFile(space.coachFile, 'utf8')
         JSON.parse(raw) // a half-written file must 404, not reach the phone as junk
         return send(res, 200, raw, { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-cache' })
       } catch {
@@ -1631,7 +1824,7 @@ const server = http.createServer(async (req, res) => {
      * goals card stale, never make the app fail to load.
      */
     if (p === '/api/goals' && req.method === 'GET') {
-      if (!config.totem().goals) return send(res, 200, { fetchedAt: null, goals: [], configured: false }, { 'Cache-Control': 'no-cache' })
+      if (!features.goals) return send(res, 200, { fetchedAt: null, goals: [], configured: false }, { 'Cache-Control': 'no-cache' })
       refreshGoalsIfStale()
       const cache = readJson(GOALS_FILE, null)
       return send(res, 200, { ...(cache || { fetchedAt: null, goals: [] }), configured: true }, { 'Cache-Control': 'no-cache' })
@@ -1641,13 +1834,24 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, await pullGoals())
     }
 
+    /*
+     * The AI is the owner's for now: its prompts carry the owner's About you
+     * and may read the owner's brain file. Anyone else gets the answer a fresh
+     * install without a CLI gives, and their app does not offer it at all.
+     */
+    const aiRoute = p.startsWith('/api/coach/') || p === '/api/plan/workout' || p === '/api/plan/revise' || p === '/api/plan/week'
+    if (aiRoute && !features.ai) {
+      if (p === '/api/coach/threads' && req.method === 'GET') return send(res, 200, { threads: [] }, { 'Cache-Control': 'no-cache' })
+      return send(res, 503, { error: 'The coach and planners are not available on this account yet.', code: 'ai-not-configured' })
+    }
+
     if (p === '/api/coach/threads' && req.method === 'GET') {
-      return send(res, 200, { threads: coach.listThreads(COACH_DIR) }, { 'Cache-Control': 'no-cache' })
+      return send(res, 200, { threads: coach.listThreads(space.coachDir) }, { 'Cache-Control': 'no-cache' })
     }
 
     if (p.startsWith('/api/coach/thread/') && req.method === 'GET') {
       try {
-        const t = coach.readThread(COACH_DIR, p.slice('/api/coach/thread/'.length))
+        const t = coach.readThread(space.coachDir, p.slice('/api/coach/thread/'.length))
         if (!t) return send(res, 404, { error: 'no such thread' })
         return send(res, 200, t, { 'Cache-Control': 'no-cache' })
       } catch (err) { return send(res, 400, { error: err.message }) }
@@ -1656,7 +1860,7 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/api/coach/thread/') && req.method === 'DELETE') {
       try {
         const id = p.slice('/api/coach/thread/'.length)
-        return send(res, 200, { ok: coach.deleteThread(COACH_DIR, id) })
+        return send(res, 200, { ok: coach.deleteThread(space.coachDir, id) })
       } catch (err) { return send(res, 400, { error: err.message }) }
     }
 
@@ -1668,7 +1872,7 @@ const server = http.createServer(async (req, res) => {
       if (!ai.installed) return send(res, 503, { error: AI_MISSING, code: 'ai-not-configured' })
 
       const run = async () => {
-        let thread = body.threadId ? coach.readThread(COACH_DIR, body.threadId) : null
+        let thread = body.threadId ? coach.readThread(space.coachDir, body.threadId) : null
         if (!thread) thread = coach.newThread(question.slice(0, 60))
 
         /*
@@ -1678,12 +1882,12 @@ const server = http.createServer(async (req, res) => {
          * check-in had.
          */
         thread = coach.appendMessage(thread, { role: 'user', text: question, at: new Date().toISOString() })
-        coach.writeThread(COACH_DIR, thread)
+        coach.writeThread(space.coachDir, thread)
 
         const { reply, model } = await coach.askCoach({
           ...common, model: ai.coachModel, effort: COACH_EFFORT,
           timeoutMs: COACH_TIMEOUT_MS,
-          krakatoaDir: config.links().krakatoaDir, planFile: planPath(),
+          krakatoaDir: config.links().krakatoaDir, planFile: space.planFile().file,
           thread, question, context: String(body.context || '').slice(0, 4000),
         })
 
@@ -1698,7 +1902,7 @@ const server = http.createServer(async (req, res) => {
         if (reply.title && (thread.messages.length <= 2 || thread.title === 'New chat')) {
           thread.title = String(reply.title).slice(0, 80)
         }
-        return coach.writeThread(COACH_DIR, thread)
+        return coach.writeThread(space.coachDir, thread)
       }
 
       const next = coachChain.then(run)
@@ -1740,7 +1944,7 @@ const server = http.createServer(async (req, res) => {
       if (!ai.installed) return send(res, 503, { error: AI_MISSING, code: 'ai-not-configured' })
 
       try {
-        const plan = planner.readPlanJson(planPath()) || {}
+        const plan = planner.readPlanJson(space.planFile().file) || {}
         const built = await planner.planWorkout({
           ...common, model: ai.plannerModel, effort: PLANNER_EFFORT,
           timeoutMs: PLANNER_TIMEOUT_MS,
@@ -1773,7 +1977,7 @@ const server = http.createServer(async (req, res) => {
       if (!ai.installed) return send(res, 503, { error: AI_MISSING, code: 'ai-not-configured' })
 
       try {
-        const plan = planner.readPlanJson(planPath()) || {}
+        const plan = planner.readPlanJson(space.planFile().file) || {}
         const built = await planner.planWorkout({
           ...common, model: ai.plannerModel, effort: PLANNER_EFFORT,
           timeoutMs: PLANNER_TIMEOUT_MS,
@@ -1808,7 +2012,7 @@ const server = http.createServer(async (req, res) => {
       if (!ai.installed) return send(res, 503, { error: AI_MISSING, code: 'ai-not-configured' })
 
       try {
-        const plan = planner.readPlanJson(planPath()) || {}
+        const plan = planner.readPlanJson(space.planFile().file) || {}
         const built = await weekplanner.planWeek({
           ...common, model: ai.plannerModel, effort: WEEK_EFFORT,
           timeoutMs: WEEK_TIMEOUT_MS,
@@ -1825,7 +2029,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/api/state' && req.method === 'GET') {
-      return send(res, 200, readStateSync(), { 'Cache-Control': 'no-cache' })
+      return send(res, 200, readStateSync(space), { 'Cache-Control': 'no-cache' })
     }
 
     if (p === '/api/state' && req.method === 'PUT') {
@@ -1836,8 +2040,9 @@ const server = http.createServer(async (req, res) => {
       // `commit` hands the mutator the state as it was on disk, under the write
       // lock. That snapshot is what makes a full-log push quiet.
       let before = null
-      const doc = await commit(base => { before = base; return mergeState(base, body.state) })
-      syncDailyEntries(body.state, doc.state, before)
+      const doc = await commit(space, base => { before = base; return mergeState(base, body.state) })
+      // The habit and the "nice session" push are the owner's, about the owner's log.
+      if (space.owner) syncDailyEntries(body.state, doc.state, before)
       return send(res, 200, doc)
     }
 
@@ -1847,17 +2052,17 @@ const server = http.createServer(async (req, res) => {
       if (!entry || !entry.id) return send(res, 400, { error: 'expected { entry: { id, ... } }' })
       const stamped = { ...entry, updatedAt: entry.updatedAt || new Date().toISOString() }
       let before = null
-      const doc = await commit(base => {
+      const doc = await commit(space, base => {
         before = base
         return mergeState(base, { entries: { [entry.id]: stamped } })
       })
-      syncDailyEntries({ entries: { [entry.id]: stamped } }, doc.state, before)
+      if (space.owner) syncDailyEntries({ entries: { [entry.id]: stamped } }, doc.state, before)
       return send(res, 200, doc)
     }
 
     if (p === '/api/export' && req.method === 'GET') {
-      const doc = readStateSync()
-      const name = `bushido-${doc.updatedAt.slice(0, 10)}-v${doc.version}.json`
+      const doc = readStateSync(space)
+      const name = `bushido-${space.owner ? '' : `${space.id}-`}${doc.updatedAt.slice(0, 10)}-v${doc.version}.json`
       return send(res, 200, JSON.stringify(doc, null, 2), {
         'Content-Type': MIME['.json'],
         'Content-Disposition': `attachment; filename="${name}"`,
@@ -1868,7 +2073,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req)
       const incoming = body && (body.state || (body.doc && body.doc.state))
       if (!incoming) return send(res, 400, { error: 'expected { state } or { doc: { state } }' })
-      const doc = await commit(() => mergeState(structuredClone(EMPTY_STATE), incoming))
+      const doc = await commit(space, () => mergeState(structuredClone(EMPTY_STATE), incoming))
       return send(res, 200, doc)
     }
 
@@ -1922,12 +2127,12 @@ function main() {
     console.warn(`[bushido]   git -C ${ROOT} show 'HEAD@{1}:content/plan.json' > ${path.join(DATA_DIR, 'plan.json')}`)
   }
   ensureDirs()
-  if (!fs.existsSync(STATE_FILE)) {
+  if (!fs.existsSync(OWNER_SPACE.stateFile)) {
     fs.writeFileSync(
-      STATE_FILE,
+      OWNER_SPACE.stateFile,
       JSON.stringify({ version: 0, updatedAt: new Date(0).toISOString(), state: EMPTY_STATE }, null, 2),
     )
-    console.log('[bushido] initialised', STATE_FILE)
+    console.log('[bushido] initialised', OWNER_SPACE.stateFile)
   }
 
   // One tick for the notification queue, matching Totem's 30 seconds so a
@@ -1939,7 +2144,8 @@ function main() {
 
   server.listen(PORT, BIND, () => {
     console.log(`[bushido] listening on http://${BIND}:${PORT}`)
-    console.log(`[bushido] data  ${STATE_FILE}`)
+    console.log(`[bushido] data  ${OWNER_SPACE.stateFile}`)
+    if (config.access().enabled) console.log(`[bushido] people ${users.list().length} (Cloudflare Access identifies them)`)
     console.log(`[bushido] app   ${DIST_DIR}`)
     console.log(`[bushido] plan  ${config.planFile().file} (${config.planFile().source})`)
     if (auth.mode === 'proxy') {

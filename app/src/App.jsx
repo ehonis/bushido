@@ -21,6 +21,7 @@ import { splitPrescription } from './lib/prescription.js'
 import { SessionPicker, ActivityChooser, activityFieldOf } from './picker.jsx'
 import { extraEntryId } from './lib/store.js'
 import { Modal } from './modal.jsx'
+import { currentMe, actAs } from './lib/whoami.js'
 
 /*
  * Four tabs, down from six on 2026-09-15.
@@ -51,6 +52,36 @@ const TABS = [
   { id: 'goals', label: 'Goals' },
   { id: 'coach', label: 'Coach' },
 ]
+
+/*
+ * What this person's app offers (lib/whoami.js). The coach is the owner's for
+ * now, and linked goals come from the owner's Totem; for anyone else those tabs
+ * are not there at all, rather than there and saying "not set up".
+ */
+export const tabsFor = (features, owner = true) => TABS.filter(t =>
+  (t.id !== 'coach' || features?.ai !== false) &&
+  // The owner keeps the tab with no bridge: it is where the app says how to set one up.
+  (t.id !== 'goals' || owner || features?.goals))
+
+/**
+ * Says whose log is open when the owner is acting as someone else, on every
+ * screen, with the way back. Logging into the wrong log is the failure this
+ * whole feature has to make hard, and the avatar alone is too quiet for it.
+ */
+export function ActingBanner({ me }) {
+  const [busy, setBusy] = useState(false)
+  if (!me?.acting) return null
+  return (
+    <div className="acting" role="status">
+      <Icon name="Users" size={15} />
+      <span>Logging for <strong>{me.name}</strong></span>
+      <button className="acting-back" disabled={busy}
+        onClick={() => { setBusy(true); actAs(null).catch(() => setBusy(false)) }}>
+        {busy ? 'Switching…' : `Back to ${me.real.name || 'me'}`}
+      </button>
+    </div>
+  )
+}
 
 /**
  * What the + offers.
@@ -221,7 +252,12 @@ function HeaderStreak({ entries }) {
 
 export default function App() {
   const store = useStore()
-  const [tab, setTab] = useState(() => location.hash.slice(1) || 'today')
+  const me = currentMe()
+  const tabs = tabsFor(me.features, me.owner)
+  const [tab, setTab] = useState(() => {
+    const want = location.hash.slice(1) || 'today'
+    return tabs.some(t => t.id === want) ? want : 'today'
+  })
   const [plan, setPlan] = useState(undefined) // undefined = loading, null = absent
   // Today's coach note. Absent is the normal case — most days the user has not talked
   // to the coach at all — and absent has to mean "the app behaves exactly as it
@@ -499,13 +535,14 @@ export default function App() {
             about them rather than about the day on screen — and it survived the
             tile row that used to carry it. */}
         <HeaderStreak entries={store.entries} />
-        <ProfileMenu plan={plan} entries={store.entries}
+        <ProfileMenu me={me} plan={plan} entries={store.entries}
           upsertEntry={store.upsertEntry} deleteEntry={store.deleteEntry}
           status={store.status} lastSync={store.lastSync} />
       </header>
+      <ActingBanner me={me} />
 
       <nav className="tabs" role="tablist">
-        {TABS.map(t => (
+        {tabs.map(t => (
           <button key={t.id} role="tab" className="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
             <Icon name={TAB_ICONS[t.id]} size={17} className="tab-ico" />
             <span className="tab-label">{t.label}</span>
@@ -554,7 +591,7 @@ export default function App() {
             {/* Totem's, and read-only. `full` because on its own tab there is no
                 reason to hide the explanation the way a card on Today had to. */}
             {tab === 'goals' && <TotemGoals full />}
-            {tab === 'coach' && <CoachTab plan={plan} onPlace={placeFromCoach} />}
+            {tab === 'coach' && me.features.ai && <CoachTab plan={plan} onPlace={placeFromCoach} />}
           </>
         )}
       </main>
@@ -570,7 +607,7 @@ export default function App() {
           <button className="fab plus" onClick={() => setFab('menu')} aria-label="Add a workout">
             <Icon name="Plus" size={24} />
           </button>
-          <CoachBubble plan={plan} onPlace={placeFromCoach} />
+          {me.features.ai && <CoachBubble plan={plan} onPlace={placeFromCoach} />}
         </div>
       )}
 
@@ -581,7 +618,7 @@ export default function App() {
           onLog={() => setFab('log')}
           onPickSession={() => setFab('pick')}
           onRest={restOpt ? () => askRest() : null}
-          onPlanWeek={() => setFab('week')} />
+          onPlanWeek={me.features.ai ? () => setFab('week') : null} />
       )}
 
       {/*
