@@ -102,6 +102,31 @@ button, a, input, select, label { touch-action: manipulation; }
    header would be one thing too many. */
 .hdr-mark { color: var(--accent); flex: none; }
 
+/* Whose log is open, while the owner is acting as someone else. Loud on purpose:
+   logging into the wrong person's log is the mistake this has to prevent. */
+.acting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px 8px;
+  padding: 6px 6px 6px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--panel);
+  font-size: 14px;
+}
+.acting > span { flex: 1; min-width: 0; }
+.acting-back {
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
 /*
  * Days in a row. No background, no border, no pill — see HeaderStreak in App.jsx:
  * it is a reading sitting next to a button, and dressing it like the button is

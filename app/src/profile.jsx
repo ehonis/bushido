@@ -35,6 +35,7 @@ import { TestingTab, WhyTab } from './tabs.jsx'
 import { usePrefs } from './lib/prefs.jsx'
 import { localIso } from './lib/dates.js'
 import { NotificationsSection } from './notifications.jsx'
+import { currentMe, actAs } from './lib/whoami.js'
 
 /* ---------------------------------------------------------- the menu */
 
@@ -58,12 +59,13 @@ const SECTIONS = [
  * the pill it replaced. A dot rather than a sentence: green is fine, anything
  * else is worth opening.
  */
-export function ProfileMenu({ plan, entries, upsertEntry, deleteEntry, status, lastSync }) {
+export function ProfileMenu({ plan, entries, upsertEntry, deleteEntry, status, lastSync, me: who = currentMe() }) {
   const btn = useRef(null)
   const [anchor, setAnchor] = useState(null)
   const [tab, setTab] = useState('you')
   const { cache: strava, pull, pulling } = useStrava()
-  const me = athleteOf(strava)
+  // Strava's name and picture when connected; otherwise the name this person has on the install.
+  const me = athleteOf(strava, who.name)
 
   const open = () => setAnchor(btn.current?.getBoundingClientRect() || null)
   const close = () => setAnchor(null)
@@ -92,7 +94,7 @@ export function ProfileMenu({ plan, entries, upsertEntry, deleteEntry, status, l
             </span>
             <span className="pop-who">
               <strong>{me.name}</strong>
-              <span className="sub">{me.connected ? 'via Strava' : 'Strava not connected'}</span>
+              <span className="sub">{who.acting ? `${who.real.name || 'You'}, logging for them` : me.connected ? 'via Strava' : who.features.strava ? 'Strava not connected' : ''}</span>
             </span>
             <button className="pop-x" onClick={close} aria-label="Close"><Icon name="X" size={17} /></button>
           </header>
@@ -119,7 +121,7 @@ export function ProfileMenu({ plan, entries, upsertEntry, deleteEntry, status, l
               {tab === 'why' && <WhyTab plan={plan} />}
               {tab === 'alerts' && <NotificationsSection />}
               {tab === 'settings' && (
-                <SettingsSection status={status} lastSync={lastSync}
+                <SettingsSection status={status} lastSync={lastSync} who={who}
                   strava={strava} onPullStrava={pull} pulling={pulling} />
               )}
             </div>
@@ -222,7 +224,47 @@ function useCanSignOut() {
   return can
 }
 
-function SettingsSection({ status, lastSync, strava, onPullStrava, pulling }) {
+/**
+ * The owner's way into someone else's log, to mark their sets for them. A
+ * reload into that person's log rather than a swap in place (lib/whoami.js), and
+ * the banner under the header says whose it is until they switch back.
+ */
+export function PeopleCard({ who }) {
+  const [busy, setBusy] = useState(null)
+  const [error, setError] = useState(null)
+  if (!who.real.admin || who.people.length < 2) return null
+  const go = (id) => {
+    setBusy(id ?? 'me'); setError(null)
+    actAs(id).catch(e => { setBusy(null); setError(e.message) })
+  }
+  return (
+    <div className="card">
+      <h2>People</h2>
+      <p className="sub">
+        Open someone&rsquo;s log to log sessions and mark sets for them. Everything you do there
+        is theirs, until you switch back.
+      </p>
+      {who.people.map(p => {
+        const isOpen = p.id === who.id
+        const isMe = p.id === who.real.id
+        return (
+          <button key={p.id} className="restbtn" disabled={isOpen || Boolean(busy)}
+            onClick={() => go(isMe ? null : p.id)}>
+            <Icon name={isMe ? 'PersonStanding' : 'Users'} size={16} />
+            <span>
+              {isOpen ? `${isMe ? 'Your log' : `${p.name}’s log`} (open)`
+                : busy === (isMe ? 'me' : p.id) ? 'Switching…'
+                  : isMe ? 'Back to your log' : `Log for ${p.name}`}
+            </span>
+          </button>
+        )
+      })}
+      {error && <p className="sub" style={{ color: 'var(--bad)' }}>{error}</p>}
+    </div>
+  )
+}
+
+function SettingsSection({ status, lastSync, strava, onPullStrava, pulling, who = currentMe() }) {
   const { allHidden, toggleAll } = usePrefs()
   const canSignOut = useCanSignOut()
   const label = {
@@ -233,16 +275,20 @@ function SettingsSection({ status, lastSync, strava, onPullStrava, pulling }) {
 
   return (
     <>
+      <PeopleCard who={who} />
+      {(who.real.admin || canSignOut) && (
       <div className="card">
         <h2>Server</h2>
         <p className="sub">
           Sign-in, AI, the training plan and integrations are set on the server&rsquo;s own
           Settings page.
         </p>
-        <a className="restbtn" href="/settings">
-          <Icon name="Shield" size={16} />
-          <span>Open Settings</span>
-        </a>
+        {who.real.admin && (
+          <a className="restbtn" href="/settings">
+            <Icon name="Shield" size={16} />
+            <span>Open Settings</span>
+          </a>
+        )}
         {canSignOut && (
           <a className="restbtn" href="/?signout=1">
             <Icon name="LogOut" size={16} />
@@ -250,6 +296,7 @@ function SettingsSection({ status, lastSync, strava, onPullStrava, pulling }) {
           </a>
         )}
       </div>
+      )}
 
       <div className="card">
         <h2>Sync</h2>
@@ -262,6 +309,8 @@ function SettingsSection({ status, lastSync, strava, onPullStrava, pulling }) {
         </div>
       </div>
 
+      {/* The owner's Strava, through the owner's bridge: not someone else's to refresh. */}
+      {who.owner && (
       <div className="card">
         <h2>Strava</h2>
         <p className="sub">
@@ -276,6 +325,7 @@ function SettingsSection({ status, lastSync, strava, onPullStrava, pulling }) {
           <span>{pulling ? 'Refreshing…' : 'Refresh now'}</span>
         </button>
       </div>
+      )}
 
       <div className="card">
         <h2>Explanations</h2>

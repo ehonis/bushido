@@ -11,7 +11,8 @@ import {
 } from './src/planner.jsx'
 import { WorkoutRunner } from './src/runner.jsx'
 import { WeekPlanFlow, defaultMonday } from './src/weekplanner.jsx'
-import { FabMenu, RestPrompt } from './src/App.jsx'
+import { FabMenu, RestPrompt, ActingBanner, tabsFor } from './src/App.jsx'
+import { _setMe } from './src/lib/whoami.js'
 import { hasIcon } from './src/lib/icons.jsx'
 import { weekContext } from './src/lib/plannerapi.js'
 import { ScreenCard, describeScreen } from './src/screeninfo.jsx'
@@ -21,7 +22,7 @@ import {
 } from './src/lib/prescription.js'
 import { LogTab } from './src/log.jsx'
 import { GearSection } from './src/gear.jsx'
-import { ProfileMenu } from './src/profile.jsx'
+import { ProfileMenu, PeopleCard } from './src/profile.jsx'
 import { AchievementsTab } from './src/achievements.jsx'
 import { TotemGoals } from './src/goals.jsx'
 import { PlanProvider } from './src/lib/planctx.jsx'
@@ -2675,6 +2676,49 @@ const cases = [
     const tab = describeScreen({ standalone: false, inner: { w: 402, h: 700 }, screen: { w: 402, h: 874 },
       insets: { top: 0, bottom: 0 }, ua: '' })
     if (!/Home Screen/.test(tab)) throw new Error('a browser tab is not told to install')
+  }],
+  /*
+   * More than one person (lib/whoami.js). The owner sees every tab and both
+   * planner routes; someone the AI is not set up for sees no Coach tab, no Goals
+   * tab, and only "Build it myself". Pinned from both sides, so a regression in
+   * either direction is a failure rather than a quiet change.
+   */
+  ['tabsFor(the owner sees all seven, bridge or not; someone else loses Coach and Goals)', null, () => {
+    const all = tabsFor({ ai: true, goals: false }, true).map(t => t.id)
+    if (all.length !== 7 || !all.includes('coach') || !all.includes('goals')) throw new Error(`the owner's tabs: ${all}`)
+    const hers = tabsFor({ ai: false, goals: false }, false).map(t => t.id)
+    if (hers.includes('coach') || hers.includes('goals')) throw new Error(`a tab for a feature that is off: ${hers}`)
+    for (const keep of ['today', 'week', 'log', 'progress', 'achievements']) {
+      if (!hers.includes(keep)) throw new Error(`no ${keep} tab without AI`)
+    }
+  }],
+  ['PlanFlow(no AI: building it yourself is the only route)', null, () => {
+    _setMe({ id: 'sam', owner: false, features: { ai: false, goals: false, whoop: false, strava: false, notifications: false } })
+    try {
+      const t = text(renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />))
+      if (!/Build it myself/.test(t)) throw new Error('no way to build a workout without the AI')
+      if (/Write it for me|Write me \d/.test(t)) throw new Error('the model is offered to someone it is not set up for')
+    } finally { _setMe({}) }
+    const owner = text(renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />))
+    if (!/Write it for me/.test(owner)) throw new Error('the owner lost "Write it for me"')
+  }],
+  ['ActingBanner(says whose log is open, with the way back)', null, () => {
+    const acting = { id: 'sam', name: 'Sam', acting: true, real: { id: 'owner', name: 'Alex', admin: true } }
+    const t = text(renderToString(<ActingBanner me={acting} />))
+    if (!/Logging for.*Sam/.test(t)) throw new Error('the banner does not name whose log this is')
+    if (!/Back to Alex/.test(t)) throw new Error('no way back')
+    if (renderToString(<ActingBanner me={{ ...acting, acting: false }} />) !== '') throw new Error('a banner on your own log')
+  }],
+  ['PeopleCard(the owner can open anyone\'s log; nobody else sees it)', null, () => {
+    const people = [{ id: 'owner', name: 'Alex' }, { id: 'sam', name: 'Sam' }]
+    const owner = { id: 'owner', real: { id: 'owner', admin: true }, people }
+    const t = text(renderToString(<PeopleCard who={owner} />))
+    if (!/Log for Sam/.test(t)) throw new Error('no door into Sam\'s log')
+    if (!/Your log \(open\)/.test(t)) throw new Error('the open log is not marked')
+    const acting = text(renderToString(<PeopleCard who={{ ...owner, id: 'sam' }} />))
+    if (!/Back to your log/.test(acting)) throw new Error('no way back from Sam\'s log')
+    if (renderToString(<PeopleCard who={{ id: 'sam', real: { id: 'sam', admin: false }, people: [] }} />) !== '') throw new Error('someone who is not the owner can switch logs')
+    if (renderToString(<PeopleCard who={{ ...owner, people: [people[0]] }} />) !== '') throw new Error('a switcher with nobody to switch to')
   }],
   // The rest day is a door of its own: as a footer link under "Pick a session" it
   // was technically reachable and the user could not find it.

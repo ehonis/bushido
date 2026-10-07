@@ -60,7 +60,8 @@ reasons behind the design, and the things that have been removed on purpose.
 | File | What |
 |---|---|
 | `server/server.js` | Routes, static serving of `dist/`, the state store and merge, habit sync, notification wiring. |
-| `server/auth.js` | Single-owner sign-in (§2). |
+| `server/auth.js` | Single-owner sign-in (§3). |
+| `server/users.js` | The people on an install, Cloudflare Access token checks, acting as someone (§3). |
 | `server/config.js` | Settings, env precedence, first-start migration, which plan file is in use (§3). |
 | `server/pages.js` | The server-rendered `/setup`, `/login` and `/settings` pages. Plain HTML on purpose: they must work before there is an account, before the app is built, and when a stale service worker is serving an old shell. |
 | `server/agentflags.js` | The permission flags every model run is spawned with: refused directories, the brain Write grant, the secrets deny list (§7). Tested by `agentflags.test.js`. |
@@ -110,6 +111,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Palette | `app/src/styles.css` `:root`, `app/validate_palette.js` | `npm run palette`; a real gate (§6.10). |
 | Notifications client | `app/src/lib/push.js`, `app/src/notifications.jsx` | |
 | Device screen probe | `app/src/screeninfo.jsx` | Measures the iOS safe-area bug on the device (§10.5). |
+| Whose log this is | `app/src/lib/whoami.js` | Decided before the store mounts; per-person cache key; `X-Bushido-User` on every API call (§3). |
 
 ---
 
@@ -225,6 +227,29 @@ Stored in `data/settings.json` (0600). Sections:
 
 Secrets (`ai.apiKey`, `totem.secret`) are never sent to the browser; they are masked, and
 a masked value posted back is ignored.
+
+### More than one person (`server/users.js`, `app/src/lib/whoami.js`)
+
+- **The owner's files never move.** The owner's space is the data dir itself; anyone
+  else's is `data/users/<id>/` with the same file names. `spaceFor()` in `server.js` is
+  the only place a log, backup, plan or coach path is built; do not reintroduce a
+  module-level `STATE_FILE`.
+- **Identity is a verified Cloudflare Access JWT, never a bare header.** Present but
+  invalid, or valid for an unknown email, is a `403`, never a fallback to the owner.
+  Absent is the owner, which is exactly plain proxy mode's existing trust.
+- **One device never mixes two logs.** Whose log is open is decided before the store
+  mounts; a switch is a full reload; each person has their own cache key (the owner keeps
+  `bushido:cache-v1`); every API call carries `X-Bushido-User` and the server refuses a
+  mismatch with `409 switched`. All four are load-bearing.
+- **Integrations and AI are the owner's.** `featuresFor(space)` turns WHOOP, Strava,
+  goals, habit sync, notifications and AI off for anyone else, which must render exactly
+  like an install that never set them up. Habit sync and the "logged" push run only for
+  the owner's writes.
+- **Only the owner is an admin**: Settings, People and acting-as are refused to anyone
+  else. The `bushido_as` cookie is honoured only when the real requester is the owner.
+- Pinned by `server/users.test.js`, the people cases in `server/http.test.js`,
+  `app/whoami.test.js` and the `tabsFor`/`PlanFlow(no AI…)`/`ActingBanner`/`PeopleCard`
+  smoke cases.
 
 ### Precedence
 

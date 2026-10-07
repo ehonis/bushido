@@ -104,6 +104,15 @@ function loginPage({ error = '', next = '/' }) {
   })
 }
 
+/* A request that got past the proxy but is not someone this install knows, or not allowed here. */
+function refusedPage({ message }) {
+  return layout({
+    title: 'Not available',
+    narrow: true,
+    body: `<h1>Bushido</h1><div class="card"><p>${esc(message)}</p><p class="faint">If this is wrong, ask whoever runs this install.</p></div>`,
+  })
+}
+
 /*
  * Settings is a static shell that reads and writes /api/settings. Everything
  * it shows comes from the server's resolved view, including which values an
@@ -176,6 +185,26 @@ function render() {
     '<p class="faint">Signing out syncs this device first, then removes the log, its cache and the offline copy from it.</p>'
   h += '</div>'
 
+  // People
+  const pp = view.people, ax = pp.access
+  h += '<div class="card" id="c-people"><h2>People</h2>' +
+    '<p class="sub">Everyone here has their own training log. Behind Cloudflare Access, the email Access signed someone in with says who they are; add the same address to the Access application\'s policy too, or Cloudflare will not let them reach this page. You can act as anyone from the app\'s profile menu to log for them.</p>' +
+    '<p>' + pill(ax.enabled, 'Access identifies people', 'Access not set up: everyone is you') + '</p>' +
+    field('access', 'team', 'Cloudflare Access team domain', { readonly: true, value: ax.team, source: ax.teamSource }) +
+    field('access', 'aud', 'Access application AUD tag', { readonly: true, value: ax.aud, source: ax.audSource })
+  for (const u of pp.users) {
+    h += '<div class="person" data-id="' + esc(u.id) + '" style="border-top:1px solid var(--line);margin-top:14px;padding-top:6px">' +
+      '<label>' + (u.owner ? 'You (owner)' : 'Name') + '</label><input type="text" class="p-name" value="' + esc(u.owner ? (view.settings.athlete.name || '') : u.name) + '"' + (u.owner ? ' disabled placeholder="set under About you"' : '') + '>' +
+      '<label>Emails they sign in to Access with</label><input type="text" class="p-emails" value="' + esc(u.emails.join(', ')) + '" placeholder="name@example.com" autocomplete="off">' +
+      (u.owner ? '' : '<div class="src">Their log: <code>data/users/' + esc(u.id) + '/</code>. Removing them keeps it on disk.</div>') +
+      '<div class="row"><button class="p-save">Save</button>' + (u.owner ? '' : '<button class="p-del">Remove</button>') + '<span class="msg"></span></div></div>'
+  }
+  h += '<div style="border-top:1px solid var(--line);margin-top:14px;padding-top:6px"><h2 style="margin-top:8px">Add someone</h2>' +
+    '<label for="np-name">Name</label><input id="np-name" type="text" autocomplete="off">' +
+    '<label for="np-emails">Email they sign in to Access with</label><input id="np-emails" type="text" autocomplete="off" placeholder="name@example.com">' +
+    '<div class="row"><button class="primary" id="np-add">Add</button><span class="msg"></span></div></div>'
+  h += '</div>'
+
   // AI
   h += '<div class="card" id="c-ai"><h2>AI</h2>' +
     '<p class="sub">The coach, the workout planner and the week planner run the <a href="https://docs.claude.com/en/docs/claude-code/overview" target="_blank" rel="noopener">Claude Code CLI</a> headless. It is the only backend the code supports. Without it the app works; those three features say so instead.</p>' +
@@ -193,7 +222,8 @@ function render() {
     '<div class="row"><button class="primary save">Save</button><span class="msg"></span></div></div>'
 
   // Plan
-  h += '<div class="card" id="c-plan"><h2>Training plan</h2>' +
+  h += '<div class="card" id="c-plan"><h2>Training plan' + (pp.planFor ? ' for ' + esc(pp.planFor) : '') + '</h2>' +
+    (pp.planFor ? '<p class="sub">You are acting as ' + esc(pp.planFor) + ', so this card is about their plan, not yours.</p>' : '') +
     '<p class="sub">The content file the app runs on: session cards, the activity and lift catalogs, quota categories and seeded achievements.</p>' +
     '<p>Now: <strong>' + esc(e.plan.label) + '</strong> <span class="faint">' + esc(e.plan.file) + '</span></p>' +
     (e.plan.source.startsWith('env ') ? '<p class="faint">Pinned by ' + esc(e.plan.source.slice(4)) + '.</p>' :
@@ -250,6 +280,29 @@ function wire() {
     catch (e) { pre.textContent = e.message }
     finally { test.disabled = false }
   })
+  document.querySelectorAll('.person').forEach(row => {
+    const out = row.querySelector('.msg')
+    const done = (m) => { out.textContent = m; out.className = 'msg ok' }
+    const fail = (e) => { out.textContent = e.message; out.className = 'msg err' }
+    row.querySelector('.p-save').addEventListener('click', async () => {
+      const name = row.querySelector('.p-name')
+      const body = { id: row.dataset.id, emails: row.querySelector('.p-emails').value }
+      if (!name.disabled) body.name = name.value
+      try { await api('/api/settings/users', { method: 'PUT', body: JSON.stringify(body) }); done('Saved.'); await load(false) } catch (e) { fail(e) }
+    })
+    const del = row.querySelector('.p-del')
+    if (del) del.addEventListener('click', async () => {
+      if (!confirm('Take ' + row.querySelector('.p-name').value + ' off this install? Their log stays on disk.')) return
+      try { await api('/api/settings/users/' + encodeURIComponent(row.dataset.id), { method: 'DELETE' }); await load(false) } catch (e) { fail(e) }
+    })
+  })
+  const add = $('#np-add')
+  if (add) add.addEventListener('click', async () => {
+    const out = add.parentElement.querySelector('.msg')
+    try { await api('/api/settings/users', { method: 'POST', body: JSON.stringify({ name: $('#np-name').value, emails: $('#np-emails').value }) }); await load(false) }
+    catch (e) { out.textContent = e.message; out.className = 'msg err' }
+  })
+
   const planMsg = () => $('#c-plan .msg')
   const planAct = async (url, body) => {
     const out = planMsg(); out.textContent = 'Working…'; out.className = 'msg faint'
@@ -282,4 +335,4 @@ function settingsPage() {
   })
 }
 
-module.exports = { setupPage, setupClosedPage, loginPage, settingsPage, esc }
+module.exports = { setupPage, setupClosedPage, loginPage, settingsPage, refusedPage, esc }

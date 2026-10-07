@@ -13,8 +13,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { handoffTarget, retirePushSubscription } from './handoff.js'
 import { isSignedOut, makeLocalPersist, onSignedOutElsewhere } from './signout.js'
+import { cacheKeyFor, currentMe } from './whoami.js'
 
-const CACHE_KEY = 'bushido:cache-v1'
+/*
+ * One cache per person (lib/whoami.js). The owner's keeps the key it always had.
+ * Read when used, not at import: main.jsx decides whose log this is first.
+ */
+const cacheKey = () => cacheKeyFor(currentMe().id)
 // Back-compat for the 2026-10-02 rename: devices installed before it hold their
 // cache (and any unsynced outbox) under the old key. Can go once every device has
 // opened the app once since then.
@@ -57,8 +62,10 @@ export function mergeState(base, incoming) {
 
 function readCache() {
   try {
+    const CACHE_KEY = cacheKey()
     let raw = localStorage.getItem(CACHE_KEY)
-    if (!raw && !isSignedOut(localStorage, window) && (raw = localStorage.getItem(LEGACY_CACHE_KEY))) {
+    // The pre-rename cache is the owner's: there was only one person then.
+    if (!raw && currentMe().owner && !isSignedOut(localStorage, window) && (raw = localStorage.getItem(LEGACY_CACHE_KEY))) {
       // Moving the key is best effort: a second copy can exceed the quota, and
       // the outbox in `raw` must still load either way, dirty flag and all.
       try {
@@ -88,7 +95,7 @@ function readCache() {
 let persist = null
 function writeCache(state, version, dirty) {
   if (typeof window === 'undefined') return
-  persist = persist || makeLocalPersist({ storage: window.localStorage, flagTarget: window, key: CACHE_KEY })
+  persist = persist || makeLocalPersist({ storage: window.localStorage, flagTarget: window, key: cacheKey() })
   persist({ state, version, dirty })
 }
 

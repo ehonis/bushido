@@ -107,7 +107,9 @@ const cookieFrom = (res) => (res.headers.get('set-cookie') || '').split(';')[0]
     ok(/HttpOnly/.test(set) && /SameSite=Lax/.test(set), `cookie flags: ${set}`)
     cookie = cookieFrom(res)
     const me = await (await get(`${s.base}/api/auth/me`, { headers: { cookie } })).json()
-    eq(me, { mode: 'password', via: 'session', user: 'me' })
+    eq({ mode: me.mode, via: me.via, user: me.user }, { mode: 'password', via: 'session', user: 'me' })
+    // One person: the owner, whose log this is, not acting as anyone.
+    eq({ id: me.me.id, owner: me.me.owner, admin: me.real.admin, acting: me.acting }, { id: 'owner', owner: true, admin: true, acting: false })
     eq((await get(`${s.base}/api/state`, { headers: { cookie } })).status, 200)
     eq((await get(`${s.base}/setup?token=${token}`)).status, 200, 'the closed setup page should still render')
     ok(/Already set up/.test(await (await get(`${s.base}/setup?token=${token}`)).text()), 'setup still open after use')
@@ -264,6 +266,121 @@ const cookieFrom = (res) => (res.headers.get('set-cookie') || '').split(';')[0]
     eq((await get(`${p.base}/api/state`)).status, 200, 'proxy mode was affected by a sign-out call')
   })
   await p.stop()
+
+  /* ------------------------------------------- two people, behind Cloudflare Access */
+  /*
+   * A pretend Cloudflare: an RSA key, its JWKS on a local port, and tokens signed
+   * with it. The server verifies them exactly as it would Access's own.
+   */
+  const crypto = require('crypto')
+  const http = require('http')
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 })
+  const jwks = { keys: [{ ...publicKey.export({ format: 'jwk' }), kid: 'k1', alg: 'RS256' }] }
+  const certs = http.createServer((q, r) => { r.writeHead(200, { 'content-type': 'application/json' }); r.end(JSON.stringify(jwks)) })
+  await new Promise(r => certs.listen(0, '127.0.0.1', r))
+  const TEAM_HOST = 'test-team.cloudflareaccess.com'
+  const AUD = 'test-aud'
+  const jwt = (email, key = privateKey) => {
+    const enc = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
+    const t = Math.floor(Date.now() / 1000)
+    const hb = `${enc({ alg: 'RS256', kid: 'k1' })}.${enc({ iss: `https://${TEAM_HOST}`, aud: [AUD], email, iat: t, exp: t + 600 })}`
+    return `${hb}.${crypto.sign('RSA-SHA256', Buffer.from(hb), key).toString('base64url')}`
+  }
+  const two = await boot({
+    env: {
+      BUSHIDO_AUTH: 'proxy', BUSHIDO_ACCESS_TEAM: 'test-team', BUSHIDO_ACCESS_AUD: AUD,
+      BUSHIDO_ACCESS_CERTS_URL: `http://127.0.0.1:${certs.address().port}/certs`,
+    },
+    seed: {
+      'state.json': JSON.stringify({ version: 3, updatedAt: '2026-09-01T00:00:00Z', state: { entries: { 'daily-2026-09-01': { id: 'daily-2026-09-01', kind: 'daily', date: '2026-09-01', updatedAt: '2026-09-01T00:00:00Z', data: { optId: 'mine' } } } } }),
+      'settings.json': JSON.stringify({ version: 1, install: 'fresh', auth: { mode: 'proxy' } }),
+      'users.json': JSON.stringify({ users: [{ id: 'owner', name: 'Alex', emails: ['alex@example.com'] }, { id: 'sam', name: 'Sam', emails: ['sam@example.com'] }] }),
+    },
+  })
+  const as = (email, extra = {}) => ({ headers: { 'cf-access-jwt-assertion': jwt(email), ...extra } })
+  const json = { 'content-type': 'application/json' }
+  const samEntry = { id: 'daily-2026-10-01', kind: 'daily', date: '2026-10-01', updatedAt: '2026-10-01T10:00:00Z', data: { optId: 'hers', done: true } }
+
+  await step('each person reads and writes only their own log', async () => {
+    const samState = await (await get(`${two.base}/api/state`, as('sam@example.com'))).json()
+    eq(Object.keys(samState.state.entries), [], 'Sam was shown the owner\'s log')
+    const put = await get(`${two.base}/api/state`, { method: 'PUT', headers: { ...json, ...as('sam@example.com').headers }, body: JSON.stringify({ state: { entries: { [samEntry.id]: samEntry } } }) })
+    eq(put.status, 200)
+    const onDisk = JSON.parse(fs.readFileSync(path.join(two.dataDir, 'users', 'sam', 'state.json'), 'utf8'))
+    eq(Object.keys(onDisk.state.entries), [samEntry.id])
+    const owner = await (await get(`${two.base}/api/state`, as('alex@example.com'))).json()
+    eq(Object.keys(owner.state.entries), ['daily-2026-09-01'], 'Sam\'s save touched the owner\'s log')
+    eq(owner.version, 3, 'the owner\'s log was rewritten')
+    // No token at all (the box itself, the tailnet): the owner, as plain proxy mode always was.
+    eq(Object.keys((await (await get(`${two.base}/api/state`)).json()).state.entries), ['daily-2026-09-01'])
+  })
+
+  await step('someone Access lets in but this install does not know is refused', async () => {
+    eq((await get(`${two.base}/api/state`, as('stranger@example.com'))).status, 403)
+    eq((await get(`${two.base}/`, as('stranger@example.com'))).status, 403)
+    const forged = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey
+    eq((await get(`${two.base}/api/state`, { headers: { 'cf-access-jwt-assertion': jwt('alex@example.com', forged) } })).status, 403, 'a forged owner token got in')
+  })
+
+  await step('for anyone but the owner: no settings, no AI, no integrations, the starter plan', async () => {
+    const me = await (await get(`${two.base}/api/auth/me`, as('sam@example.com'))).json()
+    eq([me.me.id, me.real.admin, me.acting, me.features.ai, me.people], ['sam', false, false, false, undefined])
+    eq((await get(`${two.base}/settings`, as('sam@example.com'))).status, 403)
+    eq((await get(`${two.base}/api/settings`, as('sam@example.com'))).status, 403)
+    eq((await get(`${two.base}/api/act-as`, { method: 'POST', headers: { ...json, ...as('sam@example.com').headers }, body: JSON.stringify({ id: 'owner' }) })).status, 403)
+    eq((await (await get(`${two.base}/api/whoop`, as('sam@example.com'))).json()).configured, false)
+    eq((await (await get(`${two.base}/api/strava`, as('sam@example.com'))).json()).configured, false)
+    eq((await (await get(`${two.base}/api/push/key`, as('sam@example.com'))).json()).configured, false)
+    eq((await (await get(`${two.base}/api/coach/threads`, as('sam@example.com'))).json()).threads, [])
+    const ai = await get(`${two.base}/api/plan/workout`, { method: 'POST', headers: { ...json, ...as('sam@example.com').headers }, body: JSON.stringify({ kinds: ['legs'], minutes: 30 }) })
+    eq([ai.status, (await ai.json()).code], [503, 'ai-not-configured'])
+    eq((await (await get(`${two.base}/api/content`, as('sam@example.com'))).json()).achievements, [], 'not the starter')
+  })
+
+  await step('the owner acts as someone: their log, until switching back', async () => {
+    const r = await get(`${two.base}/api/act-as`, { method: 'POST', headers: { ...json, ...as('alex@example.com').headers }, body: JSON.stringify({ id: 'sam' }) })
+    eq(r.status, 200)
+    const asCookie = cookieFrom(r)
+    eq(asCookie, 'bushido_as=sam')
+    const withCookie = as('alex@example.com', { cookie: asCookie })
+    const me = await (await get(`${two.base}/api/auth/me`, withCookie)).json()
+    eq([me.me.id, me.real.id, me.acting, me.features.ai], ['sam', 'owner', true, false])
+    eq(me.people.map(p => p.id), ['owner', 'sam'])
+    eq(Object.keys((await (await get(`${two.base}/api/state`, withCookie)).json()).state.entries), [samEntry.id])
+    // Marking a set for Sam lands in Sam's log.
+    const mark = await get(`${two.base}/api/entry`, { method: 'POST', headers: { ...json, ...withCookie.headers }, body: JSON.stringify({ entry: { ...samEntry, updatedAt: '2026-10-01T11:00:00Z', data: { ...samEntry.data, out: { rpe: 7 } } } }) })
+    eq(mark.status, 200)
+    eq(JSON.parse(fs.readFileSync(path.join(two.dataDir, 'users', 'sam', 'state.json'), 'utf8')).state.entries[samEntry.id].data.out.rpe, 7)
+    // Settings stay reachable: the real person is the owner.
+    eq((await get(`${two.base}/api/settings`, withCookie)).status, 200)
+    const back = await get(`${two.base}/api/act-as`, { method: 'POST', headers: { ...json, ...withCookie.headers }, body: JSON.stringify({ id: null }) })
+    ok(/bushido_as=;/.test(back.headers.get('set-cookie')), 'switching back did not clear the cookie')
+  })
+
+  await step('a device holding one person\'s log cannot read or write another\'s', async () => {
+    // The app thinks it holds the owner's log, but the cookie now says Sam.
+    const mixed = as('alex@example.com', { cookie: 'bushido_as=sam', 'x-bushido-user': 'owner' })
+    const read = await get(`${two.base}/api/state`, mixed)
+    eq([read.status, read.headers.get('x-bushido-auth')], [409, 'switched'])
+    const write = await get(`${two.base}/api/state`, { method: 'PUT', headers: { ...json, ...mixed.headers }, body: JSON.stringify({ state: { entries: { x: { id: 'x', updatedAt: '2030-01-01T00:00:00Z' } } } }) })
+    eq(write.status, 409)
+    ok(!JSON.parse(fs.readFileSync(path.join(two.dataDir, 'users', 'sam', 'state.json'), 'utf8')).state.entries.x, 'the owner\'s cache was pushed into Sam\'s log')
+    // Sam's own phone, claiming to be Sam, is fine.
+    eq((await get(`${two.base}/api/state`, as('sam@example.com', { 'x-bushido-user': 'sam' }))).status, 200)
+  })
+
+  await step('people are managed in Settings, by the owner', async () => {
+    const add = await get(`${two.base}/api/settings/users`, { method: 'POST', headers: json, body: JSON.stringify({ name: 'Robin', emails: 'robin@example.com' }) })
+    eq(add.status, 200)
+    eq((await add.json()).user.id, 'robin')
+    eq((await get(`${two.base}/api/state`, as('robin@example.com'))).status, 200, 'a newly added person cannot get in')
+    eq((await get(`${two.base}/api/settings/users/robin`, { method: 'DELETE' })).status, 200)
+    eq((await get(`${two.base}/api/state`, as('robin@example.com'))).status, 403, 'a removed person still gets in')
+    const dup = await get(`${two.base}/api/settings/users`, { method: 'POST', headers: json, body: JSON.stringify({ name: 'X', emails: 'sam@example.com' }) })
+    eq(dup.status, 400)
+  })
+  await two.stop()
+  certs.close()
 
   /* ------------------------------------------------------- an existing install */
   const seed = {
