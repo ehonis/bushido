@@ -38,7 +38,7 @@ import { UnloggedWorkouts } from './unlogged.jsx'
 import { achievements, unclaimed } from './lib/achievements.js'
 import { profileFacts } from './lib/profile.js'
 
-import { WhoopReadiness } from './whoop.jsx'
+import { WhoopReadiness, WhoopSleep } from './whoop.jsx'
 
 const todayIso = () => localIso()
 /* Stable identity, so "nothing dismissed" is not a new array on every render. */
@@ -345,6 +345,7 @@ export function TodayTab({
           {/* How the user arrived. Renders nothing when there is no reading, which is
               most days at first. */}
           {!isFuture && <WhoopReadiness date={iso} />}
+          {!isFuture && <WhoopSleep date={iso} />}
 
           {/* What the services recorded and the log has no entry for. Renders
               nothing at all on a day with nothing outstanding — see unlogged.jsx. */}

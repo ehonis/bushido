@@ -881,6 +881,17 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .wh-stat-sub { font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
 .wh-card-note { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 0 0; }
 
+/* --- last night (WhoopSleep) --- */
+.wh-sleep-window { margin: 10px 0 0; font-variant-numeric: tabular-nums; }
+.wh-sleep-stages { display: flex; gap: 2px; height: 10px; margin-top: 10px; border-radius: 5px; overflow: hidden; }
+.wh-sleep-stages span { min-width: 2px; }
+.wh-sleep-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.wh-sleep-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+.wh-sleep-strip { display: flex; align-items: flex-end; gap: 3px; height: 44px; margin-top: 14px; }
+.wh-sleep-strip > span { flex: 1; height: 100%; display: flex; align-items: flex-end; background: var(--panel-2); border-radius: 3px; }
+.wh-sleep-strip > span > span { width: 100%; background: var(--series-1); opacity: 0.55; border-radius: 3px; }
+.wh-sleep-strip > span.today > span { opacity: 1; }
+
 /* Strava shares the WHOOP block's bones; only the accents differ. */
 .wh-head svg.sv-ico { color: #fc4c02; }
 .sv-name { font-weight: 600; }

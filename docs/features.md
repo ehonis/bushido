@@ -189,6 +189,17 @@ with you about your own day.
 
 Climbing workouts are never offered here, for the reason above.
 
+## Last night's sleep
+
+Today's side column has a **Last night** card under *How you arrived*: time asleep
+against what WHOOP says you needed, the sleep score, efficiency and debt, bedtime and
+wake, the stage split, and a two-week strip of hours asleep. Nothing is logged by hand.
+The Totem bridge fills sleep from WHOOP each morning and hands the nights over as
+`sleep[]` in the same `/api/whoop/training` pull as recovery (`sleepFor` and
+`sleepNights` in `server/whoop.js`). Nights are filed under the morning woken into, the
+same calendar as recovery. The coach reads them too (`whoopDigest`). A morning with no
+scored night shows no card.
+
 ## You, and your gear
 
 The header is your Strava name and picture (the sync state survives as the dot on it).

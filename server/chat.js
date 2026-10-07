@@ -315,7 +315,8 @@ function whoopDigest(cache, date, { entries = [], now = null } = {}) {
   if (!cache || typeof cache !== 'object') return null
   const recovery = Array.isArray(cache.recovery) ? cache.recovery : []
   const workouts = Array.isArray(cache.workouts) ? cache.workouts : []
-  if (!recovery.length && !workouts.length) return null
+  const sleep = Array.isArray(cache.sleep) ? cache.sleep : []
+  if (!recovery.length && !workouts.length && !sleep.length) return null
 
   const fetchedAt = typeof cache.fetchedAt === 'string' ? cache.fetchedAt : null
   const at = fetchedAt ? Date.parse(fetchedAt) : NaN
@@ -379,6 +380,19 @@ function whoopDigest(cache, date, { entries = [], now = null } = {}) {
     },
     days,
     workouts: recent,
+    // Dated by the morning woken into, like `days`. Minutes, and the clock read
+    // off the band; a night WHOOP has not scored is absent, not zero.
+    sleep: sleep
+      .filter(n => n?.date && n.date >= since && n.date <= date)
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+      .map(n => ({
+        date: n.date,
+        asleepMin: opt(n.asleepMin),
+        neededMin: opt(n.neededMin),
+        score: opt(n.score),
+        bedtime: n.bedtime || null,
+        wake: n.wake || null,
+      })),
   }
 }
 

@@ -38,7 +38,7 @@ import { resolveCeiling } from './src/lib/force.js'
 import { WorkoutMode, Face, Review } from './src/workout.jsx'
 import { CheckIn } from './src/checkin.jsx'
 import { WhoopProvider } from './src/lib/whoop.jsx'
-import { WhoopWorkouts, WhoopReadiness } from './src/whoop.jsx'
+import { WhoopWorkouts, WhoopReadiness, WhoopSleep } from './src/whoop.jsx'
 import { StravaProvider } from './src/lib/strava.jsx'
 import { StravaActivities } from './src/strava.jsx'
 import { UnloggedWorkouts } from './src/unlogged.jsx'
@@ -1993,6 +1993,20 @@ const cases = [
         html => {
           if (html.length > 0) throw new Error('WHOOP saying it does not trust its own number is taken at its word')
         }],
+      ['WhoopSleep(last night)',
+        wrap({ cache: { sleep: [{
+          date: day, score: 88, asleepMin: 452, neededMin: 480, efficiency: 91, debtMin: 28,
+          stages: { deep: 95, rem: 110, light: 247, awake: 31 }, bedtime: '2026-08-19T23:14', wake: '2026-08-20T07:16',
+        }] } }, <WhoopSleep date={day} />),
+        html => {
+          const t2 = text(html)
+          if (!/7:32/.test(t2)) throw new Error('time asleep as hours and minutes')
+          if (!/of 8:00 needed/.test(t2)) throw new Error('read against what WHOOP says was needed')
+          if (!/11:14 PM to 7:16 AM/.test(t2)) throw new Error('bedtime and wake, as the clock read')
+          if (!/REM 1:50/.test(t2)) throw new Error('the stages, labelled')
+        }],
+      ['WhoopSleep(nothing)', wrap({ cache: { sleep: [] } }, <WhoopSleep date={day} />),
+        html => { if (html.length > 0) throw new Error('no nights must render nothing') }],
       ['WhoopReadiness(nothing)', wrap({ cache: null }, <WhoopReadiness date={day} />),
         html => { if (html.length > 0) throw new Error('no reading must render nothing') }],
       ['WhoopReadiness(broken, with the fix)',
