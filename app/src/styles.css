@@ -21,6 +21,9 @@
   /* The streak flame, and only the streak flame. Distinct from --warn so a
      counter the user wants to see is never mistaken for something wrong. */
   --flame: #f0803c;
+  /* The sleep chart's mark for the day being viewed. A highlight, not a data
+     series, so it takes the app's accent rather than a palette slot. */
+  --sleep-today: var(--accent);
   --radius: 10px;
   --tap: 44px;
 
@@ -921,6 +924,8 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .sleep-stats .faint b { color: var(--ink-dim); }
 .sleep-stats .viz-toggle { margin-left: auto; }
 .sleep-svg { display: block; touch-action: pan-y; }
+/* The viewed day's night on the sleep chart (--sleep-today, in :root). */
+.sleep-today-tick, .sleep-readout strong.sleep-today-tick { fill: var(--sleep-today); color: var(--sleep-today); font-weight: 600; }
 .sleep-len { font-size: 9.5px; }
 .sleep-readout { display: flex; flex-wrap: wrap; gap: 4px 12px; min-height: 22px; margin-top: 6px; font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 .sleep-readout strong { color: var(--ink); font-weight: 600; }

@@ -2021,6 +2021,9 @@ const cases = [
           for (const st of ['Deep', 'REM', 'Light', 'Awake']) if (!t2.includes(st)) throw new Error(`no ${st} in the legend`)
           if (/of 8:00 needed|efficiency/.test(t2)) throw new Error('the in-depth last-night block came back')
           if (!/11 PM|10 PM/.test(t2)) throw new Error('the clock axis is not labelled')
+          if ((html.match(/class="sleep-today"/g) || []).length !== 2) throw new Error('the viewed day is not marked on both panels')
+          if (!/sleep-today-tick/.test(html)) throw new Error('the viewed day\'s date is not marked on the axis')
+          if (!/sleep-readout[^>]*><strong class="sleep-today-tick">/.test(html) || !/88%/.test(text(html.split('sleep-readout')[1]))) throw new Error('the readout does not open on the viewed night')
         }],
       ['WhoopSleep(series keeps the gaps, stats compare weeks)', null, () => {
         const nights = []
