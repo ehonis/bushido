@@ -644,10 +644,20 @@ export function WhoopSleep({ date }) {
   const cross = hover != null && (
     <rect x={xAt(hover) - slot / 2} width={slot} y={0} height="100%" fill="var(--viz-axis)" opacity="0.18" />
   )
+  // The range ends on the day being viewed, so its night is always the last
+  // column. Tinted under everything, with a cap, so it reads at 1y as well as 30d.
+  const today = series.length - 1
+  const todayW = Math.max(slot, 4)
+  const mark = (
+    <g className="sleep-today" aria-hidden="true">
+      <rect x={xAt(today) - todayW / 2} width={todayW} y={0} height="100%" fill="var(--sleep-today)" opacity="0.16" />
+      <rect x={xAt(today) - todayW / 2} width={todayW} y={0} height={2} fill="var(--sleep-today)" />
+    </g>
+  )
 
   const good = stats.delta == null ? null : stats.delta > 0
   const flat = stats.delta != null && Math.abs(stats.delta) < 0.5
-  const shown = hover != null ? series[hover] : null
+  const shown = series[hover ?? today]
   const hasRest = series.some(r => r.span && r.span.to - r.span.from - r.staged > 1)
 
   return (
@@ -700,6 +710,7 @@ export function WhoopSleep({ date }) {
                 <stop offset="0.66" stopColor="var(--warn)" /><stop offset="0.67" stopColor="var(--good)" />
               </linearGradient>
             </defs>
+            {mark}
             {cross}
             {[0, 25, 50, 75, 100].map(t => (
               <g key={t}>
@@ -725,6 +736,7 @@ export function WhoopSleep({ date }) {
 
           <svg width="100%" height={H2} viewBox={`0 0 ${W} ${H2}`} role="img" className="sleep-svg"
             aria-label="Each night from bedtime to wake, split into stages" {...hoverProps}>
+            {mark}
             {cross}
             {clockTicks.map(m => (
               <g key={m}>
@@ -759,16 +771,19 @@ export function WhoopSleep({ date }) {
               )
             })}
             {dateTicks.map((i, k) => (
-              <text key={k} x={xAt(i)} y={H2 - 6} textAnchor={k === 0 ? 'start' : k === 2 ? 'end' : 'middle'} className="viz-tick">
+              <text key={k} x={xAt(i)} y={H2 - 6} textAnchor={k === 0 ? 'start' : k === 2 ? 'end' : 'middle'}
+                className={i === today ? 'viz-tick sleep-today-tick' : 'viz-tick'}>
                 {dayLabel(series[i].date, { month: 'short', day: 'numeric' })}
               </text>
             ))}
           </svg>
 
           <div className="sleep-readout" aria-live="polite">
-            {shown ? (
+            {shown && (
               <>
-                <strong>{dayLabel(shown.date, { weekday: 'short', month: 'short', day: 'numeric' })}</strong>
+                <strong className={shown === series[today] ? 'sleep-today-tick' : undefined}>
+                  {dayLabel(shown.date, { weekday: 'short', month: 'short', day: 'numeric' })}
+                </strong>
                 {shown.night ? (
                   <>
                     <span>sleep {pct(shown.score)}</span>
@@ -780,8 +795,9 @@ export function WhoopSleep({ date }) {
                     ))}
                   </>
                 ) : <span>no night from WHOOP</span>}
+                {hover == null && <span className="faint">· touch another night for its numbers</span>}
               </>
-            ) : <span className="faint">Touch a night for its numbers.</span>}
+            )}
           </div>
 
           <div className="sleep-legend">
