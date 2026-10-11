@@ -45,6 +45,7 @@ reasons behind the design, and the things that have been removed on purpose.
 |---|---|
 | `app/` | React 19 + Vite frontend. `app/src/` is the UI; `app/src/lib/` is the pure logic, tested without a DOM. |
 | `server/` | Plain Node `http`/`fs`/`crypto`, no npm dependencies. |
+| `mobile/` | The native iPhone app (Expo). The web's phone layout rebuilt in React Native, with `app/src/lib/` copied in at the same paths. Its own install and rules: read `mobile/AGENTS.md` before changing it, and port a web change there when it touches a screen the app has. |
 | `content/starter.json` | What a fresh install runs on: catalogs and the rest card, no programme. **Generated.** |
 | `examples/plan.json` | A small, invented example plan (Settings → "Use the example plan"). **Generated.** |
 | `examples/coach/CHECKIN.md` | Prompt for the dormant check-in coach (§7). |
@@ -60,7 +61,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | File | What |
 |---|---|
 | `server/server.js` | Routes, static serving of `dist/`, the state store and merge, habit sync, notification wiring. |
-| `server/auth.js` | Single-owner sign-in (§3). |
+| `server/auth.js` | Single-owner sign-in (§3). Also reads the native app's session sent as a bearer. |
 | `server/users.js` | The people on an install, Cloudflare Access token checks, acting as someone (§3). |
 | `server/config.js` | Settings, env precedence, first-start migration, which plan file is in use (§3). |
 | `server/pages.js` | The server-rendered `/setup`, `/login` and `/settings` pages. Plain HTML on purpose: they must work before there is an account, before the app is built, and when a stale service worker is serving an old shell. |
@@ -188,6 +189,10 @@ app. For UI work, look at it.
   httpOnly, `SameSite=Lax`, `Secure` behind https, and lasts 30 days. Changing the
   password bumps a version in the cookie, which signs every other device out. Repeated
   wrong passwords lock that address out briefly.
+- **The native app** (`mobile/`) signs in with `POST /api/auth/session` (username and
+  password, JSON, throttled like `/login`) and gets the signed session value back instead of a
+  cookie; it sends it as `Authorization: Bearer`, which `auth.check` verifies exactly as the
+  cookie. Revoking sessions and changing the password sign it out too.
 - **Bearer tokens** for machine callers: `Authorization: Bearer <secret>` with
   `BUSHIDO_API_TOKEN` only. The Totem bridge secret is not accepted: it is for
   Bushido calling Totem, and nothing calls Bushido with it.

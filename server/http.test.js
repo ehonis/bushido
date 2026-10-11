@@ -120,6 +120,22 @@ const cookieFrom = (res) => (res.headers.get('set-cookie') || '').split(';')[0]
     eq((await get(`${s.base}/api/state`, { headers: { authorization: 'Bearer not-the-token-at-all' } })).status, 401)
   })
 
+  await step('the native app signs in for a session it sends as a bearer', async () => {
+    const post = (body) => get(`${s.base}/api/auth/session`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    eq((await post({ username: 'me', password: 'wrong horse' })).status, 401)
+    const res = await post({ username: 'me', password: 'correct horse' })
+    eq(res.status, 200)
+    ok(!res.headers.get('set-cookie'), 'the native sign-in set a cookie')
+    const { session, user } = await res.json()
+    eq(user, 'me')
+    const bearer = { headers: { authorization: `Bearer ${session}` } }
+    eq((await get(`${s.base}/api/state`, bearer)).status, 200)
+    const me = await (await get(`${s.base}/api/auth/me`, bearer)).json()
+    eq({ via: me.via, user: me.user, id: me.me.id }, { via: 'session', user: 'me', id: 'owner' })
+    eq((await get(`${s.base}/api/state`, { headers: { authorization: `Bearer ${session}x` } })).status, 401, 'a tampered session got in')
+    eq((await get(`${s.base}/api/auth/session`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{}' })).status, 415)
+  })
+
   await step('fresh defaults: no WHOOP, Strava, goals, notifications or AI, and nothing errors', async () => {
     const h = { headers: { cookie } }
     eq((await (await get(`${s.base}/api/whoop`, h)).json()).configured, false)
@@ -258,6 +274,7 @@ const cookieFrom = (res) => (res.headers.get('set-cookie') || '').split(';')[0]
   await step('BUSHIDO_AUTH=proxy: no login, no setup link, the API is open', async () => {
     ok(!/setup\?token=/.test(p.log()) && /sign-in is off/.test(p.log()), p.log())
     eq((await get(`${p.base}/api/state`)).status, 200)
+    eq((await get(`${p.base}/api/auth/session`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status, 409)
     eq((await get(`${p.base}/setup`)).headers.get('location'), '/')
     eq((await (await get(`${p.base}/api/auth/me`)).json()).via, 'proxy')
     const out = await get(`${p.base}/api/auth/logout`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
