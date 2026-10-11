@@ -1,0 +1,26 @@
+# EAS uploads the git root when it builds mobile/. This file replaces .gitignore
+# for that upload: only the app goes (and the two server modules it shares), with its gitignored app.local.json (the
+# install's bundle id and EAS project), and nothing of the server or its data.
+/*
+!/mobile
+# The two pure server modules the app imports (mobile/metro.config.js).
+!/server
+/server/*
+!/server/whoop.js
+!/server/strava.js
+
+/mobile/node_modules/
+/mobile/.expo/
+/mobile/dist/
+/mobile/web-build/
+/mobile/ios/
+/mobile/android/
+/mobile/expo-env.d.ts
+/mobile/.env*
+**/*.p8
+**/*.p12
+**/*.key
+**/*.pem
+**/*.jks
+**/*.mobileprovision
+**/.DS_Store

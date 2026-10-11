@@ -169,6 +169,7 @@ Signed out, `/api/*` answers `401` with `X-Bushido-Auth: login` and pages redire
 |---|---|
 | `GET /setup?token=` · `POST /setup` | first-run owner account, from the link the server prints |
 | `GET /login` · `POST /login` · `POST /logout` | sign in and out |
+| `POST /api/auth/session` | `{ username, password }` → `{ session, user }`: sign-in for the native app, which sends `session` as `Authorization: Bearer` |
 | `GET /settings` | the Settings page |
 | `GET /api/health` | liveness; with a session, also entry count, resolved paths and integration state |
 | `GET /api/auth/me` · `POST /api/auth/password` | who is signed in, whose log this is and what it offers; change the password |

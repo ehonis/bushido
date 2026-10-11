@@ -1,0 +1,52 @@
+{
+  "expo": {
+    "name": "Bushido",
+    "slug": "bushido-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "bushido",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0b0c0b",
+    "ios": {
+      "bundleIdentifier": "com.example.bushido",
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        },
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.example.bushido"
+    },
+    "web": {
+      "output": "single",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0b0c0b",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 120
+        }
+      ],
+      "expo-secure-store",
+      "expo-sqlite",
+      "expo-web-browser",
+      "expo-font",
+      "expo-asset"
+    ],
+    "experiments": {
+      "typedRoutes": false,
+      "reactCompiler": false
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    }
+  }
+}

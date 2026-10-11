@@ -1245,6 +1245,25 @@ async function authRoutes(req, res, url) {
     html(res, 200, pages.loginPage({ next: safeNext(url.searchParams.get('next')) }))
     return true
   }
+  /*
+   * Sign-in for the native app (mobile/): the same check as /login, answered as
+   * JSON with the session value instead of a cookie. The app keeps it in the
+   * keychain and sends it as `Authorization: Bearer`, which auth.check reads the
+   * same way it reads the cookie. Nothing about the browser's sign-in changes.
+   */
+  if (p === '/api/auth/session' && req.method === 'POST') {
+    if (auth.mode === 'proxy') { send(res, 409, { error: 'sign-in is handled by the proxy (BUSHIDO_AUTH=proxy)' }); return true }
+    if (!auth.hasOwner()) { send(res, 409, { error: 'this Bushido has no account yet: open the setup link from the server log in a browser first' }); return true }
+    let body
+    try { body = await readBody(req, 16 * 1024) } catch (err) { send(res, 400, { error: err.message }); return true }
+    try {
+      const session = await auth.login({ username: body?.username, password: body?.password, ip: clientIp(req) })
+      send(res, 200, { session, user: auth.owner() }, { 'Cache-Control': 'no-store' })
+    } catch (err) {
+      send(res, err.status || 401, { error: err.message })
+    }
+    return true
+  }
   if (p === '/logout' && req.method === 'POST') {
     if (auth.mode !== 'proxy' && auth.check(req).via === 'session') auth.revokeSessions()
     redirect(res, auth.mode === 'proxy' ? '/' : '/login', {

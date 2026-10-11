@@ -153,6 +153,17 @@ check('a bearer token works for machine callers; a short or wrong one does not',
   ok(!a.check(req({ authorization: 'Bearer ' })).ok, 'an empty token matched an empty secret')
 })
 
+check('a session sent as a bearer is read like the cookie, and revoked with it', async () => {
+  const a = createAuth({ dataDir: tmp() })
+  await a.createOwner({ token: a.ensureSetupToken(), username: 'me', password: 'correct horse' })
+  const value = await a.login({ username: 'me', password: 'correct horse' })
+  const got = a.check(req({ authorization: `Bearer ${value}` }))
+  ok(got.ok && got.via === 'session' && got.user.username === 'me', 'a bearer session was refused')
+  ok(!a.check(req({ authorization: `Bearer ${value.slice(0, -2)}xx` })).ok, 'a forged session got in')
+  a.revokeSessions()
+  ok(!a.check(req({ authorization: `Bearer ${value}` })).ok, 'a revoked session still works as a bearer')
+})
+
 check('proxy mode lets everything through and has no setup', async () => {
   const a = createAuth({ dataDir: tmp(), mode: 'proxy' })
   ok(a.mode === 'proxy')

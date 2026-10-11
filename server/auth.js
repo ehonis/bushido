@@ -16,6 +16,10 @@
  *                       secret is BUSHIDO_API_TOKEN and nothing else: the Totem
  *                       bridge secret is for Bushido calling Totem, and nothing
  *                       calls Bushido with it, so it is not a way in.
+ *                       The native app has no cookie jar it controls, so it signs
+ *                       in with POST /api/auth/session and sends the same signed
+ *                       session value as its bearer. It is checked exactly as the
+ *                       cookie is: same signature, same versions, same expiry.
  *   Session cookie      `bushido_session`, HMAC-signed, httpOnly, SameSite=Lax,
  *                       Secure behind https. Changing the password bumps a
  *                       version number in it, which signs every other device out.
@@ -294,6 +298,8 @@ function createAuth({ dataDir, mode = 'password', bearerSecrets = () => [] }) {
       const token = authz.slice(7).trim()
       const secrets = (bearerSecrets() || []).filter(s => typeof s === 'string' && s.length >= 16)
       if (token && secrets.some(s => safeEqual(token, s))) return { ok: true, via: 'bearer', user: null }
+      const session = readSession(token)
+      if (session) return { ok: true, via: 'session', user: session }
     }
     const user = readSession(cookieValue(req.headers.cookie, COOKIE))
     if (user) return { ok: true, via: 'session', user }
