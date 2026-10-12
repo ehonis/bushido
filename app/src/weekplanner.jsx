@@ -34,6 +34,9 @@ import {
 import { fromIso } from './lib/dates.js'
 import { achievements, unclaimed } from './lib/achievements.js'
 import { profileFacts } from './lib/profile.js'
+import { plannedQuotaFor } from './lib/trainer.js'
+import { putPersonEntry } from './lib/peopleapi.js'
+import { ForChoice, ForLine, usePersonLog } from './trainer.jsx'
 
 /** The quick asks. Content would be better; five is not yet enough to earn it. */
 const WEEK_PROMPTS = [
@@ -62,7 +65,42 @@ const weekLabel = (monday) =>
   `${fromIso(monday).toLocaleDateString([], { month: 'short', day: 'numeric' })} – ` +
   `${fromIso(weekDays(monday)[6]).toLocaleDateString([], { month: 'short', day: 'numeric' })}`
 
-export function WeekPlanFlow({ plan, entries = [], iso, upsertEntry, onClose, onPlan = null }) {
+/**
+ * The door. With `people` (`planPeople(me)`: the owner, on the owner's own log, with
+ * someone else on the install) it offers "For: You / Sam"; planning for Sam runs
+ * on Sam's log, plan and About you, and setting the week writes Sam's
+ * `quota-<monday>` through the people endpoint, marked as planned by the owner.
+ * The body is keyed by whose week it is, so nothing seeded from one person's log
+ * survives a switch to another's.
+ */
+export function WeekPlanFlow({ plan, entries = [], iso, upsertEntry, onClose, onPlan = null, people = [], owner = null }) {
+  const [target, setTarget] = useState(null)
+  const theirs = usePersonLog(target?.id || null)
+  const choice = <ForChoice people={people} target={target} onTarget={setTarget} />
+  if (target && !theirs.ready) {
+    return (
+      <FullScreen title="Plan the week" sub={target.name} icon="CalendarRange" onBack={onClose}>
+        {choice}
+        <p className="sub plan-for-wait">
+          {theirs.error ? `Could not open ${target.name}’s log: ${theirs.error}` : `Opening ${target.name}’s log…`}
+        </p>
+      </FullScreen>
+    )
+  }
+  return (
+    <WeekPlanBody key={target?.id || 'you'}
+      plan={target ? (theirs.plan || plan) : plan}
+      entries={target ? theirs.entries : entries}
+      iso={iso} upsertEntry={upsertEntry} onClose={onClose}
+      onPlan={target ? null : onPlan}
+      forPerson={target} forChoice={choice} people={people} owner={owner} />
+  )
+}
+
+function WeekPlanBody({
+  plan, entries = [], iso, upsertEntry, onClose, onPlan = null,
+  forPerson = null, forChoice = null, people = [], owner = null,
+}) {
   const [monday, setMonday] = useState(() => defaultMonday(iso))
   const thisMonday = mondayOf(iso)
   const isCurrent = monday === thisMonday
@@ -129,6 +167,7 @@ export function WeekPlanFlow({ plan, entries = [], iso, upsertEntry, onClose, on
         monday, counts: draft, message: said, thread,
         context: weekContext({ week, monday, iso, plan, entries }),
         signal: ctrl.signal,
+        forId: forPerson?.id || null,
       })
       setBefore(draft)
       setDraft(res.counts || {})
@@ -151,14 +190,36 @@ export function WeekPlanFlow({ plan, entries = [], iso, upsertEntry, onClose, on
     }
   }
 
-  /** The one write. Same builder, same entry id, as the Week tab's steppers. */
-  const keep = () => {
-    upsertEntry(buildQuotaEntry(monday, draft, {
+  /**
+   * The one write. Same builder, same entry id, as the Week tab's steppers. For
+   * someone else it is THEIR `quota-<monday>`, through the people endpoint and
+   * marked `plannedBy`; a week they set themselves is refused there (409), and
+   * says so here rather than being overwritten.
+   */
+  const [saving, setSaving] = useState(false)
+  const keep = async () => {
+    const extra = {
       ...(thread.length ? { thread } : {}),
       ...(why ? { why } : {}),
       ...(title ? { title } : {}),
       ...(model ? { model } : {}),
-    }))
+    }
+    if (forPerson) {
+      setSaving(true)
+      setError(null)
+      try {
+        await putPersonEntry(forPerson.id, plannedQuotaFor(monday, draft, extra, owner))
+        setStep('set')
+      } catch (e) {
+        setError(e.code === 'not-shared'
+          ? `${forPerson.name} already set this week, so it was left as ${forPerson.name} has it`
+          : `Not set for ${forPerson.name}: ${e.message}`)
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
+    upsertEntry(buildQuotaEntry(monday, draft, extra))
     setStep('set')
   }
 
@@ -193,13 +254,15 @@ export function WeekPlanFlow({ plan, entries = [], iso, upsertEntry, onClose, on
 
   if (step === 'set') {
     return (
-      <FullScreen title="Week is set" sub={weekLabel(monday)} icon="CalendarRange" onBack={onClose}>
+      <FullScreen title={forPerson ? `${forPerson.name}’s week is set` : 'Week is set'} sub={weekLabel(monday)} icon="CalendarRange" onBack={onClose}>
         <div className="kept">
           <span className="kept-ico"><Icon name="CircleCheck" size={44} /></span>
           <h2>{title || 'The week is set'}</h2>
           <p className="sub">
-            {total} workout{total === 1 ? '' : 's'} asked for, {weekLabel(monday)}. Nothing is on a day
-            yet — the bars on Today fill as you log, and the Week tab is where these live now.
+            {forPerson
+              ? `${total} workout${total === 1 ? '' : 's'} asked for, ${weekLabel(monday)}, on ${forPerson.name}’s Week tab as planned by you. ${forPerson.name} can change any of it.`
+              : <>{total} workout{total === 1 ? '' : 's'} asked for, {weekLabel(monday)}. Nothing is on a day
+            yet — the bars on Today fill as you log, and the Week tab is where these live now.</>}
           </p>
           <div className="kept-acts">
             {onPlan && (
@@ -218,6 +281,8 @@ export function WeekPlanFlow({ plan, entries = [], iso, upsertEntry, onClose, on
 
   return (
     <FullScreen title="Plan the week" sub={weekLabel(monday)} icon="CalendarRange" onBack={onClose}>
+      {forChoice}
+      <ForLine person={forPerson} people={people} />
       <div className="wk-weeks" role="tablist">
         <button role="tab" className={`wk-week ${isCurrent ? 'on' : ''}`} aria-selected={isCurrent}
           onClick={() => changeWeek(thisMonday)}>
@@ -329,7 +394,7 @@ export function WeekPlanFlow({ plan, entries = [], iso, upsertEntry, onClose, on
 
       <div className="plan-actions sticky">
         <button className="btn ghost" onClick={onClose}>Close</button>
-        <button className="btn big" onClick={keep} disabled={!total && !dirty}>
+        <button className="btn big" onClick={keep} disabled={saving || (!total && !dirty)}>
           <Icon name="CalendarRange" size={17} />{' '}
           {existing ? 'Update the week' : 'Set the week'} · {total}
         </button>

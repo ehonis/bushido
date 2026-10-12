@@ -21,6 +21,7 @@
  * why every absolute path here is written with `//`.
  */
 
+const fs = require('fs')
 const os = require('os')
 const path = require('path')
 
@@ -90,27 +91,87 @@ function denyReads({ repoRoot, dataDir }) {
   ]
 }
 
+/*
+ * SOMEONE ELSE'S RUN. Every person on an install gets the coach and the planners,
+ * and a run for anyone but the owner must not be able to read the owner's log,
+ * coach threads, coach note, caches or plan, nor another person's space. The
+ * owner's space is the data dir itself and theirs sits inside it
+ * (`data/users/<id>/`), and the run's cwd is the repo, which usually contains
+ * the data dir, so "do not --add-dir it" is not enough: it is denied by rule.
+ *
+ * Deny beats allow and a deny on the data dir as a whole would also cover their
+ * own space, so the rules are enumerated instead: every name directly in the
+ * data dir except `users/` (read when the run is spawned, plus the owner's file
+ * names whether or not they exist yet), and every other person's folder. The
+ * owner's own sources (the brain file and its notebook, the food-log digest)
+ * are denied by path too, so a model that guesses where they live still cannot
+ * read them. Claude Code applies Read rules to Grep and Glob as well.
+ */
+const OWNER_FILES = ['state.json*', 'coach.json*', 'plan.json*', 'whoop.json*', 'strava.json*', 'goals.json*',
+  'users.json*', 'about.json*']
+const OWNER_DIRS = ['coach', 'backups', 'users']
+
+function denyOthersReads({ repoRoot, dataDir, person, ownerSources = [], home = os.homedir() }) {
+  if (!person?.dir) return []
+  const mine = path.resolve(person.dir)
+  const dirs = [...new Set([path.join(repoRoot, 'data'), dataDir].filter(Boolean).map(d => path.resolve(d)))]
+  const rules = []
+  const both = (p) => { rules.push(`Read(${rulePath(p)})`, `Read(${rulePath(p)}/**)`) }
+  const list = (d) => { try { return fs.readdirSync(d) } catch { return [] } }
+  for (const d of dirs) {
+    rules.push(...OWNER_FILES.map(f => `Read(${rulePath(d)}/${f})`))
+    rules.push(...OWNER_DIRS.filter(x => x !== 'users').map(x => `Read(${rulePath(d)}/${x}/**)`))
+    for (const name of list(d)) if (name !== 'users') both(path.join(d, name))
+    for (const id of list(path.join(d, 'users'))) {
+      const theirs = path.resolve(d, 'users', id)
+      if (theirs !== mine) both(theirs)
+    }
+  }
+  for (const src of ownerSources.filter(Boolean)) {
+    const p = path.resolve(src)
+    // A source too broad to deny as a tree (a brain file's directory that is $HOME,
+    // or one containing their space or the repo) would deny what they need with it,
+    // so only the path itself is denied. A file is a path either way.
+    const isFile = (() => { try { return fs.statSync(p).isFile() } catch { return false } })()
+    if (isFile || tooBroad(p, home) || contains(p, mine) || contains(p, repoRoot)) {
+      rules.push(`Read(${rulePath(p)})`)
+      continue
+    }
+    both(p)
+  }
+  return [...new Set(rules)]
+}
+
 /**
  * Which extra directories a run may see, and whether the brain directory may be
  * written. Anything refused is returned with the reason, for the server's log.
+ *
+ * `person` ({ dir }) marks a run for someone other than the owner: no brain, no
+ * food log, no Write anywhere, and their own space is the only part of the data
+ * dir passed with --add-dir.
  */
-function scope({ repoRoot, dataDir, brainFile, krakatoaDir, planFile, home = os.homedir() }) {
+function scope({ repoRoot, dataDir, brainFile, krakatoaDir, planFile, person = null, home = os.homedir() }) {
   const refused = []
   const ok = (dir, why) => {
     if (!dir) return null
     if (tooBroad(dir, home)) { refused.push(`${why} ${dir}: the root, the home directory or an ancestor of it`); return null }
     return path.resolve(dir)
   }
+  if (person) { brainFile = null; krakatoaDir = null }
   let brainDir = brainFile ? ok(path.dirname(brainFile), 'brain directory') : null
   let writeDir = brainDir
   if (writeDir && [repoRoot, dataDir].filter(Boolean).some(d => contains(writeDir, d))) {
     refused.push(`write access to ${writeDir}: it contains the repo or the data directory`)
     writeDir = null
   }
-  const reads = [brainDir, ok(krakatoaDir, 'food-log directory'), planFile && ok(path.dirname(planFile), 'plan directory'),
-    dataDir && path.resolve(dataDir) !== path.resolve(repoRoot, 'data') ? ok(dataDir, 'data directory') : null]
+  const ownData = person
+    ? ok(person.dir, 'their space')
+    : dataDir && path.resolve(dataDir) !== path.resolve(repoRoot, 'data') ? ok(dataDir, 'data directory') : null
+  const reads = [brainDir, ok(krakatoaDir, 'food-log directory'), planFile && ok(path.dirname(planFile), 'plan directory'), ownData]
     .filter(Boolean)
     .filter(d => !contains(repoRoot, d))
+    // Their plan sits in their own space; the plan directory must not widen it to the whole data dir.
+    .filter(d => !person || contains(person.dir, d) || !contains(dataDir || path.join(repoRoot, 'data'), d))
   return { reads: [...new Set(reads)], writeDir, refused }
 }
 
@@ -137,7 +198,7 @@ function coachFlags(o) {
       '--allowedTools',
       ['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch', ...(writeDir ? [`Edit(${rulePath(writeDir)}/**)`] : [])].join(','),
       '--disallowedTools',
-      ['Bash', 'NotebookEdit', 'Task', ...(writeDir ? [] : ['Edit', 'Write']), ...denyReads(o), ...denyWrites(o)].join(','),
+      ['Bash', 'NotebookEdit', 'Task', ...(writeDir ? [] : ['Edit', 'Write']), ...denyReads(o), ...denyOthersReads(o), ...denyWrites(o)].join(','),
     ],
   }
 }
@@ -151,9 +212,9 @@ function plannerFlags(o) {
       ...ISOLATION,
       ...reads.flatMap(d => ['--add-dir', d]),
       '--allowedTools', ['Read', 'Grep', 'Glob'].join(','),
-      '--disallowedTools', ['Bash', 'Edit', 'Write', 'NotebookEdit', 'Task', 'WebSearch', 'WebFetch', ...denyReads(o), ...denyWrites(o)].join(','),
+      '--disallowedTools', ['Bash', 'Edit', 'Write', 'NotebookEdit', 'Task', 'WebSearch', 'WebFetch', ...denyReads(o), ...denyOthersReads(o), ...denyWrites(o)].join(','),
     ],
   }
 }
 
-module.exports = { coachFlags, plannerFlags, tooBroad, denyReads, denyWrites, ISOLATION, DATA_SECRETS }
+module.exports = { coachFlags, plannerFlags, tooBroad, denyReads, denyWrites, denyOthersReads, ISOLATION, DATA_SECRETS }

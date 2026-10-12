@@ -38,11 +38,15 @@ export function plannerContext({ readiness = null, week = null, iso = null }) {
  * here has to be showable on a card, and "HTTP 503" is not a thing to read while
  * standing in gym shorts.
  */
-export async function requestWorkout({ kinds, minutes, goal, context, signal }) {
+/*
+ * `forId`: the owner planning for someone else on the install (lib/trainer.js).
+ * The server runs on THEIR log, plan and About you; nothing else changes.
+ */
+export async function requestWorkout({ kinds, minutes, goal, context, signal, forId = null }) {
   const r = await fetch('/api/plan/workout', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ kinds, minutes, goal, context }),
+    body: JSON.stringify({ kinds, minutes, goal, context, ...(forId ? { for: forId } : {}) }),
     signal,
   })
   const body = await r.json().catch(() => ({}))
@@ -108,11 +112,11 @@ export function weekContext({ week = null, monday = null, iso = null, plan = nul
  * what it says. Nothing is written until the user taps "Set the week" — see
  * weekplanner.jsx.
  */
-export async function requestWeek({ monday, counts, message, thread = [], context, signal }) {
+export async function requestWeek({ monday, counts, message, thread = [], context, signal, forId = null }) {
   const r = await fetch('/api/plan/week', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ monday, counts, message, thread, context }),
+    body: JSON.stringify({ monday, counts, message, thread, context, ...(forId ? { for: forId } : {}) }),
     signal,
   })
   const body = await r.json().catch(() => ({}))
@@ -128,11 +132,11 @@ export async function requestWeek({ monday, counts, message, thread = [], contex
  * server/planner.js for why. The thread is sent so a third message can refer to
  * the second ("no, the other one"), and trimmed server-side.
  */
-export async function reviseWorkout({ plan, message, thread = [], signal }) {
+export async function reviseWorkout({ plan, message, thread = [], signal, forId = null }) {
   const r = await fetch('/api/plan/revise', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ plan, message, thread }),
+    body: JSON.stringify({ plan, message, thread, ...(forId ? { for: forId } : {}) }),
     signal,
   })
   const body = await r.json().catch(() => ({}))

@@ -24,6 +24,8 @@ import { LogTab } from './src/log.jsx'
 import { GearSection } from './src/gear.jsx'
 import { ProfileMenu, PeopleCard } from './src/profile.jsx'
 import { TheirSide } from './src/sharedwith.jsx'
+import { SidesWorkout, PeopleDays, PersonDay, MyAbout, ForChoice } from './src/trainer.jsx'
+import { planPeople } from './src/lib/trainer.js'
 import { AchievementsTab } from './src/achievements.jsx'
 import { TotemGoals } from './src/goals.jsx'
 import { PlanProvider } from './src/lib/planctx.jsx'
@@ -2813,6 +2815,122 @@ const cases = [
           const t = text(renderToString(<TodayTab plan={plan} entries={[sharedEntry]} upsertEntry={noop} />))
           if (!/with Sam/.test(t)) throw new Error('the day row does not say who it was with')
         } finally { _setMe({}) }
+      }],
+    ]
+  })(),
+  /*
+   * THE OWNER AS TRAINER (trainer.jsx, lib/trainer.js). "For: You / Sam", the side
+   * switcher in a workout and "Sam's day" are the owner's, on the owner's own log, with
+   * someone else on the install. Each absence is pinned: a control that leaked
+   * into someone else's app, an act-as session or a one-person install would
+   * pass every presence test.
+   */
+  ...(() => {
+    const people = [{ id: 'owner', name: 'Alex' }, { id: 'sam', name: 'Sam' }]
+    const ownerMe = { id: 'owner', name: 'Alex', acting: false, owner: true, real: { id: 'owner', name: 'Alex', admin: true }, people,
+      features: { ai: true, whoop: false, strava: false, goals: false, notifications: false } }
+    const alone = { ...ownerMe, people: [people[0]] }
+    const acting = { ...ownerMe, id: 'sam', name: 'Sam', owner: false, acting: true }
+    const sam = { id: 'sam', name: 'Sam', acting: false, owner: false, real: { id: 'sam', name: 'Sam', admin: false }, people: [],
+      features: { ai: true, whoop: false, strava: false, goals: false, notifications: false } }
+    const FOR = /aria-label="Who this is for"/
+    const flow = (me) => renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop}
+      people={planPeople(me)} onKeepFor={async () => ({ ids: [], count: 0, first: null })} />)
+    const week = (me) => renderToString(<WeekPlanFlow plan={plan} entries={[]} iso={TODAY} upsertEntry={noop} onClose={noop}
+      people={planPeople(me)} owner={{ id: 'owner', name: 'Alex' }} />)
+    const plannedForSam = { ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, plannedBy: { id: 'owner', name: 'Alex' } } }
+    const sharedPlanned = { ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, sharedWith: [{ id: 'sam', entryId: PLANNED_ENTRY.id }] } }
+    const timed = plan.dailyMenu.find(o => hasWorkout(o) && buildSteps(o, {}).length)
+    return [
+      ['tabsFor(someone else gets Coach once AI is configured; Goals stays the owner\'s)', null, () => {
+        const hers = tabsFor({ ai: true, goals: false }, false).map(t => t.id)
+        if (!hers.includes('coach')) throw new Error('no Coach tab for someone else with AI configured')
+        if (hers.includes('goals')) throw new Error('the owner\'s linked goals reached someone else')
+      }],
+      ['PlanFlow("For: You / Sam" only for the owner, with someone else on the install, not while acting)', null, () => {
+        const html = flow(ownerMe)
+        if (!FOR.test(html)) throw new Error('the owner cannot plan for Sam')
+        const t = text(html)
+        if (!/For/.test(t) || !/You/.test(t) || !/Sam/.test(t)) throw new Error('the choice does not name both')
+        if (/>Alex</.test(html)) throw new Error('the owner is offered as someone to plan for')
+        if (FOR.test(flow(alone))) throw new Error('"For:" on a one-person install')
+        if (FOR.test(flow(acting))) throw new Error('"For:" while acting as someone')
+        if (FOR.test(flow(sam))) throw new Error('"For:" for someone who is not the owner')
+        // And never without somewhere to keep it.
+        if (FOR.test(renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} people={planPeople(ownerMe)} />))) {
+          throw new Error('"For:" with no way to keep it in their log')
+        }
+      }],
+      ['WeekPlanFlow("For: You / Sam" only for the owner, with someone else on the install, not while acting)', null, () => {
+        if (!FOR.test(week(ownerMe))) throw new Error('the owner cannot plan Sam\'s week')
+        if (FOR.test(week(alone))) throw new Error('"For:" on a one-person install')
+        if (FOR.test(week(acting))) throw new Error('"For:" while acting as someone')
+        if (FOR.test(week(sam))) throw new Error('"For:" for someone who is not the owner')
+      }],
+      ['ForChoice(nothing with nobody to choose)', null, () => {
+        if (renderToString(<ForChoice people={[]} target={null} onTarget={noop} />) !== '') throw new Error('a choice of one')
+      }],
+      ['SidesWorkout(runner: both names in the switcher, whose side in the header, in their colour)', null, () => {
+        const sides = [{ id: null, name: 'You', entryId: PLANNED_ENTRY.id, tone: 0 }, { id: 'sam', name: 'Sam', entryId: PLANNED_ENTRY.id, tone: 1 }]
+        const html = renderToString(<PlanProvider plan={plan}>
+          <SidesWorkout kind="runner" session={PLANNED_CARD} sides={sides} ownerEntry={sharedPlanned} entries={rich}
+            onOwnerRun={noop} onExit={noop} />
+        </PlanProvider>)
+        if (!/aria-label="Whose side of the workout is showing"/.test(html)) throw new Error('no switcher in a shared workout')
+        if (!/class="side-who" data-tone="0">You</.test(html)) throw new Error('the header does not say it is your side')
+        if (!/role="tab" aria-selected="false" class="" data-tone="1"/.test(html)) throw new Error('Sam\'s side is not in the switcher, in Sam\'s colour')
+        // Sam's side is mounted behind yours, hidden, so its own clock keeps running.
+        if (!/aria-hidden="true"/.test(html)) throw new Error('the other side is not kept mounted')
+      }],
+      ['SidesWorkout(workout mode too)', null, () => {
+        if (!timed) throw new Error('no timed card in the fixture to run')
+        const entry = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, data: { optId: timed.id, done: false, out: {}, sharedWith: [{ id: 'sam', entryId: `daily-${TODAY}` }] } }
+        const sides = [{ id: null, name: 'You', entryId: entry.id, tone: 0 }, { id: 'sam', name: 'Sam', entryId: entry.id, tone: 1 }]
+        const html = renderToString(<SidesWorkout kind="mode" session={timed} sides={sides} ownerEntry={entry} onOwnerSave={noop} onOwnerDone={noop} onExit={noop} />)
+        if (!/sideswitch/.test(html) || !/class="side-who" data-tone="0">You</.test(html)) throw new Error('workout mode has no sides')
+      }],
+      ['WorkoutRunner(no switcher and no name on a workout nobody shares)', null, () => {
+        const html = renderToString(<PlanProvider plan={plan}><WorkoutRunner session={PLANNED_CARD} entry={PLANNED_ENTRY} entries={rich} onRun={noop} onExit={noop} /></PlanProvider>)
+        if (/sideswitch|side-who/.test(html)) throw new Error('a person switch on a workout nobody shares')
+      }],
+      ['TodayTab("Sam\'s day" for the owner; nothing with one person, while acting, or for anyone else)', null, () => {
+        const today = (me) => { _setMe(me); try { return renderToString(<TodayTab plan={plan} entries={[]} upsertEntry={noop} />) } finally { _setMe({}) } }
+        if (!/Sam’s day/.test(text(today(ownerMe)))) throw new Error('no way to see Sam\'s day')
+        for (const [who, me] of [['one person', alone], ['acting', acting], ['someone else', sam]]) {
+          if (/peopledays/.test(today(me))) throw new Error(`"Sam's day" with ${who}`)
+        }
+      }],
+      ['TodayTab + LogTab(a session the owner planned says so, quietly, on Sam\'s own log)', null, () => {
+        _setMe(sam)
+        try {
+          if (!/planned by Alex/.test(text(renderToString(<TodayTab plan={plan} entries={[plannedForSam]} upsertEntry={noop} />)))) {
+            throw new Error('Today does not say who planned it')
+          }
+          const done = { ...plannedForSam, data: { ...plannedForSam.data, done: true } }
+          if (!/planned by Alex/.test(text(renderToString(<LogTab plan={plan} entries={[done]} upsertEntry={noop} deleteEntry={noop} />)))) {
+            throw new Error('the feed does not say who planned it')
+          }
+          if (/planned by/.test(text(renderToString(<TodayTab plan={plan} entries={[PLANNED_ENTRY]} upsertEntry={noop} />)))) {
+            throw new Error('"planned by" on a session nobody else planned')
+          }
+        } finally { _setMe({}) }
+      }],
+      ['SessionSheet(a planned session names who planned it)', null, () => {
+        const html = renderToString(<PlanProvider plan={plan}><SessionSheet opt={PLANNED_CARD} entry={plannedForSam} tone="rec" entries={[plannedForSam]}
+          isFuture={false} me={sam} onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop} onSaveEntry={noop} /></PlanProvider>)
+        if (!/planned by Alex/.test(text(html))) throw new Error('the sheet does not say who planned it')
+      }],
+      ['PersonDay(Sam\'s week, read from Sam\'s log, with About Sam)', null, () => {
+        const t = text(renderToString(<PersonDay person={{ id: 'sam', name: 'Sam', tone: 1 }} date={TODAY} plan={plan} onClose={noop} />))
+        if (!/Sam’s week/.test(t)) throw new Error('the view does not say whose week it is')
+        if (!/About Sam/.test(t)) throw new Error('no way to edit Sam\'s About you')
+      }],
+      ['MyAbout(About you in the app for anyone but the owner, whose is in Settings)', null, () => {
+        if (!/About you/.test(text(renderToString(<MyAbout me={sam} />)))) throw new Error('Sam cannot edit Sam\'s About you')
+        if (renderToString(<MyAbout me={ownerMe} />) !== '') throw new Error('a second About you for the owner')
+      }],
+      ['PeopleDays(nothing with nobody)', null, () => {
+        if (renderToString(<PeopleDays people={[]} date={TODAY} plan={plan} />) !== '') throw new Error('an empty row')
       }],
     ]
   })(),

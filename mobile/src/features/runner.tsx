@@ -63,6 +63,7 @@ import { Stepper, STEP } from './exercises'
 import { ExerciseBody, musclesOf, muscleWords } from '../lib/bodymap'
 import { liftFieldOf } from './planner'
 import { usePlan } from '../lib/planctx.jsx'
+import { SideRule, SideWho } from '../ui/Person'
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).padStart(2, '0')}`
 
@@ -79,12 +80,26 @@ const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).pa
  * else — recomputing the lifts, the load level and the minutes on every tick
  * would be work for no change to any of them.
  */
-export function WorkoutRunner({ session, entry, entries = [], onRun, onExit }: {
+/*
+ * `who`, `switcher`, `shown`, `embedded`: a workout run from more than one
+ * person's side (trainer.tsx `SidesWorkout`). Each side is its own runner over
+ * that person's own entry with its own `onRun`, so there is still ONE writer per
+ * entry. `who` ({ name, tone }) names whose side this is in the header, in their
+ * colour; a side that is not `shown` keeps its clock but rings nothing.
+ * Native: `embedded` drops this component's own full-screen modal, because
+ * SidesWorkout presents ONE modal for every side (iOS presents one at a time).
+ */
+export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onFinish = null, who = null, switcher = null, shown = true, embedded = false }: {
   session?: any
   entry: any
   entries?: any[]
   onRun: (run: any, opts: any) => void
   onExit: () => void
+  onFinish?: (() => void) | null
+  who?: { name: string; tone?: number } | null
+  switcher?: React.ReactNode
+  shown?: boolean
+  embedded?: boolean
 }) {
   void session
   const insets = useSafeAreaInsets()
@@ -150,8 +165,8 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit }: {
     if (!run?.restUntil || rest > 0) return
     if (rangAt.current === run.restUntil) return
     rangAt.current = run.restUntil
-    if (!muted && Date.now() - run.restUntil < 5000) CUES.work()
-  }, [rest, run?.restUntil, muted])
+    if (shown && !muted && Date.now() - run.restUntil < 5000) CUES.work()
+  }, [rest, run?.restUntil, muted, shown])
 
   /* ------------------------------------------------------------- the draft */
 
@@ -227,7 +242,8 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit }: {
     // above — `onSetDone` used to be a second call and would have taken the run
     // with it.
     commit((finishRun as any)(run || emptyRun()), { outputs: true, done: true })
-    onExit()
+    // With more than one side, finishing one hands over to the next (SidesWorkout).
+    ;(onFinish || onExit)()
   }
 
   const askExit = () => {
@@ -244,7 +260,9 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit }: {
     )
   }
 
-  const frame = (body: React.ReactNode) => (
+  const frame = (body: React.ReactNode) => embedded ? (
+    <View style={[st.run, { paddingBottom: insets.bottom }]}>{body}</View>
+  ) : (
     <RNModal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={askExit}>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <View style={[st.run, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>{body}</View>
@@ -255,6 +273,7 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit }: {
   if (!pres || !steps.length) {
     return frame(
       <View style={st.empty}>
+        {switcher}
         <T size={15} align="center">This session has no plan on it.</T>
         <Btn title="Back" onPress={onExit} />
       </View>,
@@ -265,11 +284,13 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit }: {
 
   return frame(
     <>
+      <SideRule who={who} />
       <View style={st.head}>
         <Press haptic onPress={askExit} style={st.headBtn} accessibilityRole="button" accessibilityLabel="Leave the workout">
           <Icon name="ChevronDown" size={22} color={colors.inkDim} />
         </Press>
         <View style={{ flex: 1, minWidth: 0 }}>
+          <SideWho who={who} />
           <T size={15} weight={600} numberOfLines={1}>{pres.title}</T>
           <T size={11.5} faint tabular>{`${progress.done} of ${progress.total} sets`}</T>
         </View>
@@ -279,6 +300,8 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit }: {
         </Press>
         <T size={15} dim tabular style={{ paddingRight: 6 }}>{mmss(elapsed)}</T>
       </View>
+
+      {switcher}
 
       <View style={st.bar} accessibilityRole="progressbar"
         accessibilityValue={{ min: 0, max: progress.total, now: progress.done }}>

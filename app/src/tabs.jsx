@@ -38,9 +38,11 @@ import { UnloggedWorkouts } from './unlogged.jsx'
 import { achievements, unclaimed } from './lib/achievements.js'
 import { profileFacts } from './lib/profile.js'
 import { currentMe } from './lib/whoami.js'
+import { applyOut, applyRun, workoutSides, planPeople, plannedLine } from './lib/trainer.js'
 import { sharePeople, sharedPeopleOn, withLine, addPerson, removePerson, withSharedPerson } from './lib/shared.js'
 import * as peopleApi from './lib/peopleapi.js'
 import { WithControl, PersonSwitch, SharedNote, TheirSide, usePersonCopy } from './sharedwith.jsx'
+import { SidesWorkout, PeopleDays } from './trainer.jsx'
 
 import { WhoopReadiness, WhoopSleep } from './whoop.jsx'
 
@@ -264,18 +266,12 @@ export function TodayTab({
   // accidental limit session are the same card and very different days.
   const saveOutputs = (entry, out) => {
     const opt = optFor(menu, entry.data?.optId)
-    upsertEntry({ ...entry, data: {
-      ...entry.data, out,
-      level: levelFor(opt, out),
-      // A PLANNED session is named by its plan. Everything else names itself off
-      // the card or off what the user picked, exactly as before — but "Legs" must not
-      // become "Lift" the first time the user touches the effort slider.
-      name: titleFor(opt, out, entry.data?.plan),
-      // `resolveMinutes` rather than `minutesFor`: saving any output recomputes
-      // this, and a correction made before `out.minutesSpent` existed lives on
-      // the entry itself. See lib/minutes.js.
-      minutes: resolveMinutes(entry.data, opt, out),
-    } })
+    // `applyOut` (lib/trainer.js), shared with someone else's side of a workout:
+    // the level the out implies, the name (a PLANNED session is named by its plan,
+    // so "Legs" does not become "Lift" the first time the effort slider moves),
+    // and `resolveMinutes`, which keeps a correction made before
+    // `out.minutesSpent` existed. See lib/minutes.js.
+    upsertEntry(applyOut(entry, opt, out))
     // A session that IS a test writes its result too, so the Testing tab's
     // series comes from the session you actually did rather than from typing
     // the same numbers in twice. See lib/tests.js.
@@ -299,19 +295,11 @@ export function TodayTab({
    * recomputing `out.lifts`, the load level and the minutes sixty times a session
    * would be work for no change to any of them.
    */
-  const saveRun = (entry, run, { out = null, done = undefined, plan = null } = {}) => {
-    const opt = optFor(menu, entry.data?.optId)
-    const data = { ...entry.data, run }
+  const saveRun = (entry, run, opts = {}) => {
     // The runner adding a set to the plan goes through HERE and not `savePlan`,
-    // for the reason in the paragraph above: one tap, one writer.
-    if (plan) { data.plan = plan; data.name = titleFor(opt, data.out || {}, plan) }
-    if (out) {
-      data.out = out
-      data.level = levelFor(opt, out)
-      data.minutes = resolveMinutes(entry.data, opt, out)
-    }
-    if (done !== undefined) data.done = done
-    upsertEntry({ ...entry, data })
+    // for the reason in the paragraph above: one tap, one writer. `applyRun`
+    // (lib/trainer.js) is the same write someone else's side of the runner makes.
+    upsertEntry(applyRun(entry, optFor(menu, entry.data?.optId), run, opts))
   }
 
   /** Editing the prescription itself — from the sheet, after it has landed. */
@@ -344,6 +332,10 @@ export function TodayTab({
             openAs={openFromWeek ? 'sheet' : 'auto'}
             onOpened={() => { onOpened(); setOpenFromWeek(null) }}
             onPlan={onPlan} onLog={onLog} onPickSession={onPickSession} onRest={onRest} />
+
+          {/* The owner's window onto someone else's days, to coach without acting
+              as them. Nothing for anyone else, while acting, or with one person. */}
+          <PeopleDays people={planPeople(currentMe())} date={iso} plan={plan} />
         </div>
 
         <aside className="col-side">
@@ -519,6 +511,7 @@ function DayList({ rows, onOpen, onPlan, onLog, onPickSession, onRest = null, is
                       .filter(Boolean).join(' · ')}
                   </span>
                   {r.with && <span className="dl-with"><Icon name="Users" size={11} /> {r.with}</span>}
+                  {r.by && <span className="dl-with"><Icon name="ClipboardCheck" size={11} /> {r.by}</span>}
                 </span>
                 <span className="dl-tag">{r.tag}</span>
                 <span className={`dl-check ${r.done ? 'on' : ''}`}>
@@ -723,6 +716,10 @@ export function SessionSheet({
       {/* Everyone else sees, quietly, who it was done with (their own copy names the
           owner; an owner acting as someone sees what that person would). */}
       {!people.length && planned && <SharedNote entry={entry} people={me.people} />}
+      {/* "planned by Alex": quiet, like who it was done with. The entry is theirs now. */}
+      {planned && !sidePerson && plannedLine(entry, me) && (
+        <p className="sharednote"><Icon name="ClipboardCheck" size={12} /> {plannedLine(entry, me)}</p>
+      )}
 
       {sidePerson ? (
         <TheirSide session={opt} copy={theirs.entry} loading={theirs.loading} error={theirs.error}
@@ -979,6 +976,8 @@ function DaySessions({
     done: isDone(entry),
     // Who else was on it, if anyone: "with Sam". See lib/shared.js.
     with: withLine(entry, currentMe().people),
+    // A session the owner planned for this person: "planned by Alex". lib/trainer.js.
+    by: plannedLine(entry, currentMe()),
     // A session in progress says where it is rather than what it added up to —
     // "6 of 16 sets" is the only fact the user wants off that row.
     stats: isRunning(entry) ? [runLine(entry)].filter(Boolean) : sessionStats(entry, opt),
@@ -1045,6 +1044,29 @@ function DaySessions({
    * session that happens to be based on one, and the plan is the thing the user is
    * following.
    */
+  /*
+   * A SHARED workout runs from every side it has (trainer.jsx): the owner flips
+   * between the owner's own entry and each other person's copy, each with its own sets,
+   * weights, rest clock, done state and writer. Anyone else, and any workout
+   * nobody shares, gets exactly the screen it always did.
+   */
+  const sides = training?.entry ? workoutSides(training.entry, currentMe()) : []
+  if (sides.length > 1 && training.entry.data?.plan && runnable(null, training.entry.data.plan)) {
+    return (
+      <SidesWorkout kind="runner" session={training.opt} sides={sides} ownerEntry={training.entry} entries={entries}
+        onOwnerRun={(run, opts) => onSaveRun(training.entry, run, opts)}
+        onExit={() => setWorkout(null)} />
+    )
+  }
+  if (sides.length > 1 && !training.entry.data?.plan && hasWorkout(training.opt)) {
+    return (
+      <SidesWorkout kind="mode" session={training.opt} sides={sides} ownerEntry={training.entry}
+        onOwnerSave={(out) => onSaveOutputs(training.entry, out)}
+        onOwnerDone={(v) => onSetDone(training.entry, v)}
+        onExit={() => setWorkout(null)} />
+    )
+  }
+
   if (training?.entry?.data?.plan && runnable(null, training.entry.data.plan)) {
     return (
       <WorkoutRunner

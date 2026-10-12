@@ -166,8 +166,8 @@ function categoryList(plan) {
   return `QUOTA CATEGORIES — \`category\` must be one of these keys:\n${cats}\n`
 }
 
-function systemPrompt({ repoRoot, dataDir, brainFile, today, plan, name, notes }) {
-  const data = dataDir || `${repoRoot}/data`
+function systemPrompt({ repoRoot, dataDir, logDir, brainFile, today, plan, name, notes, measurements = true }) {
+  const data = logDir || dataDir || `${repoRoot}/data`
   const N = who(name)
   const Cap = N[0].toUpperCase() + N.slice(1)
   return `You write ONE workout for ${N}, inside Bushido, a self-hosted training app.
@@ -187,10 +187,10 @@ In rough order of value:
 ${brainFile ? `- ${brainFile} — the athlete profile: ability, diagnosed weaknesses, injury
   history, the gear actually owned, and the training rules that are stricter
   than the literature. Read it before you prescribe anything loaded.
-` : ''}- ${data}/whoop.json — last night's recovery, HRV, sleep and strain.
+` : ''}${measurements ? `- ${data}/whoop.json — last night's recovery, HRV, sleep and strain.
   A red recovery is a reason to cut volume, and you should say so in \`why\`.
 - ${data}/strava.json — recent rides and runs, if the session is one.
-
+` : ''}
 If a tool call is not going to change what you write, do not make it. ${Cap} is
 standing in gym clothes waiting.
 
@@ -226,10 +226,11 @@ should be easy. Write a hard one only when the kind they picked IS hard (tempo,
 threshold, VO2, hills, intervals) or when they ask for it, and even then keep the
 warm-up and cool-down honest and easy.
 
-- ZONES ARE THE ATHLETE'S, NOT A TABLE'S. Their max heart rate is in
+- ZONES ARE THE ATHLETE'S, NOT A TABLE'S. ${measurements ? `Their max heart rate is in
   ${data}/whoop.json (\`maxHeartRate\`), and what they ACTUALLY held on recent
   rides and runs — heart rate, power, speed — is in ${data}/strava.json and
-  on the log entries (\`out.whoop\`, \`out.strava\`). Zone 2 is roughly 60–70% of
+  on the log entries (\`out.whoop\`, \`out.strava\`).` : `What they ACTUALLY held on recent
+  rides and runs is on the log entries, when they logged it.`} Zone 2 is roughly 60–70% of
   max heart rate, conversational the whole way; say the number you are using and say
   it is an estimate unless the notes give a lab-tested zone.
 - A KIND THAT NAMES NO SPORT ("Zone 2", "Long & easy", "Tempo", "Brick"…) means YOU
@@ -345,9 +346,11 @@ function revisePrompt({ plan, message, thread = [], name }) {
  * denied outright — this agent produces JSON and touches nothing.
  */
 function planWorkout({
-  bin, model, effort, timeoutMs, repoRoot, dataDir, brainFile, today, plan,
+  bin, model, effort, timeoutMs, repoRoot, dataDir, logDir, brainFile, today, plan,
   kinds = [], minutes, goal, context, revise = null, name, notes, env,
+  person = null, ownerSources = [], measurements = true,
 }) {
+  if (person) brainFile = null
   return new Promise((resolve, reject) => {
     const child = spawn(bin, [
       '--print',
@@ -356,8 +359,8 @@ function planWorkout({
       '--output-format', 'json',
       '--no-session-persistence',
       // Read-only; too-broad directories refused, secrets denied. See agentflags.js.
-      ...plannerFlags({ repoRoot, dataDir: dataDir || path.join(repoRoot, 'data'), brainFile }).args,
-      '--append-system-prompt', systemPrompt({ repoRoot, dataDir, brainFile, today, plan, name, notes }),
+      ...plannerFlags({ repoRoot, dataDir: dataDir || path.join(repoRoot, 'data'), brainFile, person, ownerSources }).args,
+      '--append-system-prompt', systemPrompt({ repoRoot, dataDir, logDir, brainFile, today, plan, name, notes, measurements }),
       '--json-schema', JSON.stringify(revise ? REVISE_SCHEMA : PLAN_SCHEMA),
     ], { cwd: repoRoot, env: env || process.env, stdio: ['pipe', 'pipe', 'pipe'] })
 

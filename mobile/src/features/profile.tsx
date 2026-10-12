@@ -40,6 +40,7 @@ import { athleteOf, profileFacts, buildProfileEntry, factValue, PROFILE_GROUPS }
 import { usePrefs } from '../lib/prefs.jsx'
 import { localIso } from '../lib/dates.js'
 import { currentMe, actAs, cacheKeyFor, USER_HEADER } from '../lib/whoami.js'
+import { MyAbout } from './trainer'
 import { signOutDevice } from '../lib/signout.js'
 import { authHeaders, forgetCredential, getConnection, rawFetch, serverUrl, useConnection } from '../lib/connection'
 import { reloadApp } from '../shell/reload'
@@ -138,6 +139,7 @@ export function ProfileMenu({ plan, entries, upsertEntry, deleteEntry, status, l
             keyboardDismissMode="interactive"
             bottomOffset={24}
           >
+            {tab === 'you' && <MyAbout me={who} />}
             {tab === 'you' && <YouSection plan={plan} entries={entries} strava={strava} upsertEntry={upsertEntry} />}
             {tab === 'gear' && (
               <GearSection plan={plan} entries={entries} strava={strava}

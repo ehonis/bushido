@@ -36,6 +36,7 @@ import { usePrefs } from './lib/prefs.jsx'
 import { localIso } from './lib/dates.js'
 import { NotificationsSection } from './notifications.jsx'
 import { currentMe, actAs } from './lib/whoami.js'
+import { MyAbout } from './trainer.jsx'
 
 /* ---------------------------------------------------------- the menu */
 
@@ -112,6 +113,7 @@ export function ProfileMenu({ plan, entries, upsertEntry, deleteEntry, status, l
             </nav>
 
             <div className="pop-body">
+              {tab === 'you' && <MyAbout me={who} />}
               {tab === 'you' && <YouSection plan={plan} entries={entries} strava={strava} upsertEntry={upsertEntry} />}
               {tab === 'gear' && (
                 <GearSection plan={plan} entries={entries} strava={strava}

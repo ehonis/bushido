@@ -8,7 +8,7 @@
 import {
   CalendarDays, Map, Gauge, NotebookPen, ShoppingBag, FlaskConical,
   Waves, Feather, Shield, Dumbbell, Mountain, Moon, LogOut,
-  Flame, Target, Timer, Check, Circle, ChevronDown,
+  Flame, Target, Timer, Check, Circle, ChevronDown, ChevronRight,
   TriangleAlert, CircleCheck, CircleSlash, Info, ExternalLink, Trash2,
   Eye, EyeOff, X, Pencil,
   Footprints, Hand, Sunrise, RotateCw, ClipboardCheck, PersonStanding, Move,
@@ -31,7 +31,7 @@ import {
 const REGISTRY = {
   CalendarDays, Map, Gauge, NotebookPen, ShoppingBag, FlaskConical,
   Waves, Feather, Shield, Dumbbell, Mountain, Moon, LogOut,
-  Flame, Target, Timer, Check, Circle, ChevronDown,
+  Flame, Target, Timer, Check, Circle, ChevronDown, ChevronRight,
   TriangleAlert, CircleCheck, CircleSlash, Info, ExternalLink, Trash2,
   Eye, EyeOff, X, Pencil,
   Footprints, Hand, Sunrise, RotateCw, ClipboardCheck, PersonStanding, Move,

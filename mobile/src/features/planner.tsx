@@ -43,6 +43,7 @@ import { useWhoop, readinessFor } from '../lib/whoop.jsx'
 import { usePlan } from '../lib/planctx.jsx'
 import { progress as quotaProgress } from '../lib/quota.js'
 import { currentMe } from '../lib/whoami.js'
+import { ForChoice, ForLine, usePersonLog } from './trainer'
 
 
 /** The `type: "lifts"` field spec, which carries the exercise catalog. */
@@ -123,9 +124,23 @@ function ImplChip({ label, icon, on, onPress }: { label: string; icon?: string; 
 
 /* ------------------------------------------------------------------ flow */
 
-export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose }: any) {
+/*
+ * `people`, `onKeepFor`, `onStartFor`: the owner planning for someone else on
+ * the install (trainer.tsx, lib/trainer.js). `people` is `planPeople(me)`, empty
+ * for anyone but the owner, while acting and with one person, and then nothing
+ * here changes. With someone picked, the model runs on THEIR log, plan and About
+ * you, the editor's "last time" is theirs, and keeping it writes into their log
+ * through `onKeepFor`; still only on the tap (§0.4).
+ */
+export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, people = [], onKeepFor = null, onStartFor = null }: any) {
   const minuteChips = plan?.plannerKinds?.minutes || DEFAULT_MINUTES
   const liftField = useMemo(() => liftFieldOf(plan), [plan])
+  // Who it is for: null is you. Only offered with somewhere to keep it.
+  const forPeople = onKeepFor ? people : []
+  const [target, setTarget] = useState<any>(null)
+  const theirs = usePersonLog(target?.id || null)
+  const ctxPlan = target ? (theirs.plan || plan) : plan
+  const ctxEntries = target ? theirs.entries : entries
 
   /*
    * The two things the app already knows, gathered here rather than passed in:
@@ -133,14 +148,17 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose }: 
    * recovery from up there would silently return "no data".
    */
   const { cache: whoopCache } = (useWhoop as any)()
-  const readiness = useMemo(() => (readinessFor as any)(whoopCache, iso), [whoopCache, iso])
-  const week = useMemo(() => (quotaProgress as any)({ plan, entries, iso }), [plan, entries, iso])
+  // WHOOP is the owner's: someone else's plan is told nothing about recovery (§7).
+  const readiness = useMemo(() => (target ? null : (readinessFor as any)(whoopCache, iso)), [whoopCache, iso, target])
+  const week = useMemo(() => (quotaProgress as any)({ plan: ctxPlan, entries: ctxEntries, iso }), [ctxPlan, ctxEntries, iso])
 
   // kind | ask | working | review | failed | kept, plus `build` — the hand-built
   // route, which reaches the same editor from the same kinds with no model in it.
   const [step, setStep] = useState('kind')
   const [keptId, setKeptId] = useState<string | null>(null)   // the entry "start it" would open
   const [keptCount, setKeptCount] = useState(1)
+  const [keptFor, setKeptFor] = useState<any>(null)  // the person it went to, or null for you
+  const [saving, setSaving] = useState(false)
   // A LIST: one gym trip often covers several kinds, and picking them all up
   // front means the model is told about every one of them.
   const [picked, setPicked] = useState<any[]>([])  // kinds[] rows, plus { key: 'custom:…' }
@@ -169,7 +187,8 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose }: 
         goal: goal.trim(),
         context: (plannerContext as any)({ readiness, week, iso }),
         signal: ctrl.signal,
-      })
+        forId: target?.id || null,
+      } as any)
       const built: any = (normalizePrescription as any)(raw, { liftField })
       if (!built) throw new Error('the planner wrote a session with nothing in it — try again')
       /*
@@ -190,7 +209,7 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose }: 
       setError(e.message)
       setStep('failed')
     }
-  }, [picked, minutes, goal, readiness, week, iso, liftField, label, primary])
+  }, [picked, minutes, goal, readiness, week, iso, liftField, label, primary, target])
 
   /**
    * The other route: the blocks, named, with nothing in them. One block per kind
@@ -220,7 +239,7 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose }: 
   const groups = plan?.plannerKinds?.groups || []
   const oneGroup = picked.length > 0 && picked.every(k => k.group && k.group === picked[0].group)
   const groupName = oneGroup ? groups.find((g: any) => g.key === picked[0].group)?.name : null
-  const title = step === 'kept' ? 'On your day'
+  const title = step === 'kept' ? (keptFor ? `On ${keptFor.name}’s day` : 'On your day')
     : step === 'review' ? (pres?.title || 'Your workout')
     : step === 'build' ? (pres?.title || 'Your workout')
     : step === 'kind' ? 'Plan a workout'
@@ -232,12 +251,34 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose }: 
    * `dropEmptyBlocks` is for the hand-built route: a picked block never filled in
    * must not land on their day as an entry with no work in it.
    */
-  const keep = () => {
+  const keep = async () => {
+    if (saving) return
     impact()
-    const kept = onKeep((dropEmptyBlocks as any)(pres))
+    const cleaned = (dropEmptyBlocks as any)(pres)
+    if (target) {
+      // Into THEIR log, through the people endpoints, with the ids their own app
+      // would mint. A failure leaves the editor as it was and says so.
+      setError(null)
+      setSaving(true)
+      try {
+        const kept = await onKeepFor(target, cleaned)
+        setKeptId(kept?.first || null)
+        setKeptCount(kept?.count || 1)
+        setKeptFor(target)
+        setStep('kept')
+        success()
+      } catch (e: any) {
+        setError(`Not on ${target.name}’s day: ${e.message}`)
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
+    const kept = onKeep(cleaned)
     // One planning run can land as several workouts — see splitPrescription.
     setKeptId(kept?.first || null)
     setKeptCount(kept?.count || 1)
+    setKeptFor(null)
     setStep('kept')
     success()
   }
@@ -246,6 +287,7 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose }: 
   const another = () => {
     setPres(null)
     setKeptId(null)
+    setKeptFor(null)
     setPicked([])
     setCustom('')
     setGoal('')
@@ -275,11 +317,14 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose }: 
       {step === 'kind' && (
         <KindStep plan={plan} custom={custom} setCustom={setCustom}
           picked={picked} setPicked={setPicked}
-          onNext={() => setStep('ask')} onBuild={build} />
+          onNext={() => setStep('ask')} onBuild={build}
+          waiting={target && !theirs.ready
+            ? (theirs.error ? `Could not open ${target.name}’s log: ${theirs.error}` : `Opening ${target.name}’s log…`) : null}
+          head={<ForChoice people={forPeople} target={target} onTarget={setTarget} />} />
       )}
 
       {step === 'ask' && (
-        <AskStep picked={picked} label={label} minutes={minutes} setMinutes={setMinutes}
+        <AskStep head={<ForLine person={target} people={forPeople} />} picked={picked} label={label} minutes={minutes} setMinutes={setMinutes}
           goal={goal} setGoal={setGoal} chips={minuteChips}
           placeholder={plan?.plannerKinds?.goalPlaceholder}
           onGo={run} />
@@ -309,22 +354,24 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose }: 
       )}
 
       {step === 'build' && pres && (
-        <BuildStep pres={pres} setPres={setPres} liftField={liftField} entries={entries}
-          categories={plan?.quotaCategories || []}
-          onKeep={keep} />
+        <BuildStep pres={pres} setPres={setPres} liftField={liftField} entries={ctxEntries}
+          categories={ctxPlan?.quotaCategories || []}
+          onKeep={keep} forName={target?.name || null}
+          head={<><ForLine person={target} people={forPeople} />{error ? <T size={12} color={colors.bad} style={{ marginBottom: 10 }}>{error}</T> : null}</>} />
       )}
 
       {step === 'review' && pres && (
-        <ReviewStep pres={pres} setPres={setPres} liftField={liftField} entries={entries}
-          categories={plan?.quotaCategories || []}
+        <ReviewStep pres={pres} setPres={setPres} liftField={liftField} entries={ctxEntries}
+          categories={ctxPlan?.quotaCategories || []}
           onRedo={() => setStep('ask')}
-          onKeep={keep} />
+          onKeep={keep} forId={target?.id || null} forName={target?.name || null}
+          head={<><ForLine person={target} people={forPeople} />{error ? <T size={12} color={colors.bad} style={{ marginBottom: 10 }}>{error}</T> : null}</>} />
       )}
 
       {step === 'kept' && pres && (
         <StepPage>
-          <KeptStep pres={pres} count={keptCount} parts={(splitPrescription as any)(pres)}
-            onStart={keptId ? () => onStart(keptId) : null}
+          <KeptStep pres={pres} count={keptCount} parts={(splitPrescription as any)(pres)} forName={keptFor?.name || null}
+            onStart={!keptId ? null : keptFor ? (onStartFor ? () => onStartFor(keptFor, keptId) : null) : () => onStart(keptId)}
             onAnother={another}
             onDone={onClose} />
         </StepPage>
@@ -360,7 +407,7 @@ export function groupedKinds(plan: any) {
   return groups
 }
 
-function KindStep({ plan, custom, setCustom, picked, setPicked, onNext, onBuild }: any) {
+function KindStep({ plan, custom, setCustom, picked, setPicked, onNext, onBuild, head = null, waiting = null }: any) {
   const groups = groupedKinds(plan)
   const has = (k: any) => picked.some((p: any) => p.key === k.key)
   const toggle = (k: any) =>
@@ -393,6 +440,9 @@ function KindStep({ plan, custom, setCustom, picked, setPicked, onNext, onBuild 
     </View>
   )
 
+  // Planning for someone: their log loads before anything can be picked from it.
+  if (waiting) return <StepPage>{head}<T style={st.lead}>{waiting}</T></StepPage>
+
   return (
     <StepPage
       foot={fork}
@@ -403,6 +453,7 @@ function KindStep({ plan, custom, setCustom, picked, setPicked, onNext, onBuild 
         </T>
       ) : null}
     >
+      {head}
       <T style={st.lead}>
         Pick what you are doing — <T size={12.5} dim weight={700}>as many as you like</T>. A gym trip that is legs,
         then core, then ten minutes on the bike is one session with three blocks. Then say who
@@ -517,7 +568,7 @@ function KindGroup({ group: g, has, toggle }: any) {
 
 /* ------------------------------------------------- step: how long, what for */
 
-function AskStep({ picked, label, minutes, setMinutes, goal, setGoal, chips, placeholder, onGo }: any) {
+function AskStep({ picked, label, minutes, setMinutes, goal, setGoal, chips, placeholder, onGo, head = null }: any) {
   const many = picked.length > 1
   return (
     <StepPage
@@ -529,6 +580,7 @@ function AskStep({ picked, label, minutes, setMinutes, goal, setGoal, chips, pla
         <T style={st.fine}>It will lean toward {picked[0].hint}.</T>
       ) : null}
     >
+      {head}
       <View style={st.askblock}>
         <T size={15} weight={600} style={{ marginBottom: 10 }}>How long have you got{many ? ' altogether' : ''}?</T>
         {many && (
@@ -648,7 +700,7 @@ const REVISE_PROMPTS = [
  * is the newest thing in the thread). **Their own edits survive it**: the plan sent
  * up is the plan as the user has it, steppers and all.
  */
-export function PlanTalk({ pres, onChange, compact = false }: any) {
+export function PlanTalk({ pres, onChange, compact = false, forId = null }: any) {
   const [text, setText] = useState('')
   const [asking, setAsking] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -676,7 +728,7 @@ export function PlanTalk({ pres, onChange, compact = false }: any) {
     const pending = [...thread, { role: 'you', text: said, at }]
     onChange({ ...pres, thread: pending })
     try {
-      const raw: any = await (reviseWorkout as any)({ plan: stripThread(pres), message: said, thread })
+      const raw: any = await (reviseWorkout as any)({ plan: stripThread(pres), message: said, thread, forId })
       const next: any = (normalizePrescription as any)(raw, { liftField })
       if (!next) throw new Error('it sent back a session with nothing in it')
       onChange({
@@ -817,12 +869,12 @@ const stripThread = (pres: any) => {
  * no `PlanTalk` (nothing is being asked of a model), no "why" (nobody reasoned
  * about it), no Redo (the undo for a hand-built session is what you just typed).
  */
-export function BuildStep({ pres, setPres, liftField, entries = [], categories = [], onKeep }: any) {
+export function BuildStep({ pres, setPres, liftField, entries = [], categories = [], onKeep, forName = null, head = null }: any) {
   const sets = (prescriptionSteps as any)(pres).length
 
   return (
     <StepPage
-      foot={<Btn icon="Plus" title="Put it on today" disabled={!sets} onPress={onKeep} style={st.big} />}
+      foot={<Btn icon="Plus" title={forName ? `Put it on ${forName}’s day` : 'Put it on today'} disabled={!sets} onPress={onKeep} style={st.big} />}
       after={
         <T style={st.fine}>
           {sets
@@ -831,6 +883,7 @@ export function BuildStep({ pres, setPres, liftField, entries = [], categories =
         </T>
       }
     >
+      {head}
       <T style={st.lead}>
         <T size={12.5} dim weight={700}>Add an exercise</T> searches the catalogue of two hundred movements;
         <T size={12.5} dim weight={700}> add a piece</T> is the work that is not one — a swim set, an interval,
@@ -898,17 +951,18 @@ function PieceAdder({ unit, onAdd }: { unit: string; onAdd: (name: string, by: s
 
 /* ------------------------------------------------------------- step: review */
 
-function ReviewStep({ pres, setPres, liftField, entries = [], categories = [], onRedo, onKeep }: any) {
+function ReviewStep({ pres, setPres, liftField, entries = [], categories = [], onRedo, onKeep, forId = null, forName = null, head = null }: any) {
   return (
     <StepPage
       foot={
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <Btn kind="ghost" icon="RotateCw" title="Redo" onPress={onRedo} />
-          <Btn icon="Plus" title="Put it on today" onPress={onKeep} style={[st.big, { flex: 1 }]} />
+          <Btn icon="Plus" title={forName ? `Put it on ${forName}’s day` : 'Put it on today'} onPress={onKeep} style={[st.big, { flex: 1 }]} />
         </View>
       }
     >
-      <PlanTalk pres={pres} onChange={setPres} />
+      {head}
+      <PlanTalk pres={pres} onChange={setPres} forId={forId} />
 
       <SplitNote parts={(splitPrescription as any)(pres)} />
 
@@ -927,8 +981,9 @@ function ReviewStep({ pres, setPres, liftField, entries = [], categories = [], o
       )}
 
       <T style={st.fine}>
-        Written by {pres.model || 'a model'} from your log and your profile. Change anything —
-        what it asked for stays on the entry, so you can see afterwards where you went off it.
+        Written by {pres.model || 'a model'} from {forName ? `${forName}’s log and profile` : 'your log and your profile'}.
+        Change anything — what it asked for stays on the entry, so you can see afterwards where
+        {forName ? ` ${forName} went` : ' you went'} off it.
       </T>
     </StepPage>
   )
@@ -1002,13 +1057,14 @@ function BlockQuota({ categories, value, onChange }: any) {
  * in a clock. Hence three doors: starting it is the accent button because it is
  * the only one that goes somewhere new; the other two are equal ways of saying "later".
  */
-export function KeptStep({ pres, count = 1, parts = [], onStart, onAnother, onDone }: any) {
+export function KeptStep({ pres, count = 1, parts = [], onStart, onAnother, onDone, forName = null }: any) {
   const many = count > 1
+  const where = forName ? `on ${forName}’s day` : 'on today'
   return (
     <View style={st.kept}>
       <Icon name="CircleCheck" size={44} color={colors.vizGood} />
       <T size={22} weight={600} lineHeight={27} align="center" style={{ marginTop: 14, marginBottom: 8 }}>
-        {many ? `${count} workouts are on today` : `${pres.title} is on today`}
+        {many ? `${count} workouts are ${where}` : `${pres.title} is ${where}`}
       </T>
 
       {/* Named, because "2 workouts" is not an answer to "which two". */}
@@ -1028,13 +1084,14 @@ export function KeptStep({ pres, count = 1, parts = [], onStart, onAnother, onDo
           ? 'Separate entries, so each one logs on its own and a ride your watch recorded '
             + 'attaches to the ride rather than to the lifting. '
           : `${(prescriptionLine as any)(pres)}. `}
-        Nothing has started — the clock runs when you do. You can edit any of it from the
-        day, and it will still be there tonight.
+        {forName
+          ? `Nothing has started. It shows on ${forName}’s day as planned by you, and ${forName} can edit or log it like anything else.`
+          : 'Nothing has started — the clock runs when you do. You can edit any of it from the day, and it will still be there tonight.'}
       </T>
 
       <View style={st.keptActs}>
         {onStart && (
-          <Btn icon="Play" title={many ? 'Start the first one' : 'Start it now'}
+          <Btn icon="Play" title={forName ? `Open it on ${forName}’s side` : many ? 'Start the first one' : 'Start it now'}
             onPress={() => { impact(); onStart() }} style={{ minHeight: 56 }} />
         )}
         <Btn kind="ghost" icon="Plus" title="Plan another workout" onPress={onAnother} />

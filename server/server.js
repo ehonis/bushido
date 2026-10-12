@@ -30,7 +30,10 @@
  *   POST /api/act-as          { id } -> the owner acts as someone else (null: back to themselves)
  *   GET  /api/settings/users  the people on this install; POST/PUT/DELETE to change them
  *   GET  /api/people          the owner's list for "With …"; GET/POST /api/people/:id/entry
- *                             reads and writes someone's copy of a shared workout (peopleRoute)
+ *                             reads and writes someone's copy of a shared workout, or a session
+ *                             the owner planned for them; /state, /content and /about read their
+ *                             log, plan and About you (peopleRoute)
+ *   GET/PUT /api/about        this person's own About you (anyone but the owner, whose is in Settings)
  *
  * More than one person can use an install (server/users.js). Everything above
  * that reads or writes a log does so for the person the request is for: the
@@ -138,14 +141,19 @@ const OWNER_SPACE = spaceFor({ id: OWNER })
  * What a person's app may offer. Integrations hold the owner's accounts (the
  * bridge's WHOOP and Strava grants, Totem goals and habits, the push identity,
  * the brain file), so for anyone else they are off, which renders exactly as
- * an install that never set them up. AI is the owner's for now too: its
- * prompts read the owner's About you and brain file.
+ * an install that never set them up.
+ *
+ * AI is everyone's once a CLI is configured: each run is built from the person's
+ * own space, About you and plan (`aiRun`), and a run for anyone but the owner is
+ * denied the owner's files by flag (agentflags.js). The owner keeps the coach tab
+ * with no CLI so the "set AI up" answer has somewhere to appear; nobody else
+ * should be shown a setup they cannot do.
  */
 function featuresFor(space) {
   const t = config.totem()
   const own = space.owner
   return {
-    ai: own,
+    ai: own || config.ai().installed,
     whoop: own && t.whoop,
     strava: own && t.strava,
     goals: own && t.goals,
@@ -199,19 +207,91 @@ const CHECKIN_PROMPT = path.join(ROOT, 'examples', 'coach', 'CHECKIN.md')
 /** What every AI route says when there is no CLI to run. */
 const AI_MISSING = 'AI is not set up. Open Settings → AI and point Bushido at the Claude Code CLI.'
 
-/** The arguments every model run shares, resolved now. */
-function aiRun() {
+/*
+ * ABOUT YOU, per person. The owner's is in Settings (data/settings.json), as it
+ * always was. Anyone else's is `about.json` in their own space, written by them
+ * from the app (PUT /api/about) or by the owner (PUT /api/people/:id/about), and
+ * falls back to the name the owner gave them in People.
+ */
+const ABOUT_NAME_MAX = 80
+const ABOUT_NOTES_MAX = 4000
+const aboutFile = (space) => path.join(space.dir, 'about.json')
+
+function aboutFor(space) {
+  if (space.owner) return config.athlete()
+  const a = readJson(aboutFile(space), null) || {}
+  return {
+    name: String(a.name || '').trim().slice(0, ABOUT_NAME_MAX) || users.get(space.id)?.name || space.name || '',
+    notes: String(a.notes || '').trim().slice(0, ABOUT_NOTES_MAX),
+  }
+}
+
+function writeAbout(space, body) {
+  if (space.owner) throw new Error('the owner\'s About you is on the Settings page')
+  const doc = {
+    name: String(body?.name ?? '').trim().slice(0, ABOUT_NAME_MAX),
+    notes: String(body?.notes ?? '').trim().slice(0, ABOUT_NOTES_MAX),
+    updatedAt: new Date().toISOString(),
+  }
+  ensureDirs(space)
+  const file = aboutFile(space)
+  const tmp = `${file}.tmp-${process.pid}`
+  fs.writeFileSync(tmp, JSON.stringify(doc, null, 2), { mode: 0o600 })
+  fs.renameSync(tmp, file)
+  return aboutView(space)
+}
+
+const aboutView = (space) => ({ ...aboutFor(space), owner: space.owner, editable: !space.owner })
+
+/**
+ * The arguments every model run shares, resolved now, for ONE person's space.
+ *
+ * The owner's run is what it always was: the data dir, the brain file, the food
+ * log, WHOOP and Strava. Anyone else's is built from their own space only: their
+ * log (`logDir`), their About you, and none of the owner's sources, which are
+ * also denied by path (`person`, `ownerSources`; see agentflags.js). Their absence
+ * renders exactly as an install that never configured them: no section at all.
+ */
+function aiRun(space = OWNER_SPACE) {
   const ai = config.ai()
-  const a = config.athlete()
+  const a = aboutFor(space)
+  const links = config.links()
+  const own = space.owner
   return {
     ai,
     common: {
       bin: ai.bin, env: ai.spawnEnv(),
-      repoRoot: ROOT, dataDir: DATA_DIR, brainFile: config.links().brainFile,
+      repoRoot: ROOT, dataDir: DATA_DIR,
+      logDir: own ? DATA_DIR : space.dir,
+      brainFile: own ? links.brainFile : null,
+      person: own ? null : { dir: space.dir },
+      // The owner's own plan too, when it is the owner's (not the shared starter) and lives
+      // outside the data dir, which is denied wholesale anyway.
+      ownerSources: own ? [] : [links.brainFile, links.brainFile && path.dirname(links.brainFile), links.krakatoaDir,
+        (() => { const f = config.planFile().file; return f && path.resolve(f) !== path.resolve(STARTER_PLAN) ? f : null })()],
+      measurements: own,
       name: a.name, notes: a.notes,
       today: new Date().toISOString().slice(0, 10),
     },
+    krakatoaDir: own ? links.krakatoaDir : null,
   }
+}
+
+/**
+ * Whose context an AI route runs on. The requester's own space, unless the
+ * owner asked for someone else (`for`): the trainer planning a session or a week
+ * for another person on the install, without acting as them. Owner only, not
+ * while acting, never "for" the owner.
+ */
+function aiSpaceFor(body, ctx, space) {
+  const id = body?.for ? String(body.for) : null
+  if (!id || id === space.id) return { space }
+  if (!ctx?.real.admin) return { refused: [403, { error: 'only the owner can plan for someone else' }] }
+  if (ctx.acting) return { refused: [409, { error: 'stop logging for someone else first', code: 'acting' }] }
+  if (id === OWNER) return { refused: [400, { error: 'that is your own log' }] }
+  const person = users.get(id)
+  if (!person) return { refused: [404, { error: 'no such person' }] }
+  return { space: spaceFor(person) }
 }
 
 
@@ -1450,14 +1530,20 @@ function proxySettingsRefusal(mode, req, p) {
 // -------------------------------------------------------------------- routes
 
 /*
- * SHARED WORKOUTS: the owner, logging a workout together with someone else on
- * the install, reads and writes that person's copy of it from the owner's own
- * sheet. Act-as switches the whole app; this touches one entry.
+ * THE OWNER AS TRAINER: shared workouts and sessions planned for someone else.
+ *
+ * The owner, logging a workout together with someone else on the install, reads
+ * and writes that person's copy of it from the owner's own sheet; and plans a
+ * session or a week for them that lands in THEIR log. Act-as switches the whole
+ * app; this touches one entry at a time.
  *
  *   GET  /api/people                         { people: [{ id, name, owner }] }
  *   GET  /api/people/:id/entry?id=<entryId>  { entry | null, version }
  *   GET  /api/people/:id/entry?date=<iso>    { entries: [that day's daily entries, tombstones too], version }
  *   POST /api/people/:id/entry   { entry }   { entry (as merged), version }
+ *   GET  /api/people/:id/state               their whole log, read-only ({ state, version, … } like /api/state)
+ *   GET  /api/people/:id/content             the plan their app runs on
+ *   GET/PUT /api/people/:id/about            their About you ({ name, notes })
  *
  * The rules, each of which is a refusal below:
  *
@@ -1468,14 +1554,20 @@ function proxySettingsRefusal(mode, req, p) {
  *   - A daily entry, written through the same commit (backup on write, one
  *     write chain per person) and the same last-write-wins merge as the person's
  *     own saves. A removal is a tombstone, as everywhere else.
- *   - Only the parts of their log that came from a shared workout. A live entry
- *     at that id without `data.sharedFrom` is something they logged themselves,
- *     and the owner's sheet must never overwrite it (409 `not-shared`; the app
- *     picks another id). `sharedFrom` is stamped here from users.json.
- *   - Creating is planning, not completing (AGENTS.md §4): a new copy is
+ *   - Only the parts of their log that came from the owner: a shared workout
+ *     (`data.sharedFrom`) or a session or week the owner planned for them
+ *     (`data.plannedBy`). A live entry at that id carrying neither is something
+ *     they logged themselves, and the owner must never overwrite it (409
+ *     `not-shared`; the app picks another id, or says the week is already set).
+ *     Both markers are stamped here from users.json, never taken from the request.
+ *   - A planned week is their `quota-<monday>` entry, the same id their own Week
+ *     tab writes; a planned session is a daily entry with a derivable id.
+ *   - Creating is planning, not completing (AGENTS.md §4): a new daily entry is
  *     `done: false` whatever the request said.
  */
 const DAILY_ID_RE = /^daily-(\d{4}-\d{2}-\d{2})(?:-[\w.-]{1,80})?$/
+const QUOTA_ID_RE = /^quota-(\d{4}-\d{2}-\d{2})$/
+const fromOwner = (data) => Boolean(data && (data.sharedFrom || data.plannedBy))
 
 async function peopleRoute(req, res, url, ctx) {
   if (!ctx?.real.admin) return send(res, 403, { error: 'only the owner can do that' })
@@ -1487,7 +1579,7 @@ async function peopleRoute(req, res, url, ctx) {
     return send(res, 200, { people: users.list().map(u => ({ id: u.id, name: u.name, owner: u.owner })) },
       { 'Cache-Control': 'no-store' })
   }
-  const m = /^\/api\/people\/([^/]+)\/entry$/.exec(p)
+  const m = /^\/api\/people\/([^/]+)\/(entry|state|content|about)$/.exec(p)
   if (!m) return send(res, 404, { error: 'no such endpoint' })
   const id = decodeURIComponent(m[1])
   if (id === OWNER || id === ctx.real.id) {
@@ -1496,6 +1588,28 @@ async function peopleRoute(req, res, url, ctx) {
   const person = users.get(id)
   if (!person) return send(res, 404, { error: 'no such person' })
   const space = spaceFor(person)
+  const what = m[2]
+
+  /* Read-only views, for the owner's "their day" list and for planning with their context. */
+  if (what === 'state') {
+    if (req.method !== 'GET') return send(res, 405, { error: 'GET only; entries are written one at a time through /entry' })
+    return send(res, 200, readStateSync(space), { 'Cache-Control': 'no-store' })
+  }
+  if (what === 'content') {
+    if (req.method !== 'GET') return send(res, 405, { error: 'GET only' })
+    try {
+      const raw = await fsp.readFile(space.planFile().file, 'utf8')
+      return send(res, 200, raw, { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-store' })
+    } catch { return send(res, 404, { error: 'no plan for them yet' }) }
+  }
+  if (what === 'about') {
+    if (req.method === 'GET') return send(res, 200, aboutView(space), { 'Cache-Control': 'no-store' })
+    if (req.method === 'PUT') {
+      const body = await readBody(req, 32 * 1024)
+      return send(res, 200, writeAbout(space, body), { 'Cache-Control': 'no-store' })
+    }
+    return send(res, 405, { error: 'GET or PUT' })
+  }
 
   if (req.method === 'GET') {
     const doc = readStateSync(space)
@@ -1514,11 +1628,14 @@ async function peopleRoute(req, res, url, ctx) {
     const body = await readBody(req, 1024 * 1024)
     const entry = body?.entry
     const idm = DAILY_ID_RE.exec(String(entry?.id || ''))
-    if (!entry || typeof entry !== 'object' || !idm || entry.kind !== 'daily' || entry.date !== idm[1]) {
-      return send(res, 400, { error: 'expected { entry: { id: "daily-<date>…", kind: "daily", date, data } }' })
+    const qm = QUOTA_ID_RE.exec(String(entry?.id || ''))
+    const daily = Boolean(entry && idm && entry.kind === 'daily' && entry.date === idm[1])
+    const quota = Boolean(entry && qm && entry.kind === 'quota')
+    if (!entry || typeof entry !== 'object' || (!daily && !quota)) {
+      return send(res, 400, { error: 'expected { entry: { id: "daily-<date>…" or "quota-<monday>", kind, date, data } }' })
     }
-    if (!entry.data || typeof entry.data !== 'object' || !entry.data.sharedFrom) {
-      return send(res, 400, { error: 'only a shared workout can be written here (data.sharedFrom)' })
+    if (!entry.data || typeof entry.data !== 'object' || !fromOwner(entry.data) || (quota && !entry.data.plannedBy)) {
+      return send(res, 400, { error: 'only a shared workout (data.sharedFrom) or something you planned for them (data.plannedBy) can be written here' })
     }
     const owner = users.owner()
     const NOT_SHARED = 'not-shared'
@@ -1528,15 +1645,21 @@ async function peopleRoute(req, res, url, ctx) {
         const cur = base.entries?.[entry.id]
         const live = cur && !cur.deleted
         // Thrown, not returned: a refusal must not write a new version or a backup.
-        if (live && !cur.data?.sharedFrom) throw new Error(NOT_SHARED)
-        const data = { ...entry.data, sharedFrom: { id: owner.id, name: owner.name } }
-        if (!live && !entry.deleted) data.done = false
+        if (live && !fromOwner(cur.data)) throw new Error(NOT_SHARED)
+        const stamp = { id: owner.id, name: owner.name }
+        const data = { ...entry.data }
+        if (data.sharedFrom) data.sharedFrom = stamp
+        if (data.plannedBy) data.plannedBy = stamp
+        if (daily && !live && !entry.deleted) data.done = false
         const stamped = { ...entry, data, updatedAt: entry.updatedAt || new Date().toISOString() }
         return mergeState(base, { entries: { [entry.id]: stamped } })
       })
     } catch (err) {
       if (err.message !== NOT_SHARED) throw err
-      return send(res, 409, { error: `${person.name} already logged something else under that id`, code: NOT_SHARED })
+      return send(res, 409, {
+        error: quota ? `${person.name} already set that week` : `${person.name} already logged something else under that id`,
+        code: NOT_SHARED,
+      })
     }
     // No syncDailyEntries: habit sync and the "logged" push are the owner's, about the owner's log.
     return send(res, 200, { entry: doc.state.entries[entry.id], version: doc.version })
@@ -1917,6 +2040,20 @@ const server = http.createServer(async (req, res) => {
     }
 
     /*
+     * About you, for anyone but the owner: their name and notes for their own AI
+     * runs, kept in their own space. Acting as someone, it is theirs. The owner's
+     * is on the Settings page (and stays loopback-only in proxy mode there).
+     */
+    if (p === '/api/about' && req.method === 'GET') {
+      return send(res, 200, aboutView(space), { 'Cache-Control': 'no-store' })
+    }
+    if (p === '/api/about' && req.method === 'PUT') {
+      if (space.owner) return send(res, 409, { error: 'your About you is on the Settings page', code: 'settings' })
+      const body = await readBody(req, 32 * 1024)
+      return send(res, 200, writeAbout(space, body), { 'Cache-Control': 'no-store' })
+    }
+
+    /*
      * Today's coach note. Read-only, and read-only on purpose: the note is
      * written on the way out of /api/chat, by the server, after the model's reply
      * has been through chat.js's caps. A browser cannot PUT one, so nothing
@@ -1974,9 +2111,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     /*
-     * The AI is the owner's for now: its prompts carry the owner's About you
-     * and may read the owner's brain file. Anyone else gets the answer a fresh
-     * install without a CLI gives, and their app does not offer it at all.
+     * AI is everyone's when a CLI is configured (featuresFor), and every run is
+     * built from ONE person's space (aiRun): their log, About you and plan, and
+     * for anyone but the owner none of the owner's sources. Without a CLI anyone
+     * but the owner gets the answer a fresh install gives, and their app does not
+     * offer it at all.
      */
     const aiRoute = p.startsWith('/api/coach/') || p === '/api/plan/workout' || p === '/api/plan/revise' || p === '/api/plan/week'
     if (aiRoute && !features.ai) {
@@ -2007,7 +2146,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req, 256 * 1024)
       const question = String(body?.message || '').trim()
       if (!question) return send(res, 400, { error: 'say something' })
-      const { ai, common } = aiRun()
+      const { ai, common, krakatoaDir } = aiRun(space)
       if (!ai.installed) return send(res, 503, { error: AI_MISSING, code: 'ai-not-configured' })
 
       const run = async () => {
@@ -2026,7 +2165,7 @@ const server = http.createServer(async (req, res) => {
         const { reply, model } = await coach.askCoach({
           ...common, model: ai.coachModel, effort: COACH_EFFORT,
           timeoutMs: COACH_TIMEOUT_MS,
-          krakatoaDir: config.links().krakatoaDir, planFile: space.planFile().file,
+          krakatoaDir, planFile: space.planFile().file,
           thread, question, context: String(body.context || '').slice(0, 4000),
         })
 
@@ -2079,11 +2218,14 @@ const server = http.createServer(async (req, res) => {
       const goal = String(body?.goal || '').trim().slice(0, 1000)
       if (!kinds.length) return send(res, 400, { error: 'say what kind of session' })
       if (!minutes) return send(res, 400, { error: 'say how long you have' })
-      const { ai, common } = aiRun()
+      // `for`: the owner planning for someone else, on THEIR log, plan and About you.
+      const target = aiSpaceFor(body, ctx, space)
+      if (target.refused) return send(res, ...target.refused)
+      const { ai, common } = aiRun(target.space)
       if (!ai.installed) return send(res, 503, { error: AI_MISSING, code: 'ai-not-configured' })
 
       try {
-        const plan = planner.readPlanJson(space.planFile().file) || {}
+        const plan = planner.readPlanJson(target.space.planFile().file) || {}
         const built = await planner.planWorkout({
           ...common, model: ai.plannerModel, effort: PLANNER_EFFORT,
           timeoutMs: PLANNER_TIMEOUT_MS,
@@ -2112,11 +2254,13 @@ const server = http.createServer(async (req, res) => {
       if (!current || typeof current !== 'object' || !Array.isArray(current.blocks)) {
         return send(res, 400, { error: 'no plan to revise' })
       }
-      const { ai, common } = aiRun()
+      const target = aiSpaceFor(body, ctx, space)
+      if (target.refused) return send(res, ...target.refused)
+      const { ai, common } = aiRun(target.space)
       if (!ai.installed) return send(res, 503, { error: AI_MISSING, code: 'ai-not-configured' })
 
       try {
-        const plan = planner.readPlanJson(space.planFile().file) || {}
+        const plan = planner.readPlanJson(target.space.planFile().file) || {}
         const built = await planner.planWorkout({
           ...common, model: ai.plannerModel, effort: PLANNER_EFFORT,
           timeoutMs: PLANNER_TIMEOUT_MS,
@@ -2147,11 +2291,13 @@ const server = http.createServer(async (req, res) => {
       const monday = String(body?.monday || '').trim()
       if (!message) return send(res, 400, { error: 'say what you want from the week' })
       if (!/^\d{4}-\d{2}-\d{2}$/.test(monday)) return send(res, 400, { error: 'say which week' })
-      const { ai, common } = aiRun()
+      const target = aiSpaceFor(body, ctx, space)
+      if (target.refused) return send(res, ...target.refused)
+      const { ai, common } = aiRun(target.space)
       if (!ai.installed) return send(res, 503, { error: AI_MISSING, code: 'ai-not-configured' })
 
       try {
-        const plan = planner.readPlanJson(space.planFile().file) || {}
+        const plan = planner.readPlanJson(target.space.planFile().file) || {}
         const built = await weekplanner.planWeek({
           ...common, model: ai.plannerModel, effort: WEEK_EFFORT,
           timeoutMs: WEEK_TIMEOUT_MS,
