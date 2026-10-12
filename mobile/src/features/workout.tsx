@@ -33,6 +33,7 @@ import {
   useWindowDimensions,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { SideRule, SideWho } from '../ui/Person'
 import { colors, mix, radius, TAP } from '../theme'
 import { T } from '../ui/Text'
 import { Empty, IconBtn, Input, Press } from '../ui/kit'
@@ -75,12 +76,24 @@ function firstUnlogged(steps: any[]) {
   return i === -1 ? Math.max(0, steps.length - 1) : i
 }
 
-export function WorkoutMode({ session, entry, onSave, onSetDone, onExit }: {
+/*
+ * `who`, `switcher`, `shown`, `embedded`: a workout run from more than one
+ * person's side (trainer.tsx `SidesWorkout`). `who` puts whose side this is in
+ * the header in their colour; a side that is not `shown` keeps its own clock but
+ * stays silent, so a cue is always about the side on screen. Native: `embedded`
+ * drops this component's own modal; SidesWorkout presents one for every side.
+ */
+export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinish = null, who = null, switcher = null, shown = true, embedded = false }: {
   session: any
   entry: any
   onSave: (out: any) => void
   onSetDone?: (v: boolean) => void
   onExit: () => void
+  onFinish?: (() => void) | null
+  who?: { name: string; tone?: number } | null
+  switcher?: React.ReactNode
+  shown?: boolean
+  embedded?: boolean
 }) {
   const insets = useSafeAreaInsets()
   const out = entry?.data?.out || {}
@@ -104,7 +117,7 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit }: {
   const timing = step?.timing || { work: null, reps: 1, repRest: null, setRest: null }
   const lock = useRef<string | null>(null)
 
-  const cue = useCallback((name: string) => { if (!muted) CUES[name]?.() }, [muted])
+  const cue = useCallback((name: string) => { if (!muted && shown) CUES[name]?.() }, [muted, shown])
 
   /* ------------------------------------------------------------ the clock */
 
@@ -279,7 +292,8 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit }: {
     delete next.startedAt
     onSave(next)
     if (markDone) onSetDone?.(true)
-    onExit()
+    // With more than one side, finishing one hands over to the next (SidesWorkout).
+    ;(onFinish || onExit)()
   }
 
   const askExit = () => {
@@ -293,7 +307,9 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit }: {
 
   /* ------------------------------------------------------------- rendering */
 
-  const frame = (body: React.ReactNode) => (
+  const frame = (body: React.ReactNode) => embedded ? (
+    <View style={st.wo}>{body}</View>
+  ) : (
     <RNModal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={askExit}>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <View style={[st.wo, { paddingTop: insets.top }]}>{body}</View>
@@ -305,7 +321,9 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit }: {
   if (!steps.length) {
     return frame(
       <>
-        <WoHead session={session} elapsed={0} onExit={onExit} muted={muted} onMute={setMuted} />
+        <SideRule who={who} />
+        <WoHead session={session} elapsed={0} onExit={onExit} muted={muted} onMute={setMuted} who={who} />
+        {switcher}
         <ScrollView style={{ flex: 1 }} contentContainerStyle={[st.body, bodyPad]}>
           <Empty>
             This session has no per-set prescription, so there is nothing to step through.
@@ -318,7 +336,9 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit }: {
 
   return frame(
     <>
-      <WoHead session={session} elapsed={elapsed} onExit={askExit} muted={muted} onMute={setMuted} />
+      <SideRule who={who} />
+      <WoHead session={session} elapsed={elapsed} onExit={askExit} muted={muted} onMute={setMuted} who={who} />
+      {switcher}
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView style={{ flex: 1, backgroundColor: TINT[phase] || colors.bg }}
@@ -359,11 +379,12 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit }: {
 
 /* ------------------------------------------------------------------ pieces */
 
-function WoHead({ session, elapsed, onExit, muted, onMute }: any) {
+function WoHead({ session, elapsed, onExit, muted, onMute, who = null }: any) {
   return (
     <View style={st.head}>
       <IconBtn icon="ChevronLeft" size={19} label="Leave workout" onPress={onExit} />
       <View style={{ flex: 1, minWidth: 0 }}>
+        <SideWho who={who} />
         <T size={14} weight={600} numberOfLines={1}>{session.name}</T>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
           <Icon name="Timer" size={12} color={colors.inkFaint} />

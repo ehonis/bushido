@@ -72,7 +72,15 @@ const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).padStart(2
  * else — recomputing the lifts, the load level and the minutes on every tick
  * would be work for no change to any of them.
  */
-export function WorkoutRunner({ session, entry, entries = [], onRun, onExit }) {
+/*
+ * `who`, `switcher` and `shown`: a workout run from more than one person's side
+ * (trainer.jsx `SidesWorkout`). Each side is its own runner over that person's
+ * own entry with its own `onRun`, so there is still ONE writer per entry. `who`
+ * ({ name, tone }) names whose side this is in the header, in their colour; a
+ * side that is not `shown` keeps its clock (it is on the entry anyway) but rings
+ * nothing, so the bell is always about the side on screen.
+ */
+export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onFinish = null, who = null, switcher = null, shown = true }) {
   const pres = entry?.data?.plan || null
   const steps = useMemo(() => prescriptionSteps(pres), [pres])
   const run = entry?.data?.run || null
@@ -141,9 +149,10 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit }) {
     if (!run?.restUntil || rest > 0) return
     if (rangAt.current === run.restUntil) return
     rangAt.current = run.restUntil
+    if (!shown) return
     if (!muted) CUES.work()
     if (document.visibilityState !== 'visible') notifyRestOver(step)
-  }, [rest, run?.restUntil, muted, step])
+  }, [rest, run?.restUntil, muted, step, shown])
 
   /* ------------------------------------------------------------- the draft */
 
@@ -170,7 +179,7 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit }) {
   const mark = () => {
     if (!step) return
     primeAudio()
-    if (!muted) CUES.setDone()
+    if (!muted && shown) CUES.setDone()
     const next = markSet(run || emptyRun(), step, draft || {}, { steps })
     commit(next, { outputs: true })
     setCursor(next.cursor)
@@ -208,17 +217,19 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit }) {
   }
 
   const finish = () => {
-    if (!muted) CUES.finished()
+    if (!muted && shown) CUES.finished()
     // Done, the outputs and the end time in one write, for the same reason as
     // above — `onSetDone` used to be a second call and would have taken the run
     // with it.
     commit(finishRun(run || emptyRun()), { outputs: true, done: true })
-    onExit()
+    // With more than one side, finishing one hands over to the next (SidesWorkout).
+    ;(onFinish || onExit)()
   }
 
   if (!pres || !steps.length) {
     return (
-      <div className="run">
+      <div className="run" data-tone={who ? who.tone : undefined}>
+        {switcher}
         <div className="run-empty">
           <p>This session has no plan on it.</p>
           <button className="btn" onClick={onExit}>Back</button>
@@ -230,13 +241,16 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit }) {
   /* ---------------------------------------------------------------- render */
 
   return (
-    <div className="run">
+    <div className="run" data-tone={who ? who.tone : undefined}>
       <header className="run-head">
         <button className="run-x" onClick={() => setConfirmExit(true)} aria-label="Leave the workout">
           <Icon name="ChevronDown" size={22} />
         </button>
         <div className="run-headmid">
-          <div className="run-title">{pres.title}</div>
+          <div className="run-title">
+            {who && <span className="side-who" data-tone={who.tone}>{who.name}</span>}
+            {pres.title}
+          </div>
           <div className="run-sub">{progress.done} of {progress.total} sets</div>
         </div>
         <button className={`run-mute ${muted ? 'on' : ''}`} onClick={() => setMuted(v => !v)}
@@ -245,6 +259,8 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit }) {
         </button>
         <span className="run-clock">{mmss(elapsed)}</span>
       </header>
+
+      {switcher}
 
       <div className="run-bar" role="progressbar" aria-valuenow={progress.done} aria-valuemax={progress.total}>
         <span className="run-bar-fill" style={{ width: `${Math.round(progress.pct * 100)}%` }} />

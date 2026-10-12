@@ -3,6 +3,9 @@
  * Write outside a safe brain directory, and no read of a secrets file.
  * Run: node server/agentflags.test.js
  */
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
 const { coachFlags, plannerFlags, tooBroad } = require('./agentflags.js')
 
 let failed = 0
@@ -91,6 +94,65 @@ check('writes to the log, plan, account, settings, data dir and repo are denied 
   // ...and none of those denials covers the brain directory the coach may write.
   const coach = coachFlags({ ...base, brainFile: '/home/u/brain/x.md' })
   ok(!flag(coach.args, '--disallowedTools').includes('/home/u/brain'), 'a deny rule shadows the brain grant')
+})
+
+/*
+ * SOMEONE ELSE'S RUN: everything the owner keeps in the data dir, and every other
+ * person's folder, is denied by rule; their own space is the only part of the data
+ * dir added; the owner's brain and food log are neither added nor readable.
+ */
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'bushido-flags-'))
+process.on('exit', () => fs.rmSync(tmp, { recursive: true, force: true }))
+const D = path.join(tmp, 'data')
+for (const d of ['coach', 'backups', 'users/sam/coach', 'users/robin']) fs.mkdirSync(path.join(D, d), { recursive: true })
+for (const f of ['state.json', 'coach.json', 'whoop.json', 'strava.json', 'odd-new-file.json', 'users.json', 'users/robin/state.json']) fs.writeFileSync(path.join(D, f), '{}')
+const SAM = path.join(D, 'users', 'sam')
+const someone = {
+  repoRoot: '/srv/app', dataDir: D, home: HOME, person: { dir: SAM },
+  brainFile: '/home/u/brain/projects/me.md', krakatoaDir: '/home/u/food',
+  ownerSources: ['/home/u/brain/projects/me.md', '/home/u/brain/projects', '/home/u/food'],
+}
+const r = (p) => `/${path.resolve(p)}`
+
+check('someone else\'s run: only their own space is added; no brain, no food log, no Write', () => {
+  for (const f of [coachFlags(someone), plannerFlags(someone)]) {
+    const dirs = addDirs(f.args)
+    ok(JSON.stringify(dirs) === JSON.stringify([SAM]), `added ${dirs.join(', ')}`)
+    ok(!/(Write|Edit)\(/.test(flag(f.args, '--allowedTools')), 'a Write grant reached someone else\'s run')
+  }
+  const deny = flag(coachFlags(someone).args, '--disallowedTools').split(',')
+  ok(deny.includes('Edit') && deny.includes('Write'), 'file writes are not denied outright for someone else')
+})
+
+check('someone else\'s run cannot read the owner\'s log, coach, caches, backups or anyone else\'s folder', () => {
+  for (const f of [coachFlags(someone), plannerFlags(someone)]) {
+    const deny = flag(f.args, '--disallowedTools').split(',')
+    for (const want of [`Read(${r(D)}/state.json*)`, `Read(${r(D)}/coach.json*)`, `Read(${r(D)}/coach/**)`, `Read(${r(D)}/backups/**)`,
+      `Read(${r(D)}/whoop.json*)`, `Read(${r(D)}/strava.json*)`, `Read(${r(D)}/plan.json*)`, `Read(${r(D)}/goals.json*)`,
+      `Read(${r(D)}/odd-new-file.json)`, `Read(${r(path.join(D, 'users', 'robin'))}/**)`,
+      `Read(${r('/home/u/brain/projects/me.md')})`, `Read(${r('/home/u/brain/projects')}/**)`, `Read(${r('/home/u/food')}/**)`,
+      // The repo's own data dir too, which is what the cwd can reach by default.
+      'Read(//srv/app/data/state.json*)', 'Read(//srv/app/data/coach/**)']) {
+      ok(deny.includes(want), `missing deny ${want}`)
+    }
+    ok(!deny.some(d => d.includes(r(SAM))), 'a rule denies their own space')
+    ok(!deny.includes(`Read(${r(path.join(D, 'users'))}/**)`), 'the whole users folder is denied, which would cover their own')
+  }
+})
+
+check('a too-broad owner source is denied as a file, never as a directory that would cover their space', () => {
+  const f = coachFlags({ ...someone, ownerSources: ['/home/u/notes.md', '/home/u'] })
+  const deny = flag(f.args, '--disallowedTools').split(',')
+  ok(deny.includes('Read(//home/u/notes.md)'), 'the brain file itself is not denied')
+  ok(!deny.includes('Read(//home/u/**)'), '$HOME was denied, which would deny their own space with it')
+})
+
+check('the owner\'s run is unchanged by any of it', () => {
+  const owner = coachFlags({ repoRoot: '/srv/app', dataDir: D, home: HOME, brainFile: '/home/u/brain/projects/me.md' })
+  const deny = flag(owner.args, '--disallowedTools')
+  ok(!deny.includes(`Read(${r(D)}/state.json*)`), 'the owner is denied the owner\'s own log')
+  ok(addDirs(owner.args).includes(D), 'the owner\'s data dir is not added')
+  ok(flag(owner.args, '--allowedTools').includes('Edit(//home/u/brain/projects/**)'), 'the owner lost the brain Write grant')
 })
 
 if (failed) { console.log(`\n${failed} failed`); process.exit(1) }

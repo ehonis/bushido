@@ -487,7 +487,244 @@ const cookieFrom = (res) => (res.headers.get('set-cookie') || '').split(';')[0]
     eq(hers['daily-2026-10-06'].data.sharedFrom.name, 'Alex')
   })
 
+  /* ------------------------------------------ the owner as trainer (peopleRoute) */
+  const planned = { id: 'daily-2026-10-08', kind: 'daily', date: '2026-10-08', updatedAt: '2026-10-08T07:00:00Z',
+    data: { optId: 'planned', slot: 'main', done: true, name: 'Legs', plan: { title: 'Legs', blocks: [] }, out: {}, plannedBy: { id: 'sam', name: 'forged' } } }
+
+  await step('trainer: the owner plans a session into Sam\'s log; it is not done and says who planned it', async () => {
+    const ownerBefore = ownerFile()
+    const r = await post('sam', planned)
+    eq(r.status, 200)
+    const { entry } = await r.json()
+    eq([entry.data.done, entry.data.plannedBy, entry.data.sharedFrom], [false, { id: 'owner', name: 'Alex' }, undefined],
+      'plannedBy is the server\'s, and planning is not completing')
+    eq(ownerFile(), ownerBefore, 'planning for Sam touched the owner\'s log')
+    // Sam sees it in Sam's own log, and can log it like anything else.
+    const hers = (await (await get(`${two.base}/api/state`, as('sam@example.com', { 'x-bushido-user': 'sam' }))).json()).state.entries
+    eq(hers[planned.id].data.plannedBy.name, 'Alex')
+    const logged = await get(`${two.base}/api/entry`, { method: 'POST', headers: { ...json, ...as('sam@example.com', { 'x-bushido-user': 'sam' }).headers },
+      body: JSON.stringify({ entry: { ...hers[planned.id], updatedAt: '2026-10-08T09:00:00Z', data: { ...hers[planned.id].data, done: true, out: { rpe: 8 } } } }) })
+    eq(logged.status, 200)
+    eq(samFile().state.entries[planned.id].data.done, true, 'Sam could not log what was planned for Sam')
+    // ...and the owner can still run it from Sam's side afterwards (it is still marked as the owner's).
+    const ran = await post('sam', { ...samFile().state.entries[planned.id], updatedAt: '2026-10-08T10:00:00Z' })
+    eq(ran.status, 200)
+  })
+
+  await step('trainer: a planned week is Sam\'s quota-<monday>; a week Sam set is never overwritten', async () => {
+    const week = { id: 'quota-2026-10-12', kind: 'quota', date: '2026-10-12', updatedAt: '2026-10-10T08:00:00Z',
+      data: { counts: { run: 2 }, plannedBy: { id: 'x', name: 'y' } } }
+    const r = await post('sam', week)
+    eq(r.status, 200)
+    eq((await r.json()).entry.data.plannedBy, { id: 'owner', name: 'Alex' })
+    eq(samFile().state.entries[week.id].data.counts, { run: 2 })
+    eq(samFile().state.entries[week.id].data.done, undefined, 'a quota entry was given a done flag')
+    // Sam sets the next week herself; the owner's planner may not replace it.
+    const own = { id: 'quota-2026-10-19', kind: 'quota', date: '2026-10-19', updatedAt: '2026-10-10T08:00:00Z', data: { counts: { bike: 1 } } }
+    await get(`${two.base}/api/entry`, { method: 'POST', headers: { ...json, ...as('sam@example.com', { 'x-bushido-user': 'sam' }).headers }, body: JSON.stringify({ entry: own }) })
+    const over = await post('sam', { ...own, updatedAt: '2030-01-01T00:00:00Z', data: { counts: { run: 9 }, plannedBy: { id: 'owner' } } })
+    const body = await over.json()
+    eq([over.status, body.code], [409, 'not-shared'])
+    ok(/already set that week/.test(body.error), body.error)
+    eq(samFile().state.entries[own.id].data.counts, { bike: 1 }, 'the owner overwrote a week Sam set')
+    eq((await post('sam', { ...week, data: { counts: { run: 1 } } })).status, 400, 'a quota with no plannedBy')
+    eq((await post('sam', { ...week, data: { counts: {}, sharedFrom: { id: 'owner' } } })).status, 400, 'a quota can only be planned, not shared')
+  })
+
+  await step('trainer: the owner reads Sam\'s log, plan and About you, and edits the About you', async () => {
+    const st = await (await get(`${two.base}/api/people/sam/state`, owns())).json()
+    ok(st.state.entries[planned.id], 'Sam\'s log did not come back')
+    eq((await get(`${two.base}/api/people/sam/state`, { method: 'POST', headers: { ...json, ...owns().headers }, body: '{}' })).status, 405)
+    const content = await get(`${two.base}/api/people/sam/content`, owns())
+    eq(content.status, 200)
+    ok(Array.isArray((await content.json()).dailyMenu), 'Sam\'s plan did not come back')
+    eq((await (await get(`${two.base}/api/people/sam/about`, owns())).json()).name, 'Sam', 'the About you does not fall back to the People name')
+    const put = await get(`${two.base}/api/people/sam/about`, { method: 'PUT', headers: { ...json, ...owns().headers },
+      body: JSON.stringify({ name: 'Sam', notes: 'Training for a 10k.' }) })
+    eq((await put.json()).notes, 'Training for a 10k.')
+    eq(JSON.parse(fs.readFileSync(path.join(two.dataDir, 'users', 'sam', 'about.json'), 'utf8')).notes, 'Training for a 10k.')
+    eq(fs.existsSync(path.join(two.dataDir, 'about.json')), false, 'Sam\'s About you landed in the owner\'s space')
+  })
+
+  await step('trainer: Sam edits Sam\'s own About you; the owner\'s stays on the Settings page', async () => {
+    const sam = (extra = {}) => as('sam@example.com', { 'x-bushido-user': 'sam', ...extra })
+    eq((await (await get(`${two.base}/api/about`, sam())).json()).notes, 'Training for a 10k.')
+    const put = await get(`${two.base}/api/about`, { method: 'PUT', headers: { ...json, ...sam().headers }, body: JSON.stringify({ name: 'Sammy', notes: 'Knee is fine now.' }) })
+    eq([put.status, (await put.json()).name], [200, 'Sammy'])
+    const mine = await get(`${two.base}/api/about`, { method: 'PUT', headers: { ...json, ...owns().headers }, body: JSON.stringify({ notes: 'x' }) })
+    eq([mine.status, (await mine.json()).code], [409, 'settings'])
+    eq((await (await get(`${two.base}/api/about`, owns())).json()).owner, true)
+    // Acting as Sam, it is Sam's.
+    const acting = await get(`${two.base}/api/about`, { method: 'PUT', headers: { ...json, ...as('alex@example.com', { cookie: 'bushido_as=sam' }).headers },
+      body: JSON.stringify({ name: 'Sammy', notes: 'Set by the owner while acting.' }) })
+    eq(acting.status, 200)
+    eq(JSON.parse(fs.readFileSync(path.join(two.dataDir, 'users', 'sam', 'about.json'), 'utf8')).notes, 'Set by the owner while acting.')
+  })
+
+  await step('trainer: none of it for anyone but the owner, and not while acting', async () => {
+    const sam = as('sam@example.com', { 'x-bushido-user': 'sam' })
+    for (const what of ['state', 'content', 'about', 'entry?id=x']) {
+      eq((await get(`${two.base}/api/people/owner/${what}`, sam)).status, 403, `Sam reached /api/people/owner/${what}`)
+    }
+    eq((await post('owner', { ...planned, data: { ...planned.data } }, sam)).status, 403, 'Sam planned for the owner')
+    eq((await get(`${two.base}/api/people/sam/about`, { method: 'PUT', headers: { ...json, ...sam.headers }, body: '{}' })).status, 403)
+    const acting = await get(`${two.base}/api/people/sam/state`, as('alex@example.com', { cookie: 'bushido_as=sam' }))
+    eq([acting.status, (await acting.json()).code], [409, 'acting'])
+  })
+
+  await step('trainer: planning "for" someone is the owner\'s, not while acting, never for the owner', async () => {
+    const plan = (body, h = owns()) => get(`${two.base}/api/plan/workout`, { method: 'POST', headers: { ...json, ...h.headers },
+      body: JSON.stringify({ kinds: ['legs'], minutes: 30, ...body }) })
+    eq((await plan({ for: 'nobody' })).status, 404)
+    // With no CLI the target is accepted and the answer is the ordinary "set AI up".
+    const none = await plan({ for: 'sam' })
+    eq([none.status, (await none.json()).code], [503, 'ai-not-configured'])
+    const week = await get(`${two.base}/api/plan/week`, { method: 'POST', headers: { ...json, ...owns().headers },
+      body: JSON.stringify({ monday: '2026-10-12', message: 'x', for: 'nobody' }) })
+    eq(week.status, 404)
+  })
+
   await two.stop()
+
+  /* ---------------------------------- every person's AI runs, on their own space */
+  /*
+   * A fake Claude CLI that records what it was spawned with (argv and the prompt
+   * on stdin) and answers in each run's shape. The owner has a brain file, a
+   * food-log digest, WHOOP and Strava caches, coach threads and About-you notes;
+   * the point of these steps is that Sam's runs see none of it, and that the
+   * owner planning FOR Sam gets Sam's context, not the owner's.
+   */
+  const ai = mkdtemp('bushido-ai-')
+  const RECORD = path.join(ai, 'runs.jsonl')
+  const FAKE = path.join(ai, 'claude')
+  fs.writeFileSync(FAKE, `#!${process.execPath}
+const fs = require('fs')
+const argv = process.argv.slice(2)
+let stdin = ''
+process.stdin.on('data', c => { stdin += c })
+process.stdin.on('end', () => {
+  fs.appendFileSync(${JSON.stringify(RECORD)}, JSON.stringify({ argv, stdin }) + '\\n')
+  const schema = argv[argv.indexOf('--json-schema') + 1] || ''
+  const out = schema.includes('"counts"') ? { reply: 'ok', counts: [], changed: 'nothing' }
+    : schema.includes('"blocks"') ? { title: 'Legs', minutes: 30, why: 'because', changed: 'x', blocks: [{ name: 'Main', items: [{ kind: 'lift', name: 'Squat', sets: [{ reps: 5 }] }] }] }
+    : { reply: 'hello' }
+  process.stdout.write(JSON.stringify({ structured_output: out, model: 'fake' }))
+})
+`, { mode: 0o755 })
+  const BRAIN = path.join(ai, 'brain', 'projects', 'profile.md')
+  const FOOD = path.join(ai, 'food')
+  fs.mkdirSync(path.dirname(BRAIN), { recursive: true })
+  fs.writeFileSync(BRAIN, 'OWNER-BRAIN-PROFILE')
+  fs.mkdirSync(FOOD)
+  fs.writeFileSync(path.join(FOOD, 'digest.json'), '{}')
+  const runs = () => fs.readFileSync(RECORD, 'utf8').trim().split('\n').map(l => JSON.parse(l))
+  const lastRun = () => runs().at(-1)
+  const argOf = (r, name) => { const i = r.argv.indexOf(name); return i < 0 ? '' : r.argv[i + 1] }
+  const addDirsOf = (r) => r.argv.flatMap((a, i) => (a === '--add-dir' ? [r.argv[i + 1]] : []))
+  const promptOf = (r) => `${argOf(r, '--append-system-prompt')}\n${r.stdin}`
+  const rule = (p) => `/${path.resolve(p)}`
+
+  const three = await boot({
+    env: {
+      BUSHIDO_AUTH: 'proxy', BUSHIDO_ACCESS_TEAM: 'test-team', BUSHIDO_ACCESS_AUD: AUD,
+      BUSHIDO_ACCESS_CERTS_URL: `http://127.0.0.1:${certs.address().port}/certs`,
+      CLAUDE_BIN: FAKE, BUSHIDO_BRAIN_FILE: BRAIN, BUSHIDO_KRAKATOA_DIR: FOOD,
+    },
+    seed: {
+      'state.json': JSON.stringify({ version: 1, updatedAt: '2026-09-01T00:00:00Z', state: { entries: {} } }),
+      'settings.json': JSON.stringify({ version: 1, install: 'fresh', auth: { mode: 'proxy' }, athlete: { name: 'Alex', notes: 'OWNER-NOTES' } }),
+      'users.json': JSON.stringify({ users: [{ id: 'owner', name: 'Alex', emails: ['alex@example.com'] },
+        { id: 'sam', name: 'Sam', emails: ['sam@example.com'] }, { id: 'robin', name: 'Robin', emails: ['robin@example.com'] }] }),
+      'whoop.json': '{"workouts":[]}', 'strava.json': '{"activities":[]}',
+    },
+  })
+  const D = three.dataDir
+  const SAM_DIR = path.join(D, 'users', 'sam')
+  fs.mkdirSync(path.join(D, 'coach'), { recursive: true })
+  fs.writeFileSync(path.join(D, 'coach', 'towner.json'), JSON.stringify({ id: 'towner', title: 'Mine', messages: [] }))
+  fs.mkdirSync(path.join(D, 'users', 'robin'), { recursive: true })
+  fs.writeFileSync(path.join(D, 'users', 'robin', 'state.json'), '{}')
+  const samH = (extra = {}) => as('sam@example.com', { 'x-bushido-user': 'sam', ...extra })
+  const ownerH = (extra = {}) => as('alex@example.com', { 'x-bushido-user': 'owner', ...extra })
+  const postAi = (p, body, h) => get(`${three.base}${p}`, { method: 'POST', headers: { ...json, ...h.headers }, body: JSON.stringify(body) })
+  await get(`${three.base}/api/about`, { method: 'PUT', headers: { ...json, ...samH().headers }, body: JSON.stringify({ name: 'Sam', notes: 'SAM-NOTES' }) })
+
+  /* What a run for Sam must and must not be able to see, by flag and by prompt. */
+  const assertSamRun = (r, label) => {
+    const deny = argOf(r, '--disallowedTools').split(',')
+    const allow = argOf(r, '--allowedTools')
+    const prompt = promptOf(r)
+    eq(addDirsOf(r), [SAM_DIR], `${label}: --add-dir is not just Sam's space`)
+    for (const want of [`Read(${rule(D)}/state.json*)`, `Read(${rule(D)}/coach/**)`, `Read(${rule(D)}/coach.json*)`,
+      `Read(${rule(D)}/whoop.json*)`, `Read(${rule(D)}/strava.json*)`, `Read(${rule(D)}/backups/**)`, `Read(${rule(D)}/users.json*)`,
+      `Read(${rule(path.join(D, 'users', 'robin'))}/**)`, `Read(${rule(BRAIN)})`, `Read(${rule(path.dirname(BRAIN))}/**)`, `Read(${rule(FOOD)}/**)`]) {
+      ok(deny.includes(want), `${label}: no deny for ${want}`)
+    }
+    ok(!deny.some(d => d.includes(rule(SAM_DIR))), `${label}: a rule denies Sam's own space`)
+    ok(!/Edit\(|Write\(/.test(allow), `${label}: Sam's run may write somewhere: ${allow}`)
+    ok(deny.includes('Bash'), `${label}: Sam's run has a shell`)
+    ok(prompt.includes(path.join(SAM_DIR, 'state.json')), `${label}: the prompt does not point at Sam's log`)
+    ok(prompt.includes('SAM-NOTES') && prompt.includes('Sam'), `${label}: Sam's About you is not in the prompt`)
+    for (const never of ['OWNER-NOTES', BRAIN, path.dirname(BRAIN), FOOD, 'digest.json', 'whoop.json', 'strava.json', path.join(D, 'state.json')]) {
+      ok(!prompt.includes(never), `${label}: the prompt mentions ${never}`)
+    }
+  }
+
+  await step('ai for everyone: Sam has the coach and planners once a CLI is configured', async () => {
+    const me = await (await get(`${three.base}/api/auth/me`, samH())).json()
+    eq([me.features.ai, me.features.whoop, me.features.strava, me.features.goals, me.features.notifications],
+      [true, false, false, false, false], 'AI on, the owner\'s grants still off')
+  })
+
+  await step('ai for everyone: Sam\'s coach run reads only Sam\'s space and Sam\'s About you', async () => {
+    const r = await postAi('/api/coach/chat', { message: 'how was my week?' }, samH())
+    eq(r.status, 200)
+    assertSamRun(lastRun(), 'coach')
+    ok(fs.readdirSync(path.join(SAM_DIR, 'coach')).length === 1, 'Sam\'s thread is not in Sam\'s coach folder')
+    eq(fs.readdirSync(path.join(D, 'coach')), ['towner.json'], 'Sam\'s thread landed in the owner\'s coach folder')
+    eq((await (await get(`${three.base}/api/coach/threads`, samH())).json()).threads.map(t => t.id).includes('towner'), false,
+      'Sam was shown the owner\'s threads')
+  })
+
+  await step('ai for everyone: Sam\'s planner and week planner runs are Sam\'s too', async () => {
+    eq((await postAi('/api/plan/workout', { kinds: ['legs'], minutes: 30 }, samH())).status, 200)
+    assertSamRun(lastRun(), 'planner')
+    eq((await postAi('/api/plan/week', { monday: '2026-10-12', message: 'draft it' }, samH())).status, 200)
+    assertSamRun(lastRun(), 'week planner')
+    eq((await postAi('/api/plan/workout', { kinds: ['legs'], minutes: 30, for: 'owner' }, samH())).status, 403, 'Sam planned for the owner')
+    eq((await postAi('/api/plan/workout', { kinds: ['legs'], minutes: 30, for: 'robin' }, samH())).status, 403, 'Sam planned for someone else')
+  })
+
+  await step('ai for everyone: the owner planning FOR Sam runs on Sam\'s context, not the owner\'s', async () => {
+    eq((await postAi('/api/plan/workout', { kinds: ['legs'], minutes: 30, for: 'sam' }, ownerH())).status, 200)
+    assertSamRun(lastRun(), 'owner planning for Sam')
+    eq((await postAi('/api/plan/revise', { plan: { blocks: [] }, message: 'shorter', for: 'sam' }, ownerH())).status, 200)
+    assertSamRun(lastRun(), 'owner revising for Sam')
+    eq((await postAi('/api/plan/week', { monday: '2026-10-12', message: 'x', for: 'sam' }, ownerH())).status, 200)
+    assertSamRun(lastRun(), 'owner planning Sam\'s week')
+    // Acting as Sam, "for Sam" is just Sam's own run; for anyone else it is refused.
+    const acting = await postAi('/api/plan/workout', { kinds: ['legs'], minutes: 30, for: 'robin' }, as('alex@example.com', { cookie: 'bushido_as=sam' }))
+    eq(acting.status, 409, 'planned "for" someone else while acting as Sam')
+  })
+
+  await step('ai for everyone: acting as Sam, the coach is Sam\'s', async () => {
+    eq((await postAi('/api/coach/chat', { message: 'hi' }, as('alex@example.com', { cookie: 'bushido_as=sam' }))).status, 200)
+    assertSamRun(lastRun(), 'acting as Sam')
+  })
+
+  await step('ai for everyone: the owner\'s own runs are unchanged (brain, food log, WHOOP, Strava, the owner\'s notes)', async () => {
+    eq((await postAi('/api/coach/chat', { message: 'hi' }, ownerH())).status, 200)
+    const r = lastRun()
+    const prompt = promptOf(r)
+    for (const want of ['OWNER-NOTES', BRAIN, path.join(FOOD, 'digest.json'), path.join(D, 'whoop.json'), path.join(D, 'state.json')]) {
+      ok(prompt.includes(want), `the owner's coach lost ${want}`)
+    }
+    ok(argOf(r, '--allowedTools').includes(`Edit(${rule(path.dirname(BRAIN))}/**)`), 'the owner\'s coach lost the brain Write grant')
+    ok(!argOf(r, '--disallowedTools').includes(`Read(${rule(D)}/state.json*)`), 'the owner\'s run is denied the owner\'s own log')
+    ok(addDirsOf(r).includes(D), 'the owner\'s data dir is not readable')
+  })
+
+  await three.stop()
   certs.close()
 
   /* ------------------------------------------------------- an existing install */

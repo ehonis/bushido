@@ -126,7 +126,8 @@ the new setup link. The training log is untouched.
 
 An install can hold several people's logs. The owner (whoever set it up) keeps the data
 dir exactly as it was: `data/state.json`, `data/plan.json`, `data/coach/`, `data/backups/`.
-Everyone else has the same files under `data/users/<id>/`. `data/users.json` (`0600`) lists
+Everyone else has the same files under `data/users/<id>/`, plus `about.json` (their About
+you: a name and notes for their own AI runs). `data/users.json` (`0600`) lists
 the people and the emails they sign in with; edit it in Settings → People.
 
 People are told apart by **Cloudflare Access**, in proxy mode. Set the team and the
@@ -153,11 +154,38 @@ under its own key, and every API call from the app says whose log it holds
 `X-Bushido-Auth: switched`, and the app reloads. One person's cached log can never be
 merged into another's.
 
-For anyone but the owner: Settings are refused; the AI coach and planners are off (the
-Coach tab and "Write it for me" are not shown); WHOOP, Strava, linked goals, habit sync and
+For anyone but the owner: Settings are refused; WHOOP, Strava, linked goals, habit sync and
 notifications are off, because they hold the owner's accounts; the plan is their own
 `data/users/<id>/plan.json` if one was imported while acting as them, else the starter.
 Removing someone in Settings stops them getting in and leaves their folder on disk.
+
+**Everyone gets the AI** once a Claude CLI is configured: the coach, Plan a workout and Plan
+the week. Each run is built from that person's own space only: their log, coach threads,
+plan and About you (profile → You → *About you*; the owner's stays in Settings). Their runs
+get `--add-dir` for `data/users/<id>/` alone, and are denied by rule from reading anything
+else in the data dir (the owner's `state.json`, coach threads and note, caches, backups,
+`users.json`) and every other person's folder. The owner's brain file and its notebook, the
+nutrition digest, the brain Write grant and the WHOOP/Strava digests are not given to them
+and are denied by path; their prompts have no section for any of them, exactly like an
+install that never configured them. Without a CLI nothing changes for them: no Coach tab, no
+"Write it for me".
+
+**The owner as trainer.** Without acting as anyone, the owner can:
+
+- plan a workout or a week FOR someone (the "For: You / Sam" choice at the top of both
+  planners, shown only to the owner, only with more than one person, never while acting).
+  The model run uses that person's log, plan and About you. Keeping it writes into their log:
+  a planned session lands as an ordinary entry, `done: false`, with the same derivable id
+  their own + would have given it and `data.plannedBy: { id, name }` stamped by the server;
+  a week is their `quota-<monday>` with `plannedBy`. A week they set themselves is never
+  overwritten (`409`). They see "planned by <owner>" on Today, the sheet and the feed, and
+  can edit, log or delete it like anything else.
+- open "Sam's day" from Today: their week, read-only, each session openable to log it, mark
+  it done or start it from their side. Their About you can be edited there too.
+- run a shared workout from every side: the runner and workout mode get a You / <name>
+  switcher with the name and colour in the header. Each side is that person's own entry with
+  its own sets, weights, rest clock, done state and writer; the owner's goes through the
+  owner's store, theirs through `/api/people/<id>/entry`. Only the side on screen makes a sound.
 
 ## API
 
@@ -175,7 +203,10 @@ Signed out, `/api/*` answers `401` with `X-Bushido-Auth: login` and pages redire
 | `GET /api/auth/me` · `POST /api/auth/password` | who is signed in, whose log this is and what it offers; change the password |
 | `POST /api/act-as` | `{ id }` — the owner acts as someone (`null`: back to themselves) |
 | `GET`/`POST`/`PUT /api/settings/users` · `DELETE /api/settings/users/<id>` | the people on this install (owner only) |
-| `GET /api/people` · `GET /api/people/<id>/entry?id=…` or `?date=…` · `POST /api/people/<id>/entry` | shared workouts: the owner reads and writes someone else's copy of a workout done together (owner only, not while acting as someone, never the owner's own log, only entries carrying `data.sharedFrom`) |
+| `GET /api/people` · `GET /api/people/<id>/entry?id=…` or `?date=…` · `POST /api/people/<id>/entry` | the owner reads and writes someone else's copy of a shared workout, a session the owner planned for them (`daily-…`) or a week the owner planned for them (`quota-<monday>`). Owner only, not while acting as someone, never the owner's own log, and only entries carrying `data.sharedFrom` or `data.plannedBy` (both stamped by the server); anything they logged or set themselves is `409 not-shared` |
+| `GET /api/people/<id>/state` · `GET /api/people/<id>/content` | their log and the plan their app runs on, read-only (owner only, not while acting) |
+| `GET`/`PUT /api/people/<id>/about` | their About you, `{ name, notes }` (owner only, not while acting) |
+| `GET`/`PUT /api/about` | your own About you, for anyone but the owner (whose is in Settings; `PUT` from the owner is `409 settings`) |
 | `GET /api/settings` · `PUT /api/settings` | the settings, secrets masked; a partial update |
 | `POST /api/settings/ai/test` | one tiny request through the configured CLI |
 | `GET /api/content` | the content file in use (see Settings → Training plan) |
@@ -183,9 +214,12 @@ Signed out, `/api/*` answers `401` with `X-Bushido-Auth: login` and pages redire
 | `GET /api/coach` | today's coach note — 404 until there is one, which is normal |
 | `GET /api/coach/threads` · `GET`/`DELETE /api/coach/thread/<id>` | the AI coach's conversations |
 | `POST /api/coach/chat` | `{ message, threadId?, context? }` → one coach turn; one model run |
-| `POST /api/plan/workout` | `{ kinds, minutes, goal }` → a workout with the sets written in; one model run, stored nowhere |
-| `POST /api/plan/revise` | `{ plan, message, thread }` → the same workout, changed; stored nowhere |
-| `POST /api/plan/week` | `{ monday, counts, message, thread }` → the week's quotas, proposed; stored nowhere |
+| `POST /api/plan/workout` | `{ kinds, minutes, goal, for? }` → a workout with the sets written in; one model run, stored nowhere |
+| `POST /api/plan/revise` | `{ plan, message, thread, for? }` → the same workout, changed; stored nowhere |
+| `POST /api/plan/week` | `{ monday, counts, message, thread, for? }` → the week's quotas, proposed; stored nowhere |
+
+`for` (a person's id) is the owner planning for someone else: the run uses their space. Owner
+only (`403`), not while acting as someone else (`409 acting`), never the owner's own id.
 | `GET /api/whoop` · `POST /api/whoop/pull` | the WHOOP cache, and a refetch through the bridge (`configured: false` without one) |
 | `GET /api/strava` · `POST /api/strava/pull` | the Strava cache (activities, gear, athlete), and a refetch |
 | `GET /api/strava/activity?id=` | one activity in full (laps, splits, calories) — fetched when you attach it |

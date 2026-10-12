@@ -53,7 +53,14 @@ function firstUnlogged(steps) {
   return i === -1 ? Math.max(0, steps.length - 1) : i
 }
 
-export function WorkoutMode({ session, entry, onSave, onSetDone, onExit }) {
+/*
+ * `who`, `switcher` and `shown` are for a workout run from more than one
+ * person's side (trainer.jsx `SidesWorkout`): `who` ({ name, tone }) puts whose
+ * side this is in the header in that person's colour, `switcher` is the You /
+ * <name> control, and a side that is not `shown` keeps its own clock running
+ * behind the other but stays silent, so a cue is always about the side on screen.
+ */
+export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinish = null, who = null, switcher = null, shown = true }) {
   const out = entry?.data?.out || {}
   const steps = useMemo(() => buildSteps(session, out), [session, out])
 
@@ -76,7 +83,7 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit }) {
   const timing = step?.timing || { work: null, reps: 1, repRest: null, setRest: null }
   const lock = useRef(null)
 
-  const cue = useCallback((name) => { if (!muted) CUES[name]?.() }, [muted])
+  const cue = useCallback((name) => { if (!muted && shown) CUES[name]?.() }, [muted, shown])
 
   /* ------------------------------------------------------------ the clock */
 
@@ -247,15 +254,17 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit }) {
     delete next.startedAt
     onSave(next)
     if (markDone) onSetDone?.(true)
-    onExit()
+    // With more than one side, finishing one hands over to the next (SidesWorkout).
+    ;(onFinish || onExit)()
   }
 
   /* ------------------------------------------------------------- rendering */
 
   if (!steps.length) {
     return (
-      <div className="wo">
-        <WoHead session={session} elapsed={0} onExit={onExit} muted={muted} onMute={setMuted} />
+      <div className="wo" data-tone={who ? who.tone : undefined}>
+        <WoHead session={session} elapsed={0} onExit={onExit} muted={muted} onMute={setMuted} who={who} />
+        {switcher}
         <div className="wo-body">
           <p className="empty">
             This session has no per-set prescription, so there is nothing to step through.
@@ -267,9 +276,11 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit }) {
   }
 
   return (
-    <div className={`wo wo-${phase}`} role="dialog" aria-modal="true" aria-label={`${session.name} workout`}>
+    <div className={`wo wo-${phase}`} role="dialog" aria-modal="true" aria-label={`${session.name} workout`}
+      data-tone={who ? who.tone : undefined}>
       <WoHead session={session} elapsed={elapsed} onExit={() => (active ? setConfirmExit(true) : onExit())}
-        muted={muted} onMute={setMuted} />
+        muted={muted} onMute={setMuted} who={who} />
+      {switcher}
 
       <div className="wo-body">
         {phase === 'idle' && <Intro session={session} steps={steps} onStart={start} resumed={Boolean(startedAt)} />}
@@ -316,14 +327,17 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit }) {
 
 /* ------------------------------------------------------------------ pieces */
 
-function WoHead({ session, elapsed, onExit, muted, onMute }) {
+function WoHead({ session, elapsed, onExit, muted, onMute, who = null }) {
   return (
     <header className="wo-head">
       <button className="modal-btn" onClick={onExit} aria-label="Leave workout">
         <Icon name="ChevronDown" size={19} style={{ transform: 'rotate(90deg)' }} />
       </button>
       <div className="wo-title">
-        <div className="wo-name">{session.name}</div>
+        <div className="wo-name">
+          {who && <span className="side-who" data-tone={who.tone}>{who.name}</span>}
+          {session.name}
+        </div>
         <div className="wo-elapsed"><Icon name="Timer" size={12} /> {clock(elapsed)}</div>
       </div>
       <button className="modal-btn" onClick={() => onMute(!muted)} aria-pressed={muted}

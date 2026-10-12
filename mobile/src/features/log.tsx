@@ -35,6 +35,7 @@ import { loggedActivity } from '../lib/activities.js'
 import { useStrava } from '../lib/strava.jsx'
 import { titleFor, withCasualName } from '../lib/naming.js'
 import { withLine } from '../lib/shared.js'
+import { plannedLine } from '../lib/trainer.js'
 import { currentMe } from '../lib/whoami.js'
 
 const todayIso = () => (localIso as any)()
@@ -123,6 +124,8 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry }: any) {
         casual: !isTraining(e),
         // A workout done together: "with Sam" (or, in Sam's log, "with Alex"). lib/shared.js.
         with: (withLine as any)(e, currentMe().people),
+        // A session the owner planned for this person: "planned by Alex". lib/trainer.js.
+        by: (plannedLine as any)(e, currentMe()),
       }
     })
     .sort((a: any, b: any) => String(b.entry.date).localeCompare(String(a.entry.date)) ||
@@ -278,6 +281,12 @@ function LogRow({ w, plan, gearById, onOpen, onRemove }: {
           <View style={st.gear}>
             <Icon name="Users" size={12} color={colors.inkFaint} />
             <T size={11} faint>{w.with}</T>
+          </View>
+        ) : null}
+        {w.by ? (
+          <View style={st.gear}>
+            <Icon name="ClipboardCheck" size={12} color={colors.inkFaint} />
+            <T size={11} faint>{w.by}</T>
           </View>
         ) : null}
         {stats.length > 0 && (

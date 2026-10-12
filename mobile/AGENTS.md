@@ -55,7 +55,11 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
 - `src/ui/` holds the building blocks: `T` (text), `kit.tsx` (Btn, IconBtn, Card, H2, Sub, Chip,
   Segmented, Input, Field, NoteField, Toggle, Empty, Spinner, Row), `Sheet.tsx` (`Modal`,
   `FullScreen`, `Popover` with `modal.jsx`'s props), `Fold.tsx` (`<details>`), `menu.ts` (system
-  action sheets, `confirm`, `prompt`), `haptics.ts`, `ToastHost`, `NotYet`.
+  action sheets, `confirm`, `prompt`), `haptics.ts`, `ToastHost`, `NotYet`, `Person.tsx` (each
+  person's colour and name pill: the web's `[data-tone]` and `.side-who`).
+- **A workout with more than one side** (`features/trainer.tsx` `SidesWorkout`) presents ONE
+  full-screen modal and renders each side's runner or workout mode inside it with `embedded`,
+  because iOS presents one modal at a time; the hidden sides stay mounted so their clocks run.
 
 ## Porting rules
 

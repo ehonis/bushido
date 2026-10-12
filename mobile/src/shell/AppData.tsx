@@ -9,16 +9,20 @@
 // are mounted here too, in the same order.
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { router } from 'expo-router'
-import { useStore, extraEntryId } from '../lib/store.js'
+import { useStore } from '../lib/store.js'
 import { PrefsProvider } from '../lib/prefs.jsx'
 import { PlanProvider } from '../lib/planctx.jsx'
 import { CoachProvider } from '../lib/coachapi.jsx'
 import { WhoopProvider } from '../lib/whoop.jsx'
 import { StravaProvider } from '../lib/strava.jsx'
 import { localIso } from '../lib/dates.js'
-import { nameFor } from '../lib/naming.js'
 import { splitPrescription } from '../lib/prescription.js'
 import { currentMe } from '../lib/whoami.js'
+import * as trainerLib from '../lib/trainer.js'
+import * as peopleApi from '../lib/peopleapi.js'
+
+// Default parameters in the ported JS narrow TypeScript's inference (mobile/AGENTS.md).
+const { placeEntries, planPeople, keepPlanFor } = trainerLib as any
 import { onForeground } from '../lib/foreground'
 
 export type TabId = 'today' | 'week' | 'log' | 'progress' | 'achievements' | 'goals' | 'coach'
@@ -41,6 +45,10 @@ export interface AppData {
   placeFromCoach: (s: { optId: string; action?: string }) => void
   keepPlan: (pres: any) => { ids: string[]; count: number; first: string | null }
   startPlanned: (id: string) => void
+  /** Who the owner can plan for (lib/trainer.js): nobody unless this is the owner, on the owner's own log, with someone else on the install. */
+  people: { id: string; name: string }[]
+  /** Keep a plan in someone else's log, through the people endpoints. */
+  keepPlanFor: (person: { id: string; name: string }, pres: any) => Promise<{ ids: string[]; count: number; first: string | null }>
   restOpt: any
   restOn: (date: string) => any
   restDate: string | null
@@ -109,33 +117,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const entriesRef = useRef(store.entries)
   entriesRef.current = store.entries
   const placeAll: AppData['placeAll'] = (items, { open = true, close = true, date = localIso() } = {}) => {
-    const onDay = entriesRef.current.filter((e: any) => e.kind === 'daily' && e.date === date && !e.deleted)
-    const written: any[] = []
-
-    for (const { optId, data = {} } of items) {
-      const opt = (plan?.dailyMenu || []).find((o: any) => o.id === optId)
-      if (!opt) continue
-      const seen = [...onDay, ...written]
-      const hasMain = seen.some((e) => e.data?.slot !== 'extra')
-      const id = hasMain ? extraEntryId(date, opt.id, seen, { fresh: true }) : `daily-${date}`
-      const out = data.out || {}
-      const entry = {
-        id, kind: 'daily', date,
-        data: {
-          optId: opt.id,
-          name: nameFor(opt, out),
-          minutes: opt.minutes, level: opt.level ?? 1,
-          // Putting a session on the day does NOT complete it. A rest day is the
-          // exception: choosing it is the whole action.
-          done: opt.role === 'rest',
-          slot: hasMain ? 'extra' : 'main',
-          ...data,
-          out,
-        },
-      }
-      written.push(entry)
-      store.upsertEntry(entry)
-    }
+    // `placeEntries` (lib/trainer.js), the same function the owner planning for
+    // someone else runs against THEIR day, so the two mint the same ids. Placing
+    // a session does NOT complete it; a rest day is the exception.
+    const written: any[] = placeEntries({ menu: plan?.dailyMenu || [], onDay: entriesRef.current, items, date })
+    for (const entry of written) store.upsertEntry(entry)
 
     if (close) setFab(null)
     if (open && written[0]) setOpenEntryId(written[0].id)
@@ -181,6 +167,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return { ids, count: ids.length, first: ids[0] || null }
   }
 
+  /*
+   * THE OWNER AS TRAINER (lib/trainer.js, features/trainer.tsx): a plan kept for
+   * someone goes into THEIR log through the people endpoints, with the ids their
+   * own + would mint against their day.
+   */
+  const people = planPeople(me)
+  const keepPlanForPerson: AppData['keepPlanFor'] = (person, pres) => keepPlanFor({
+    person, parts: splitPrescription(pres), menu: plan?.dailyMenu || [], date: localIso(),
+    owner: { id: me.real.id, name: me.real.name }, api: peopleApi,
+  })
+
   /** "Start it now", from the planner's last screen. */
   const startPlanned = (id: string) => {
     setFab(null)
@@ -190,7 +187,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const value: AppData = {
     store, plan, reloadPlan: loadPlan, me, fab, setFab, openEntryId, setOpenEntryId, setTab,
-    placeAll, placeToday, placeFromCoach, keepPlan, startPlanned,
+    placeAll, placeToday, placeFromCoach, keepPlan, startPlanned, people, keepPlanFor: keepPlanForPerson,
     restOpt, restOn, restDate, askRest, takeRest,
   }
 

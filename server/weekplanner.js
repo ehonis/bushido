@@ -85,8 +85,8 @@ function achievementList(plan) {
   return list ? `WHAT THE ATHLETE IS TRAINING FOR (the seeded achievements; their own edits are \`kind: 'achievement'\` entries in state.json):\n${list}\n` : ''
 }
 
-function systemPrompt({ repoRoot, dataDir, brainFile, today, plan, name, notes }) {
-  const data = dataDir || `${repoRoot}/data`
+function systemPrompt({ repoRoot, dataDir, logDir, brainFile, today, plan, name, notes, measurements = true }) {
+  const data = logDir || dataDir || `${repoRoot}/data`
   const rec = plan?.recommender || {}
   const cap = rec.hardCap ?? 3
   const gap = rec.hardMinGapDays ?? 2
@@ -118,11 +118,11 @@ reading it whole. In order of value:
   and never fill is not a plan, it is a wish, and you should say so.
 ${brainFile ? `- ${brainFile} — the athlete profile, injury history, the hard rules and why they
   are stricter than the literature. Read it before touching the climbing categories.
-` : ''}- ${data}/whoop.json — a fortnight of recovery, HRV, resting HR and strain.
+` : ''}${measurements ? `- ${data}/whoop.json — a fortnight of recovery, HRV, resting HR and strain.
   A run of low recoveries is a reason to keep the week easier, and to say so.
 - ${data}/strava.json — recent rides, runs and swims with distance, time,
   heart rate and power. Weekly totals per sport are the honest read on their volume.
-
+` : ''}
 If a tool call is not going to change the week you write, do not make it.
 
 RULES THAT ARE NOT YOURS TO BREAK
@@ -212,9 +212,11 @@ function toCounts(rows, plan) {
  * One turn. Read-only by flag, not by instruction — see the header.
  */
 function planWeek({
-  bin, model, effort, timeoutMs, repoRoot, dataDir, brainFile, today, plan,
+  bin, model, effort, timeoutMs, repoRoot, dataDir, logDir, brainFile, today, plan,
   monday, counts, message, thread = [], context, name, notes, env,
+  person = null, ownerSources = [], measurements = true,
 }) {
+  if (person) brainFile = null
   return new Promise((resolve, reject) => {
     const child = spawn(bin, [
       '--print',
@@ -223,8 +225,8 @@ function planWeek({
       '--output-format', 'json',
       '--no-session-persistence',
       // Read-only; too-broad directories refused, secrets denied. See agentflags.js.
-      ...plannerFlags({ repoRoot, dataDir: dataDir || path.join(repoRoot, 'data'), brainFile }).args,
-      '--append-system-prompt', systemPrompt({ repoRoot, dataDir, brainFile, today, plan, name, notes }),
+      ...plannerFlags({ repoRoot, dataDir: dataDir || path.join(repoRoot, 'data'), brainFile, person, ownerSources }).args,
+      '--append-system-prompt', systemPrompt({ repoRoot, dataDir, logDir, brainFile, today, plan, name, notes, measurements }),
       '--json-schema', JSON.stringify(WEEK_SCHEMA),
     ], { cwd: repoRoot, env: env || process.env, stdio: ['pipe', 'pipe', 'pipe'] })
 

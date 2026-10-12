@@ -150,8 +150,10 @@ function deleteThread(dir, id) {
  * it is set the coach may read it and append dated memories beside it; when it
  * is not, the coach has no write access anywhere.
  */
-function systemPrompt({ repoRoot, dataDir, brainFile, krakatoaDir, planFile, today, name, notes }) {
-  const data = dataDir || `${repoRoot}/data`
+function systemPrompt({ repoRoot, dataDir, logDir, brainFile, krakatoaDir, planFile, today, name, notes, measurements = true }) {
+  // `logDir` is whose log this run is about: the data dir for the owner, their
+  // own space (data/users/<id>) for anyone else. See server.js `aiRun`.
+  const data = logDir || dataDir || `${repoRoot}/data`
   const brainDir = brainFile ? path.dirname(brainFile) : null
   const sources = [
     brainFile && `- ${brainFile}
@@ -166,7 +168,7 @@ function systemPrompt({ repoRoot, dataDir, brainFile, krakatoaDir, planFile, tod
     `- ${data}/state.json
   The actual training log. READ ONLY. Never write to it — it is the one file
   here with no upstream copy.`,
-    `- ${data}/whoop.json, ${data}/strava.json
+    measurements && `- ${data}/whoop.json, ${data}/strava.json
   Cached WHOOP recovery/HRV/sleep and Strava rides/runs/gear, when connected.
   Either may be absent.`,
     krakatoaDir && `- ${krakatoaDir}/digest.json
@@ -242,12 +244,13 @@ function conversationPrompt(thread, question, context, name) {
  * scoped by path so the only thing it can create is a memory, in a git repo.
  */
 function askCoach({
-  bin, model, effort, timeoutMs, repoRoot, dataDir, brainFile, krakatoaDir, planFile,
-  today, thread, question, context, name, notes, env,
+  bin, model, effort, timeoutMs, repoRoot, dataDir, logDir, brainFile, krakatoaDir, planFile,
+  today, thread, question, context, name, notes, env, person = null, ownerSources = [], measurements = true,
 }) {
-  // See server/agentflags.js: too-broad directories are refused, and secrets
-  // files are denied by rule.
-  const flags = coachFlags({ repoRoot, dataDir: dataDir || path.join(repoRoot, 'data'), brainFile, krakatoaDir, planFile })
+  // See server/agentflags.js: too-broad directories are refused, secrets files
+  // are denied by rule, and a run for anyone but the owner cannot read the
+  // owner's space or anyone else's (`person`).
+  const flags = coachFlags({ repoRoot, dataDir: dataDir || path.join(repoRoot, 'data'), brainFile, krakatoaDir, planFile, person, ownerSources })
   for (const r of flags.refused) console.log(`[bushido] coach: refused ${r}`)
   const safeBrain = flags.writeDir ? brainFile : null
   return new Promise((resolve, reject) => {
@@ -260,7 +263,8 @@ function askCoach({
       // It reads the repo from its cwd and anything configured outside it via
       // --add-dir. Write is granted only into a safe brain directory.
       ...flags.args,
-      '--append-system-prompt', systemPrompt({ repoRoot, dataDir, brainFile: safeBrain, krakatoaDir, planFile, today, name, notes }),
+      '--append-system-prompt', systemPrompt({ repoRoot, dataDir, logDir, brainFile: person ? null : safeBrain,
+        krakatoaDir: person ? null : krakatoaDir, planFile, today, name, notes, measurements }),
       '--json-schema', JSON.stringify(REPLY_SCHEMA),
     ], { cwd: repoRoot, env: env || process.env, stdio: ['pipe', 'pipe', 'pipe'] })
 

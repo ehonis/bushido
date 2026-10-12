@@ -1,6 +1,7 @@
 /*
- * The owner's window into someone else's copy of a shared workout
- * (server.js `peopleRoute`, lib/shared.js). Same-origin `/api/` calls, so the
+ * The owner's window into someone else's log: their copy of a shared workout
+ * (lib/shared.js), what the owner planned for them (lib/trainer.js), their day,
+ * their plan and their About you (server.js `peopleRoute`). Same-origin `/api/` calls, so the
  * fetch wrapper adds `X-Bushido-User` for the OWNER's log as on every other
  * call: whose copy is in the path, not in the header, and the server refuses a
  * header that disagrees with the session exactly as it always has.
@@ -45,4 +46,43 @@ export async function putPersonEntry(personId, entry) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ entry: stamped }),
   })).entry
+}
+
+/** Their whole log, read-only: for their day list and for planning with their context. */
+export async function getPersonState(personId) {
+  return (await call(`/api/people/${encodeURIComponent(personId)}/state`)).state || { entries: {} }
+}
+
+/** The plan their app runs on (their own import, or the starter). Null when there is none. */
+export async function getPersonContent(personId) {
+  try { return await call(`/api/people/${encodeURIComponent(personId)}/content`) } catch (err) {
+    if (err.status === 404) return null
+    throw err
+  }
+}
+
+/** Their About you: `{ name, notes }`. */
+export async function getPersonAbout(personId) {
+  return call(`/api/people/${encodeURIComponent(personId)}/about`)
+}
+
+export async function putPersonAbout(personId, about) {
+  return call(`/api/people/${encodeURIComponent(personId)}/about`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: about?.name ?? '', notes: about?.notes ?? '' }),
+  })
+}
+
+/** This person's own About you (anyone but the owner, whose is in Settings). */
+export async function getMyAbout() {
+  return call('/api/about')
+}
+
+export async function putMyAbout(about) {
+  return call('/api/about', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: about?.name ?? '', notes: about?.notes ?? '' }),
+  })
 }

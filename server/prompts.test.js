@@ -84,5 +84,40 @@ check('a name from Settings reaches every prompt that addresses the athlete', ()
   }
 })
 
+/*
+ * Someone else's runs: their own log path, their name and notes, and no section
+ * for the owner's sources at all (§7: absent data means no section). Built as the
+ * server builds them for anyone but the owner (`aiRun`): no brain file, no food
+ * log, no WHOOP or Strava, `logDir` their own space.
+ */
+function someoneElse(name, notes) {
+  const c = { repoRoot: '/srv/app', dataDir: '/srv/app/data', logDir: '/srv/app/data/users/sam', brainFile: null,
+    today: '2026-10-02', plan: starter, name, notes, measurements: false }
+  return {
+    'coach system': coach.systemPrompt({ ...c, krakatoaDir: null }),
+    'planner system': planner.systemPrompt(c),
+    'week system': weekplanner.systemPrompt(c),
+  }
+}
+
+check('someone else\'s prompts point at their own log and carry their own About you', () => {
+  for (const [k, text] of Object.entries(someoneElse('Sam', 'Knee rehab.'))) {
+    ok(text.includes('/srv/app/data/users/sam/state.json'), `${k} does not point at their log`)
+    ok(!text.includes('/srv/app/data/state.json'), `${k} points at the owner's log`)
+    ok(text.includes('Sam') && text.includes('Knee rehab.'), `${k} drops their name or notes`)
+  }
+})
+
+check('someone else\'s prompts have no brain, food-log, WHOOP or Strava section', () => {
+  for (const [k, text] of Object.entries(someoneElse('', ''))) {
+    for (const never of ['whoop.json', 'strava.json', 'digest.json', 'athlete profile', 'notebook', 'WHAT YOU MAY WRITE\n\nYou may append']) {
+      ok(!text.includes(never), `${k} mentions ${never}`)
+    }
+    const m = text.match(GENDERED)
+    ok(!m, `${k} assumes a gender: "${m && text.slice(Math.max(0, m.index - 40), m.index + 40)}"`)
+    ok(!/\bundefined\b|\bnull\b/.test(text), `${k}: an empty value leaked into a prompt`)
+  }
+})
+
 if (failed) { console.log(`\n${failed} failed`); process.exit(1) }
 console.log('\nprompts ok')

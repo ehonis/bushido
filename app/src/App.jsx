@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useStore } from './lib/store.js'
-import { TodayTab, WeekTab, nameFor } from './tabs.jsx'
+import { TodayTab, WeekTab } from './tabs.jsx'
 import { LogTab } from './log.jsx'
 import { Icon, BushidoMark, TAB_ICONS } from './lib/icons.jsx'
 import { PrefsProvider } from './lib/prefs.jsx'
@@ -19,7 +19,9 @@ import { PlanFlow } from './planner.jsx'
 import { WeekPlanFlow } from './weekplanner.jsx'
 import { splitPrescription } from './lib/prescription.js'
 import { SessionPicker, ActivityChooser, activityFieldOf } from './picker.jsx'
-import { extraEntryId } from './lib/store.js'
+import { placeEntries, planPeople, keepPlanFor, toneFor } from './lib/trainer.js'
+import { PersonDay } from './trainer.jsx'
+import * as peopleApi from './lib/peopleapi.js'
 import { Modal } from './modal.jsx'
 import { currentMe, actAs } from './lib/whoami.js'
 
@@ -379,37 +381,15 @@ export default function App() {
    * down and starting it are two decisions, and the flow stays up to ask which.
    */
   const placeAll = (items, { open = true, close = true, date = localIso() } = {}) => {
-    const onDay = store.entries.filter(e => e.kind === 'daily' && e.date === date && !e.deleted)
-    const written = []
-
-    for (const { optId, data = {} } of items) {
-      const opt = (plan?.dailyMenu || []).find(o => o.id === optId)
-      if (!opt) continue
-      const seen = [...onDay, ...written]
-      const hasMain = seen.some(e => e.data?.slot !== 'extra')
-      const id = hasMain ? extraEntryId(date, opt.id, seen, { fresh: true }) : `daily-${date}`
-      const out = data.out || {}
-      const entry = {
-        id, kind: 'daily', date,
-        data: {
-          optId: opt.id,
-          // A card that names itself from what you picked says so from the moment
-          // it lands — the workout card arrives already called "Mountain bike"
-          // rather than "Log a workout" on the day list behind the sheet.
-          name: nameFor(opt, out),
-          minutes: opt.minutes, level: opt.level ?? 1,
-          // Putting a session on the day does NOT complete it — that is a
-          // separate tap. A rest day is the exception: choosing it is the whole
-          // action.
-          done: opt.role === 'rest',
-          slot: hasMain ? 'extra' : 'main',
-          ...data,
-          out,
-        },
-      }
-      written.push(entry)
-      store.upsertEntry(entry)
-    }
+    /*
+     * The ids and the entry shape are `placeEntries` (lib/trainer.js), the same
+     * function the owner planning for someone else runs against THEIR day, so
+     * the two cannot mint different ids for the same act. A card that names
+     * itself from what you picked says so from the moment it lands, and putting
+     * a session on the day does NOT complete it (a rest day is the exception).
+     */
+    const written = placeEntries({ menu: plan?.dailyMenu || [], onDay: store.entries, items, date })
+    for (const entry of written) store.upsertEntry(entry)
 
     if (close) setFab(null)
     if (open && written[0]) setOpenEntryId(written[0].id)
@@ -493,6 +473,19 @@ export default function App() {
       })
     return { ids, count: ids.length, first: ids[0] || null }
   }
+
+  /*
+   * THE OWNER AS TRAINER (lib/trainer.js, trainer.jsx). Who the owner can plan for:
+   * nobody unless this is the owner on the owner's own log with someone else on the
+   * install. A plan kept for someone goes into THEIR log through the people
+   * endpoints, with the same ids their own "+" would mint against their day.
+   */
+  const people = planPeople(me)
+  const keepPlanForPerson = (person, pres) => keepPlanFor({
+    person, parts: splitPrescription(pres), menu: plan?.dailyMenu || [], date: localIso(),
+    owner: { id: me.real.id, name: me.real.name }, api: peopleApi,
+  })
+  const [personView, setPersonView] = useState(null) // { person, entryId } — their week, opened from the planner
 
   /** "Start it now", from the planner's last screen. */
   const startPlanned = (id) => {
@@ -629,6 +622,7 @@ export default function App() {
         <WeekPlanFlow plan={plan} entries={store.entries} iso={localIso()}
           upsertEntry={store.upsertEntry}
           onPlan={() => setFab('plan')}
+          people={people} owner={{ id: me.real.id, name: me.real.name }}
           onClose={() => setFab(null)} />
       )}
 
@@ -665,7 +659,17 @@ export default function App() {
 
       {fab === 'plan' && (
         <PlanFlow plan={plan} entries={store.entries} iso={localIso()}
-          onKeep={keepPlan} onStart={startPlanned} onClose={() => setFab(null)} />
+          onKeep={keepPlan} onStart={startPlanned} onClose={() => setFab(null)}
+          people={people} onKeepFor={keepPlanForPerson}
+          onStartFor={(person, entryId) => {
+            setFab(null)
+            setPersonView({ person: { ...person, tone: toneFor(people, person.id) }, entryId })
+          }} />
+      )}
+
+      {personView && (
+        <PersonDay person={personView.person} date={localIso()} plan={plan} openId={personView.entryId}
+          onClose={() => setPersonView(null)} />
       )}
     </div>
     </StravaProvider>

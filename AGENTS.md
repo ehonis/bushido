@@ -65,8 +65,8 @@ reasons behind the design, and the things that have been removed on purpose.
 | `server/users.js` | The people on an install, Cloudflare Access token checks, acting as someone (§3). |
 | `server/config.js` | Settings, env precedence, first-start migration, which plan file is in use (§3). |
 | `server/pages.js` | The server-rendered `/setup`, `/login` and `/settings` pages. Plain HTML on purpose: they must work before there is an account, before the app is built, and when a stale service worker is serving an old shell. |
-| `server/agentflags.js` | The permission flags every model run is spawned with: refused directories, the brain Write grant, the secrets deny list (§7). Tested by `agentflags.test.js`. |
-| `server/prompting.js` | Shared prompt pieces: the athlete's name and notes from Settings, gender-neutral fallbacks. |
+| `server/agentflags.js` | The permission flags every model run is spawned with: refused directories, the brain Write grant, the secrets deny list, and for anyone but the owner the denials that keep a run inside their own space (§7). Tested by `agentflags.test.js`. |
+| `server/prompting.js` | Shared prompt pieces: the athlete's name and notes (the owner's from Settings, anyone else's from their `about.json`), gender-neutral fallbacks. |
 | `server/coach.js` | The AI coach: an agent with read-only tools, threads in `data/coach/`. |
 | `server/planner.js` | Plan a workout (`/api/plan/workout`, `/api/plan/revise`). |
 | `server/weekplanner.js` | Plan the week (`/api/plan/week`). |
@@ -113,6 +113,8 @@ reasons behind the design, and the things that have been removed on purpose.
 | Notifications client | `app/src/lib/push.js`, `app/src/notifications.jsx` | |
 | Device screen probe | `app/src/screeninfo.jsx` | Measures the iOS safe-area bug on the device (§10.5). |
 | Whose log this is | `app/src/lib/whoami.js` | Decided before the store mounts; per-person cache key; `X-Bushido-User` on every API call (§3). |
+| Shared workouts | `app/src/lib/shared.js`, `app/src/sharedwith.jsx` | "With …" on the sheet; someone's copy through the people endpoints (§3). |
+| The owner as trainer | `app/src/lib/trainer.js`, `app/src/trainer.jsx` | "For: You / Sam" in the planners, the workout side switcher, "Sam's day", About you (§3). `placeEntries` is the one place day ids are minted for a batch, for anyone's log. |
 
 ---
 
@@ -246,10 +248,17 @@ a masked value posted back is ignored.
   mounts; a switch is a full reload; each person has their own cache key (the owner keeps
   `bushido:cache-v1`); every API call carries `X-Bushido-User` and the server refuses a
   mismatch with `409 switched`. All four are load-bearing.
-- **Integrations and AI are the owner's.** `featuresFor(space)` turns WHOOP, Strava,
-  goals, habit sync, notifications and AI off for anyone else, which must render exactly
-  like an install that never set them up. Habit sync and the "logged" push run only for
-  the owner's writes.
+- **Integrations are the owner's; the AI is everyone's.** `featuresFor(space)` turns WHOOP,
+  Strava, goals, habit sync and notifications off for anyone else (they are the owner's
+  grants), which must render exactly like an install that never set them up. Habit sync and
+  the "logged" push run only for the owner's writes. `ai` is on for everyone once a CLI is
+  configured, and every run is built from ONE person's space (`aiRun(space)` in server.js;
+  §7 says what a non-owner's run can read). Without a CLI only the owner sees AI at all.
+- **About you is per person.** The owner's is in Settings, as always. Anyone else's is
+  `about.json` in their space (`aboutFor`/`writeAbout`), edited by them (`/api/about`,
+  profile → You) or by the owner (`/api/people/:id/about`, "About Sam" in Sam's week), and
+  falls back to the name in People. Prompts take the name and notes of the person the run
+  is for, never the owner's.
 - **Only the owner is an admin**: Settings, People and acting-as are refused to anyone
   else. The `bushido_as` cookie is honoured only when the real requester is the owner.
 - **Shared workouts** (`lib/shared.js`, `sharedwith.jsx`, `peopleRoute` in `server.js`):
@@ -267,6 +276,43 @@ a masked value posted back is ignored.
   (`hasOwnMarks`), otherwise it asks. WHOOP/Strava stay off on their side. Pinned by the
   shared-workout cases in `server/http.test.js`, `app/shared.test.js` and the
   `SessionSheet(… "With …" …)`/`TheirSide` smoke cases.
+- **The owner as trainer** (`lib/trainer.js`, `trainer.jsx`, the same `peopleRoute`):
+  without acting as anyone, the owner plans for someone else, sees their week and runs a
+  workout from their side. All of it is owner-only, needs someone else on the install and
+  is hidden while acting (`planPeople(me)`, the same rule as `sharePeople`).
+  - **Planning for someone** is a "For: You / Sam" choice at the top of Plan a workout (both
+    routes) and Plan the week. The model runs with `for: <id>` on the request
+    (`aiSpaceFor`), so its log, plan, About you and recent weeks are theirs; the client
+    context (`plannerContext`, `weekContext`) is built from their log too, and WHOOP
+    readiness is left out. Nothing is written until the tap (§0.4). Keeping it writes into
+    THEIR log through `/api/people/:id/entry`: their day is read first and `placeEntries`
+    mints the ids their own + would have, one entry per part (`plannedEntriesFor`), each
+    `done: false` with `data.plannedBy: { id, name }` stamped by the server. A week is their
+    `quota-<monday>` with `plannedBy`; a week they set themselves is a `409` and is left as
+    it is. The server accepts only `daily-…` entries carrying `sharedFrom` or `plannedBy` and
+    `quota-…` entries carrying `plannedBy`, and refuses any live entry without one of them.
+    They see a quiet "planned by <owner>" (`plannedLine`) on the row, the sheet and the
+    feed, and the entry is theirs to edit, log or delete. They cannot plan for anyone.
+  - **Sides of a workout.** A shared entry opens the runner or workout mode through
+    `SidesWorkout`: a You / <name> switcher under the header, the name in a pill and a rule
+    in that person's colour (`[data-tone]`: the accent for the owner, the series colours for
+    everyone else, so the palette check has nothing new), and a haptic on switch (native).
+    Every side stays mounted with its own runner over that person's own entry and its own
+    writer (the owner's `saveRun`/`saveOutputs`; anyone else's `usePersonCopy`), so each
+    has its own sets, weights, rest clock and done state, and the runner still has ONE
+    writer per entry (§6.2). Only the side on screen makes a sound. Finishing a side hands
+    over to the next one not done. `applyOut`/`applyRun`/`applyDone` are the owner's write
+    paths as pure functions, so both sides write the same shape. A workout nobody shares,
+    and everyone but the owner, get the single screen they always had.
+  - **"Sam's day"** (`PeopleDays` under the day list on Today, `PersonDay`) is a read-only
+    week of their log from `/api/people/:id/state`; a session opens in `PersonEntrySheet`
+    (their form without WHOOP/Strava, done, and Start, which runs it from their side). It
+    never touches the owner's store or cache. Act-as stays exactly as it was.
+  - Pinned by the `trainer:`/`ai for everyone:` steps in `server/http.test.js`,
+    `server/agentflags.test.js`, `server/prompts.test.js`, `app/trainer.test.js`, and the
+    `PlanFlow("For: …")`, `WeekPlanFlow("For: …")`, `SidesWorkout(…)`, `TodayTab("Sam's
+    day" …)` and "planned by" smoke cases, including every absence (one person, acting,
+    not the owner).
 - Pinned by `server/users.test.js`, the people cases in `server/http.test.js`,
   `app/whoami.test.js` and the `tabsFor`/`PlanFlow(no AI…)`/`ActingBanner`/`PeopleCard`
   smoke cases.
@@ -625,6 +671,23 @@ Extra readable directories are passed with `--add-dir` (brain dir, nutrition dig
 non-default data dir). Read the header of `askCoach` before changing any list. **No run may
 ever write `data/state.json` or the plan file**, and none has a shell.
 
+**A run for anyone but the owner** (their own, the owner acting as them, or the owner
+planning `for` them) is built by `aiRun(space)` from their space alone, and the flags make
+that a rule rather than a request (`person` and `ownerSources` in `agentflags.js`):
+
+| | Their run |
+|---|---|
+| Can read | their own space (`data/users/<id>/`: log, coach threads, coach note, plan, About you), passed as the only `--add-dir`; the repo (the starter content, README, docs) from the cwd |
+| Is denied by rule | everything else directly in the data dir (enumerated when the run is spawned, plus the owner's file names whether or not they exist yet: `state.json`, `coach.json`, `plan.json`, `whoop.json`, `strava.json`, `goals.json`, `users.json`, `about.json`, `coach/`, `backups/`), every other person's folder, the owner's brain file and its directory, the nutrition digest dir, the owner's own plan file when it is not the starter, and the usual secrets |
+| Never gets | the brain file or its Write grant (`Write`/`Edit` denied outright), the nutrition digest, WHOOP/Strava digests or cache paths, the owner's About you |
+| Prompt | their name and notes; `logDir` is their space, so every path in it is theirs; no brain, food-log, WHOOP or Strava section at all (`measurements: false`), exactly as on an install that never configured them |
+
+Deny beats allow, and a deny on the data dir as a whole would also cover their own space
+inside it, which is why the owner's names are enumerated. Claude Code applies `Read` rules
+to Grep and Glob as well. `server/http.test.js` (the `ai for everyone:` steps, with a fake
+CLI that records its argv and prompt) and `agentflags.test.js` pin both the denials and
+that their own space is never denied; `prompts.test.js` pins the absent sections.
+
 Rules that apply to all of them:
 
 - **Nothing is written until the user taps.** `/api/plan/workout`, `/api/plan/revise` and
@@ -804,8 +867,10 @@ timer.
 See `docs/operations.md` for the full table. Shape to keep: `GET/PUT /api/state`,
 `POST /api/entry` (upsert), `GET /api/export`, `POST /api/import`, `GET /api/content`,
 `POST /api/plan/import|example|reset`, `GET/PUT /api/settings`,
-`POST /api/settings/ai/test`, `GET /api/auth/me`, `POST /api/auth/password`, `GET /api/people`
-and `GET/POST /api/people/:id/entry` (shared workouts, §3), the coach,
+`POST /api/settings/ai/test`, `GET /api/auth/me`, `POST /api/auth/password`, `GET /api/people`,
+`GET/POST /api/people/:id/entry` (shared workouts and what the owner planned for someone),
+`GET /api/people/:id/state|content` and `GET/PUT /api/people/:id/about` (owner only, §3),
+`GET/PUT /api/about` (anyone but the owner), `for` on the three planning routes, the coach,
 planner, WHOOP, Strava, goals and push routes, and `GET /api/health` (liveness; with a
 session, resolved paths and integration state).
 
