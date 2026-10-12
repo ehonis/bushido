@@ -209,7 +209,7 @@ export function ClimbLog({ count, values, spec, onChange, onMore, what = 'climb'
   )
 }
 
-function Exercise({ exercise, rows, sign, onRows, onSign }) {
+function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null }) {
   const fields = exercise.fields || []
   const perRep = hasGrades(fields)
   const what = exercise.repName || 'rep'
@@ -311,6 +311,7 @@ function Exercise({ exercise, rows, sign, onRows, onSign }) {
                       <input
                         type="number" inputMode="decimal" step={meta(f).step}
                         value={r[f] ?? ''} onChange={e => set(i, f, e.target.value)}
+                        placeholder={hintRows?.[i]?.[f] != null ? String(hintRows[i][f]) : undefined}
                         style={{ width: meta(f).width }}
                         aria-label={`set ${i + 1} ${meta(f).label}`}
                       />
@@ -368,7 +369,7 @@ function Exercise({ exercise, rows, sign, onRows, onSign }) {
   )
 }
 
-export function SetLog({ session, out, onSave }) {
+export function SetLog({ session, out, onSave, hints = null }) {
   const spec = session?.logSpec
   if (!spec?.exercises?.length) return null
 
@@ -388,6 +389,9 @@ export function SetLog({ session, out, onSave }) {
           key={ex.key}
           exercise={ex}
           rows={rowsFor(ex)}
+          /* Someone else's copy of a shared workout: the owner's rows as
+             placeholders only. See SessionLog's `hints`. */
+          hintRows={hints?.sets?.[ex.key] || null}
           sign={signFor(ex)}
           onRows={rows => setRows(ex, rows)}
           onSign={s => setSign(ex, s)}

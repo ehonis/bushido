@@ -75,7 +75,7 @@ export const STEP = {
  */
 export function Stepper({
   label, value, step = 1, min = null, max = null, suffix = '', quiet = false,
-  blank = null, onChange,
+  blank = null, placeholder = '—', onChange,
 }) {
   const n = Number(value) || 0
   const bump = (d) => {
@@ -89,7 +89,7 @@ export function Stepper({
       <button className="stepper-btn" onClick={() => bump(-1)} disabled={min !== null && n <= min}
         aria-label={`less ${label}`}><Icon name="Minus" size={15} /></button>
       <span className="stepper-mid">
-        <NumInput value={value} aria-label={label} placeholder="—" blank={blank} onChange={onChange} />
+        <NumInput value={value} aria-label={label} placeholder={placeholder} blank={blank} onChange={onChange} />
         <span className="stepper-label">{label}{suffix}</span>
       </span>
       <button className="stepper-btn" onClick={() => bump(1)} disabled={max !== null && n >= max}
@@ -240,6 +240,7 @@ export function ExerciseCard({
                 <span className="presc-setn">{i + 1}</span>
                 {setFieldsFor(item, s).map(f => (
                   <Stepper key={f} {...STEP[f](item, s)} value={s[f]} blank={blank}
+                    placeholder={s.hint?.[f] != null && s.hint[f] !== '' ? String(s.hint[f]) : '—'}
                     onChange={v => onPatchSet(s.id, { [f]: v })} />
                 ))}
                 {/* Lifting has no programmed rest — see `normalizeSet`. An

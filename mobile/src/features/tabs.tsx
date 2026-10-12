@@ -41,6 +41,11 @@ import { profileFacts } from '../lib/profile.js'
 import { WhoopReadiness, WhoopSleep } from './whoop'
 import { DayStepper } from './app'
 import { NumInput } from './numinput'
+import { currentMe } from '../lib/whoami.js'
+import { sharePeople, sharedPeopleOn, withLine, addPerson, removePerson, withSharedPerson } from '../lib/shared.js'
+import * as peopleApi from '../lib/peopleapi.js'
+import { confirm } from '../ui/menu'
+import { WithControl, PersonSwitch, SharedNote, TheirSide, usePersonCopy } from './sharedwith'
 
 // The lib is the web's JS; its default-parameter destructuring makes TypeScript
 // infer narrower types than the functions take, so they are called through these.
@@ -317,6 +322,7 @@ export function TodayTab({
         onPickMain={pickMain} onAddExtra={addExtra} onRemove={removeSession}
         onSaveOutputs={saveOutputs} onSaveRun={saveRun} onSavePlan={savePlan}
         onSetDone={setDone} onSetTraining={setTraining}
+        onSaveEntry={upsertEntry}
         viewIso={iso} isFuture={isFuture}
         openEntryId={openEntryId || openFromWeek}
         openAs={openFromWeek ? 'sheet' : 'auto'}
@@ -494,6 +500,12 @@ function DayList({ rows, onOpen, onPlan, onLog, onPickSession, onRest = null, is
                     )}
                   </View>
                   <T size={12} faint tabular style={{ marginTop: 2 }}>{stats}</T>
+                  {r.with ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                      <Icon name="Users" size={11} color={colors.inkFaint} />
+                      <T size={11} faint>{r.with}</T>
+                    </View>
+                  ) : null}
                 </View>
                 <View style={st.tag}><T size={10} caps lineHeight={13} color={r.tone === 'adj' ? colors.inkFaint : ink}>{r.tag}</T></View>
                 <Icon name={r.done ? 'CircleCheck' : 'Circle'} size={15} color={r.done ? colors.vizGood : colors.inkFaint} />
@@ -548,7 +560,7 @@ export function runnable(opt: any, pres: any) {
 export function SessionSheet({
   opt, entry, tone, entries, isFuture,
   onLog, onSave, onSavePlan = null, onRemove, onSetDone, onClose, onStartWorkout,
-  onTraining = null,
+  onTraining = null, onSaveEntry = null, me = currentMe(),
 }: {
   opt: any
   entry?: any
@@ -563,6 +575,8 @@ export function SessionSheet({
   onClose: () => void
   onStartWorkout?: ((opt: any) => void) | null
   onTraining?: ((v: boolean) => void) | null
+  onSaveEntry?: ((entry: any) => void) | null
+  me?: any
 }) {
   // Locks the sheet to the X button once you've touched the form.
   const [dirty, setDirty] = useState(false)
@@ -577,6 +591,55 @@ export function SessionSheet({
   const liftField = (liftFieldOf as any)(thePlan)
 
   const save = (out: any) => { setDirty(true); onSave(entry, out) }
+
+  /*
+   * SHARED WORKOUTS (sharedwith.tsx, lib/shared.js). `people` is who the owner
+   * could add, empty for anyone else, while acting as someone and on a
+   * one-person install. `on` is re-derived every render; `side` is the person
+   * whose copy the sheet is filling in, by id, or null for the owner's own.
+   */
+  const people: any[] = planned && onSaveEntry ? (sharePeople as any)(me) : []
+  const on: any[] = people.length ? (sharedPeopleOn as any)(entry, me.people) : []
+  const [side, setSide] = useState<string | null>(null)
+  const sidePerson = (side && on.find((p) => p.id === side)) || null
+  const theirs = usePersonCopy(sidePerson?.id, sidePerson?.entryId, sidePerson?.name)
+  const [sharing, setSharing] = useState<{ busy: string | null; error: string | null }>({ busy: null, error: null })
+  // The entry as of the latest render: an add or a removal awaits the server.
+  const latestEntry = useRef(entry)
+  latestEntry.current = entry
+  const share = async (verb: string, person: any, run: () => Promise<boolean | void>) => {
+    setSharing({ busy: `${verb} ${person.name}…`, error: null })
+    try {
+      if (await run()) success()
+      setSharing({ busy: null, error: null })
+    } catch (err: any) {
+      setSharing({ busy: null, error: `${person.name}: ${err.message}` })
+    }
+  }
+  const addSomeone = (person: any) => share('Adding', person, async () => {
+    const { copy } = await (addPerson as any)({ ownerEntry: latestEntry.current, person, session: opt,
+      owner: { id: me.real.id, name: me.real.name }, api: peopleApi })
+    onSaveEntry?.(withSharedPerson(latestEntry.current, person.id, copy.id))
+    return true
+  })
+  const removeSomeone = (person: any) => share('Taking off', person, async () => {
+    const next = await (removePerson as any)({ ownerEntry: latestEntry.current, person, session: opt, api: peopleApi,
+      confirmFn: (q: string) => confirm(q, { confirmLabel: 'Take it out' }) })
+    if (!next) return false
+    if (side === person.id) setSide(null)
+    onSaveEntry?.((withSharedPerson as any)(latestEntry.current, person.id, null, { remove: true }))
+    return true
+  })
+  // Their copy, written like `saveOutputs` writes the owner's. Never a test result.
+  const saveTheirs = (out: any) => { setDirty(true); theirs.update((cur: any) => ({ ...cur, data: {
+    ...cur.data, out, level: levelFor(opt, out), name: titleFor(opt, out, cur.data?.plan),
+    minutes: resolveMinutes(cur.data, opt, out) } })) }
+  const setTheirsDone = (v: boolean) => {
+    setDirty(true)
+    if (v) success(); else tap()
+    theirs.update((cur: any) => ({ ...cur, data: { ...cur.data, done: v } }))
+  }
+  const theirDone = Boolean(theirs.entry && isDone(theirs.entry))
 
   const note = (text: string) => (
     <View style={{ flex: 1, flexDirection: 'row', gap: 6, alignItems: 'flex-start' }}>
@@ -600,10 +663,19 @@ export function SessionSheet({
       onClose={onClose}
       /* The name, one layer up: a rename is a thing you do TO the session you are
          looking at, so it belongs where the session's title is. */
-      onRename={planned && !isFuture ? () => setRenaming(true) : null}
-      onDelete={onRemove && entry ? () => onRemove(entry) : null}
+      onRename={planned && !isFuture && !sidePerson ? () => setRenaming(true) : null}
+      onDelete={onRemove && entry && !sidePerson ? () => onRemove(entry) : null}
       deleteLabel="Remove from today"
-      footer={!onLog ? (
+      footer={sidePerson ? (
+        isFuture ? note('Preview only — come back on the day to log it.')
+          : theirs.entry && !theirs.entry.deleted ? (
+            <View style={st.sheetActions}>
+              <Btn kind={theirDone ? 'ghost' : 'primary'} icon={theirDone ? 'CircleCheck' : 'Circle'} style={st.action}
+                title={theirDone ? `Done for ${sidePerson.name} — tap to undo` : `Mark done for ${sidePerson.name}`}
+                onPress={() => setTheirsDone(!theirDone)} />
+            </View>
+          ) : null
+      ) : !onLog ? (
         note('An add-on rides along with your main session — tick it there.')
       ) : isFuture ? (
         note('Preview only — come back on the day to log it.')
@@ -621,6 +693,21 @@ export function SessionSheet({
         </View>
       )}
     >
+      {/* Whose copy this sheet is filling in. Only on a shared workout. */}
+      <PersonSwitch on={on} side={sidePerson?.id || null} onSide={setSide} />
+
+      {/* Who else is on it, and the way to add someone. Owner-only. */}
+      {!sidePerson && (
+        <WithControl on={on} people={people} busy={sharing.busy} error={sharing.error}
+          onAdd={addSomeone} onRemove={removeSomeone} />
+      )}
+      {/* Everyone else sees, quietly, who it was done with. */}
+      {!people.length && planned && <SharedNote entry={entry} people={me.people} />}
+
+      {sidePerson ? (
+        <TheirSide session={opt} copy={theirs.entry} loading={theirs.loading} error={theirs.error}
+          person={sidePerson} ownerOut={entry?.data?.out} onSave={saveTheirs} />
+      ) : (<>
       {/* The "MAIN SESSION" / "ADDED SESSION" strap is gone (2026-09-21): it
           restated the tag the row already showed, in the scarcest space here. */}
 
@@ -684,6 +771,7 @@ export function SessionSheet({
           onTraining={onTraining}
           onClose={() => setRenaming(false)} />
       )}
+      </>)}
     </Modal>
   )
 }
@@ -741,7 +829,7 @@ const CASUAL_DISCIPLINES = ['bike', 'run', 'swim', 'other']
 function DaySessions({
   plan, entries, mainEntry, extraEntries,
   onPickMain, onAddExtra, onRemove, onSaveOutputs, onSaveRun, onSavePlan,
-  onSetDone, onSetTraining, viewIso, isFuture,
+  onSetDone, onSetTraining, viewIso, isFuture, onSaveEntry = null,
   openEntryId = null, openAs = 'auto', onOpened = () => {},
   onPlan = null, onLog = null, onPickSession = null, onRest = null,
 }: any) {
@@ -848,6 +936,8 @@ function DaySessions({
     planned: Boolean(entry.data?.plan),
     running: isRunning(entry),
     done: isDone(entry),
+    // Who else was on it, if anyone: "with Sam". See lib/shared.js.
+    with: (withLine as any)(entry, currentMe().people),
     // A session in progress says where it is rather than what it added up to.
     stats: isRunning(entry) ? [runLine(entry)].filter(Boolean) : (sessionStats as any)(entry, opt),
   })
@@ -957,6 +1047,7 @@ function DaySessions({
           onSavePlan={onSavePlan}
           onRemove={open.entry ? onRemove : null}
           onSetDone={onSetDone}
+          onSaveEntry={onSaveEntry}
           onStartWorkout={isFuture ? null : startWorkout(sheet)}
           onTraining={open.entry && CASUAL_DISCIPLINES.includes(
             (disciplineFor as any)(open.opt, open.entry.data?.out))

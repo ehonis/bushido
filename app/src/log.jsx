@@ -37,6 +37,8 @@ import { gearOn, gearUsage } from './lib/gear.js'
 import { loggedActivity } from './lib/activities.js'
 import { useStrava } from './lib/strava.jsx'
 import { titleFor, withCasualName } from './lib/naming.js'
+import { withLine } from './lib/shared.js'
+import { currentMe } from './lib/whoami.js'
 
 const todayIso = () => localIso()
 
@@ -128,6 +130,8 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry }) {
         // Logged as activity rather than training — a commute, an errand on the
         // bike. Its miles count; its load and its quota do not, so the card says so.
         casual: !isTraining(e),
+        // A workout done together: "with Sam" (or, in Sam's log, "with Alex"). lib/shared.js.
+        with: withLine(e, currentMe().people),
       }
     })
     .sort((a, b) => String(b.entry.date).localeCompare(String(a.entry.date)) ||
@@ -200,6 +204,7 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry }) {
                   )}
                   {w.casual && <span className="logcard-casual">just miles</span>}
                 </span>
+                {w.with && <span className="logcard-with"><Icon name="Users" size={12} /> {w.with}</span>}
                 <span className="logcard-stats">
                   {(w.rest ? restStats(w.entry, w.opt) : statsOf(w.entry, w.opt, plan))
                     .map((t, i) => <span key={i}>{t}</span>)}

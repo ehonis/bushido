@@ -396,6 +396,97 @@ const cookieFrom = (res) => (res.headers.get('set-cookie') || '').split(';')[0]
     const dup = await get(`${two.base}/api/settings/users`, { method: 'POST', headers: json, body: JSON.stringify({ name: 'X', emails: 'sam@example.com' }) })
     eq(dup.status, 400)
   })
+  /* --------------------------------------------- shared workouts (peopleRoute) */
+  const samFile = () => JSON.parse(fs.readFileSync(path.join(two.dataDir, 'users', 'sam', 'state.json'), 'utf8'))
+  const ownerFile = () => JSON.parse(fs.readFileSync(path.join(two.dataDir, 'state.json'), 'utf8'))
+  const owns = (extra = {}) => as('alex@example.com', { 'x-bushido-user': 'owner', ...extra })
+  const post = (id, entry, h = owns()) => get(`${two.base}/api/people/${id}/entry`, {
+    method: 'POST', headers: { ...json, ...h.headers }, body: JSON.stringify({ entry }) })
+  const shared = { id: 'daily-2026-10-05', kind: 'daily', date: '2026-10-05', updatedAt: '2026-10-05T09:00:00Z',
+    data: { optId: 'log-workout', slot: 'main', done: true, out: { activity: 'bike', distance: 12 }, sharedFrom: { id: 'owner', name: 'forged' } } }
+
+  await step('shared workouts: the owner lists the people and adds a copy to someone else\'s log', async () => {
+    const list = await (await get(`${two.base}/api/people`, owns())).json()
+    eq(list.people.map(p => [p.id, p.owner]), [['owner', true], ['sam', false]])
+    const ownerBefore = ownerFile()
+    const backupsBefore = fs.readdirSync(path.join(two.dataDir, 'users', 'sam', 'backups')).length
+    const r = await post('sam', shared)
+    eq(r.status, 200)
+    const { entry } = await r.json()
+    // Planning is not completing; sharedFrom is the server's, not the request's.
+    eq([entry.data.done, entry.data.sharedFrom], [false, { id: 'owner', name: 'Alex' }])
+    eq(samFile().state.entries[shared.id].data.out.distance, 12)
+    ok(fs.readdirSync(path.join(two.dataDir, 'users', 'sam', 'backups')).length > backupsBefore, 'no backup before the write')
+    eq(ownerFile(), ownerBefore, 'a write for Sam touched the owner\'s log')
+    // Read back by id and by day.
+    eq((await (await get(`${two.base}/api/people/sam/entry?id=${shared.id}`, owns())).json()).entry.data.done, false)
+    eq((await (await get(`${two.base}/api/people/sam/entry?date=2026-10-05`, owns())).json()).entries.map(e => e.id), [shared.id])
+    eq((await (await get(`${two.base}/api/people/sam/entry?id=nope`, owns())).json()).entry, null)
+  })
+
+  await step('shared workouts: marking her copy merges last-write-wins; a stale write loses', async () => {
+    const mark = await post('sam', { ...shared, updatedAt: '2026-10-05T10:00:00Z', data: { ...shared.data, done: true, out: { ...shared.data.out, rpe: 6 } } })
+    eq((await mark.json()).entry.data.done, true, 'an existing copy could not be marked done')
+    const stale = await post('sam', { ...shared, updatedAt: '2026-10-05T09:30:00Z', data: { ...shared.data, out: { rpe: 1 } } })
+    eq((await stale.json()).entry.data.out.rpe, 6, 'a stale write beat a newer one')
+    // A tombstone, like every other removal.
+    const tomb = await post('sam', { ...shared, deleted: true, updatedAt: '2026-10-05T11:00:00Z' })
+    eq(tomb.status, 200)
+    eq(samFile().state.entries[shared.id].deleted, true)
+  })
+
+  await step('shared workouts: never over something they logged themselves, never the owner\'s log', async () => {
+    // samEntry is Sam's own, with no sharedFrom.
+    const over = await post('sam', { ...samEntry, updatedAt: '2030-01-01T00:00:00Z', data: { ...samEntry.data, sharedFrom: { id: 'owner' } } })
+    eq([over.status, (await over.json()).code], [409, 'not-shared'])
+    eq(samFile().state.entries[samEntry.id].data.sharedFrom, undefined, 'the owner overwrote Sam\'s own entry')
+    const self = await post('owner', shared)
+    eq(self.status, 400)
+    eq((await post('nobody', shared)).status, 404)
+    eq((await post('sam', { ...shared, data: { optId: 'x' } })).status, 400, 'an entry that is not a shared workout')
+    eq((await post('sam', { ...shared, id: 'quota-2026-10-05' })).status, 400, 'not a daily entry')
+  })
+
+  await step('shared workouts: refused to anyone but the owner, and while acting as someone', async () => {
+    eq((await get(`${two.base}/api/people`, as('sam@example.com', { 'x-bushido-user': 'sam' }))).status, 403)
+    eq((await post('owner', shared, as('sam@example.com'))).status, 403)
+    eq((await get(`${two.base}/api/people/sam/entry?id=${shared.id}`, as('sam@example.com'))).status, 403)
+    const acting = await get(`${two.base}/api/people`, as('alex@example.com', { cookie: 'bushido_as=sam' }))
+    eq([acting.status, (await acting.json()).code], [409, 'acting'])
+    // The owner's device says it holds the owner's log; a mismatch is still the 409 it always was.
+    eq((await get(`${two.base}/api/people`, as('alex@example.com', { 'x-bushido-user': 'sam' }))).status, 409)
+  })
+
+  await step('shared workouts: habit sync fires for the owner\'s own save, never for a copy in someone else\'s log', async () => {
+    const hits = []
+    const bridge = http.createServer((q, r) => { if (q.url === '/api/habits/log') hits.push(q.url); r.writeHead(200, { 'content-type': 'application/json' }); r.end('{}') })
+    await new Promise(r => bridge.listen(0, '127.0.0.1', r))
+    try {
+      const put = await get(`${two.base}/api/settings`, { method: 'PUT', headers: json,
+        body: JSON.stringify({ totem: { url: `http://127.0.0.1:${bridge.address().port}`, secret: 'bridge-secret-for-tests', habitSync: true } }) })
+      eq(put.status, 200)
+      const settle = () => new Promise(r => setTimeout(r, 400))
+      await post('sam', { ...shared, id: 'daily-2026-10-07', date: '2026-10-07', updatedAt: '2026-10-07T09:00:00Z' })
+      await post('sam', { ...shared, id: 'daily-2026-10-07', date: '2026-10-07', updatedAt: '2026-10-07T10:00:00Z', data: { ...shared.data, done: true } })
+      await settle()
+      eq(hits.length, 0, 'a shared copy in Sam\'s log marked the owner\'s habit')
+      // The same bridge does hear the owner's own completed session, so the silence above means something.
+      await get(`${two.base}/api/entry`, { method: 'POST', headers: { ...json, ...owns().headers },
+        body: JSON.stringify({ entry: { id: 'daily-2026-10-07', kind: 'daily', date: '2026-10-07', data: { optId: 'mine', done: true } } }) })
+      await settle()
+      eq(hits.length, 1, 'the owner\'s own save did not sync the habit')
+    } finally {
+      await get(`${two.base}/api/settings`, { method: 'PUT', headers: json, body: JSON.stringify({ totem: { url: '', habitSync: false } }) })
+      bridge.close()
+    }
+  })
+
+  await step('shared workouts: Sam sees the copy in Sam\'s own log, with who it came from', async () => {
+    await post('sam', { ...shared, id: 'daily-2026-10-06', date: '2026-10-06', updatedAt: '2026-10-06T09:00:00Z' })
+    const hers = (await (await get(`${two.base}/api/state`, as('sam@example.com', { 'x-bushido-user': 'sam' }))).json()).state.entries
+    eq(hers['daily-2026-10-06'].data.sharedFrom.name, 'Alex')
+  })
+
   await two.stop()
   certs.close()
 

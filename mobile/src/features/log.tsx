@@ -34,6 +34,8 @@ import { gearOn, gearUsage } from '../lib/gear.js'
 import { loggedActivity } from '../lib/activities.js'
 import { useStrava } from '../lib/strava.jsx'
 import { titleFor, withCasualName } from '../lib/naming.js'
+import { withLine } from '../lib/shared.js'
+import { currentMe } from '../lib/whoami.js'
 
 const todayIso = () => (localIso as any)()
 
@@ -119,6 +121,8 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry }: any) {
         // Logged as activity rather than training — a commute, an errand on the
         // bike. Its miles count; its load and its quota do not, so the card says so.
         casual: !isTraining(e),
+        // A workout done together: "with Sam" (or, in Sam's log, "with Alex"). lib/shared.js.
+        with: (withLine as any)(e, currentMe().people),
       }
     })
     .sort((a: any, b: any) => String(b.entry.date).localeCompare(String(a.entry.date)) ||
@@ -270,6 +274,12 @@ function LogRow({ w, plan, gearById, onOpen, onRemove }: {
           ) : null}
           {w.casual ? <View style={st.casual}><T size={10} faint caps lineHeight={14}>just miles</T></View> : null}
         </View>
+        {w.with ? (
+          <View style={st.gear}>
+            <Icon name="Users" size={12} color={colors.inkFaint} />
+            <T size={11} faint>{w.with}</T>
+          </View>
+        ) : null}
         {stats.length > 0 && (
           <View style={st.stats}>
             {stats.map((t, i) => <T key={i} size={13} dim tabular>{t}</T>)}

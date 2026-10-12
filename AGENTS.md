@@ -252,6 +252,21 @@ a masked value posted back is ignored.
   the owner's writes.
 - **Only the owner is an admin**: Settings, People and acting-as are refused to anyone
   else. The `bushido_as` cookie is honoured only when the real requester is the owner.
+- **Shared workouts** (`lib/shared.js`, `sharedwith.jsx`, `peopleRoute` in `server.js`):
+  the owner adds someone to one workout from the sheet ("With …") without acting as
+  them. Their copy is an ordinary entry in THEIR log (same derivable id unless they
+  logged something of their own there, then an `extraEntryId` extra), `done: false`,
+  carrying only the workout's shared facts (`SHARED_OUT_KEYS`); the owner's own numbers
+  are placeholders on their side, never values. The owner's entry names them in
+  `data.sharedWith: [{ id, entryId }]`; the copy carries `data.sharedFrom: { id, name }`,
+  stamped by the server. The owner's sheet reads and writes the copy through
+  `/api/people/:id/entry`, never through the owner's store or cache, so logs still never
+  mix on a device. The server refuses non-owners, acting-as, the owner's own log, and any
+  live entry without `sharedFrom` (`not-shared`); those writes fire no habit sync and no
+  push. Taking someone off tombstones their copy only if they have marked nothing
+  (`hasOwnMarks`), otherwise it asks. WHOOP/Strava stay off on their side. Pinned by the
+  shared-workout cases in `server/http.test.js`, `app/shared.test.js` and the
+  `SessionSheet(… "With …" …)`/`TheirSide` smoke cases.
 - Pinned by `server/users.test.js`, the people cases in `server/http.test.js`,
   `app/whoami.test.js` and the `tabsFor`/`PlanFlow(no AI…)`/`ActingBanner`/`PeopleCard`
   smoke cases.
@@ -789,7 +804,8 @@ timer.
 See `docs/operations.md` for the full table. Shape to keep: `GET/PUT /api/state`,
 `POST /api/entry` (upsert), `GET /api/export`, `POST /api/import`, `GET /api/content`,
 `POST /api/plan/import|example|reset`, `GET/PUT /api/settings`,
-`POST /api/settings/ai/test`, `GET /api/auth/me`, `POST /api/auth/password`, the coach,
+`POST /api/settings/ai/test`, `GET /api/auth/me`, `POST /api/auth/password`, `GET /api/people`
+and `GET/POST /api/people/:id/entry` (shared workouts, §3), the coach,
 planner, WHOOP, Strava, goals and push routes, and `GET /api/health` (liveness; with a
 session, resolved paths and integration state).
 
