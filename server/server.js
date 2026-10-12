@@ -29,6 +29,8 @@
  *   POST /api/import          replace state wholesale (from an export file)
  *   POST /api/act-as          { id } -> the owner acts as someone else (null: back to themselves)
  *   GET  /api/settings/users  the people on this install; POST/PUT/DELETE to change them
+ *   GET  /api/people          the owner's list for "With …"; GET/POST /api/people/:id/entry
+ *                             reads and writes someone's copy of a shared workout (peopleRoute)
  *
  * More than one person can use an install (server/users.js). Everything above
  * that reads or writes a log does so for the person the request is for: the
@@ -1447,6 +1449,102 @@ function proxySettingsRefusal(mode, req, p) {
 
 // -------------------------------------------------------------------- routes
 
+/*
+ * SHARED WORKOUTS: the owner, logging a workout together with someone else on
+ * the install, reads and writes that person's copy of it from the owner's own
+ * sheet. Act-as switches the whole app; this touches one entry.
+ *
+ *   GET  /api/people                         { people: [{ id, name, owner }] }
+ *   GET  /api/people/:id/entry?id=<entryId>  { entry | null, version }
+ *   GET  /api/people/:id/entry?date=<iso>    { entries: [that day's daily entries, tombstones too], version }
+ *   POST /api/people/:id/entry   { entry }   { entry (as merged), version }
+ *
+ * The rules, each of which is a refusal below:
+ *
+ *   - The owner only, and not while acting as someone (the app hides the control
+ *     then; a request that still arrives is from a confused tab).
+ *   - Never the owner's own log: that has `/api/entry`, with habit sync and the
+ *     "logged" push. These writes are in someone else's space, so neither fires.
+ *   - A daily entry, written through the same commit (backup on write, one
+ *     write chain per person) and the same last-write-wins merge as the person's
+ *     own saves. A removal is a tombstone, as everywhere else.
+ *   - Only the parts of their log that came from a shared workout. A live entry
+ *     at that id without `data.sharedFrom` is something they logged themselves,
+ *     and the owner's sheet must never overwrite it (409 `not-shared`; the app
+ *     picks another id). `sharedFrom` is stamped here from users.json.
+ *   - Creating is planning, not completing (AGENTS.md §4): a new copy is
+ *     `done: false` whatever the request said.
+ */
+const DAILY_ID_RE = /^daily-(\d{4}-\d{2}-\d{2})(?:-[\w.-]{1,80})?$/
+
+async function peopleRoute(req, res, url, ctx) {
+  if (!ctx?.real.admin) return send(res, 403, { error: 'only the owner can do that' })
+  if (ctx.acting) {
+    return send(res, 409, { error: 'stop logging for someone else first', code: 'acting' }, { 'Cache-Control': 'no-store' })
+  }
+  const p = url.pathname
+  if (p === '/api/people' && req.method === 'GET') {
+    return send(res, 200, { people: users.list().map(u => ({ id: u.id, name: u.name, owner: u.owner })) },
+      { 'Cache-Control': 'no-store' })
+  }
+  const m = /^\/api\/people\/([^/]+)\/entry$/.exec(p)
+  if (!m) return send(res, 404, { error: 'no such endpoint' })
+  const id = decodeURIComponent(m[1])
+  if (id === OWNER || id === ctx.real.id) {
+    return send(res, 400, { error: 'that is your own log; it is written through /api/entry' })
+  }
+  const person = users.get(id)
+  if (!person) return send(res, 404, { error: 'no such person' })
+  const space = spaceFor(person)
+
+  if (req.method === 'GET') {
+    const doc = readStateSync(space)
+    const all = doc.state.entries || {}
+    const entryId = url.searchParams.get('id')
+    const date = url.searchParams.get('date')
+    if (entryId) return send(res, 200, { entry: all[entryId] || null, version: doc.version }, { 'Cache-Control': 'no-store' })
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      const entries = Object.values(all).filter(e => e?.kind === 'daily' && e.date === date)
+      return send(res, 200, { entries, version: doc.version }, { 'Cache-Control': 'no-store' })
+    }
+    return send(res, 400, { error: 'ask for ?id=<entry id> or ?date=<yyyy-mm-dd>' })
+  }
+
+  if (req.method === 'POST') {
+    const body = await readBody(req, 1024 * 1024)
+    const entry = body?.entry
+    const idm = DAILY_ID_RE.exec(String(entry?.id || ''))
+    if (!entry || typeof entry !== 'object' || !idm || entry.kind !== 'daily' || entry.date !== idm[1]) {
+      return send(res, 400, { error: 'expected { entry: { id: "daily-<date>…", kind: "daily", date, data } }' })
+    }
+    if (!entry.data || typeof entry.data !== 'object' || !entry.data.sharedFrom) {
+      return send(res, 400, { error: 'only a shared workout can be written here (data.sharedFrom)' })
+    }
+    const owner = users.owner()
+    const NOT_SHARED = 'not-shared'
+    let doc
+    try {
+      doc = await commit(space, base => {
+        const cur = base.entries?.[entry.id]
+        const live = cur && !cur.deleted
+        // Thrown, not returned: a refusal must not write a new version or a backup.
+        if (live && !cur.data?.sharedFrom) throw new Error(NOT_SHARED)
+        const data = { ...entry.data, sharedFrom: { id: owner.id, name: owner.name } }
+        if (!live && !entry.deleted) data.done = false
+        const stamped = { ...entry, data, updatedAt: entry.updatedAt || new Date().toISOString() }
+        return mergeState(base, { entries: { [entry.id]: stamped } })
+      })
+    } catch (err) {
+      if (err.message !== NOT_SHARED) throw err
+      return send(res, 409, { error: `${person.name} already logged something else under that id`, code: NOT_SHARED })
+    }
+    // No syncDailyEntries: habit sync and the "logged" push are the owner's, about the owner's log.
+    return send(res, 200, { entry: doc.state.entries[entry.id], version: doc.version })
+  }
+
+  return send(res, 405, { error: 'GET or POST' })
+}
+
 const server = http.createServer(async (req, res) => {
   // Must not throw outside the try: this handler is async, so an exception here
   // becomes an unhandled rejection and kills the process. A request for "//"
@@ -1659,6 +1757,13 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { users: users.list() })
       } catch (err) { return send(res, 400, { error: err.message }) }
     }
+
+    /*
+     * Shared workouts: the owner reads and writes the copy of a workout that sits
+     * in someone else's log, from the owner's own sheet, without acting as them.
+     * See peopleRoute.
+     */
+    if (p === '/api/people' || p.startsWith('/api/people/')) return await peopleRoute(req, res, url, ctx)
 
     if (p === '/api/settings/ai/test' && req.method === 'POST') {
       try { return send(res, 200, await testAi()) } catch (err) { return send(res, 502, { error: err.message }) }

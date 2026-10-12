@@ -104,10 +104,11 @@ const sw = StyleSheet.create({
  */
 export function Stepper({
   label, value, step = 1, min = null, max = null, suffix = '', quiet = false,
-  blank = null, onChange,
+  blank = null, placeholder = '—', onChange,
 }: {
   label: string
   value: any
+  placeholder?: string
   step?: number
   min?: number | null
   max?: number | null
@@ -132,7 +133,7 @@ export function Stepper({
       </Press>
       <View style={st.stepperMid}>
         <NumInput
-          value={value} accessibilityLabel={label} placeholder="—" blank={blank} onChange={onChange}
+          value={value} accessibilityLabel={label} placeholder={placeholder} blank={blank} onChange={onChange}
           placeholderTextColor={colors.inkFaint} keyboardAppearance="dark" selectionColor={colors.accent}
           selectTextOnFocus style={st.stepperIn}
         />
@@ -297,6 +298,7 @@ export function ExerciseCard({
                   <T size={11} faint tabular align="center" style={{ width: 20 }}>{String(i + 1)}</T>
                   {setFieldsFor(item, s).map((f: string) => (
                     <Stepper key={f} {...(STEP[f] ? STEP[f](item, s) : { label: f, step: 1, min: 0 })} value={s[f]} blank={blank}
+                      placeholder={s.hint?.[f] != null && s.hint[f] !== '' ? String(s.hint[f]) : '—'}
                       onChange={(v) => patchSet(s, { [f]: v })} />
                   ))}
                   {/* Lifting has no programmed rest — see `normalizeSet`. An

@@ -21,9 +21,10 @@ import { View } from 'react-native'
 import {
   implementsFor, weightLabelFor, liftsIn, liftSummary, liftsLine,
   addLift, removeLift, patchLift, addLiftSet, removeLiftSet, setLiftSet, moveLift,
-  LIFT_FIELD,
+  LIFT_FIELD, blankSet,
 } from '../lib/lifts.js'
 import { ExerciseSection } from './exercises'
+import { Btn } from '../ui/kit'
 
 /**
  * A logged lift, in the shape `ExerciseCard` reads. `kind: 'lift'` makes
@@ -53,17 +54,40 @@ function asItem(field: any, lift: any) {
  * The whole block, rendered for a `type: "lifts"` output field. `field` carries
  * its own catalog, so this needs nothing from the plan beyond the field.
  */
-export function LiftLog({ field, out, entries = [], entryId = null, onSave }: any) {
+/** The owner's lift matching one of someone else's on a shared workout. */
+const hintFor = (theirs: any[], lift: any) => theirs.find((l) => l.uid === lift.uid && l.key === lift.key)
+  || theirs.find((l) => l.key === lift.key) || null
+
+export function LiftLog({ field, out, entries = [], entryId = null, onSave, hints = null }: any) {
   const list = liftsIn(out)
   const write = (next: any) => onSave({ ...out, [LIFT_FIELD]: next })
   const line = liftsLine(out)
   // Open, because on the log side this section IS the form. Foldable all the same.
   const [open, setOpen] = useState(true)
 
-  const items = list.map((l: any) => asItem(field, l))
+  /*
+   * Someone else's copy of a shared workout (SessionLog's `hints`): the owner's
+   * weights and reps are each set's placeholder, never its value, and the
+   * owner's exercise list can be the starting point, every number blank.
+   */
+  const yours: any[] = hints ? liftsIn(hints) : []
+  const items = list.map((l: any) => {
+    const item = asItem(field, l)
+    const mine = yours.length ? hintFor(yours, l) : null
+    if (!mine) return item
+    return { ...item, sets: item.sets.map((s: any, i: number) => ({ ...s, hint: mine.sets?.[i] || mine.sets?.at(-1) || null })) }
+  })
+  const startFromYours = () => write(yours.map((l) => ({
+    uid: l.uid, key: l.key, name: l.name, group: l.group || null,
+    implement: l.implement || '', ...(l.implementLabel ? { implementLabel: l.implementLabel } : {}),
+    sets: (l.sets?.length ? l.sets : [null]).map(() => blankSet()),
+  })))
 
   return (
     <View style={{ gap: 14 }}>
+      {!list.length && yours.length > 0 && (
+        <Btn kind="ghost" title={`Same exercises as you (${yours.length}), numbers blank`} onPress={startFromYours} />
+      )}
       <ExerciseSection
         title={field.label || 'What did you lift?'}
         count={line || null}

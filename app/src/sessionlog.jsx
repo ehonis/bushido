@@ -152,13 +152,13 @@ function NoteField({ label, hint, value, onCommit }) {
   )
 }
 
-function Slider({ field, value, onChange }) {
+function Slider({ field, value, onChange, yours = undefined }) {
   const v = value ?? field.default
   const pct = ((v - field.min) / (field.max - field.min)) * 100
   return (
     <div className="out-field">
       <div className="out-label">
-        <span>{field.label}</span>
+        <span>{field.label}<Yours value={yours} /></span>
         <span className="out-value">{v}</span>
       </div>
       <input
@@ -174,6 +174,16 @@ function Slider({ field, value, onChange }) {
       )}
     </div>
   )
+}
+
+/**
+ * The owner's own answer, beside a field on someone else's copy of a shared
+ * workout (sharedwith.jsx). A reference, never a value: nothing here writes it,
+ * so it cannot be confirmed without reading (AGENTS.md §6.4).
+ */
+function Yours({ value }) {
+  if (value === undefined || value === null || value === '') return null
+  return <span className="out-yours">you: {typeof value === 'boolean' ? (value ? 'yes' : 'no') : String(value)}</span>
 }
 
 /**
@@ -269,10 +279,11 @@ export function NameField({ session, out, onChange }) {
  * selected chip again clears it, because a card whose whole point is being
  * open-ended must not force an answer it doesn't have.
  */
-function Choice({ field, value, onChange }) {
+function Choice({ field, value, onChange, yours = undefined }) {
+  const theirs = (field.options || []).find(o => o.value === yours)?.label ?? yours
   return (
     <div className="out-field">
-      <div className="out-label"><span>{field.label}</span></div>
+      <div className="out-label"><span>{field.label}<Yours value={theirs} /></span></div>
       <div className="out-choices">
         {(field.options || []).map(o => {
           const on = value === o.value
@@ -441,10 +452,17 @@ export function DetailsSheet({
   )
 }
 
-/** `bare` drops the collapse header — the log feed's sheet is already the form. */
+/**
+ * `bare` drops the collapse header — the log feed's sheet is already the form.
+ *
+ * `hints` and `measured` are for someone else's copy of a shared workout, filled
+ * in from the owner's sheet (sharedwith.jsx). `hints` is the owner's own `out`,
+ * shown only as placeholders and "you: …" marks, never written; `measured: false`
+ * drops WHOOP and Strava, which are the owner's accounts.
+ */
 export function SessionLog({
   session, entry, entries, onSave, bare = false,
-  defaultOpen = false,
+  defaultOpen = false, hints = null, measured = true,
 }) {
   const declared = session?.outputs || []
   const hasSets = Boolean(session?.logSpec?.exercises?.length)
@@ -539,14 +557,14 @@ export function SessionLog({
 
       {shown && (
         <div className="out-body">
-          {hasSets && <SetLog session={session} out={out} onSave={onSave} />}
+          {hasSets && <SetLog session={session} out={out} onSave={onSave} hints={hints} />}
 
           {fields.map(f => {
             if (f.type === 'slider') {
-              return <Slider key={f.key} field={f} value={out[f.key]} onChange={v => set(f.key, v)} />
+              return <Slider key={f.key} field={f} value={out[f.key]} onChange={v => set(f.key, v)} yours={hints?.[f.key]} />
             }
             if (f.type === 'choice') {
-              return <Choice key={f.key} field={f} value={out[f.key]} onChange={v => set(f.key, v)} />
+              return <Choice key={f.key} field={f} value={out[f.key]} onChange={v => set(f.key, v)} yours={hints?.[f.key]} />
             }
             // What you did, out of ninety-one sports. It is the question that
             // decides what the rest of this form even means, so it is always
@@ -558,7 +576,7 @@ export function SessionLog({
             if (f.type === 'grade') {
               return (
                 <div key={f.key} className="out-field out-grade">
-                  <div className="out-label"><span>{f.label}</span></div>
+                  <div className="out-label"><span>{f.label}<Yours value={hints?.[f.key]} /></span></div>
                   <GradeSelect value={out[f.key]} label={f.label}
                     onChange={v => set(f.key, v === '' ? undefined : v)} />
                 </div>
@@ -568,7 +586,7 @@ export function SessionLog({
               return (
                 <label key={f.key} className="out-toggle">
                   <input type="checkbox" checked={Boolean(out[f.key])} onChange={e => set(f.key, e.target.checked)} />
-                  <span>{f.label}</span>
+                  <span>{f.label}<Yours value={hints?.[f.key]} /></span>
                 </label>
               )
             }
@@ -577,7 +595,7 @@ export function SessionLog({
             if (f.type === 'lifts') {
               return (
                 <LiftLog key={f.key} field={f} out={out} entries={entries} entryId={entry?.id}
-                  onSave={onSave} />
+                  onSave={onSave} hints={hints} />
               )
             }
             // A number the app can work out gets it as a PLACEHOLDER — average
@@ -592,7 +610,8 @@ export function SessionLog({
                 {source && <span className="out-from">from {source}</span>}
                 <input
                   type="number" inputMode="decimal"
-                  placeholder={derived != null ? String(derived) : f.hint}
+                  placeholder={derived != null ? String(derived)
+                    : hints?.[f.key] != null ? String(hints[f.key]) : f.hint}
                   value={out[f.key] ?? ''}
                   onChange={e => set(f.key, e.target.value === '' ? undefined : Number(e.target.value))}
                 />
@@ -606,13 +625,13 @@ export function SessionLog({
           {/* What the band recorded, if anything. Renders nothing at all when
               there is no WHOOP — see WhoopWorkouts. It sits above time spent
               because attaching a workout is what fills time spent in. */}
-          <WhoopWorkouts session={session} entry={entry} entries={entries} onSave={onSave} />
+          {measured && <WhoopWorkouts session={session} entry={entry} entries={entries} onSave={onSave} />}
 
           {/* What Strava recorded — the ride, run or walk itself. Same rules as
               WHOOP (suggest, never apply; nothing on screen when there is
               nothing), and on the Other-training card attaching also fills the
               blank distance/time/speed/elevation fields above. */}
-          <StravaActivities session={session} entry={entry} entries={entries} onSave={onSave} />
+          {measured && <StravaActivities session={session} entry={entry} entries={entries} onSave={onSave} />}
 
           {/*
             * EVERYTHING BELOW THE MEASUREMENTS MOVED OUT, 2026-09-21, apart from

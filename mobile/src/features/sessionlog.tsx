@@ -155,13 +155,24 @@ function NoteField({ label, hint, value, onCommit }: {
   )
 }
 
-function Slider({ field, value, onChange }: any) {
+/**
+ * The owner's own answer, beside a field on someone else's copy of a shared
+ * workout (sharedwith.tsx). A reference, never a value (AGENTS.md §6.4).
+ */
+function Yours({ value }: { value: any }) {
+  if (value === undefined || value === null || value === '') return null
+  return <T size={11} faint style={{ marginLeft: 8 }}>{`you: ${typeof value === 'boolean' ? (value ? 'yes' : 'no') : String(value)}`}</T>
+}
+
+function Slider({ field, value, onChange, yours }: any) {
   const v = value ?? field.default
   const scale: string[] | null = field.scale || null
   return (
     <View style={st.field}>
       <View style={st.label}>
-        <T size={13} dim style={{ flex: 1 }}>{field.label}</T>
+        <T size={13} dim>{field.label}</T>
+        <Yours value={yours} />
+        <View style={{ flex: 1 }} />
         <T size={17} weight={600} tabular align="right" style={{ minWidth: 24 }}>{v == null ? '' : String(v)}</T>
       </View>
       <RangeSlider min={field.min} max={field.max} step={field.step ?? 1} value={v} label={field.label} onChange={onChange} />
@@ -245,10 +256,11 @@ export function NameField({ session, out, onChange }: any) {
  * Pick one of a fixed set. Tapping the selected chip again clears it, because a
  * card whose whole point is being open-ended must not force an answer.
  */
-function Choice({ field, value, onChange }: any) {
+function Choice({ field, value, onChange, yours }: any) {
+  const theirs = (field.options || []).find((o: any) => o.value === yours)?.label ?? yours
   return (
     <View style={st.field}>
-      <View style={st.label}><T size={13} dim>{field.label}</T></View>
+      <View style={st.label}><T size={13} dim>{field.label}</T><Yours value={theirs} /></View>
       <View style={st.choices}>
         {(field.options || []).map((o: any) => {
           const on = value === o.value
@@ -380,10 +392,14 @@ export function DetailsSheet({
   )
 }
 
-/** `bare` drops the collapse header — the log feed's sheet is already the form. */
+/**
+ * `bare` drops the collapse header — the log feed's sheet is already the form.
+ * `hints` (the owner's own out, placeholders only) and `measured: false` (no
+ * WHOOP or Strava) are for someone else's copy of a shared workout.
+ */
 export function SessionLog({
   session, entry, entries, onSave, bare = false,
-  defaultOpen = false,
+  defaultOpen = false, hints = null, measured = true,
 }: any) {
   const declared = session?.outputs || []
   const hasSets = Boolean(session?.logSpec?.exercises?.length)
@@ -466,14 +482,14 @@ export function SessionLog({
 
       {shown && (
         <View style={[st.body, bare && { marginTop: 0 }]}>
-          {hasSets && <SetLog session={session} out={out} onSave={onSave} />}
+          {hasSets && <SetLog session={session} out={out} onSave={onSave} hints={hints} />}
 
           {fields.map((f) => {
             if (f.type === 'slider') {
-              return <Slider key={f.key} field={f} value={out[f.key]} onChange={(v: any) => set(f.key, v)} />
+              return <Slider key={f.key} field={f} value={out[f.key]} onChange={(v: any) => set(f.key, v)} yours={hints?.[f.key]} />
             }
             if (f.type === 'choice') {
-              return <Choice key={f.key} field={f} value={out[f.key]} onChange={(v: any) => set(f.key, v)} />
+              return <Choice key={f.key} field={f} value={out[f.key]} onChange={(v: any) => set(f.key, v)} yours={hints?.[f.key]} />
             }
             // What you did, out of ninety-one sports. It decides what the rest of
             // this form means, so it is always first. See lib/activities.js.
@@ -484,7 +500,7 @@ export function SessionLog({
             if (f.type === 'grade') {
               return (
                 <View key={f.key} style={st.field}>
-                  <View style={st.label}><T size={13} dim>{f.label}</T></View>
+                  <View style={st.label}><T size={13} dim>{f.label}</T><Yours value={hints?.[f.key]} /></View>
                   <GradeSelect value={out[f.key]} label={f.label} style={{ alignSelf: 'flex-start', marginTop: 1 }}
                     onChange={(v: any) => set(f.key, v === '' ? undefined : v)} />
                 </View>
@@ -493,14 +509,14 @@ export function SessionLog({
             if (f.type === 'toggle') {
               return (
                 <ToggleRow key={f.key} value={Boolean(out[f.key])} onChange={(v) => set(f.key, v)}>
-                  <T size={14}>{f.label}</T>
+                  <T size={14}>{f.label}</T><Yours value={hints?.[f.key]} />
                 </ToggleRow>
               )
             }
             // Exercises chosen at log time, with their own implement and sets.
             if (f.type === 'lifts') {
               return (
-                <LiftLog key={f.key} field={f} out={out} entries={entries} entryId={entry?.id} onSave={onSave} />
+                <LiftLog key={f.key} field={f} out={out} entries={entries} entryId={entry?.id} onSave={onSave} hints={hints} />
               )
             }
             // A number the app can work out is a PLACEHOLDER, and one a service
@@ -515,7 +531,8 @@ export function SessionLog({
                   {source ? <T size={10} caps color={colors.accent} style={{ marginLeft: 6 }}>{`from ${source}`}</T> : null}
                 </View>
                 <NumInput
-                  placeholder={derived != null ? String(derived) : f.hint}
+                  placeholder={derived != null ? String(derived)
+                    : hints?.[f.key] != null ? String(hints[f.key]) : f.hint}
                   placeholderTextColor={colors.inkFaint}
                   accessibilityLabel={f.label}
                   value={out[f.key] ?? ''}
@@ -532,10 +549,10 @@ export function SessionLog({
 
           {/* What the band recorded, if anything. Renders nothing when there is
               no WHOOP. Above time spent, because attaching fills it in. */}
-          <WhoopWorkouts session={session} entry={entry} entries={entries} onSave={onSave} />
+          {measured && <WhoopWorkouts session={session} entry={entry} entries={entries} onSave={onSave} />}
 
           {/* What Strava recorded. Same rules as WHOOP: suggest, never apply. */}
-          <StravaActivities session={session} entry={entry} entries={entries} onSave={onSave} />
+          {measured && <StravaActivities session={session} entry={entry} entries={entries} onSave={onSave} />}
 
           {/*
             * Name, gear, "just miles" and time spent moved out on 2026-09-21:

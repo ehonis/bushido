@@ -23,6 +23,7 @@ import {
 import { LogTab } from './src/log.jsx'
 import { GearSection } from './src/gear.jsx'
 import { ProfileMenu, PeopleCard } from './src/profile.jsx'
+import { TheirSide } from './src/sharedwith.jsx'
 import { AchievementsTab } from './src/achievements.jsx'
 import { TotemGoals } from './src/goals.jsx'
 import { PlanProvider } from './src/lib/planctx.jsx'
@@ -2753,6 +2754,68 @@ const cases = [
     if (renderToString(<PeopleCard who={{ id: 'sam', real: { id: 'sam', admin: false }, people: [] }} />) !== '') throw new Error('someone who is not the owner can switch logs')
     if (renderToString(<PeopleCard who={{ ...owner, people: [people[0]] }} />) !== '') throw new Error('a switcher with nobody to switch to')
   }],
+  /*
+   * SHARED WORKOUTS (sharedwith.jsx). "With …" is the owner's, on the owner's own
+   * log, with someone else on the install. Its absences are pinned because an
+   * absence still renders: a control that leaked into someone else's log, or
+   * into an act-as session, would pass every presence test.
+   */
+  ...(() => {
+    const people = [{ id: 'owner', name: 'Alex' }, { id: 'sam', name: 'Sam' }]
+    const ownerMe = { id: 'owner', acting: false, owner: true, real: { id: 'owner', name: 'Alex', admin: true }, people }
+    const opt = plan.dailyMenu.find(m => m.id === 'log-workout')
+    const entry = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { slot: 'main', optId: opt.id, level: 2, name: 'Ride', minutes: 45, done: false,
+        out: { activity: 'bike', distance: 21, rpe: 7 } } }
+    const sharedEntry = { ...entry, data: { ...entry.data, sharedWith: [{ id: 'sam', entryId: entry.id }] } }
+    const sheet = (me, e = entry) => renderToString(
+      <SessionSheet opt={opt} entry={e} tone="rec" entries={rich} isFuture={false} me={me}
+        onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop} onSaveEntry={noop} />)
+    return [
+      ['SessionSheet(no "With …" with one person, while acting as someone, or for anyone but the owner)', null, () => {
+        if (/withrow|Add Sam to this workout/.test(sheet({ ...ownerMe, people: [people[0]] }))) throw new Error('"With …" on a one-person install')
+        if (/withrow|to this workout/.test(sheet({ ...ownerMe, id: 'sam', acting: true }))) throw new Error('"With …" while acting as someone')
+        if (/withrow|to this workout/.test(sheet({ id: 'sam', acting: false, owner: false, real: { id: 'sam', name: 'Sam', admin: false }, people: [] }))) throw new Error('"With …" for someone who is not the owner')
+      }],
+      ['SessionSheet("With …" for the owner when someone else is on the install)', null, () => {
+        const html = sheet(ownerMe)
+        if (!/aria-label="Add Sam to this workout"/.test(html)) throw new Error('no way to add Sam')
+        if (/aria-label="Add Alex to this workout"/.test(html)) throw new Error('the owner was offered as someone to add')
+      }],
+      ['SessionSheet(the person switcher only on a shared entry)', null, () => {
+        if (/personswitch/.test(sheet(ownerMe))) throw new Error('a switcher on a workout nobody shares')
+        const html = sheet(ownerMe, sharedEntry)
+        if (!/personswitch/.test(html)) throw new Error('no switcher on a shared workout')
+        const t = text(html)
+        if (!/You/.test(t) || !/Sam/.test(t)) throw new Error('the switcher does not name both logs')
+        if (!/aria-label="Take Sam off this workout"/.test(html)) throw new Error('no way to take Sam off')
+        // And never for anyone else, even on an entry that names someone.
+        if (/personswitch/.test(sheet({ ...ownerMe, id: 'sam', acting: true }, sharedEntry))) throw new Error('a switcher while acting as someone')
+      }],
+      ['SessionSheet(a shared copy in someone else\'s own log says who it was with)', null, () => {
+        const hers = { ...entry, data: { ...entry.data, sharedFrom: { id: 'owner', name: 'Alex' } } }
+        const t = text(sheet({ id: 'sam', owner: false, acting: false, real: { id: 'sam', name: 'Sam', admin: false }, people: [] }, hers))
+        if (!/with Alex/.test(t)) throw new Error('nothing says who it was done with')
+      }],
+      ['TheirSide(the owner\'s numbers are placeholders, never values)', null, () => {
+        const copy = { ...entry, data: { ...entry.data, out: { activity: 'bike' }, sharedFrom: { id: 'owner', name: 'Alex' } } }
+        const html = renderToString(<PlanProvider plan={plan}>
+          <TheirSide session={opt} copy={copy} person={people[1]} ownerOut={entry.data.out} onSave={noop} />
+        </PlanProvider>)
+        if (!/placeholder="21"/.test(html)) throw new Error('the owner\'s distance is not the placeholder')
+        if (/value="21"/.test(html)) throw new Error('the owner\'s distance was copied in as a value')
+        if (!/you: 7/.test(text(html))) throw new Error('the owner\'s effort is not shown beside Sam\'s')
+        if (!/Filling in.*Sam/.test(text(html))) throw new Error('nothing says whose log this is')
+      }],
+      ['TodayTab(a shared workout says who it was with, small, on the row)', null, () => {
+        _setMe(ownerMe)
+        try {
+          const t = text(renderToString(<TodayTab plan={plan} entries={[sharedEntry]} upsertEntry={noop} />))
+          if (!/with Sam/.test(t)) throw new Error('the day row does not say who it was with')
+        } finally { _setMe({}) }
+      }],
+    ]
+  })(),
   // The rest day is a door of its own: as a footer link under "Pick a session" it
   // was technically reachable and the user could not find it.
   ['FabMenu(five doors, rest included)',

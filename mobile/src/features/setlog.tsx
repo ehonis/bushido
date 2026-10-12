@@ -286,7 +286,7 @@ export function ClimbLog({ count, values, spec, onChange, onMore, what = 'climb'
   )
 }
 
-function Exercise({ exercise, rows, sign, onRows, onSign }: any) {
+function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null }: any) {
   const fields: string[] = exercise.fields || []
   const perRep = hasGrades(fields)
   const what = exercise.repName || 'rep'
@@ -386,6 +386,8 @@ function Exercise({ exercise, rows, sign, onRows, onSign }: any) {
                   ) : (
                     <NumInput
                       value={r[f] ?? ''} onChange={(v: any) => set(i, f, v)} blank=""
+                      placeholder={hintRows?.[i]?.[f] != null ? String(hintRows[i][f]) : undefined}
+                      placeholderTextColor={colors.inkFaint}
                       accessibilityLabel={`set ${i + 1} ${meta(f).label}`}
                       keyboardAppearance="dark" selectTextOnFocus selectionColor={colors.accent}
                       style={[st.numBox, st.numIn, { width: meta(f).width }]}
@@ -435,7 +437,7 @@ function Exercise({ exercise, rows, sign, onRows, onSign }: any) {
   )
 }
 
-export function SetLog({ session, out, onSave }: any) {
+export function SetLog({ session, out, onSave, hints = null }: any) {
   const spec = session?.logSpec
   if (!spec?.exercises?.length) return null
 
@@ -455,6 +457,8 @@ export function SetLog({ session, out, onSave }: any) {
           key={ex.key}
           exercise={ex}
           rows={rowsFor(ex)}
+          // Someone else's copy of a shared workout: the owner's rows as placeholders only.
+          hintRows={hints?.sets?.[ex.key] || null}
           sign={signFor(ex)}
           onRows={(rows: any) => setRows(ex, rows)}
           onSign={(s: string) => setSign(ex, s)}

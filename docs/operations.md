@@ -175,6 +175,7 @@ Signed out, `/api/*` answers `401` with `X-Bushido-Auth: login` and pages redire
 | `GET /api/auth/me` · `POST /api/auth/password` | who is signed in, whose log this is and what it offers; change the password |
 | `POST /api/act-as` | `{ id }` — the owner acts as someone (`null`: back to themselves) |
 | `GET`/`POST`/`PUT /api/settings/users` · `DELETE /api/settings/users/<id>` | the people on this install (owner only) |
+| `GET /api/people` · `GET /api/people/<id>/entry?id=…` or `?date=…` · `POST /api/people/<id>/entry` | shared workouts: the owner reads and writes someone else's copy of a workout done together (owner only, not while acting as someone, never the owner's own log, only entries carrying `data.sharedFrom`) |
 | `GET /api/settings` · `PUT /api/settings` | the settings, secrets masked; a partial update |
 | `POST /api/settings/ai/test` | one tiny request through the configured CLI |
 | `GET /api/content` | the content file in use (see Settings → Training plan) |
