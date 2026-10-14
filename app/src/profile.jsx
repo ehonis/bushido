@@ -266,6 +266,67 @@ export function PeopleCard({ who }) {
   )
 }
 
+/*
+ * Anyone but the owner connects their own Strava here: the server holds their
+ * grant in their own space (POST /api/strava/connect). Connecting leaves the app
+ * for Strava's consent page and comes back to `/`; both directions reload, since
+ * whether Strava is on is decided at boot (whoami).
+ */
+function OwnStravaCard({ who, strava, onPullStrava, pulling }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const call = async (path) => {
+    setBusy(true); setError('')
+    try {
+      const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`)
+      return body
+    } catch (err) {
+      setError(err.message)
+      setBusy(false)
+      return null
+    }
+  }
+  const connect = async () => {
+    const body = await call('/api/strava/connect')
+    if (body?.authUrl) window.location.href = body.authUrl
+  }
+  const disconnect = async () => {
+    if (!window.confirm('Disconnect Strava? Workouts already attached to sessions stay in your log.')) return
+    if (await call('/api/strava/disconnect')) window.location.reload()
+  }
+  const connected = who.features.strava
+  return (
+    <div className="card">
+      <h2>Strava</h2>
+      <p className="sub">
+        {connected
+          ? `Connected${strava?.athlete?.name ? ` as ${strava.athlete.name}` : ''}. Your runs and rides show up to attach to a session, including Apple Watch workouts Strava imports from Apple Health.`
+          : 'Connect your Strava account to attach your runs and rides to sessions. Apple Watch workouts get here too once Strava imports them from Apple Health.'}
+      </p>
+      {connected ? (
+        <>
+          <button className="restbtn" onClick={() => onPullStrava?.()} disabled={pulling || busy}>
+            <Icon name="RotateCw" size={16} />
+            <span>{pulling ? 'Refreshing…' : 'Refresh now'}</span>
+          </button>
+          <button className="restbtn" onClick={disconnect} disabled={busy}>
+            <Icon name="LogOut" size={16} />
+            <span>Disconnect Strava</span>
+          </button>
+        </>
+      ) : (
+        <button className="restbtn" onClick={connect} disabled={busy}>
+          <Icon name="ExternalLink" size={16} />
+          <span>{busy ? 'Opening Strava…' : 'Connect Strava'}</span>
+        </button>
+      )}
+      {error && <p className="sub err">{error}</p>}
+    </div>
+  )
+}
+
 function SettingsSection({ status, lastSync, strava, onPullStrava, pulling, who = currentMe() }) {
   const { allHidden, toggleAll } = usePrefs()
   const canSignOut = useCanSignOut()
@@ -327,6 +388,10 @@ function SettingsSection({ status, lastSync, strava, onPullStrava, pulling, who 
           <span>{pulling ? 'Refreshing…' : 'Refresh now'}</span>
         </button>
       </div>
+      )}
+
+      {!who.owner && !who.acting && (who.features.stravaConnect || who.features.strava) && (
+        <OwnStravaCard who={who} strava={strava} onPullStrava={onPullStrava} pulling={pulling} />
       )}
 
       <div className="card">

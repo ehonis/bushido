@@ -250,7 +250,12 @@ a masked value posted back is ignored.
   mismatch with `409 switched`. All four are load-bearing.
 - **Integrations are the owner's; the AI is everyone's.** `featuresFor(space)` turns WHOOP,
   Strava, goals, habit sync and notifications off for anyone else (they are the owner's
-  grants), which must render exactly like an install that never set them up. Habit sync and
+  grants), which must render exactly like an install that never set them up. The one
+  exception is Strava: once Settings has a Strava API app (`config.strava()`), anyone else
+  connects their OWN account (`/api/strava/connect`, `/strava/callback`), and the grant and
+  cache live in their space (`strava-oauth.json`, `strava.json`). The client is a copy of
+  Totem's (`server/strava-api/`, copy it again rather than editing it here), and it is
+  refused for the owner (his Strava is the bridge's) and while acting as someone. Habit sync and
   the "logged" push run only for the owner's writes. `ai` is on for everyone once a CLI is
   configured, and every run is built from ONE person's space (`aiRun(space)` in server.js;
   §7 says what a non-owner's run can read). Without a CLI only the owner sees AI at all.

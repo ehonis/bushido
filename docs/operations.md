@@ -154,8 +154,13 @@ under its own key, and every API call from the app says whose log it holds
 `X-Bushido-Auth: switched`, and the app reloads. One person's cached log can never be
 merged into another's.
 
-For anyone but the owner: Settings are refused; WHOOP, Strava, linked goals, habit sync and
-notifications are off, because they hold the owner's accounts; the plan is their own
+For anyone but the owner: Settings are refused; WHOOP, linked goals, habit sync and
+notifications are off, because they hold the owner's accounts. Strava is off until they
+connect their own account (profile → Settings → *Connect Strava*), which needs a Strava API
+app in Settings → *Strava for other people*. A new Strava app accepts only its creator until
+it is raised to ten athletes at strava.com/settings/api, and its Authorization Callback Domain
+must cover the host people open Bushido on. Their grant is `data/users/<id>/strava-oauth.json`
+and their cache `data/users/<id>/strava.json`; the plan is their own
 `data/users/<id>/plan.json` if one was imported while acting as them, else the starter.
 Removing someone in Settings stops them getting in and leaves their folder on disk.
 
@@ -229,6 +234,7 @@ only (`403`), not while acting as someone else (`409 acting`), never the owner's
 | `GET /api/whoop` · `POST /api/whoop/pull` | the WHOOP cache, and a refetch through the bridge (`configured: false` without one) |
 | `GET /api/strava` · `POST /api/strava/pull` | the Strava cache (activities, gear, athlete), and a refetch |
 | `GET /api/strava/activity?id=` | one activity in full (laps, splits, calories) — fetched when you attach it |
+| `POST /api/strava/connect` · `GET /strava/callback` · `POST /api/strava/disconnect` | anyone but the owner connects or drops their own Strava (`409` for the owner and while acting) |
 | `GET /api/goals` · `POST /api/goals/pull` | Totem goals linked to this app |
 | `/api/push/*` | push subscriptions, when a notify core is configured |
 | `GET /api/state` | `{ version, updatedAt, state }` |

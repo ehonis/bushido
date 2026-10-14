@@ -43,6 +43,8 @@ const blank = () => ({
   ai: { provider: 'claude-cli', bin: '', apiKey: '', model: '' },
   plan: { file: '' },
   totem: { url: '', secret: '', envFile: '', habit: '', habitSync: true, whoop: true, strava: true, goals: true },
+  /* A Strava API app for everyone but the owner, who reads Strava through the bridge. */
+  strava: { clientId: '', clientSecret: '', redirectUri: '' },
   links: { notifyCore: '', brainFile: '', krakatoaDir: '' },
   notifications: { tz: '' },
 })
@@ -57,7 +59,7 @@ const blank = () => ({
 const FILE_ONLY = [['ai', 'bin'], ['totem', 'envFile'], ['links', 'notifyCore'], ['links', 'brainFile'], ['links', 'krakatoaDir']]
 
 /* Settings keys that hold secrets: never sent to a browser, shown masked. */
-const SECRET_KEYS = [['ai', 'apiKey'], ['totem', 'secret']]
+const SECRET_KEYS = [['ai', 'apiKey'], ['totem', 'secret'], ['strava', 'clientSecret']]
 
 function writePrivate(file, doc) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -131,6 +133,7 @@ function createConfig({ root, dataDir, env = process.env }) {
         ai: { ...b.ai, ...(raw.ai || {}) },
         plan: { ...b.plan, ...(raw.plan || {}) },
         totem: { ...b.totem, ...(raw.totem || {}) },
+        strava: { ...b.strava, ...(raw.strava || {}) },
         links: { ...b.links, ...(raw.links || {}) },
         notifications: { ...b.notifications, ...(raw.notifications || {}) },
       }
@@ -147,7 +150,7 @@ function createConfig({ root, dataDir, env = process.env }) {
   function update(patch) {
     const cur = read()
     const next = structuredClone(cur)
-    for (const section of ['athlete', 'ai', 'totem', 'links', 'notifications']) {
+    for (const section of ['athlete', 'ai', 'totem', 'strava', 'links', 'notifications']) {
       const p = patch?.[section]
       if (!p || typeof p !== 'object') continue
       for (const [k, v] of Object.entries(p)) {
@@ -264,6 +267,31 @@ function createConfig({ root, dataDir, env = process.env }) {
     }
   }
 
+  /* ------------------------------------------------------------ strava */
+
+  /*
+   * The Strava API app people other than the owner connect their own accounts
+   * through (see the per-person Strava block in server.js). The owner's Strava is
+   * the bridge's grant and never uses this. A new Strava app accepts one athlete,
+   * its creator, until it is raised to ten from strava.com/settings/api.
+   */
+  function strava() {
+    const s = read().strava
+    const clientId = src('BUSHIDO_STRAVA_CLIENT_ID', s.clientId, null)
+    const redirectUri = src('BUSHIDO_STRAVA_REDIRECT_URI', s.redirectUri, null)
+    const secretSource = has('BUSHIDO_STRAVA_CLIENT_SECRET') ? 'env BUSHIDO_STRAVA_CLIENT_SECRET' : s.clientSecret ? 'settings' : 'off'
+    const clientSecret = () => (has('BUSHIDO_STRAVA_CLIENT_SECRET') ? env.BUSHIDO_STRAVA_CLIENT_SECRET : s.clientSecret || '')
+    return {
+      clientId: clientId.value ? String(clientId.value).trim() : '',
+      clientIdSource: clientId.source,
+      clientSecret,
+      secretSource,
+      redirectUri: redirectUri.value ? String(redirectUri.value).trim() : '',
+      redirectUriSource: redirectUri.source,
+      configured: Boolean(clientId.value && clientSecret()),
+    }
+  }
+
   /* ------------------------------------------------------------- links */
 
   function links() {
@@ -348,7 +376,7 @@ function createConfig({ root, dataDir, env = process.env }) {
     return out
   }
 
-  return { file, migrate, read, update, clearPlanFile, ai, totem, links, tz, planFile, athlete, access, authMode, publicView, root, dataDir }
+  return { file, migrate, read, update, clearPlanFile, ai, totem, strava, links, tz, planFile, athlete, access, authMode, publicView, root, dataDir }
 }
 
 module.exports = { createConfig, LEGACY, DEFAULT_MODEL, FILE_ONLY }

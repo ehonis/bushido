@@ -17,6 +17,8 @@
  *   GET  /api/strava          cached Strava activities + gear + athlete (data/strava.json)
  *   POST /api/strava/pull     refetch from Strava now (the "pull" button)
  *   GET  /api/strava/activity?id=  one activity in full (laps, splits), live through the bridge
+ *   POST /api/strava/connect  someone other than the owner connects their own Strava;
+ *                             GET /strava/callback finishes it, POST /api/strava/disconnect ends it
  *   GET  /api/goals           Totem goals linked to this app (when the bridge is configured)
  *   GET  /api/coach/threads   the AI coach's conversations; POST /api/coach/chat for a turn
  *   POST /api/plan/workout    { kinds, minutes, goal } -> a prescription, stored nowhere
@@ -141,7 +143,8 @@ const OWNER_SPACE = spaceFor({ id: OWNER })
  * What a person's app may offer. Integrations hold the owner's accounts (the
  * bridge's WHOOP and Strava grants, Totem goals and habits, the push identity,
  * the brain file), so for anyone else they are off, which renders exactly as
- * an install that never set them up.
+ * an install that never set them up. Strava is the one exception: anyone else
+ * can connect their own account once Settings has a Strava API app.
  *
  * AI is everyone's once a CLI is configured: each run is built from the person's
  * own space, About you and plan (`aiRun`), and a run for anyone but the owner is
@@ -155,7 +158,10 @@ function featuresFor(space) {
   return {
     ai: own || config.ai().installed,
     whoop: own && t.whoop,
-    strava: own && t.strava,
+    // The owner's is the bridge's; anyone else's is their own grant (stravaLinked).
+    strava: own ? t.strava : stravaLinked(space),
+    // Someone other than the owner can connect their own account.
+    stravaConnect: !own && config.strava().configured,
     goals: own && t.goals,
     habitSync: own && t.habitSync,
     notifications: own && Boolean(notify),
@@ -944,6 +950,124 @@ async function fetchStravaDetail(id) {
   }
 }
 
+/*
+ * Everyone else's Strava: their own account, connected from their own phone.
+ *
+ * The bridge's grant is the owner's, so anyone else connects through the Strava
+ * API app in Settings (config.strava()) and Bushido holds their grant itself, in
+ * their own space. The client is Totem's, copied into server/strava-api/, so
+ * `training()` and `activity()` hand back exactly what the bridge does and the
+ * cache, the matching and the snapshots need no second shape. Their cache is
+ * strava.json in their space, which is where the owner's has always been in his.
+ */
+const stravaClients = new Map()
+const stravaPeopleState = new Map()
+const stravaPeopleInFlight = new Map()
+
+function stravaClientFor(space) {
+  let client = stravaClients.get(space.id)
+  if (!client) {
+    const { createStravaClient } = require('./strava-api/client.mjs')
+    const app = () => config.strava()
+    const holder = { redirectUri: '' }
+    client = createStravaClient({
+      clientId: () => app().clientId,
+      clientSecret: () => app().clientSecret(),
+      redirectUri: () => app().redirectUri || holder.redirectUri,
+      tokensFile: path.join(space.dir, 'strava-oauth.json'),
+      cacheFile: path.join(space.dir, 'strava-mirror.json'),
+      // Only what training needs: no writes to someone's Strava from here.
+      scopes: ['read', 'profile:read_all', 'activity:read_all'],
+      timeZone: config.tz(),
+      log: (m) => console.error(`[strava ${space.id}] ${m}`),
+    })
+    client.holder = holder
+    stravaClients.set(space.id, client)
+  }
+  return client
+}
+
+const stravaFileOf = (space) => path.join(space.dir, 'strava.json')
+
+/** Whether this person has a grant on disk. Sync: featuresFor runs on every request. */
+function stravaLinked(space) {
+  if (space.owner || !config.strava().configured) return false
+  try {
+    return Boolean(JSON.parse(fs.readFileSync(path.join(space.dir, 'strava-oauth.json'), 'utf8')).refresh_token)
+  } catch {
+    return false
+  }
+}
+
+function readPersonStrava(space) {
+  return readJson(stravaFileOf(space), null)
+}
+
+/** Their pull, through their own grant; otherwise the owner's pull, line for line. */
+function pullPersonStrava(space, { days = STRAVA_DAYS } = {}) {
+  if (!stravaLinked(space)) return Promise.resolve({ ok: false, error: 'Strava is not connected for this account' })
+  if (stravaPeopleInFlight.has(space.id)) return stravaPeopleInFlight.get(space.id)
+  const run = (async () => {
+    const client = stravaClientFor(space)
+    try {
+      const [body, athlete] = await Promise.all([client.training({ days }), client.athlete().catch(() => null)])
+      const doc = {
+        fetchedAt: body.fetchedAt || new Date().toISOString(),
+        days: body.days ?? days,
+        athlete: body.athlete
+          ? {
+              ...body.athlete,
+              firstname: athlete?.firstname ?? null,
+              username: athlete?.username ?? null,
+              profile: athlete?.profile ?? null,
+              profileMedium: athlete?.profileMedium ?? null,
+            }
+          : (athlete || null),
+        gear: body.gear && typeof body.gear === 'object' ? body.gear : {},
+        activities: Array.isArray(body.activities) ? body.activities : [],
+      }
+      const file = stravaFileOf(space)
+      await fsp.mkdir(space.dir, { recursive: true })
+      const tmp = `${file}.tmp-${process.pid}`
+      await fsp.writeFile(tmp, JSON.stringify(doc, null, 2))
+      await fsp.rename(tmp, file)
+      stravaPeopleState.set(space.id, { at: doc.fetchedAt, ok: true, detail: `${doc.activities.length} activities` })
+      return { ok: true, ...doc }
+    } catch (err) {
+      stravaPeopleState.set(space.id, { at: new Date().toISOString(), ok: false, detail: err.message })
+      return { ok: false, error: err.message }
+    }
+  })().finally(() => stravaPeopleInFlight.delete(space.id))
+  stravaPeopleInFlight.set(space.id, run)
+  return run
+}
+
+function refreshPersonStravaIfStale(space) {
+  const cache = readPersonStrava(space)
+  const age = cache?.fetchedAt ? Date.now() - Date.parse(cache.fetchedAt) : Infinity
+  if (age > STRAVA_TTL_MS) pullPersonStrava(space).catch(() => {})
+}
+
+async function fetchPersonStravaDetail(space, id) {
+  try {
+    return { ok: true, activity: await stravaClientFor(space).activity(id, { laps: true }) }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+}
+
+/*
+ * Where Strava sends them back to. A redirect URI in Settings wins; otherwise
+ * this request's own origin, which is the address they opened the app on. The
+ * Strava app's "Authorization Callback Domain" has to cover that host.
+ */
+function stravaRedirectFor(req) {
+  if (PUBLIC_URL) return `${PUBLIC_URL}/strava/callback`
+  const proto = String(req.headers['x-forwarded-proto'] || (isHttps(req) ? 'https' : 'http')).split(',')[0].trim()
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim()
+  return `${proto}://${host}/strava/callback`
+}
+
 /**
  * Sync every DATE the incoming payload touched, once each, from the merged doc
  * rather than from the payload — a push that edits one of three sessions still
@@ -1436,6 +1560,10 @@ async function settingsView(who, ctx) {
         enabled: t.enabled, url: t.url, urlSource: t.urlSource, secretSource: t.secretSource, envFileSource,
         habitSync: t.habitSync, whoop: t.whoop, strava: t.strava, goals: t.goals,
       },
+      strava: (() => {
+        const sa = config.strava()
+        return { configured: sa.configured, clientIdSource: sa.clientIdSource, secretSource: sa.secretSource, redirectUriSource: sa.redirectUriSource, publicUrl: PUBLIC_URL || null }
+      })(),
       links: config.links(),
       tz: config.tz(),
       plan: {
@@ -1785,6 +1913,38 @@ const server = http.createServer(async (req, res) => {
     if (p === '/settings' && req.method === 'GET') return html(res, 200, pages.settingsPage())
 
     /*
+     * Someone other than the owner connecting their own Strava. The owner's is
+     * the bridge's and is connected in Totem, so these refuse the owner's space,
+     * and refuse acting-as: the owner would be granting his account to their log.
+     * The callback comes back through the same sign-in, so it lands in the
+     * space of whoever started it; the client's `state` ties it to that start.
+     */
+    if (p === '/api/strava/connect' || p === '/api/strava/disconnect' || p === '/strava/callback') {
+      const refuse = space.owner ? 'Your Strava is the Totem bridge\'s; connect it in Totem.'
+        : ctx?.acting ? 'Stop logging for someone else first.'
+          : !features.stravaConnect ? 'Strava is not set up on this install yet.' : ''
+      if (p === '/strava/callback' && req.method === 'GET') {
+        if (refuse) return html(res, 409, pages.refusedPage({ message: refuse }))
+        const result = await stravaClientFor(space).completeAuth(url.searchParams).catch(err => ({ ok: false, message: err.message }))
+        if (!result.ok) return html(res, 400, pages.refusedPage({ message: result.message }))
+        await pullPersonStrava(space)
+        return redirect(res, '/?strava=connected')
+      }
+      if (refuse) return send(res, 409, { error: refuse })
+      if (p === '/api/strava/connect' && req.method === 'POST') {
+        const client = stravaClientFor(space)
+        client.holder.redirectUri = stravaRedirectFor(req)
+        return send(res, 200, await client.startAuth(), { 'Cache-Control': 'no-store' })
+      }
+      if (p === '/api/strava/disconnect' && req.method === 'POST') {
+        const result = await stravaClientFor(space).disconnect()
+        await fsp.rm(stravaFileOf(space), { force: true })
+        stravaPeopleState.delete(space.id)
+        return send(res, 200, result)
+      }
+    }
+
+    /*
      * Who this is, for the app's boot (lib/whoami.js): whose log to cache, under
      * which key, and what to offer. `people` only for an admin, for the switcher.
      */
@@ -1954,12 +2114,13 @@ const server = http.createServer(async (req, res) => {
       if (!features.strava) {
         return send(res, 200, { fetchedAt: null, activities: [], gear: {}, athlete: null, configured: false, status: null }, { 'Cache-Control': 'no-cache' })
       }
-      refreshStravaIfStale()
-      const cache = readStravaCache()
+      if (space.owner) refreshStravaIfStale()
+      else refreshPersonStravaIfStale(space)
+      const cache = space.owner ? readStravaCache() : readPersonStrava(space)
       return send(res, 200, {
         ...(cache || { fetchedAt: null, activities: [], gear: {}, athlete: null }),
         configured: true,
-        status: stravaState,
+        status: space.owner ? stravaState : (stravaPeopleState.get(space.id) || null),
       }, { 'Cache-Control': 'no-cache' })
     }
 
@@ -1976,19 +2137,19 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/strava/pull' && req.method === 'POST') {
       const body = await readBody(req).catch(() => null)
       const days = Number(body?.days)
-      const result = await pullStrava({
-        days: Number.isFinite(days) && days > 0 ? Math.min(Math.round(days), 120) : STRAVA_DAYS,
-      })
-      if (!result.ok) return send(res, 502, { error: result.error, status: stravaState })
-      const cache = readStravaCache()
-      return send(res, 200, { ...(cache || {}), status: stravaState })
+      const span = Number.isFinite(days) && days > 0 ? Math.min(Math.round(days), 120) : STRAVA_DAYS
+      const result = await (space.owner ? pullStrava({ days: span }) : pullPersonStrava(space, { days: span }))
+      const status = space.owner ? stravaState : stravaPeopleState.get(space.id)
+      if (!result.ok) return send(res, 502, { error: result.error, status })
+      const cache = space.owner ? readStravaCache() : readPersonStrava(space)
+      return send(res, 200, { ...(cache || {}), status })
     }
 
     // One activity in full, for the moment the user attaches it. Live; not cached here.
     if (p === '/api/strava/activity' && req.method === 'GET') {
       const id = url.searchParams.get('id')
       if (!id) return send(res, 400, { error: 'id is required' })
-      const result = await fetchStravaDetail(id)
+      const result = space.owner ? await fetchStravaDetail(id) : await fetchPersonStravaDetail(space, id)
       if (!result.ok) return send(res, 502, { error: result.error })
       return send(res, 200, result.activity, { 'Cache-Control': 'no-cache' })
     }

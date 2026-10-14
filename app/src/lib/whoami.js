@@ -26,7 +26,7 @@ export const cacheKeyFor = (id) => (!id || id === OWNER ? BASE_CACHE_KEY : `${BA
 const DEFAULT_ME = Object.freeze({
   id: OWNER, name: '', owner: true, acting: false,
   real: { id: OWNER, name: '', admin: true },
-  features: { ai: true, whoop: true, strava: true, goals: true, notifications: true },
+  features: { ai: true, whoop: true, strava: true, stravaConnect: false, goals: true, notifications: true },
   people: [],
 })
 
