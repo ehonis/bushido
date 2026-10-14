@@ -26,7 +26,7 @@ const ID_OF: Record<string, string> = { index: 'today' }
 
 export function TabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets()
-  const { me, plan, setFab, placeFromCoach } = useApp()
+  const { me, plan, openMenu, placeFromCoach } = useApp()
   const allowed = new Set(tabsFor(me.features, me.owner).map((t) => t.id as string))
   const routes = state.routes.filter((r) => allowed.has(ID_OF[r.name] || r.name))
   const activeName = state.routes[state.index]?.name
@@ -46,7 +46,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
       {activeId !== 'coach' && plan ? (
         <View style={[st.fabs, { bottom: bottom + DOCK_H + 18 }]} pointerEvents="box-none">
           {me.features.ai ? <CoachBubble plan={plan} onPlace={placeFromCoach} /> : null}
-          <Press accessibilityLabel="Add a workout" onPress={() => { impact(); setFab('menu') }} style={st.plus}>
+          <Press accessibilityLabel="Add a workout" onPress={() => { impact(); openMenu(activeId) }} style={st.plus}>
             <Icon name="Plus" size={24} color={colors.bg} />
           </Press>
         </View>

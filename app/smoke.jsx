@@ -16,7 +16,8 @@ import { _setMe } from './src/lib/whoami.js'
 import { hasIcon } from './src/lib/icons.jsx'
 import { weekContext } from './src/lib/plannerapi.js'
 import { ScreenCard, describeScreen } from './src/screeninfo.jsx'
-import { SessionPicker, ActivityChooser, groupedSessions, activityGroups, activityFieldOf } from './src/picker.jsx'
+import { ActivityChooser, activityGroups, activityFieldOf } from './src/picker.jsx'
+import { climbingFolders } from './src/lib/folders.js'
 import {
   normalizePrescription, prescriptionSteps, emptyRun, markSet, blankPrescription, appendLift,
 } from './src/lib/prescription.js'
@@ -564,15 +565,18 @@ const cases = [
   ['TodayTab(empty day offers nothing)', <TodayTab plan={plan}
     entries={[buildQuotaEntry(mondayOf(TODAY), { pe: 2, fingers: 1, bike: 2, swim: 1 })]}
     upsertEntry={noop} deleteEntry={noop}
-    onPlan={noop} onLog={noop} onPickSession={noop} onRest={noop} />,
+    onPlan={noop} onLog={noop} onRest={noop} />,
     (html) => {
       const t = text(html)
       if (!/Nothing on today yet/.test(t)) throw new Error('an empty day does not say it is empty')
       // Every way in, from the screen that has nothing on it — the rest day
       // included, because "Your day" is where users look for it.
-      for (const route of ['Plan a workout', 'Log a workout', 'Pick from the plan', 'Log a rest day']) {
+      for (const route of ['Plan a workout', 'Log a workout', 'Log a rest day']) {
         if (!t.includes(route)) throw new Error(`no route to "${route}" from an empty day`)
       }
+      // The plan's cards moved into Log a workout on 2026-10-14; a second door to
+      // them is a second list to know about.
+      if (/Pick from the plan/.test(t)) throw new Error('the separate session door is back')
       // The things that used to fill an empty day, and must not come back.
       if (/Also recommended/.test(t)) throw new Error('companion suggestions are back')
       if (/Swap your main session/.test(t)) throw new Error('the swap list is back')
@@ -2111,11 +2115,16 @@ const cases = [
    * a card that does not exist, and that is a thing a rendering test will never
    * notice on its own.
    */
-  ['SessionPicker(every startable session is in it)', null, () => {
+  ['ActivityChooser(every startable card is in a folder)', null, () => {
     const startable = plan.dailyMenu.filter(m =>
       m.role !== 'adjunct' && m.role !== 'rest' && !m.retired)
-    const listed = new Set(groupedSessions(plan).flatMap(g => g.items.map(m => m.id)))
-    const missing = startable.filter(m => !listed.has(m.id)).map(m => m.id)
+    const listed = new Set(climbingFolders(plan)
+      .flatMap(f => f.groups.flatMap(g => g.items.map(m => m.id))))
+    // The two containers have their own doors (this screen IS the workout card's;
+    // the planned card is Plan a workout's), so they are not in a folder.
+    const missing = startable
+      .filter(m => !listed.has(m.id) && !['plan', 'log'].includes(m.sched?.repeatVia))
+      .map(m => m.id)
     if (missing.length) throw new Error(`unreachable: ${missing.join(', ')}`)
 
     // And nothing that should not be startable leaked in. An adjunct is ticked
@@ -2123,9 +2132,17 @@ const cases = [
     // logged against it still resolve.
     const wrong = [...listed].filter(id => {
       const m = plan.dailyMenu.find(x => x.id === id)
-      return !m || m.role === 'adjunct' || m.role === 'rest' || m.retired
+      return !m || m.role === 'adjunct' || m.role === 'rest' || m.retired || m.sched?.repeatVia
     })
     if (wrong.length) throw new Error(`should not be startable: ${wrong.join(', ')}`)
+
+    // Two folders on this plan, as asked: every card says which, so nothing falls
+    // through to the catch-all.
+    const keys = climbingFolders(plan).map(f => f.key)
+    if (keys.join() !== 'bouldering,rock-climbing') throw new Error(`folders are ${keys.join(', ')}`)
+    // A card that declares nothing still lands somewhere.
+    const untagged = { ...plan, dailyMenu: [{ id: 'z', name: 'Zorbing', role: 'session', sched: {} }] }
+    if (!climbingFolders(untagged).some(f => f.key === 'plan')) throw new Error('an untagged card vanished')
   }],
   /* The same screen, over the sports catalog: picking a session and logging a
    * workout are the same flow over two different catalogs. */
@@ -2146,9 +2163,14 @@ const cases = [
     }
   }],
   ['ActivityChooser(renders, pinned first)',
-    <ActivityChooser plan={plan} field={activityFieldOf(plan)} onPick={noop} onClose={noop} />,
+    <ActivityChooser plan={plan} field={activityFieldOf(plan)} onPick={noop} onPickCard={noop} onClose={noop} />,
     (html) => {
       const t = text(html)
+      // The plan's cards lead, as two folders, before any sport.
+      for (const f of ['Bouldering', 'Rock climbing']) {
+        if (!t.includes(f)) throw new Error(`no ${f} folder`)
+      }
+      if (t.indexOf('Rock climbing') > t.indexOf('Your usual')) throw new Error('the folders do not lead')
       for (const name of ['Mountain bike', 'Swim', 'Run', 'Lift']) {
         if (!t.includes(name)) throw new Error(`${name} is not in the activity list`)
       }
@@ -2160,23 +2182,36 @@ const cases = [
       // them has grown a second implementation.
       if (!/class="spick-row"/.test(html)) throw new Error('the two pickers are not the same screen')
     }],
-  ['SessionPicker(the climbing cards, by name)',
-    <SessionPicker plan={plan} onPick={noop} onClose={noop} />,
+  // The ones the user actually asked after, each in the folder it belongs in.
+  // Named rather than counted, because "21 rows rendered" would have passed
+  // while showing the wrong 21.
+  ...[
+    ['bouldering', ['Gym: board', 'Bouldering 4×4s', 'Limit bouldering', 'Bouldering with friends'],
+      ['Max hangs', 'ARC laps']],
+    ['rock-climbing', ['Max hangs', 'Repeaters', 'Sub-threshold hangs', 'ARC laps', 'Peak force test', 'Crag day'],
+      ['Gym: board', 'Mountain bike']],
+  ].map(([key, has, hasNot]) => [`ActivityChooser(the ${key} folder, by name)`,
+    <ActivityChooser plan={plan} field={activityFieldOf(plan)} onPick={noop} onPickCard={noop}
+      onClose={noop} initialFolder={key} />,
     (html) => {
       const t = text(html)
-      // The ones the user actually asked after. Named rather than counted, because
-      // "21 rows rendered" would have passed while showing the wrong 21.
-      for (const name of ['Max hangs', 'Repeaters', 'Sub-threshold hangs', 'Gym: board',
-        'Bouldering 4×4s', 'ARC laps', 'Limit bouldering', 'Peak force test', 'Crag day']) {
-        if (!t.includes(name)) throw new Error(`${name} is not in the picker`)
-      }
-      // Resting is still something the user does on purpose, and its button went with
-      // the recommendation it used to sit under.
-      if (!/Take a rest day/.test(t)) throw new Error('no way to take a rest day')
+      for (const name of has) if (!t.includes(name)) throw new Error(`${name} is not in ${key}`)
+      for (const name of hasNot) if (t.includes(name)) throw new Error(`${name} is in ${key}`)
       // It is a list, not the swap list that came out of this app.
       if (/Good swap|Not today|Works, with a caveat/.test(t)) {
         throw new Error('the picker is ranking sessions again')
       }
+    }]),
+  // A WHOOP climb is logged on a climbing card, never the catalog: the route from
+  // the unlogged card shows the folders and no sport.
+  ['ActivityChooser(a climb offers only the climbing cards)',
+    <ActivityChooser plan={plan} field={activityFieldOf(plan)} onPick={noop} onPickCard={noop}
+      onClose={noop} climbingOnly dayLabel="for Mon, Oct 12" />,
+    (html) => {
+      const t = text(html)
+      if (!/Log the climb/.test(t) || !/Bouldering/.test(t)) throw new Error('no climbing folders')
+      if (/Your usual|Mountain bike/.test(t)) throw new Error('a climb can be logged as a generic workout')
+      if (!/for Mon, Oct 12/.test(t)) throw new Error('the day it lands on is not said')
     }],
 
   /* ============================================ plan a workout, and run it
@@ -2960,15 +2995,17 @@ const cases = [
       }],
     ]
   })(),
-  // The rest day is a door of its own: as a footer link under "Pick a session" it
-  // was technically reachable and the user could not find it.
-  ['FabMenu(five doors, rest included)',
-    <FabMenu onClose={noop} onPlan={noop} onLog={noop} onPickSession={noop} onPlanWeek={noop} onRest={noop} />,
+  // The rest day is a door of its own: as a footer link under the old session
+  // picker it was technically reachable and the user could not find it. "Pick a
+  // session" went on 2026-10-14: its cards are folders inside Log a workout.
+  ['FabMenu(four doors, rest included, no session picker)',
+    <FabMenu onClose={noop} onPlan={noop} onLog={noop} onPlanWeek={noop} onRest={noop} />,
     (html) => {
       const t = text(html)
-      for (const door of ['Plan a workout', 'Log a workout', 'Pick a session', 'Log a rest day', 'Plan the week']) {
+      for (const door of ['Plan a workout', 'Log a workout', 'Log a rest day', 'Plan the week']) {
         if (!t.includes(door)) throw new Error(`no "${door}" door`)
       }
+      if (/Pick a session/.test(t)) throw new Error('the separate session door is back')
     }],
   // It asks WHY before it logs — the reasons are the rest card's own output, so
   // they must render here and the answer must be the same field the sheet edits.
@@ -3029,8 +3066,14 @@ const cases = [
     (html) => { if (!text(html).includes('Run a 10K')) throw new Error('the example achievements do not render') }],
   ['example: TestingTab', <TestingTab plan={example} entries={[]} upsertEntry={noop} deleteEntry={noop} />,
     (html) => { if (!text(html).includes('5 km time trial')) throw new Error('the example test does not render') }],
-  ['example: SessionPicker', <SessionPicker plan={example} onPick={noop} onClose={noop} />,
+  // The example has no climbing, so its cards sit in "From the plan", not under a sport they are not.
+  ['example: ActivityChooser, From the plan', <ActivityChooser plan={example} field={activityFieldOf(example)}
+    onPick={noop} onPickCard={noop} onClose={noop} initialFolder="plan" />,
     (html) => { if (!text(html).includes('Long run')) throw new Error('the example sessions are not offered') }],
+  ['example: no climbing folders', null, () => {
+    const keys = climbingFolders(example).map(f => f.key)
+    if (keys.join() !== 'plan') throw new Error(`the example is foldered as ${keys.join(', ')}`)
+  }],
   ['starter: an achievement the owner added', <AchievementsTab plan={starter} upsertEntry={noop} entries={[
     { id: 'achievement-marathon', kind: 'achievement', date: '2026-10-01', updatedAt: 'z',
       data: { id: 'marathon', name: 'First marathon', categories: ['run'], createdAt: '2026-10-01T00:00:00Z' } }]} />,

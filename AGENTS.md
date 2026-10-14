@@ -95,7 +95,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Workout mode | `app/src/workout.jsx`, `app/src/lib/workout.js` | The climbing cards' interval timer. |
 | Planner UI | `app/src/planner.jsx`, `app/src/lib/plannerapi.js` | + → Plan a workout; `BuildStep` (by hand) and `AskStep`/`ReviewStep` (by model). |
 | Week planner UI | `app/src/weekplanner.jsx` | + → Plan the week. |
-| Pickers | `app/src/picker.jsx` | `PickerScreen`, `SessionPicker`, `ActivityChooser`. Declaration order, no ranking. |
+| Pickers | `app/src/picker.jsx`, `app/src/lib/folders.js` | `PickerScreen`, `ActivityChooser` (Log a workout: the plan's cards in folders by `sched.discipline`, then the sports catalog). Declaration order, no ranking. |
 | Unlogged workouts | `app/src/lib/unlogged.js`, `app/src/unlogged.jsx` | What WHOOP/Strava saw that the log lacks; `pairUp`, `mergeTargets`, `outWith()`. |
 | Session sheet / edit panel | `app/src/sessionlog.jsx` | `SessionLog`, `SessionDetails`, `DetailsSheet`, `NameField`. |
 | Log feed | `app/src/log.jsx` | Newest first; the open sheet is keyed by ID. |
@@ -160,7 +160,7 @@ content. It is the main defence for this codebase, and it has had to learn three
 
 - **A missing door is invisible to a render test.** "The picker renders" passes when a
   card is unreachable. Reachability cases diff the content against what a screen lists
-  (`SessionPicker(every startable session is in it)`, the planner kinds, figures named vs
+  (`ActivityChooser(every startable card is in a folder)`, the planner kinds, figures named vs
   figures registered). **Any new route into the menu needs that kind of assertion.**
 - **A removal still renders.** The only way to catch a re-addition is to assert the
   absence (`TodayTab(empty day offers nothing)`, `SessionSheet(no add-ons, no strap)`,
@@ -418,7 +418,9 @@ with no rebuild.
   "logged". An output with `chart` becomes a progress chart. `levelFrom`, `nameFrom` and
   `minutesFrom` let a session rewrite its own entry from what was logged.
 - **Every menu session needs a `sched` block** (category, venue, finger load,
-  `repeatable`, sport declarations); the suite fails otherwise.
+  `repeatable`, sport declarations); the suite fails otherwise. `sched.discipline`
+  (`bouldering` / `rock-climbing`) says which folder of Log a workout the card sits in;
+  a card without one lands in "From the plan" (`lib/folders.js`).
 - **A session is never deleted, only `retired: true`.** Every logged entry's `optId`
   resolves against `dailyMenu`; removing a card orphans every day it was trained. A
   renamed card lists its old ids in `aka`; a card that inherits history from a split card
@@ -465,9 +467,11 @@ with no rebuild.
 - **Climbing is not in the activity catalog and must not be added.** Climbing sessions are
   `dailyMenu` cards that ask the hard-finger question; a second way to log climbing is a
   way for a hard finger day to land where the budget cannot see it. Hence
-  `choiceForSport` returns null for climbing sports, the unlogged-workout card never
-  offers a climbing workout, and `laneCandidates` never falls back to the workout card for
-  a climbing category.
+  `choiceForSport` returns null for climbing sports, `laneCandidates` never falls back to
+  the workout card for a climbing category, and the unlogged-workout card offers a WHOOP or
+  Strava climb only as a `climbing: true` row whose "Log it" opens the climbing folders
+  (`onClimb`), never the workout card, "just miles" or "warm-up". The folders in Log a
+  workout are doors to the climbing cards, not catalog activities.
 - **The finger budget counts what was LOGGED, never what was offered.** Alternatives and
   suggestions must not consume it.
 - **A training load the app computes must never be invented.** `resolveCeiling()`
@@ -925,10 +929,15 @@ explain.
 **Do not wire it back into Today.** `TodayTab(empty day offers nothing)` asserts the
 absences.
 
-What went on: the **+** button (Plan a workout, Plan the week, Log a workout, Pick a
-session, Log a rest day). "Log a workout" and "Pick a session" are one `PickerScreen` over
-two catalogs. Removing the swap list briefly removed the only route to every climbing
-card while every test passed — the origin of the reachability rule in §2.
+What went on: the **+** button (Plan a workout, Plan the week, Log a workout, Log a rest
+day). Removing the swap list briefly removed the only route to every climbing card while
+every test passed — the origin of the reachability rule in §2. "Pick a session" came back
+as that route, and went again on 2026-10-14: two doors for "write down what I did" meant
+knowing which list a thing lived in, and it only ever placed on today. The plan's cards
+are now folders (Bouldering, Rock climbing, by `sched.discipline`) at the top of Log a
+workout, and Log a workout lands on **the day Today is showing**, never a future one, so a
+past climb can be logged on its own day. `FabMenu(four doors…)` and
+`TodayTab(empty day offers nothing)` pin the absence of the old door.
 
 ### 10.3 Endurance as a catalog, and the week planner
 

@@ -72,12 +72,10 @@ const FAB_ROWS = [
   },
   {
     key: 'log', icon: 'NotebookPen', tint: null, title: 'Log a workout',
-    sub: 'Something you already did. Pick it out of 91 activities and the form arrives the right shape.',
+    sub: 'Something you already did: a climbing session from the plan, or any of 91 activities, and the form arrives the right shape.',
   },
-  {
-    key: 'pick', icon: 'Layers', tint: null, title: 'Pick a session',
-    sub: 'The plan’s own: max hangs, the board, 4×4s, ARC laps, the load-cell tests — protocol, cues and timer included.',
-  },
+  // A rest day used to be a link at the foot of the old session picker, under
+  // thirty cards, which is to say nowhere.
   {
     key: 'rest', icon: 'Sunset', tint: null, title: 'Log a rest day',
     sub: 'A day off on purpose. It counts as chosen rather than missed, and does not mark Move Every Day.',
@@ -89,19 +87,20 @@ const FAB_ROWS = [
 ] as const
 
 /**
- * What the + offers. A sheet from the bottom, because the button is at the
- * bottom and a menu that opens away from your thumb is one you reach across for.
+ * What the + offers. Four doors: the separate session picker went on 2026-10-14 when the
+ * plan's cards moved into Log a workout as the climbing folders (lib/folders.js).
+ * A sheet from the bottom, because the button is at the bottom and a menu that
+ * opens away from your thumb is one you reach across for.
  */
-export function FabMenu({ onClose, onPlan, onLog, onPickSession, onPlanWeek, onRest }: {
+export function FabMenu({ onClose, onPlan, onLog, onPlanWeek, onRest }: {
   onClose: () => void
   onPlan: () => void
   onLog: () => void
-  onPickSession: () => void
   onPlanWeek: (() => void) | null
   onRest: (() => void) | null
 }) {
   const insets = useSafeAreaInsets()
-  const handlers: Record<string, (() => void) | null> = { plan: onPlan, log: onLog, pick: onPickSession, rest: onRest, week: onPlanWeek }
+  const handlers: Record<string, (() => void) | null> = { plan: onPlan, log: onLog, rest: onRest, week: onPlanWeek }
   return (
     <RNModal visible transparent animationType="slide" onRequestClose={onClose}>
       <GestureHandlerRootView style={{ flex: 1 }}>

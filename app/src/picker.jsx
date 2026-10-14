@@ -1,34 +1,27 @@
 /*
- * One picker, two catalogs.
+ * One door: Log a workout.
  *
- * Pick a session and log a workout are the same action over two different
- * lists, so log a workout uses the same UI as pick a session, just with every
- * activity category to pick from.
+ * There used to be two, *Log a workout* over the sports catalog and *Pick a
+ * session* over the plan's cards, sharing one screen. Two lists for one act meant
+ * knowing which list a thing lived in before finding it, so on 2026-10-14 the
+ * plan's cards moved INSIDE the workout picker, as two folders at the top:
+ * Bouldering and Rock climbing (see lib/folders.js for what goes where and why the
+ * folders are not catalog activities).
  *
- * The first version had them as two different interactions for no reason:
- * *pick a session* was a grouped full-screen list, and *log a workout* created
- * an entry and dropped the user into a form whose first question was a
- * collapsed search box. Same job — choose one thing out of a long grouped list —
- * done two ways. So there is one screen now, `PickerScreen`, and the two things
- * that differ are the rows it is handed and what a tap does with them.
- *
- * WHAT THE TWO CATALOGS ARE.
- *
- *   SESSIONS   the plan's own cards — max hangs, the board, 4×4s, the load-cell
- *              tests — grouped by the quota category each declares. Picking one
- *              puts it on the day with its protocol, cues and timer.
+ *   FOLDERS    the plan's own cards — the board, 4×4s, max hangs, ARC, the
+ *              load-cell tests — grouped inside each folder by the quota category
+ *              each declares. Picking one puts it on the day with its protocol,
+ *              cues, timer and the hard-finger question.
  *   ACTIVITIES the 91-sport catalog, grouped as the catalog groups itself, with
  *              their six pinned sports first. Picking one puts the workout card on
- *              the day with the activity already answered, so the form is
- *              already the right shape when it opens.
+ *              the day with the activity already answered.
  *
- * NEITHER RANKS. That is the whole difference between this and the swap list it
- * replaced: a list of doors, in the order the content file declares them, with a
- * search box. The user already knows what the user did; the user needs somewhere to press.
+ * NOTHING RANKS. A list of doors, in the order the content file declares them,
+ * with a search box that reaches both. The user already knows what they did;
+ * they need somewhere to press.
  *
- * The right-hand column says what each row COSTS or FILLS — minutes for a
- * session, the quota category for an activity — because "which of these counts
- * as my bike quota" is a real question and the answer is one word.
+ * The right-hand column says what each row COSTS or FILLS: minutes for a card,
+ * the quota category for an activity, the card count for a folder.
  */
 
 import { useMemo, useState } from 'react'
@@ -37,6 +30,9 @@ import { FullScreen } from './modal.jsx'
 import {
   catalogOf as activityCatalog, groupedActivities, pinnedActivities, searchActivities,
 } from './lib/activities.js'
+import { climbingFolders, folderCards, folderOf, FOLDERS } from './lib/folders.js'
+
+export { groupedSessions, climbingFolders } from './lib/folders.js'
 
 /* ------------------------------------------------------------ the screen */
 
@@ -132,67 +128,6 @@ function defaultSearch(groups, q) {
   })
 }
 
-/* --------------------------------------------------------- the plan's own */
-
-/** Everything you can put on a day, grouped the way the app talks about them. */
-export function groupedSessions(plan) {
-  const menu = plan?.dailyMenu || []
-  const cats = plan?.quotaCategories || []
-  const startable = menu.filter(m =>
-    m.role !== 'adjunct' && m.role !== 'rest' && !m.retired)
-
-  const groups = cats
-    .map(c => ({
-      key: c.key,
-      name: c.name,
-      icon: c.icon,
-      // Plan order inside a category. Authored, stable, and not a ranking — a
-      // list that reorders itself under their thumb is the thing being removed.
-      items: startable.filter(m => (m.category || m.categoryFrom) === c.key),
-    }))
-    .filter(g => g.items.length > 0)
-
-  // A card that names no category, or names one the plan no longer declares.
-  const claimed = new Set(groups.flatMap(g => g.items.map(m => m.id)))
-  const rest = startable.filter(m => !claimed.has(m.id))
-  if (rest.length) groups.push({ key: '_other', name: 'Everything else', icon: 'Sparkles', items: rest })
-
-  return groups
-}
-
-const sessionRows = (groups) => groups.map(g => ({
-  ...g,
-  items: g.items.map(m => ({
-    key: m.id, name: m.name, sub: m.tier, icon: m.icon,
-    meta: m.minutes ? `${m.minutes} min` : null,
-    search: m.dose,
-  })),
-}))
-
-export function SessionPicker({ plan, onPick, onClose }) {
-  const groups = useMemo(() => sessionRows(groupedSessions(plan)), [plan])
-  const total = groups.reduce((n, g) => n + g.items.length, 0)
-  const rest = (plan?.dailyMenu || []).find(m => m.role === 'rest')
-
-  return (
-    <PickerScreen
-      title="Pick a session" sub={`${total} in the plan`} icon="Layers"
-      placeholder="max hangs, 4×4, ARC, crag day…"
-      lead="Every session the plan declares, in the order it declares them. Nothing here is
-        ranked or recommended — pick the one you came for."
-      groups={groups} onPick={onPick} onClose={onClose}
-      footer={rest && (
-        /* Resting is still something the user does on purpose, and its button went with
-           the recommendation it used to sit under. */
-        <button className="spick-rest" onClick={() => onPick(rest.id)}>
-          <Icon name={rest.icon} size={17} />
-          <span>Take a rest day</span>
-        </button>
-      )}
-    />
-  )
-}
-
 /* ------------------------------------------------------- the 91 activities */
 
 /**
@@ -238,32 +173,123 @@ export function activityGroups(field, plan) {
   return groups
 }
 
+/* ------------------------------------------------------- the plan's cards */
+
+const cardRow = (m, folderName = null) => ({
+  key: `card:${m.id}`, name: m.name, sub: folderName || m.tier, icon: m.icon,
+  meta: m.minutes ? `${m.minutes} min` : null,
+  search: m.dose,
+})
+
+/** The folder rows that lead the chooser: one per folder with any cards in it. */
+export function folderGroup(plan) {
+  const folders = climbingFolders(plan)
+  if (!folders.length) return null
+  // "Climbing" only when that is what is in it; a plan with no climbing tags
+  // (the example's runs) gets its cards under a heading that does not lie.
+  const climbing = folders.every(f => f.key !== 'plan')
+  return {
+    key: '_climbing', name: climbing ? 'Climbing' : 'Your plan', icon: climbing ? 'Mountain' : 'Layers',
+    items: folders.map(f => ({
+      key: `folder:${f.key}`, name: f.name, icon: f.icon,
+      sub: 'Sessions from the plan', meta: `${f.count}`,
+    })),
+  }
+}
+
+/** One folder's cards, grouped by quota category, as picker rows. */
+export function folderRows(plan, key) {
+  const f = climbingFolders(plan).find(x => x.key === key)
+  if (!f) return []
+  return f.groups.map(g => ({ ...g, items: g.items.map(m => cardRow(m)) }))
+}
+
 /**
- * Log a workout: the same screen, over the sports catalog.
+ * Log a workout: the one picker, over the plan's cards and the sports catalog.
  *
- * Picking one does NOT just open a form with a question in it — it answers the
- * question. The entry lands with `out.activity` already set, so the card opens as
- * a ride or a swim or a lift rather than as a search box with a form hidden
- * behind it.
+ * Picking an ACTIVITY does not just open a form with a question in it — it answers
+ * the question. The entry lands with `out.activity` already set, so the card opens
+ * as a ride or a swim or a lift. Picking a CARD (out of a folder, or straight off
+ * a search) places that card, exactly as the old session picker did.
+ *
+ * `onPick(activityKey)` and `onPickCard(optId)` are the two outcomes. `day` is
+ * the date the pick lands on, said in the header when it is not today, because
+ * logging Monday's climb from Wednesday must not look like logging it today.
+ * `climbingOnly` is the route from a WHOOP climb on the unlogged card: the
+ * catalog is the wrong answer there (AGENTS.md §6.1), so only the folders show.
  */
-export function ActivityChooser({ plan, field, onPick, onClose }) {
-  const groups = useMemo(() => activityGroups(field, plan), [field, plan])
+export function ActivityChooser({
+  plan, field, onPick, onPickCard = null, onClose,
+  dayLabel = null, climbingOnly = false, initialFolder = null,
+}) {
+  const [folder, setFolder] = useState(initialFolder)
+  const climbing = useMemo(() => (onPickCard ? folderGroup(plan) : null), [plan, onPickCard])
+  const groups = useMemo(() => [
+    ...(climbing ? [climbing] : []),
+    ...(climbingOnly ? [] : activityGroups(field, plan)),
+  ], [climbing, climbingOnly, field, plan])
   const n = activityCatalog(field).activities.length
+  const cards = onPickCard ? folderCards(plan) : []
+
+  const pick = (key) => {
+    if (key.startsWith('folder:')) return setFolder(key.slice('folder:'.length))
+    if (key.startsWith('card:')) return onPickCard(key.slice('card:'.length))
+    return onPick(key)
+  }
+
+  if (folder) {
+    const f = FOLDERS.find(x => x.key === folder)
+    const rows = folderRows(plan, folder)
+    return (
+      <PickerScreen
+        title={f?.name || 'Climbing'}
+        sub={[`${rows.reduce((k, g) => k + g.items.length, 0)} in the plan`, dayLabel].filter(Boolean).join(' · ')}
+        icon={f?.icon || 'Mountain'}
+        placeholder={`Search ${(f?.name || 'the plan').toLowerCase()}…`}
+        lead="The plan's own sessions, in the order it declares them. Each one asks the
+          hard-finger question, so the finger budget sees what you did."
+        groups={rows} onPick={pick}
+        // Back goes up one level, unless the folder was where this screen opened.
+        onClose={initialFolder ? onClose : () => setFolder(null)}
+      />
+    )
+  }
+
+  const sub = climbingOnly
+    ? [`${cards.length} sessions`, dayLabel]
+    : [`${n} activities`, cards.length ? `${cards.length} sessions` : null, dayLabel]
 
   return (
     <PickerScreen
-      title="Log a workout" sub={`${n} activities`} icon="NotebookPen"
-      placeholder="mountain bike, dance, pickleball, erg…"
-      lead="Something you already did. Pick it and the form arrives the right shape —
-        a ride asks for distance and elevation, a swim for yards, a lift for the exercises."
+      title={climbingOnly ? 'Log the climb' : 'Log a workout'}
+      sub={sub.filter(Boolean).join(' · ')}
+      icon={climbingOnly ? 'Mountain' : 'NotebookPen'}
+      placeholder={climbingOnly ? 'board, 4×4, ARC, crag day…' : 'bouldering, mountain bike, max hangs, erg…'}
+      lead={climbingOnly
+        ? 'Which session was it? WHOOP recorded the climb; the card asks the hard-finger question.'
+        : 'Something you already did. The plan\'s own sessions are in the folders at the top; '
+          + 'pick anything else and the form arrives the right shape: a ride asks for distance, '
+          + 'a swim for yards, a lift for the exercises.'}
       groups={groups}
       /* The catalog has its own ranked search, and it is better than a substring
-         match: "ru" has to return Run before Ruck. See lib/activities.js. */
-      onSearch={(q) => searchActivities(field, q).map(a => ({
-        key: a.key, name: a.name, icon: a.icon || 'Activity',
-        meta: (plan?.quotaCategories || []).find(c => c.key === a.category)?.name || null,
-      }))}
-      onPick={onPick} onClose={onClose}
+         match: "ru" has to return Run before Ruck. Cards follow, matched on every
+         word, so "max hangs" still finds its card without opening a folder. */
+      onSearch={(q) => {
+        const words = q.toLowerCase().split(/\s+/).filter(Boolean)
+        const name = (k) => FOLDERS.find(f => f.key === k)?.name
+        const cardHits = cards
+          .map(m => cardRow(m, name(folderOf(m))))
+          .filter(r => {
+            const hay = [r.name, r.sub, r.search].filter(Boolean).join(' ').toLowerCase()
+            return words.every(w => hay.includes(w))
+          })
+        const activityHits = climbingOnly ? [] : searchActivities(field, q).map(a => ({
+          key: a.key, name: a.name, icon: a.icon || 'Activity',
+          meta: (plan?.quotaCategories || []).find(c => c.key === a.category)?.name || null,
+        }))
+        return [...activityHits, ...cardHits]
+      }}
+      onPick={pick} onClose={onClose}
     />
   )
 }

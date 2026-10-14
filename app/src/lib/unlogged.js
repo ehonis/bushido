@@ -12,12 +12,16 @@
  *
  * FOUR RULES, and three of them are about not being annoying.
  *
- * **Climbing is never offered here.** A WHOOP `rock-climbing` workout resolves to
- * no catalog activity on purpose (see server/whoop.js), so it cannot be one-tap
- * logged as a generic workout — that would put a hard finger day somewhere the
- * injury budget cannot see it. Climbing gets logged on the climbing cards, which
- * ask the hard-finger question. A climbing workout therefore simply does not
- * appear in this list, and the climbing cards' own attach flow is unchanged.
+ * **Climbing is offered, but never as a generic workout.** A WHOOP
+ * `rock-climbing` workout resolves to no catalog activity on purpose (see
+ * server/whoop.js): one-tap logging it on the workout card would put a hard
+ * finger day somewhere the injury budget cannot see it. Until 2026-10-14 that
+ * meant a climb simply did not appear here, which read as the sync having
+ * missed it, and left no way to log a past climb at all. Now a climb is a row
+ * marked `climbing: true` with no catalog activity, and its only "log it" is the
+ * Bouldering and Rock climbing folders (lib/folders.js): the user picks the card,
+ * and the card asks the hard-finger question. No "just miles", no "warm-up", and
+ * it never pairs with the other service's copy.
  *
  * **Already attached is already logged.** Anything whose id appears on an entry
  * is gone from the list, whichever session took it — including a gym visit split
@@ -34,7 +38,7 @@
  */
 
 import {
-  attachedIds as whoopAttached, workoutsOn, choiceForSport,
+  attachedIds as whoopAttached, workoutsOn, choiceForSport, isClimbingSport,
   workoutWindow, overlapMinutes, attachTo as whoopAttachTo, snapshotOf as whoopSnapshotOf,
 } from '../../../server/whoop.js'
 import {
@@ -264,6 +268,12 @@ export function unloggedWorkouts({ plan, entries = [], iso, whoop = null, strava
   const skip = new Set(skipped)
   const whoopItems = []
   const stravaItems = []
+  const climbs = []
+  const climbRow = (source, raw, id, minutes, label) => ({
+    source, id, raw, climbing: true,
+    activity: { key: null, name: 'Climbing', icon: 'Mountain' },
+    minutes, label, start: raw.start || null, end: raw.end || null,
+  })
 
   const takenWhoop = whoopAttached(entries)
   for (const w of workoutsOn(whoop, iso)) {
@@ -272,7 +282,12 @@ export function unloggedWorkouts({ plan, entries = [], iso, whoop = null, strava
     // tap. For climbing that is deliberate; for a sport nobody has added yet it
     // is the correct silence.
     const key = choiceForSport(field, w.sport)
-    if (!key) continue
+    if (!key) {
+      if (isClimbingSport(w.sport)) {
+        climbs.push(climbRow('whoop', w, `whoop:${w.id}`, Math.round(Number(w.minutes) || 0), w.sport))
+      }
+      continue
+    }
     whoopItems.push({
       source: 'whoop', id: `whoop:${w.id}`, raw: w,
       activity: activityOf(field, key),
@@ -291,7 +306,13 @@ export function unloggedWorkouts({ plan, entries = [], iso, whoop = null, strava
   for (const a of activitiesOn(strava, iso)) {
     if (takenStrava.has(a.id) || skip.has(`strava:${a.id}`)) continue
     const key = choiceForFamily(field, familyOf(a))
-    if (!key) continue
+    if (!key) {
+      if (familyOf(a) === 'climbing') {
+        climbs.push(climbRow('strava', a, `strava:${a.id}`,
+          Math.round(Number(a.movingMin ?? a.elapsedMin) || 0), a.name || a.family))
+      }
+      continue
+    }
     stravaItems.push({
       source: 'strava', id: `strava:${a.id}`, raw: a,
       activity: activityOf(field, key),
@@ -312,6 +333,7 @@ export function unloggedWorkouts({ plan, entries = [], iso, whoop = null, strava
     ...pairs.map(({ w, t, score }) => mergeItems(w, t, score)),
     ...whoopItems.filter(w => !takenW.has(w.id)),
     ...stravaItems.filter(t => !takenT.has(t.id)),
+    ...climbs,
   ]
   return all.filter(item => !skip.has(item.id))
 }

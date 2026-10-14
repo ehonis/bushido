@@ -32,15 +32,14 @@ else — there is nothing to tap and nothing being suggested. Under them
 is **your day**: the sessions actually on it, and nothing you did not put there.
 
 Everything gets onto the day through the **+ button**, bottom right next to the coach. It
-offers three things, and the last two are **the same screen over two different catalogs**:
+offers two ways to put a workout on the day, plus a rest day and planning the week:
 
 | | |
 |---|---|
 | **Plan a workout** | An agent writes the sets. See below. |
-| **Log a workout** | All 91 activities, your six pinned sports first, grouped as the catalog groups them, with the quota each one fills in the right-hand column. Pick it and the card opens already the right shape — a ride asking for distance and elevation, a swim for yards. |
-| **Pick a session** | The plan's own cards: max hangs, the board, the 4×4s, ARC laps, the load-cell tests. Grouped by quota category, protocol, cues and timer included. |
+| **Log a workout** | The plan's own cards first, as folders: **Bouldering** (the board, 4×4s, limit bouldering) and **Rock climbing** (max hangs, ARC laps, the load-cell tests, everything else the plan tags `rock-climbing`), each grouped by quota category with protocol, cues and timer included. Then all 91 activities, your six pinned sports first, with the quota each one fills in the right-hand column; pick one and the card opens already the right shape. One search box reaches both. It lands on the day you are looking at on Today, so a session you forgot can be logged on its own day. |
 
-Neither list ranks anything. They are doors in the order the content file declares them,
+Nothing in it ranks anything. They are doors in the order the content file declares them,
 with a search box — the swap list they replaced is not coming back. Until 2026-09-17 Today also carried a quota board of eleven tappable lanes, a list
 of also-recommended blocks, a card explaining why today was what it was, a ranked swap list
 and a rest-day suggestion. All of it is gone, because the user does not follow recommended
@@ -155,7 +154,9 @@ The old card gated incline on `activity: ["run","walk"]` and got both backwards.
 
 **Climbing is deliberately absent from the catalog.** It is logged on the climbing cards,
 which are what ask the hard-finger question — a second path in is a way for a hard finger
-day to land where the injury budget cannot see it.
+day to land where the injury budget cannot see it. The Bouldering and Rock climbing folders
+are those cards, not catalog entries, and a climb WHOOP or Strava recorded shows on the
+unlogged card with a "Log it" that asks which climbing session it was.
 
 ## Workouts your watch already knows about
 

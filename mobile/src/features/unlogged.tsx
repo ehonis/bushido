@@ -51,7 +51,7 @@ const span = (a: any, b: any) => {
 }
 
 export function UnloggedWorkouts({
-  plan, entries, iso, onLog, onMerge = null,
+  plan, entries, iso, onLog, onMerge = null, onClimb = null,
   skipped = [], onDismiss, onRestore, split = [], onSplit,
 }: {
   plan: any
@@ -59,6 +59,7 @@ export function UnloggedWorkouts({
   iso: string
   onLog: (card: any, out: any, extra?: any) => void
   onMerge?: ((entry: any, out: any) => void) | null
+  onClimb?: ((item: any) => void) | null
   skipped?: any[]
   onDismiss: (id: string) => void
   onRestore: (id: string) => void
@@ -73,8 +74,9 @@ export function UnloggedWorkouts({
   const [merging, setMerging] = useState<string | null>(null)
 
   const args = { plan, entries, iso, whoop, strava, skipped, split }
-  const items: any[] = useMemo(() => (unloggedWorkouts as any)(args),
-    [plan, entries, iso, whoop, strava, skipped, split])
+  // A climb is only offered where there is a climbing card to log it on.
+  const items: any[] = useMemo(() => (unloggedWorkouts as any)(args).filter((i: any) => !i.climbing || onClimb),
+    [plan, entries, iso, whoop, strava, skipped, split, onClimb])
   const gone: any[] = useMemo(() => (dismissedWorkouts as any)(args),
     [plan, entries, iso, whoop, strava, skipped, split])
 
@@ -150,6 +152,7 @@ export function UnloggedWorkouts({
           <T size={13} dim style={{ marginBottom: 8 }}>
             Recorded by {sources.map(k => SOURCE[k]).join(' and ')}.
             One tap logs it with the time and distance already filled in.
+            {items.some(i => i.climbing) ? ' A climb asks which session it was first.' : ''}
           </T>
         </>
       ) : null}
@@ -187,17 +190,28 @@ export function UnloggedWorkouts({
                 )}
               </View>
               <View style={u.acts}>
-                <Press onPress={() => take(item)} accessibilityRole="button" style={u.take}>
-                  <T size={13} color={colors.accent}>Log it</T>
-                </Press>
-                <Press onPress={() => takeAsMiles(item)} accessibilityRole="button" hitSlop={{ top: 4, bottom: 4 }}
-                  accessibilityHint="Counts the miles and the streak — not the quota, not as training" style={u.miles}>
-                  <T size={11} dim numberOfLines={1}>Just miles</T>
-                </Press>
-                <Press onPress={() => takeAsWarmup(item)} accessibilityRole="button" hitSlop={{ top: 4, bottom: 4 }}
-                  accessibilityHint="The front of another session — counts the minutes, not the quota" style={u.miles}>
-                  <T size={11} dim numberOfLines={1}>Warm-up</T>
-                </Press>
+                {/* A climb goes to the climbing folders to pick its card, which asks
+                    the hard-finger question. Never "just miles" or a warm-up: a climb
+                    that skipped the finger budget is what this card must not make. */}
+                {item.climbing ? (
+                  <Press onPress={() => onClimb?.(item)} accessibilityRole="button" style={u.take}>
+                    <T size={13} color={colors.accent}>Log it</T>
+                  </Press>
+                ) : (
+                  <>
+                    <Press onPress={() => take(item)} accessibilityRole="button" style={u.take}>
+                      <T size={13} color={colors.accent}>Log it</T>
+                    </Press>
+                    <Press onPress={() => takeAsMiles(item)} accessibilityRole="button" hitSlop={{ top: 4, bottom: 4 }}
+                      accessibilityHint="Counts the miles and the streak — not the quota, not as training" style={u.miles}>
+                      <T size={11} dim numberOfLines={1}>Just miles</T>
+                    </Press>
+                    <Press onPress={() => takeAsWarmup(item)} accessibilityRole="button" hitSlop={{ top: 4, bottom: 4 }}
+                      accessibilityHint="The front of another session — counts the minutes, not the quota" style={u.miles}>
+                      <T size={11} dim numberOfLines={1}>Warm-up</T>
+                    </Press>
+                  </>
+                )}
                 {/*
                   * `pairUp` folds two measurements into one offer only while BOTH
                   * are unlogged; when Strava syncs first and the ride is logged off

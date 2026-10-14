@@ -9,7 +9,7 @@ import { StravaProvider } from './lib/strava.jsx'
 import { ProgressView } from './progress.jsx'
 import { AchievementsTab } from './achievements.jsx'
 import { TotemGoals } from './goals.jsx'
-import { localIso } from './lib/dates.js'
+import { localIso, fromIso } from './lib/dates.js'
 import { streakDays } from './lib/streak.js'
 import { ProfileMenu } from './profile.jsx'
 import { PlanProvider } from './lib/planctx.jsx'
@@ -18,7 +18,8 @@ import { CoachTab, CoachBubble } from './coach.jsx'
 import { PlanFlow } from './planner.jsx'
 import { WeekPlanFlow } from './weekplanner.jsx'
 import { splitPrescription } from './lib/prescription.js'
-import { SessionPicker, ActivityChooser, activityFieldOf } from './picker.jsx'
+import { ActivityChooser, activityFieldOf } from './picker.jsx'
+import { outWith } from './lib/unlogged.js'
 import { placeEntries, planPeople, keepPlanFor, toneFor } from './lib/trainer.js'
 import { PersonDay } from './trainer.jsx'
 import * as peopleApi from './lib/peopleapi.js'
@@ -93,14 +94,16 @@ export function ActingBanner({ me }) {
  * press — and the ranking was the recommender, which is the thing that came off
  * this app. What is left is the actual choice: is this a workout you are about to
  * write down, or one you have already done? "Pick a session" came back the same
- * day because twenty-one climbing cards had no other door, and "Plan the week"
- * arrived on 2026-09-19 — the quotas the whole screen is measured against had
- * steppers on the Week tab and nothing to talk to.
+ * day because twenty-one climbing cards had no other door, and went again on
+ * 2026-10-14 when those cards moved into Log a workout as the Bouldering and Rock
+ * climbing folders (see lib/folders.js). "Plan the week" arrived on 2026-09-19 —
+ * the quotas the whole screen is measured against had steppers on the Week tab
+ * and nothing to talk to.
  *
  * A sheet from the bottom on a phone, because the button is at the bottom and a
  * menu that opens away from your thumb is a menu you reach across the screen for.
  */
-export function FabMenu({ onClose, onPlan, onLog, onPickSession, onPlanWeek, onRest }) {
+export function FabMenu({ onClose, onPlan, onLog, onPlanWeek, onRest }) {
   return (
     <div className="fabmenu-scrim" onClick={onClose} role="presentation">
       <div className="fabmenu" onClick={e => e.stopPropagation()} role="dialog" aria-label="Add a workout">
@@ -119,23 +122,13 @@ export function FabMenu({ onClose, onPlan, onLog, onPickSession, onPlanWeek, onR
           <span className="fabmenu-body">
             <strong>Log a workout</strong>
             <span className="sub">
-              Something you already did. Pick it out of 91 activities and the form arrives
-              the right shape.
-            </span>
-          </span>
-        </button>
-        <button className="fabmenu-row" onClick={onPickSession}>
-          <span className="fabmenu-ico pick"><Icon name="Layers" size={22} /></span>
-          <span className="fabmenu-body">
-            <strong>Pick a session</strong>
-            <span className="sub">
-              The plan&rsquo;s own: max hangs, the board, 4&times;4s, ARC laps, the load-cell
-              tests — protocol, cues and timer included.
+              Something you already did: a climbing session from the plan, or any of 91
+              activities, and the form arrives the right shape.
             </span>
           </span>
         </button>
         {/* A rest day the user chose is part of the week, and it used to be a link at the
-            foot of "Pick a session", under thirty cards — which is to say nowhere.
+            foot of the old session picker, under thirty cards — which is to say nowhere.
             One tap: choosing it is the whole action, so nothing opens. */}
         {onRest && (
           <button className="fabmenu-row" onClick={onRest}>
@@ -355,8 +348,32 @@ export default function App() {
    * ordinary workout card opens with nothing filled in. Both land as ordinary
    * entries; neither is written by anything except their tap.
    */
-  const [fab, setFab] = useState(null)         // null | 'menu' | 'plan' | 'pick' | 'log' | 'week'
+  const [fab, setFab] = useState(null)         // null | 'menu' | 'plan' | 'log' | 'rest' | 'week'
   const [openEntryId, setOpenEntryId] = useState(null)
+
+  /*
+   * WHICH DAY a logged workout lands on.
+   *
+   * Until 2026-10-14 every pick landed on today, whatever day the user was
+   * looking at, so Monday's board session could not be logged on Monday. Now Log
+   * a workout lands on the day Today is showing (never a future one: you cannot
+   * have done tomorrow's workout), from the + button as much as from the day.
+   * `climb` is a WHOOP or Strava climb from the unlogged card, attached to
+   * whichever card the user picks for it.
+   */
+  const [viewDay, setViewDay] = useState(null)
+  const [logAt, setLogAt] = useState({ date: null, climb: null })
+  const logDay = (date) => {
+    const today = localIso()
+    return date && date <= today ? date : today
+  }
+  const openLog = (date, { climb = null } = {}) => {
+    setLogAt({ date: logDay(date), climb })
+    setFab('log')
+  }
+  const dayLabel = (date) => (date && date !== localIso()
+    ? `for ${fromIso(date).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}`
+    : null)
 
   /**
    * Put one or more sessions on today, in one go.
@@ -569,8 +586,8 @@ export default function App() {
                 upsertEntry={store.upsertEntry} deleteEntry={store.deleteEntry}
                 settings={store.settings} saveSettings={store.saveSettings}
                 openEntryId={openEntryId} onOpened={() => setOpenEntryId(null)}
-                onPlan={() => setFab('plan')} onLog={() => setFab('log')}
-                onPickSession={() => setFab('pick')}
+                onPlan={() => setFab('plan')} onLog={openLog}
+                onViewDay={setViewDay}
                 onRest={restOpt ? askRest : null}
                 onSetWeek={() => setTab('week')} />
             )}
@@ -608,8 +625,7 @@ export default function App() {
         <FabMenu
           onClose={() => setFab(null)}
           onPlan={() => setFab('plan')}
-          onLog={() => setFab('log')}
-          onPickSession={() => setFab('pick')}
+          onLog={() => openLog(tab === 'today' ? viewDay : null)}
           onRest={restOpt ? () => askRest() : null}
           onPlanWeek={me.features.ai ? () => setFab('week') : null} />
       )}
@@ -627,33 +643,30 @@ export default function App() {
       )}
 
       {/*
-        * Log a workout: the SAME screen as "pick a session", over the sports
-        * catalog instead of the plan's cards, because the two are the same action
-        * over two different lists. This used to create an entry and drop the user
-        * into a form whose first question was a collapsed search box. Now the
-        * question is answered before the form opens, so the card arrives the
-        * right shape.
+        * Log a workout: the one door for something already done. The plan's
+        * cards are in it as the Bouldering and Rock climbing folders; anything
+        * else is the sports catalog, answered before the form opens so the card
+        * arrives the right shape. See picker.jsx and lib/folders.js.
+        *
+        * A climb from the unlogged card lands on its card with the measurement
+        * attached, NOT done: the hard-finger question is the reason it goes
+        * through a climbing card at all, so the sheet opens to ask it.
         */}
       {fab === 'log' && (
         <ActivityChooser plan={plan} field={activityFieldOf(plan)}
-          onPick={(activity) => placeToday('log-workout', { out: { activity } })}
+          dayLabel={dayLabel(logAt.date)} climbingOnly={Boolean(logAt.climb)}
+          onPick={(activity) => placeAll([{ optId: 'log-workout', data: { out: { activity } } }],
+            { date: logAt.date || localIso() })}
+          onPickCard={(optId) => {
+            const opt = (plan?.dailyMenu || []).find(o => o.id === optId)
+            const out = logAt.climb && opt ? outWith(opt, {}, logAt.climb) : {}
+            placeAll([{ optId, data: { out } }], { date: logAt.date || localIso() })
+          }}
           onClose={() => setFab(null)} />
       )}
 
-      {/*
-        * The plan's own sessions. This is the route the swap list used to be, and
-        * it had to come back: taking that list off Today left twenty-one climbing
-        * cards in plan.json with nowhere to press. It does not rank them — see
-        * sessionpicker.jsx.
-        */}
       {fab === 'rest' && restOpt && (
         <RestPrompt opt={restOpt} date={restDate} entryFor={restOn} onSave={takeRest}
-          onClose={() => setFab(null)} />
-      )}
-
-      {fab === 'pick' && (
-        <SessionPicker plan={plan}
-          onPick={(optId) => placeToday(optId)}
           onClose={() => setFab(null)} />
       )}
 

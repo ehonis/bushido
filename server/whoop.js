@@ -128,6 +128,13 @@ export function sportMatches(session, workout) {
   return names.includes(normalizeSport(workout?.sport))
 }
 
+/**
+ * Is this a climb? The unlogged card offers climbs only through the climbing
+ * cards (see app/src/lib/unlogged.js), so it needs to tell them apart from a
+ * sport the catalog simply does not have.
+ */
+export const isClimbingSport = (sport) => CLIMBING_SPORTS.includes(normalizeSport(sport))
+
 /* ------------------------------------------------------------- the snapshot */
 
 /**

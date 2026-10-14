@@ -1,20 +1,23 @@
 /*
- * One picker, two catalogs. Ported from app/src/picker.jsx.
+ * One door: Log a workout. Ported from app/src/picker.jsx.
  *
- * Pick a session and log a workout are the same action over two different
- * lists, so there is one screen, `PickerScreen`, and the two things that differ
- * are the rows it is handed and what a tap does with them.
+ * There used to be two, *Log a workout* over the sports catalog and *Pick a
+ * session* over the plan's cards. Two lists for one act meant knowing which list
+ * a thing lived in before finding it, so on 2026-10-14 the plan's cards moved
+ * INSIDE the workout picker, as folders at the top: Bouldering and Rock climbing
+ * (lib/folders.js says what goes where, and why folders are not activities).
  *
- *   SESSIONS   the plan's own cards, grouped by the quota category each declares.
- *              Picking one puts it on the day with its protocol, cues and timer.
+ *   FOLDERS    the plan's own cards, grouped inside each folder by the quota
+ *              category each declares. Picking one puts it on the day with its
+ *              protocol, cues, timer and the hard-finger question.
  *   ACTIVITIES the sports catalog, grouped as the catalog groups itself, pinned
  *              sports first. Picking one puts the workout card on the day with the
  *              activity already answered.
  *
- * NEITHER RANKS: a list of doors, in the order the content file declares them,
- * with a search box. The user already knows what they did; they need somewhere
- * to press. The right-hand column says what each row COSTS or FILLS — minutes for
- * a session, the quota category for an activity.
+ * NOTHING RANKS: a list of doors, in the order the content file declares them,
+ * with a search box that reaches both. The right-hand column says what each row
+ * COSTS or FILLS: minutes for a card, the quota category for an activity, the
+ * card count for a folder.
  */
 import React, { useMemo, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
@@ -27,6 +30,9 @@ import { impact } from '../ui/haptics'
 import {
   catalogOf as activityCatalog, groupedActivities, pinnedActivities, searchActivities,
 } from '../lib/activities.js'
+import { climbingFolders, folderCards, folderOf, FOLDERS } from '../lib/folders.js'
+
+export { groupedSessions, climbingFolders } from '../lib/folders.js'
 
 /* ------------------------------------------------------------ the screen */
 
@@ -119,66 +125,6 @@ function defaultSearch(groups: any[], q: string) {
   })
 }
 
-/* --------------------------------------------------------- the plan's own */
-
-/** Everything you can put on a day, grouped the way the app talks about them. */
-export function groupedSessions(plan: any) {
-  const menu = plan?.dailyMenu || []
-  const cats = plan?.quotaCategories || []
-  const startable = menu.filter((m: any) =>
-    m.role !== 'adjunct' && m.role !== 'rest' && !m.retired)
-
-  const groups = cats
-    .map((c: any) => ({
-      key: c.key,
-      name: c.name,
-      icon: c.icon,
-      // Plan order inside a category. Authored, stable, and not a ranking — a
-      // list that reorders itself under their thumb is the thing being removed.
-      items: startable.filter((m: any) => (m.category || m.categoryFrom) === c.key),
-    }))
-    .filter((g: any) => g.items.length > 0)
-
-  // A card that names no category, or names one the plan no longer declares.
-  const claimed = new Set(groups.flatMap((g: any) => g.items.map((m: any) => m.id)))
-  const rest = startable.filter((m: any) => !claimed.has(m.id))
-  if (rest.length) groups.push({ key: '_other', name: 'Everything else', icon: 'Sparkles', items: rest })
-
-  return groups
-}
-
-const sessionRows = (groups: any[]) => groups.map(g => ({
-  ...g,
-  items: g.items.map((m: any) => ({
-    key: m.id, name: m.name, sub: m.tier, icon: m.icon,
-    meta: m.minutes ? `${m.minutes} min` : null,
-    search: m.dose,
-  })),
-}))
-
-export function SessionPicker({ plan, onPick, onClose }: any) {
-  const groups = useMemo(() => sessionRows(groupedSessions(plan)), [plan])
-  const total = groups.reduce((n, g) => n + g.items.length, 0)
-  const rest = (plan?.dailyMenu || []).find((m: any) => m.role === 'rest')
-
-  return (
-    <PickerScreen
-      title="Pick a session" sub={`${total} in the plan`} icon="Layers"
-      placeholder="max hangs, 4×4, ARC, crag day…"
-      lead="Every session the plan declares, in the order it declares them. Nothing here is ranked or recommended — pick the one you came for."
-      groups={groups} onPick={onPick} onClose={onClose}
-      footer={rest && (
-        /* Resting is still something the user does on purpose, and its button went
-           with the recommendation it used to sit under. */
-        <Press haptic onPress={() => onPick(rest.id)} style={st.rest}>
-          <Icon name={rest.icon} size={17} color={colors.inkFaint} />
-          <T size={13} faint>Take a rest day</T>
-        </Press>
-      )}
-    />
-  )
-}
-
 /* ------------------------------------------------------- the 91 activities */
 
 /**
@@ -217,27 +163,126 @@ export function activityGroups(field: any, plan: any) {
   return groups
 }
 
+/* ------------------------------------------------------- the plan's cards */
+
+const cardRow = (m: any, folderName: string | null = null) => ({
+  key: `card:${m.id}`, name: m.name, sub: folderName || m.tier, icon: m.icon,
+  meta: m.minutes ? `${m.minutes} min` : null,
+  search: m.dose,
+})
+
+/** The folder rows that lead the chooser: one per folder with any cards in it. */
+export function folderGroup(plan: any) {
+  const folders: any[] = climbingFolders(plan)
+  if (!folders.length) return null
+  return {
+    key: '_climbing', name: 'Climbing', icon: 'Mountain',
+    items: folders.map(f => ({
+      key: `folder:${f.key}`, name: f.name, icon: f.icon,
+      sub: 'Sessions from the plan', meta: `${f.count}`,
+    })),
+  }
+}
+
+/** One folder's cards, grouped by quota category, as picker rows. */
+export function folderRows(plan: any, key: string) {
+  const f: any = climbingFolders(plan).find((x: any) => x.key === key)
+  if (!f) return []
+  return f.groups.map((g: any) => ({ ...g, items: g.items.map((m: any) => cardRow(m)) }))
+}
+
 /**
- * Log a workout: the same screen, over the sports catalog. Picking one answers
- * the form's first question: the entry lands with `out.activity` already set, so
- * the card opens as a ride or a swim or a lift.
+ * Log a workout: the one picker, over the plan's cards and the sports catalog.
+ *
+ * Picking an ACTIVITY answers the form's first question: the entry lands with
+ * `out.activity` set, so the card opens as a ride or a swim or a lift. Picking a
+ * CARD (out of a folder, or straight off a search) places that card.
+ *
+ * `dayLabel` is said in the header when the pick does not land on today, because
+ * logging Monday's climb from Wednesday must not look like logging it today.
+ * `climbingOnly` is the route from a WHOOP climb on the unlogged card: the
+ * catalog is the wrong answer there (AGENTS.md §6.1), so only the folders show.
  */
-export function ActivityChooser({ plan, field, onPick, onClose }: any) {
-  const groups = useMemo(() => activityGroups(field, plan), [field, plan])
+export function ActivityChooser({
+  plan, field, onPick, onPickCard = null, onClose,
+  dayLabel = null, climbingOnly = false, initialFolder = null,
+}: {
+  plan: any
+  field: any
+  onPick: (activity: string) => void
+  onPickCard?: ((optId: string) => void) | null
+  onClose: () => void
+  dayLabel?: string | null
+  climbingOnly?: boolean
+  initialFolder?: string | null
+}) {
+  const [folder, setFolder] = useState<string | null>(initialFolder)
+  const climbing = useMemo(() => (onPickCard ? folderGroup(plan) : null), [plan, onPickCard])
+  const groups = useMemo(() => [
+    ...(climbing ? [climbing] : []),
+    ...(climbingOnly ? [] : activityGroups(field, plan)),
+  ], [climbing, climbingOnly, field, plan])
   const n = (activityCatalog as any)(field).activities.length
+  const cards: any[] = onPickCard ? folderCards(plan) : []
+
+  const pick = (key: string) => {
+    if (key.startsWith('folder:')) return setFolder(key.slice('folder:'.length))
+    if (key.startsWith('card:')) return onPickCard?.(key.slice('card:'.length))
+    return onPick(key)
+  }
+
+  if (folder) {
+    const f = FOLDERS.find(x => x.key === folder)
+    const rows = folderRows(plan, folder)
+    return (
+      <PickerScreen
+        title={f?.name || 'Climbing'}
+        sub={[`${rows.reduce((k: number, g: any) => k + g.items.length, 0)} in the plan`, dayLabel].filter(Boolean).join(' · ')}
+        icon={f?.icon || 'Mountain'}
+        placeholder="max hangs, 4×4, ARC, crag day…"
+        lead="The plan's own sessions, in the order it declares them. Each one asks the hard-finger question, so the finger budget sees what you did."
+        groups={rows} onPick={pick}
+        // Back goes up one level, unless the folder was where this screen opened.
+        onClose={initialFolder ? onClose : () => setFolder(null)}
+      />
+    )
+  }
+
+  const sub = climbingOnly
+    ? [`${cards.length} sessions`, dayLabel]
+    : [`${n} activities`, cards.length ? `${cards.length} sessions` : null, dayLabel]
 
   return (
     <PickerScreen
-      title="Log a workout" sub={`${n} activities`} icon="NotebookPen"
-      placeholder="mountain bike, dance, pickleball, erg…"
-      lead="Something you already did. Pick it and the form arrives the right shape — a ride asks for distance and elevation, a swim for yards, a lift for the exercises."
+      title={climbingOnly ? 'Log the climb' : 'Log a workout'}
+      sub={sub.filter(Boolean).join(' · ')}
+      icon={climbingOnly ? 'Mountain' : 'NotebookPen'}
+      placeholder={climbingOnly ? 'board, 4×4, ARC, crag day…' : 'bouldering, mountain bike, max hangs, erg…'}
+      lead={climbingOnly
+        ? 'Which session was it? WHOOP recorded the climb; the card asks the hard-finger question.'
+        : 'Something you already did. Climbing is in the two folders at the top; pick anything '
+          + 'else and the form arrives the right shape: a ride asks for distance, a swim for '
+          + 'yards, a lift for the exercises.'}
       groups={groups}
-      /* The catalog has its own ranked search: "ru" has to return Run before Ruck. */
-      onSearch={(q: string) => (searchActivities as any)(field, q).map((a: any) => ({
-        key: a.key, name: a.name, icon: a.icon || 'Activity',
-        meta: (plan?.quotaCategories || []).find((c: any) => c.key === a.category)?.name || null,
-      }))}
-      onPick={onPick} onClose={onClose}
+      /* The catalog has its own ranked search: "ru" has to return Run before Ruck.
+         Cards follow, matched on every word, so "max hangs" finds its card
+         without opening a folder. */
+      onSearch={(q: string) => {
+        const words = q.toLowerCase().split(/\s+/).filter(Boolean)
+        const name = (k: string) => FOLDERS.find(f => f.key === k)?.name || null
+        const cardHits = cards
+          .map(m => cardRow(m, name(folderOf(m))))
+          .filter(r => {
+            const hay = [r.name, r.sub, r.search].filter(Boolean).join(' ').toLowerCase()
+            return words.every(w => hay.includes(w))
+          })
+        const activityHits = climbingOnly ? [] : (searchActivities as any)(field, q).map((a: any) => ({
+          key: a.key, name: a.name, icon: a.icon || 'Activity',
+          meta: (plan?.quotaCategories || []).find((c: any) => c.key === a.category)?.name || null,
+        }))
+        return [...activityHits, ...cardHits]
+      }}
+      onPick={pick} onClose={onClose}
     />
   )
 }
@@ -261,9 +306,5 @@ const st = StyleSheet.create({
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 11, marginBottom: 6, paddingVertical: 11, paddingHorizontal: 12,
     minHeight: 44, backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: 9,
-  },
-  rest: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, marginTop: 4, minHeight: 44,
-    borderWidth: 1, borderStyle: 'dashed', borderColor: colors.line, borderRadius: 9,
   },
 })
