@@ -158,7 +158,7 @@ export function SideSwitch({ sides = [], side = null, onSide, status = {} }: {
  */
 export function SidesWorkout({
   kind, session, sides = [], ownerEntry = null, entries = [],
-  onOwnerRun = null, onOwnerSave = null, onOwnerDone = null, onExit,
+  onOwnerRun = null, onOwnerSave = null, onOwnerDone = null, onExit, initialSide = null,
 }: {
   kind: 'runner' | 'mode'
   session: any
@@ -169,9 +169,10 @@ export function SidesWorkout({
   onOwnerSave?: ((out: any) => void) | null
   onOwnerDone?: ((v: boolean) => void) | null
   onExit: () => void
+  initialSide?: string | null
 }) {
   const insets = useSafeAreaInsets()
-  const [side, setSide] = useState<string | null>(() => sides[0]?.id ?? null)
+  const [side, setSide] = useState<string | null>(() => (sides.some((s) => s.id && s.id === initialSide) ? initialSide as string : sides[0]?.id ?? null))
   const [copies, setCopies] = useState<Record<string, any>>({})
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {

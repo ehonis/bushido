@@ -117,7 +117,7 @@ export function usePersonCopy(personId, entryId, name = '') {
  * placeholders, and no WHOOP or Strava (the owner's accounts). Pure render, so
  * the smoke suite can draw it without a server.
  */
-export function TheirSide({ session, copy, loading = false, error = null, person, ownerOut, entries = [], onSave }) {
+export function TheirSide({ session, copy, loading = false, error = null, person, ownerOut, entries = [], onSave, plan = null, onCopyMine = null, ownerHasExercises = false }) {
   if (loading) return <p className="sub theirside-wait">Opening {person.name}&rsquo;s log…</p>
   if (!copy || copy.deleted) {
     return (
@@ -129,12 +129,21 @@ export function TheirSide({ session, copy, loading = false, error = null, person
   return (
     <div className="theirside">
       <p className="sub theirside-lead">
-        Filling in <strong>{person.name}</strong>&rsquo;s log. Your numbers show greyed out as a guide; nothing
-        of yours is copied in.
+        Filling in <strong>{person.name}</strong>&rsquo;s log. Your numbers show greyed out as a guide; the
+        weights here are {person.name}&rsquo;s.
       </p>
       {error && <p className="withrow-err">{error}</p>}
+      {plan}
       <SessionLog session={session} entry={copy} entries={entries} onSave={onSave}
         hints={ownerOut || null} measured={false} defaultOpen />
+      {/* The owner's exercises, copied over when asked: never their numbers (lib/shared.js copyExercises). */}
+      {onCopyMine ? (
+        <button className="btn ghost theirside-copy" onClick={onCopyMine}>
+          <Icon name="Copy" size={16} /> Copy my exercises to {person.name}
+        </button>
+      ) : ownerHasExercises ? (
+        <p className="sub theirside-copied">{person.name} has all your exercises.</p>
+      ) : null}
     </div>
   )
 }

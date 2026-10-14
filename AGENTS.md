@@ -265,15 +265,24 @@ a masked value posted back is ignored.
   the owner adds someone to one workout from the sheet ("With …") without acting as
   them. Their copy is an ordinary entry in THEIR log (same derivable id unless they
   logged something of their own there, then an `extraEntryId` extra), `done: false`,
-  carrying only the workout's shared facts (`SHARED_OUT_KEYS`); the owner's own numbers
-  are placeholders on their side, never values. The owner's entry names them in
+  carrying the workout's shared facts (`SHARED_OUT_KEYS`) and the owner's EXERCISES,
+  never the owner's numbers: reps, weights, effort, feel, notes, gear and WHOOP/Strava
+  show only as placeholders on their side. The exercises are copied when they are added,
+  and again only when the owner taps **Copy my exercises to …** under their side
+  (`copyExercises` in `lib/shared.js`): the plan's items and set counts (matched by name,
+  ids renumbered and their run re-keyed), or on a session with no plan the logged lifts as
+  blank rows. A copy only adds: a new exercise arrives with no weight, a new set copies
+  their own previous one, and nothing of theirs is changed or taken out. Nothing follows
+  the owner automatically; that was tried and dropped, because the owner wants to decide
+  when their side changes. Their side of a planned session shows their plan in the same
+  editor, and "Start the workout" opens the sides runner on their side. The owner's entry names them in
   `data.sharedWith: [{ id, entryId }]`; the copy carries `data.sharedFrom: { id, name }`,
   stamped by the server. The owner's sheet reads and writes the copy through
   `/api/people/:id/entry`, never through the owner's store or cache, so logs still never
   mix on a device. The server refuses non-owners, acting-as, the owner's own log, and any
   live entry without `sharedFrom` (`not-shared`); those writes fire no habit sync and no
   push. Taking someone off tombstones their copy only if they have marked nothing
-  (`hasOwnMarks`), otherwise it asks. WHOOP/Strava stay off on their side. Pinned by the
+  (`hasOwnMarks`; copied lifts with nothing marked on them are not marks), otherwise it asks. WHOOP/Strava stay off on their side. Pinned by the
   shared-workout cases in `server/http.test.js`, `app/shared.test.js` and the
   `SessionSheet(… "With …" …)`/`TheirSide` smoke cases.
 - **The owner as trainer** (`lib/trainer.js`, `trainer.jsx`, the same `peopleRoute`):

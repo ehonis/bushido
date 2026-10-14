@@ -16,7 +16,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { colors } from '../theme'
 import { T } from '../ui/Text'
-import { Chip, Press, Segmented, Spinner } from '../ui/kit'
+import { Btn, Chip, Press, Segmented, Spinner } from '../ui/kit'
 import { Icon } from '../lib/icons'
 import { SessionLog } from './sessionlog'
 import { withLine } from '../lib/shared.js'
@@ -123,7 +123,10 @@ export function usePersonCopy(personId?: string | null, entryId?: string | null,
 }
 
 /** The other person's side: their form, the owner's numbers as placeholders, no WHOOP or Strava. */
-export function TheirSide({ session, copy, loading = false, error = null, person, ownerOut, entries = [], onSave }: {
+export function TheirSide({
+  session, copy, loading = false, error = null, person, ownerOut, entries = [], onSave,
+  plan = null, onCopyMine = null, ownerHasExercises = false,
+}: {
   session: any
   copy: any
   loading?: boolean
@@ -132,6 +135,9 @@ export function TheirSide({ session, copy, loading = false, error = null, person
   ownerOut?: any
   entries?: any[]
   onSave: (out: any) => void
+  plan?: React.ReactNode
+  onCopyMine?: (() => void) | null
+  ownerHasExercises?: boolean
 }) {
   if (loading) return <Spinner label={`Opening ${person.name}’s log…`} />
   if (!copy || copy.deleted) {
@@ -141,11 +147,18 @@ export function TheirSide({ session, copy, loading = false, error = null, person
     <View style={{ gap: 4 }}>
       <T size={13} dim>
         {'Filling in '}<T size={13} weight={700}>{person.name}</T>
-        {'’s log. Your numbers show greyed out as a guide; nothing of yours is copied in.'}
+        {`’s log. Your numbers show greyed out as a guide; the weights here are ${person.name}’s.`}
       </T>
       {error ? <T size={12} color={colors.bad}>{error}</T> : null}
+      {plan}
       <SessionLog session={session} entry={copy} entries={entries} onSave={onSave}
         hints={ownerOut || null} measured={false} defaultOpen />
+      {/* The owner's exercises, copied over when asked: never their numbers (lib/shared.js copyExercises). */}
+      {onCopyMine ? (
+        <Btn title={`Copy my exercises to ${person.name}`} icon="Copy" kind="ghost" onPress={onCopyMine} />
+      ) : ownerHasExercises ? (
+        <T size={13} dim>{`${person.name} has all your exercises.`}</T>
+      ) : null}
     </View>
   )
 }
