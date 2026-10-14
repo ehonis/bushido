@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import {
   sharePeople, sharedWithOf, sharedPeopleOn, withLine, sharedOut, hasOwnMarks, copyIdFor,
-  sharedCopy, withSharedPerson, addPerson, removePerson,
+  sharedCopy, withSharedPerson, addPerson, removePerson, copyExercises, hasExercises,
 } from './src/lib/shared.js'
 
 const tests = []
@@ -47,7 +47,7 @@ test('only the owner, on the owner\'s own log, with someone else on the install,
   assert.deepEqual(sharePeople({ id: 'sam', real: { id: 'sam', admin: false }, people: [] }), [], 'not the owner')
 })
 
-test('the copy carries the workout and none of the owner\'s own numbers', () => {
+test('the copy carries the workout and the owner\'s exercises, none of the owner\'s numbers', () => {
   const copy = sharedCopy(ride, { session: workoutCard, owner: { id: 'owner', name: 'Alex' } })
   assert.equal(copy.id, ride.id, 'not the same derivable id')
   assert.equal(copy.data.done, false, 'planning is not completing')
@@ -128,6 +128,87 @@ test('taking them off: quiet when they have marked nothing, asks first when they
   const yes = await removePerson({ ownerEntry: added2, person: PEOPLE[1], session: workoutCard, api: api2, confirmFn: async () => true })
   assert.equal(api2.log.get(ride.id).deleted, true)
   assert.equal(yes.data.sharedWith, undefined)
+})
+
+/* --------------------------------------------- copying the owner's exercises */
+
+const squat = (sets) => ({ uid: 'squat-1', key: 'squat', name: 'Squat', implement: 'barbell', sets })
+const bench = (sets) => ({ uid: 'bench-1', key: 'bench', name: 'Bench', implement: 'barbell', sets })
+const gym = (lifts) => ({
+  id: 'daily-2026-10-06', kind: 'daily', date: '2026-10-06',
+  data: { optId: 'log-workout', done: false, out: { activity: 'lift', lifts, rpe: 8 } },
+})
+const set = (reps, weight) => ({ reps, weight })
+const B = { reps: '', weight: '' }
+const liftsOf = (e) => e.data.out.lifts
+const editTheirs = (copy, lifts) => ({ ...copy, data: { ...copy.data, out: { ...copy.data.out, lifts } } })
+
+test('logged lifts: their copy gets the owner\'s exercises and set counts, blank, to mark their own', () => {
+  let copy = sharedCopy(gym([squat([set(5, 100), set(5, 100)])]), { session: workoutCard })
+  assert.deepEqual(liftsOf(copy), [squat([B, B])], 'the owner\'s numbers were copied, or the exercise was not')
+  assert.equal(hasOwnMarks(copy, workoutCard), false, 'blank copied exercises counted as theirs')
+  copy = editTheirs(copy, [squat([set(5, 60), set(5, 60)])])
+  assert.equal(hasOwnMarks(copy, workoutCard), true)
+  // The owner goes heavier, adds a set and an exercise, then copies them over.
+  const mine = gym([squat([set(5, 110), set(5, 110), set(5, 110)]), bench([set(8, 60)])])
+  copy = copyExercises(copy, mine)
+  assert.deepEqual(liftsOf(copy), [squat([set(5, 60), set(5, 60), B]), bench([B])])
+  assert.equal(copy.data.out.rpe, undefined, 'the owner\'s effort was copied')
+  assert.equal(copyExercises(copy, mine), copy, 'nothing left to copy still changed something')
+})
+
+test('copying only adds: what they took out of a set count, and their own lifts, stay as they are', () => {
+  const copy = editTheirs(sharedCopy(gym([squat([set(5, 100)])]), { session: workoutCard }),
+    [squat([set(5, 60), set(5, 60), set(5, 60)]), { uid: 'row-1', name: 'Row', sets: [set(10, 40)] }])
+  const next = copyExercises(copy, gym([squat([set(5, 100)]), bench([set(8, 60)])]))
+  assert.deepEqual(liftsOf(next).map(l => `${l.uid}x${l.sets.length}`), ['squat-1x3', 'row-1x1', 'bench-1x1'])
+})
+
+const item = (id, name, weights) => ({ id, kind: 'lift', name, sets: weights.map((w, i) => ({ id: `${id}s${i}`, reps: 10, weight: w })) })
+const planned = (items, extra = {}) => ({
+  id: 'daily-2026-10-13', kind: 'daily', date: '2026-10-13',
+  data: { optId: 'planned', done: false, out: {}, plan: { title: 'Legs', blocks: [{ id: 'b0', items }] }, ...extra },
+})
+const plannedCard = { id: 'planned' }
+const names = (e) => e.data.plan.blocks.flatMap(b => b.items.map(i => `${i.name}x${i.sets.length}`))
+
+test('a planned workout: their copy has the same exercises, without the owner\'s weights', () => {
+  const mine = planned([item('b0i0', 'Goblet squat', [55, 55, 55]), item('b0i1', 'Leg press', [180, 180])])
+  const copy = sharedCopy(mine, { session: plannedCard })
+  assert.deepEqual(names(copy), ['Goblet squatx3', 'Leg pressx2'])
+  assert.ok(copy.data.plan.blocks[0].items.every(i => i.sets.every(s => s.weight === null && s.reps === 10)),
+    'the owner\'s weights went into their plan')
+  assert.equal(copy.data.plan.title, 'Legs')
+  assert.equal(hasExercises(mine), true)
+  assert.equal(hasExercises(ride), false, 'a ride has exercises to copy')
+})
+
+test('a planned workout: copying adds the owner\'s new exercises and sets; their weights and logged sets stay', () => {
+  const mine = planned([item('b0i0', 'Goblet squat', [55, 55])])
+  let copy = sharedCopy(mine, { session: plannedCard })
+  // They set their weights and log the first squat set.
+  copy = { ...copy, data: { ...copy.data, plan: planned([item('b0i0', 'Goblet squat', [30, 30])]).data.plan,
+    run: { startedAt: 1, sets: { b0i0s0: { reps: 10, weight: 30 } }, cursor: 'b0i0s1' } } }
+  // The owner adds lunges first and a third squat set, then copies them over.
+  const next = planned([item('b0i0', 'Lunge', [20]), item('b0i1', 'Goblet squat', [60, 60, 60])])
+  copy = copyExercises(copy, next)
+  assert.deepEqual(names(copy), ['Goblet squatx3', 'Lungex1'], 'new exercises go after theirs, nothing of theirs moves')
+  assert.deepEqual(copy.data.plan.blocks[0].items[0].sets.map(s => s.weight), [30, 30, 30], 'their weight was not kept or carried to the new set')
+  assert.equal(copy.data.plan.blocks[0].items[1].sets[0].weight, null, 'the owner\'s new exercise came with the owner\'s weight')
+  assert.deepEqual(copy.data.run.sets, { b0i0s0: { reps: 10, weight: 30 } }, 'their logged set was lost')
+  assert.equal(copy.data.run.cursor, 'b0i0s1')
+  assert.equal(copyExercises(copy, next), copy, 'a second copy of the same plan changed something')
+  assert.equal(copy.data.done, false)
+})
+
+test('a planned workout: copying never takes out what they removed or added', () => {
+  const copy = sharedCopy(planned([item('b0i0', 'Goblet squat', [55])]), { session: plannedCard })
+  const own = { ...copy, data: { ...copy.data, plan: planned([item('b0i0', 'Goblet squat', [30]), item('b0i1', 'Calf raise', [20])]).data.plan } }
+  assert.deepEqual(names(copyExercises(own, planned([item('b0i0', 'Goblet squat', [60]), item('b0i1', 'Leg press', [200])]))),
+    ['Goblet squatx1', 'Calf raisex1', 'Leg pressx1'])
+  // A copy with no plan yet (added before the owner planned it) takes the whole plan.
+  const bare = { id: 'x', kind: 'daily', date: '2026-10-13', data: { optId: 'planned', done: false, out: {}, sharedFrom: { id: 'owner' } } }
+  assert.deepEqual(names(copyExercises(bare, planned([item('b0i0', 'Hip thrust', [100, 100])]))), ['Hip thrustx2'])
 })
 
 let failed = 0

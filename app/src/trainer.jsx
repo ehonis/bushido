@@ -142,9 +142,9 @@ export function SideSwitch({ sides = [], side = null, onSide, status = {} }) {
  */
 export function SidesWorkout({
   kind, session, sides = [], ownerEntry = null, entries = [],
-  onOwnerRun = null, onOwnerSave = null, onOwnerDone = null, onExit, onSwitch = null,
+  onOwnerRun = null, onOwnerSave = null, onOwnerDone = null, onExit, onSwitch = null, initialSide = null,
 }) {
-  const [side, setSide] = useState(() => sides[0]?.id ?? null)
+  const [side, setSide] = useState(() => (sides.some(s => s.id && s.id === initialSide) ? initialSide : sides[0]?.id ?? null))
   const [copies, setCopies] = useState({})
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {

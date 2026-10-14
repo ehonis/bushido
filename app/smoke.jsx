@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs'
 import { TodayTab, WeekTab, TestingTab, WhyTab, SessionSheet } from './src/tabs.jsx'
 import { QuotaBars } from './src/quotabars.jsx'
 import {
-  PlanFlow, PrescriptionEditor, KeptStep, PlanTalk, BuildStep, groupedKinds,
+  PlanFlow, PrescriptionEditor, KeptStep, PlanTalk, BuildStep, groupedKinds, liftFieldOf,
 } from './src/planner.jsx'
 import { WorkoutRunner } from './src/runner.jsx'
 import { WeekPlanFlow, defaultMonday } from './src/weekplanner.jsx'
@@ -24,6 +24,7 @@ import { LogTab } from './src/log.jsx'
 import { GearSection } from './src/gear.jsx'
 import { ProfileMenu, PeopleCard } from './src/profile.jsx'
 import { TheirSide } from './src/sharedwith.jsx'
+import { sharedCopy } from './src/lib/shared.js'
 import { SidesWorkout, PeopleDays, PersonDay, MyAbout, ForChoice } from './src/trainer.jsx'
 import { planPeople } from './src/lib/trainer.js'
 import { AchievementsTab } from './src/achievements.jsx'
@@ -2808,6 +2809,31 @@ const cases = [
         if (/value="21"/.test(html)) throw new Error('the owner\'s distance was copied in as a value')
         if (!/you: 7/.test(text(html))) throw new Error('the owner\'s effort is not shown beside Sam\'s')
         if (!/Filling in.*Sam/.test(text(html))) throw new Error('nothing says whose log this is')
+      }],
+      ['TheirSide(a planned workout shows their plan: the owner\'s exercises, their own weights)', null, () => {
+        const plannedOpt = plan.dailyMenu.find(m => m.id === 'planned')
+        const pres = { title: 'Legs', blocks: [{ id: 'b0', items: [{ id: 'b0i0', kind: 'lift', name: 'Goblet squat',
+          sets: [{ id: 'b0i0s0', reps: 10, weight: 55 }] }] }] }
+        const mine = { ...entry, data: { ...entry.data, optId: 'planned', plan: pres, out: {} } }
+        const copy = sharedCopy(mine, { session: plannedOpt, owner: { id: 'owner', name: 'Alex' } })
+        const html = renderToString(<PlanProvider plan={plan}>
+          <TheirSide session={plannedOpt} copy={copy} person={people[1]} ownerOut={mine.data.out} onSave={noop}
+            plan={<PrescriptionEditor pres={copy.data.plan} liftField={liftFieldOf(plan)} onChange={noop} compact />} />
+        </PlanProvider>)
+        if (!/Goblet squat/.test(text(html))) throw new Error('the owner\'s exercise is not on their side')
+        if (/value="55"/.test(html)) throw new Error('the owner\'s weight is in their plan')
+        if (/Copy my exercises/.test(text(html))) throw new Error('a copy button with nothing to copy')
+      }],
+      ['TheirSide(copying your exercises over is a button under their log, and says when there is nothing to copy)', null, () => {
+        const draw = (props) => text(renderToString(<PlanProvider plan={plan}>
+          <TheirSide session={plannedOpt()} copy={sharedCopy(entry, { owner: { id: 'owner', name: 'Alex' } })}
+            person={people[1]} ownerOut={{}} onSave={noop} {...props} />
+        </PlanProvider>))
+        const plannedOpt = () => plan.dailyMenu.find(m => m.id === 'planned')
+        if (!/Copy my exercises to Sam/.test(draw({ onCopyMine: noop, ownerHasExercises: true }))) throw new Error('no way to copy your exercises over')
+        const done = draw({ onCopyMine: null, ownerHasExercises: true })
+        if (/Copy my exercises/.test(done) || !/Sam has all your exercises/.test(done)) throw new Error('nothing to copy still offers a copy')
+        if (/your exercises/i.test(draw({ onCopyMine: null, ownerHasExercises: false }))) throw new Error('a workout with no exercises talks about copying them')
       }],
       ['TodayTab(a shared workout says who it was with, small, on the row)', null, () => {
         _setMe(ownerMe)

@@ -18,6 +18,52 @@ journalctl --user -u bushido | grep setup        # the one-time link to create t
 
 This unit is the only one the app needs. Nothing else in this repo installs a timer.
 
+## Deploying every merge (optional)
+
+`.github/workflows/deploy.yml` deploys `main` after CI passes on it. It runs on a
+[self-hosted GitHub Actions runner](https://docs.github.com/actions/hosting-your-own-runners)
+on the machine that serves the app, so nothing has to reach that machine from outside.
+Each deploy:
+
+1. stops if the live checkout has uncommitted changes or is not on `main`;
+2. fast-forwards it to `origin/main`, runs `npm ci` only if a lockfile changed, and builds;
+3. restarts the service (`launchctl kickstart -k` on macOS, `systemctl --user restart` on
+   Linux) and waits up to 30 seconds for the health URL to answer;
+4. if the build, the restart or the health check fails, resets to the commit it started
+   from, builds that and restarts again.
+
+When anything the iPhone app is built from changed (`mobile/`, `app/src/lib/`,
+`server/whoop.js`, `server/strava.js`), a second job publishes an over-the-air update to the
+`production` channel. Builds whose native code differs do not take it (the runtime version is
+a fingerprint); those changes need a new build.
+
+It does nothing until the repository is told where the install is. To set it up:
+
+```bash
+# On the serving machine, as the user the service runs as: a runner for this repository
+# with the label the workflow asks for. The repository's Settings → Actions → Runners →
+# New self-hosted runner page gives the download and the token.
+./config.sh --url https://github.com/<you>/<repo> --token <token> --labels bushido-deploy --no-default-labels
+./svc.sh install && ./svc.sh start
+# Give it the PATH npm needs, in .env beside config.sh, e.g.:
+#   PATH=/opt/homebrew/bin:/usr/bin:/bin
+
+# Repository variables (Settings → Secrets and variables → Actions → Variables):
+gh variable set DEPLOY_DIR -b /path/to/the/live/checkout
+gh variable set DEPLOY_SERVICE -b bushido            # the launchd label or systemd unit
+gh variable set DEPLOY_HEALTH_URL -b http://127.0.0.1:8099/api/health   # the default
+
+# Optional, for the iPhone app's over-the-air updates:
+gh variable set EAS_PROJECT_ID -b <project id>       # what mobile/app.local.json holds
+gh variable set IOS_BUNDLE_ID -b <bundle id>
+gh secret set EXPO_TOKEN                             # an Expo access token
+```
+
+Run one by hand from the Actions tab (Deploy → Run workflow), or with
+`gh workflow run deploy.yml`. Only people who can push to the repository can trigger it, so
+use it on a private repository you control: a self-hosted runner runs whatever a workflow
+on that repository asks of it.
+
 Upgrading a box that still runs the app as `rung.service` (the name before the
 2026-10-02 rename): both units bind port 8099, so the old one has to be stopped
 and disabled *before* the new one starts, or Bushido fails to listen and the

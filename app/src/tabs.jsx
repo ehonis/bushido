@@ -39,7 +39,7 @@ import { achievements, unclaimed } from './lib/achievements.js'
 import { profileFacts } from './lib/profile.js'
 import { currentMe } from './lib/whoami.js'
 import { applyOut, applyRun, workoutSides, planPeople, plannedLine } from './lib/trainer.js'
-import { sharePeople, sharedPeopleOn, withLine, addPerson, removePerson, withSharedPerson } from './lib/shared.js'
+import { sharePeople, sharedPeopleOn, withLine, addPerson, removePerson, withSharedPerson, copyExercises, hasExercises } from './lib/shared.js'
 import * as peopleApi from './lib/peopleapi.js'
 import { WithControl, PersonSwitch, SharedNote, TheirSide, usePersonCopy } from './sharedwith.jsx'
 import { SidesWorkout, PeopleDays } from './trainer.jsx'
@@ -645,6 +645,13 @@ export function SessionSheet({
     ...cur.data, out, level: levelFor(opt, out), name: titleFor(opt, out, cur.data?.plan),
     minutes: resolveMinutes(cur.data, opt, out) } })) }
   const setTheirsDone = (v) => { setDirty(true); theirs.update(cur => ({ ...cur, data: { ...cur.data, done: v } })) }
+  /* Their plan, edited from their side: the same write `savePlan` makes on the owner's. */
+  const saveTheirPlan = (next) => { setDirty(true); theirs.update(cur => ({ ...cur, data: {
+    ...cur.data, plan: next, name: next.title || cur.data?.name } })) }
+  const theirPres = theirs.entry?.data?.plan || null
+  /* Your exercises onto their side, when you ask: added, never their numbers replaced. */
+  const canCopy = Boolean(theirs.entry && copyExercises(theirs.entry, entry) !== theirs.entry)
+  const copyMine = () => { setDirty(true); theirs.update(cur => copyExercises(cur, latestEntry.current)) }
   const theirDone = Boolean(theirs.entry && isDone(theirs.entry))
 
   return (
@@ -676,6 +683,12 @@ export function SessionSheet({
           </p>
         ) : theirs.entry && !theirs.entry.deleted ? (
           <div className="sheet-actions">
+            {/* Her side starts the same shared workout, on her side of the switcher. */}
+            {onStartWorkout && pres && theirPres && runnable(opt, theirPres) && !theirDone && (
+              <button className="btn wo-cta" onClick={() => { setDirty(true); onStartWorkout(opt, sidePerson.id) }}>
+                <Icon name="Play" size={17} /> Start the workout
+              </button>
+            )}
             <button className={`btn done-btn ${theirDone ? 'ghost on' : ''}`} onClick={() => setTheirsDone(!theirDone)}>
               <Icon name={theirDone ? 'CircleCheck' : 'Circle'} size={16} />
               {theirDone ? `Done for ${sidePerson.name} — tap to undo` : `Mark done for ${sidePerson.name}`}
@@ -723,7 +736,15 @@ export function SessionSheet({
 
       {sidePerson ? (
         <TheirSide session={opt} copy={theirs.entry} loading={theirs.loading} error={theirs.error}
-          person={sidePerson} ownerOut={entry?.data?.out} onSave={saveTheirs} />
+          person={sidePerson} ownerOut={entry?.data?.out} onSave={saveTheirs}
+          onCopyMine={canCopy ? copyMine : null} ownerHasExercises={hasExercises(entry)}
+          /* A planned session is its plan, on their side as on the owner's: the same
+             exercises, with their own numbers. Their history is not the owner's, so
+             no "last time" from the owner's log. */
+          plan={theirPres && (
+            <PrescriptionEditor pres={theirPres} liftField={liftField} entries={[]} entryId={theirs.entry?.id}
+              categories={thePlan?.quotaCategories || []} onChange={saveTheirPlan} compact />
+          )} />
       ) : (<>
       {/*
         * The "MAIN SESSION" / "ADDED SESSION" strap above the content is gone
@@ -862,6 +883,7 @@ function DaySessions({
 }) {
   const [sheet, setSheet] = useState(null)   // row key: 'main' | an extra entry id
   const [workout, setWorkout] = useState(null) // same key, but training in front of it
+  const [workoutSide, setWorkoutSide] = useState(null) // whose side a shared workout opens on
 
   const menu = plan?.dailyMenu || []
   const adjuncts = menu.filter(m => m.role === 'adjunct')
@@ -1030,11 +1052,12 @@ function DaySessions({
    * Starting a workout is doing the session, so put it on the day if it isn't
    * already — you don't run a timer through three sets of max hangs for nothing.
    */
-  const startWorkout = (key) => (opt) => {
+  const startWorkout = (key) => (opt, side = null) => {
     const row = resolve(key)
     if (!row) return
     if (!row.entry) (row.kind === 'extra' ? onAddExtra : onPickMain)(opt)
     setSheet(null)
+    setWorkoutSide(side)
     setWorkout(key)
   }
 
@@ -1053,14 +1076,14 @@ function DaySessions({
   const sides = training?.entry ? workoutSides(training.entry, currentMe()) : []
   if (sides.length > 1 && training.entry.data?.plan && runnable(null, training.entry.data.plan)) {
     return (
-      <SidesWorkout kind="runner" session={training.opt} sides={sides} ownerEntry={training.entry} entries={entries}
+      <SidesWorkout kind="runner" session={training.opt} sides={sides} ownerEntry={training.entry} entries={entries} initialSide={workoutSide}
         onOwnerRun={(run, opts) => onSaveRun(training.entry, run, opts)}
         onExit={() => setWorkout(null)} />
     )
   }
   if (sides.length > 1 && !training.entry.data?.plan && hasWorkout(training.opt)) {
     return (
-      <SidesWorkout kind="mode" session={training.opt} sides={sides} ownerEntry={training.entry}
+      <SidesWorkout kind="mode" session={training.opt} sides={sides} ownerEntry={training.entry} initialSide={workoutSide}
         onOwnerSave={(out) => onSaveOutputs(training.entry, out)}
         onOwnerDone={(v) => onSetDone(training.entry, v)}
         onExit={() => setWorkout(null)} />

@@ -10,9 +10,12 @@
  * (server.js `peopleRoute`), never through the owner's own store or cache.
  *
  * What is copied is what the two of them SHARED: the session, the day, the
- * activity, the name, how long it took and how far it went. What each of them
- * DID (sets, reps, weights, grades, effort, how it felt, notes, gear, the
- * owner's WHOOP and Strava) is theirs, so the copy leaves it blank and the
+ * activity, the name, how long it took and how far it went, and the owner's
+ * EXERCISES (the plan's items and set counts, or the logged lifts) as they were
+ * when the person was added. Exercises the owner adds later are copied over only
+ * when the owner asks (`copyExercises`, "Copy my exercises" on their side). What
+ * each of them DID (reps, weights, grades, effort, how it felt, notes, gear,
+ * done, the owner's WHOOP and Strava) is theirs: the copy leaves it blank and the
  * owner's numbers appear only as placeholders (AGENTS.md §6.4: a number the app
  * could guess is a placeholder, never a value).
  *
@@ -20,6 +23,8 @@
  */
 
 import { extraEntryId } from './store.js'
+import { blankSet } from './lifts.js'
+import { reindex, remapRun } from './prescription.js'
 
 /** Facts of the workout itself, as opposed to how it went for one person. */
 export const SHARED_OUT_KEYS = Object.freeze([
@@ -84,10 +89,106 @@ export function hasOwnMarks(entry, session = null) {
   for (const [k, v] of Object.entries(entry.data?.out || {})) {
     if (keys.has(k) || v === undefined || v === null || v === '') continue
     if (Array.isArray(v) && !v.length) continue
+    // The owner's exercises, copied in with nothing marked on them, are not theirs.
+    if (k === 'lifts' && !liftsMarked(v)) continue
     return true
   }
   return false
 }
+
+/* ------------------------------------------------ the owner's exercises, copied */
+
+const blank = (v) => v === undefined || v === null || v === ''
+
+/** Have they put a number on any of these logged lifts? */
+export const liftsMarked = (lifts) => Array.isArray(lifts)
+  && lifts.some(l => (l?.sets || []).some(s => !blank(s?.reps) || !blank(s?.weight)))
+
+/** Each plan item with its key: the name, numbered when it appears twice, as `remapRun` matches them. */
+function keyed(pres) {
+  const seen = new Map()
+  return (pres?.blocks || []).flatMap((b, bi) => (b?.items || []).map(item => {
+    const name = String(item?.name || '')
+    const n = (seen.get(name) || 0) + 1
+    seen.set(name, n)
+    return { key: `${name}#${n}`, item, bi }
+  }))
+}
+
+/** One of the owner's exercises on their side: the target, not the owner's weight. */
+const theirItem = (item) => ({ ...item, sets: (item.sets || []).map(s => ({ ...s, weight: null })) })
+
+/** Their plan with every exercise and set of the owner's that it lacks. Never takes anything out. */
+function copyPlan(theirs, mine) {
+  if (!mine?.blocks?.length) return theirs
+  if (!theirs?.blocks?.length) return { ...mine, blocks: mine.blocks.map(b => ({ ...b, items: (b.items || []).map(theirItem) })) }
+  const have = new Map(keyed(theirs).map(x => [x.key, x.item]))
+  const blocks = theirs.blocks.map(b => ({ ...b, items: [...(b.items || [])] }))
+  let changed = false
+  for (const { key, item, bi } of keyed(mine)) {
+    const t = have.get(key)
+    if (!t) {
+      // A new exercise goes at the end of the same block (a block of the owner's if they have none there).
+      while (blocks.length <= bi) blocks.push({ ...mine.blocks[blocks.length], items: [] })
+      blocks[bi].items.push(theirItem(item))
+      changed = true
+    } else if ((item.sets || []).length > (t.sets || []).length) {
+      // More sets of the owner's: copies of their own last set, as adding a set does.
+      const sets = [...(t.sets || [])]
+      while (sets.length < item.sets.length) sets.push(sets.length ? { ...sets.at(-1), note: '' } : { ...item.sets[sets.length], weight: null })
+      const b = blocks.find(x => x.items.includes(t))
+      b.items = b.items.map(x => (x === t ? { ...t, sets } : x))
+      changed = true
+    }
+  }
+  return changed ? { ...theirs, blocks } : theirs
+}
+
+/** Their logged lifts with every lift and set of the owner's that they lack, blank. */
+function copyLifts(theirs, mine) {
+  const rows = Array.isArray(theirs) ? theirs : []
+  let out = rows
+  for (const m of Array.isArray(mine) ? mine : []) {
+    if (!m?.uid) continue
+    const t = out.find(r => r?.uid === m.uid)
+    const want = Math.max(1, (m.sets || []).length)
+    if (!t) out = [...out, { ...m, sets: Array.from({ length: want }, blankSet) }]
+    else if ((t.sets || []).length < want) {
+      const sets = [...(t.sets || [])]
+      while (sets.length < want) sets.push(blankSet())
+      out = out.map(r => (r === t ? { ...t, sets } : r))
+    }
+  }
+  return out
+}
+
+/**
+ * Their copy with the owner's exercises copied over: on a planned session the
+ * plan's exercises and set counts (with no weight; their logged sets kept across
+ * the renumber), otherwise the logged lifts as blank rows. Only ever adds: their
+ * numbers, their own exercises and anything they took out of a set count stay as
+ * they are. The same object back when there is nothing to copy.
+ */
+export function copyExercises(copy, ownerEntry) {
+  const mine = ownerEntry?.data
+  if (!copy?.data || copy.deleted || !mine || ownerEntry.deleted) return copy
+  if (mine.plan) {
+    const before = copy.data.plan
+    const plan = copyPlan(before, mine.plan)
+    if (plan === before) return copy
+    const next = reindex(plan)
+    const data = { ...copy.data, plan: next }
+    if (before?.blocks && copy.data.run) data.run = remapRun(copy.data.run, before, next)
+    return { ...copy, data }
+  }
+  const lifts = copyLifts(copy.data.out?.lifts, mine.out?.lifts)
+  if (lifts.length === (copy.data.out?.lifts || []).length && lifts.every((l, i) => l === copy.data.out.lifts[i])) return copy
+  return { ...copy, data: { ...copy.data, out: { ...(copy.data.out || {}), lifts } } }
+}
+
+/** Does the owner's entry have any exercises to copy? */
+export const hasExercises = (ownerEntry) => keyed(ownerEntry?.data?.plan).length > 0
+  || (!ownerEntry?.data?.plan && (ownerEntry?.data?.out?.lifts || []).some(l => l?.uid))
 
 /**
  * Which id the copy takes in the other person's log.
@@ -110,8 +211,8 @@ export function copyIdFor(ownerEntry, theirDay = []) {
 
 /**
  * The other person's copy of the owner's entry. `done: false` (planning is not
- * completing); the session, the plan they are following and the shared facts;
- * none of the owner's own numbers.
+ * completing); the session, the shared facts and the owner's exercises without
+ * the owner's weights; none of the owner's numbers, effort or notes.
  */
 export function sharedCopy(ownerEntry, { id, session = null, owner = null } = {}) {
   const d = ownerEntry?.data || {}
@@ -126,9 +227,8 @@ export function sharedCopy(ownerEntry, { id, session = null, owner = null } = {}
     sharedFrom: { id: owner?.id || 'owner', name: owner?.name || '' },
   }
   if (d.minutes !== undefined) data.minutes = d.minutes
-  if (d.plan) data.plan = d.plan
   if (d.training === false) data.training = false
-  return { id: copyId, kind: 'daily', date: ownerEntry.date, data }
+  return copyExercises({ id: copyId, kind: 'daily', date: ownerEntry.date, data }, ownerEntry)
 }
 
 /** The owner's entry with someone added to it (or, `remove`, taken off it). */

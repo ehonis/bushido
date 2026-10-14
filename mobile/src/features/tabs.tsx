@@ -42,7 +42,7 @@ import { WhoopReadiness, WhoopSleep } from './whoop'
 import { DayStepper } from './app'
 import { NumInput } from './numinput'
 import { currentMe } from '../lib/whoami.js'
-import { sharePeople, sharedPeopleOn, withLine, addPerson, removePerson, withSharedPerson } from '../lib/shared.js'
+import { sharePeople, sharedPeopleOn, withLine, addPerson, removePerson, withSharedPerson, copyExercises, hasExercises } from '../lib/shared.js'
 import * as peopleApi from '../lib/peopleapi.js'
 import { confirm } from '../ui/menu'
 import { WithControl, PersonSwitch, SharedNote, TheirSide, usePersonCopy } from './sharedwith'
@@ -574,7 +574,7 @@ export function SessionSheet({
   onRemove?: ((entry: any) => void) | null
   onSetDone?: (entry: any, done: boolean) => void
   onClose: () => void
-  onStartWorkout?: ((opt: any) => void) | null
+  onStartWorkout?: ((opt: any, side?: string | null) => void) | null
   onTraining?: ((v: boolean) => void) | null
   onSaveEntry?: ((entry: any) => void) | null
   me?: any
@@ -641,6 +641,13 @@ export function SessionSheet({
     theirs.update((cur: any) => ({ ...cur, data: { ...cur.data, done: v } }))
   }
   const theirDone = Boolean(theirs.entry && isDone(theirs.entry))
+  /* Their plan, edited from their side: the same write `savePlan` makes on the owner's. */
+  const saveTheirPlan = (next: any) => { setDirty(true); theirs.update((cur: any) => ({ ...cur, data: {
+    ...cur.data, plan: next, name: next.title || cur.data?.name } })) }
+  const theirPres = theirs.entry?.data?.plan || null
+  /* Your exercises onto their side, when you ask: added, never their numbers replaced. */
+  const canCopy = Boolean(theirs.entry && copyExercises(theirs.entry, entry) !== theirs.entry)
+  const copyMine = () => { setDirty(true); theirs.update((cur: any) => copyExercises(cur, latestEntry.current)) }
 
   const note = (text: string) => (
     <View style={{ flex: 1, flexDirection: 'row', gap: 6, alignItems: 'flex-start' }}>
@@ -671,6 +678,11 @@ export function SessionSheet({
         isFuture ? note('Preview only — come back on the day to log it.')
           : theirs.entry && !theirs.entry.deleted ? (
             <View style={st.sheetActions}>
+              {/* Their side starts the same shared workout, on their side of the switcher. */}
+              {onStartWorkout && pres && theirPres && runnable(opt, theirPres) && !theirDone && (
+                <Btn icon="Play" title="Start the workout" style={st.action}
+                  onPress={() => { setDirty(true); onStartWorkout(opt, sidePerson.id) }} />
+              )}
               <Btn kind={theirDone ? 'ghost' : 'primary'} icon={theirDone ? 'CircleCheck' : 'Circle'} style={st.action}
                 title={theirDone ? `Done for ${sidePerson.name} — tap to undo` : `Mark done for ${sidePerson.name}`}
                 onPress={() => setTheirsDone(!theirDone)} />
@@ -714,7 +726,14 @@ export function SessionSheet({
 
       {sidePerson ? (
         <TheirSide session={opt} copy={theirs.entry} loading={theirs.loading} error={theirs.error}
-          person={sidePerson} ownerOut={entry?.data?.out} onSave={saveTheirs} />
+          person={sidePerson} ownerOut={entry?.data?.out} onSave={saveTheirs}
+          onCopyMine={canCopy ? copyMine : null} ownerHasExercises={hasExercises(entry)}
+          /* A planned session is its plan, on their side as on the owner's: the same
+             exercises, with their own numbers. No "last time" from the owner's log. */
+          plan={theirPres ? (
+            <PrescriptionEditor pres={theirPres} liftField={liftField} entries={[]} entryId={theirs.entry?.id}
+              categories={thePlan?.quotaCategories || []} onChange={saveTheirPlan} compact />
+          ) : null} />
       ) : (<>
       {/* The "MAIN SESSION" / "ADDED SESSION" strap is gone (2026-09-21): it
           restated the tag the row already showed, in the scarcest space here. */}
@@ -843,6 +862,7 @@ function DaySessions({
 }: any) {
   const [sheet, setSheet] = useState<string | null>(null)   // row key: 'main' | an extra entry id
   const [workout, setWorkout] = useState<string | null>(null) // same key, training in front of it
+  const [workoutSide, setWorkoutSide] = useState<string | null>(null) // whose side a shared workout opens on
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
   const later = (fn: () => void) => {
@@ -997,11 +1017,12 @@ function DaySessions({
    * Starting a workout is doing the session, so put it on the day if it isn't
    * already. The sheet slides away first; the workout opens behind it.
    */
-  const startWorkout = (key: string | null) => (opt: any) => {
+  const startWorkout = (key: string | null) => (opt: any, side: string | null = null) => {
     const row = resolve(key)
     if (!row) return
     if (!row.entry) (row.kind === 'extra' ? onAddExtra : onPickMain)(opt)
     setSheet(null)
+    setWorkoutSide(side)
     later(() => setWorkout(key))
   }
 
@@ -1020,14 +1041,14 @@ function DaySessions({
   const sides = training?.entry ? workoutSides(training.entry, currentMe()) : []
   if (sides.length > 1 && training.entry.data?.plan && runnable(null, training.entry.data.plan)) {
     return (
-      <SidesWorkout kind="runner" session={training.opt} sides={sides} ownerEntry={training.entry} entries={entries}
+      <SidesWorkout kind="runner" session={training.opt} sides={sides} ownerEntry={training.entry} entries={entries} initialSide={workoutSide}
         onOwnerRun={(run: any, opts: any) => onSaveRun(training.entry, run, opts)}
         onExit={() => setWorkout(null)} />
     )
   }
   if (sides.length > 1 && !training.entry.data?.plan && hasWorkout(training.opt)) {
     return (
-      <SidesWorkout kind="mode" session={training.opt} sides={sides} ownerEntry={training.entry}
+      <SidesWorkout kind="mode" session={training.opt} sides={sides} ownerEntry={training.entry} initialSide={workoutSide}
         onOwnerSave={(out: any) => onSaveOutputs(training.entry, out)}
         onOwnerDone={(v: boolean) => onSetDone(training.entry, v)}
         onExit={() => setWorkout(null)} />

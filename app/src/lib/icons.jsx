@@ -23,6 +23,8 @@ import {
   ListPlus,
   // Why the user is resting, 2026-09-25.
   BatteryLow, Thermometer, Plane, Briefcase, Bandage,
+  // Copying the owner's exercises to someone on a shared workout, 2026-10-13.
+  Copy,
   // Aliased: an unaliased `Infinity` import shadows the global inside this
   // module, which is a trap for whoever next edits it.
   Infinity as InfinityIcon,
@@ -43,6 +45,7 @@ const REGISTRY = {
   Zap, Wind, TrendingUp, Droplets, CalendarRange, MessagesSquare,
   ListPlus,
   BatteryLow, Thermometer, Plane, Briefcase, Bandage,
+  Copy,
   Infinity: InfinityIcon,
 }
 

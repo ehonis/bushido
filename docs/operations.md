@@ -186,6 +186,12 @@ install that never configured them. Without a CLI nothing changes for them: no C
   switcher with the name and colour in the header. Each side is that person's own entry with
   its own sets, weights, rest clock, done state and writer; the owner's goes through the
   owner's store, theirs through `/api/people/<id>/entry`. Only the side on screen makes a sound.
+- a shared workout's exercises: the plan's exercises and set counts (or the logged lifts,
+  blank) are in the other person's copy when they are added, and "Copy my exercises to …"
+  under their side brings over anything the owner added since. Numbers never are: their
+  reps, weights and marks are their own (a new exercise arrives with no weight), and a copy
+  only adds. Their side of a planned session shows their plan and can start the shared
+  runner on their side.
 
 ## API
 
