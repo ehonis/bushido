@@ -586,6 +586,91 @@ const cookieFrom = (res) => (res.headers.get('set-cookie') || '').split(';')[0]
 
   await two.stop()
 
+  /* ------------------------------------- someone else's own Strava (per person) */
+  /*
+   * A pretend Strava on a local port: the token endpoint and the three API reads
+   * a pull makes. The server's Strava client is pointed at it by STRAVA_API_ORIGIN.
+   */
+  const stravaCalls = []
+  const fakeStrava = http.createServer((q, r) => {
+    stravaCalls.push(`${q.method} ${q.url.split('?')[0]}`)
+    const reply = (body) => { r.writeHead(200, { 'content-type': 'application/json' }); r.end(JSON.stringify(body)) }
+    const u = q.url.split('?')[0]
+    if (u === '/oauth/token') return reply({ access_token: 'acc', refresh_token: 'ref', expires_at: Math.floor(Date.now() / 1000) + 21600, athlete: { id: 7, firstname: 'Sam', lastname: 'R' } })
+    if (u === '/oauth/revoke') return reply({})
+    if (u === '/api/v3/athlete') return reply({ id: 7, firstname: 'Sam', lastname: 'R', shoes: [], bikes: [] })
+    if (u === '/api/v3/athlete/activities') {
+      return reply(q.url.includes('page=1') ? [{ id: 99, name: 'Morning Run', sport_type: 'Run', type: 'Run', distance: 5000, moving_time: 1500, elapsed_time: 1550,
+        start_date: new Date(Date.now() - 3600e3).toISOString(), start_date_local: new Date(Date.now() - 3600e3).toISOString() }] : [])
+    }
+    r.writeHead(404); r.end('{}')
+  })
+  await new Promise(r => fakeStrava.listen(0, '127.0.0.1', r))
+  const sv = await boot({
+    env: {
+      BUSHIDO_AUTH: 'proxy', BUSHIDO_ACCESS_TEAM: 'test-team', BUSHIDO_ACCESS_AUD: AUD,
+      BUSHIDO_ACCESS_CERTS_URL: `http://127.0.0.1:${certs.address().port}/certs`,
+      STRAVA_API_ORIGIN: `http://127.0.0.1:${fakeStrava.address().port}`,
+      BUSHIDO_STRAVA_CLIENT_ID: '4242', BUSHIDO_STRAVA_CLIENT_SECRET: 'strava-secret-for-tests',
+    },
+    seed: {
+      'settings.json': JSON.stringify({ version: 1, install: 'fresh', auth: { mode: 'proxy' } }),
+      'users.json': JSON.stringify({ users: [{ id: 'owner', name: 'Alex', emails: ['alex@example.com'] }, { id: 'sam', name: 'Sam', emails: ['sam@example.com'] }] }),
+    },
+  })
+  const samPost = (p, extra = {}) => get(`${sv.base}${p}`, { method: 'POST', headers: { ...json, ...as('sam@example.com', extra).headers }, body: '{}' })
+
+  await step('own Strava: Sam is offered Connect, not shown the owner\'s, until he connects', async () => {
+    const me = await (await get(`${sv.base}/api/auth/me`, as('sam@example.com'))).json()
+    eq([me.features.strava, me.features.stravaConnect], [false, true])
+    eq((await (await get(`${sv.base}/api/strava`, as('sam@example.com'))).json()).configured, false)
+    eq((await samPost('/api/strava/pull')).status, 409)
+  })
+
+  await step('own Strava: connect, Strava\'s callback, then Sam\'s runs in Sam\'s space', async () => {
+    const start = await (await samPost('/api/strava/connect')).json()
+    const auth = new URL(start.authUrl)
+    eq(auth.searchParams.get('client_id'), '4242')
+    eq(auth.searchParams.get('redirect_uri'), `${sv.base}/strava/callback`)
+    const back = await get(`${sv.base}/strava/callback?state=${auth.searchParams.get('state')}&code=c&scope=read,activity:read_all,profile:read_all`, as('sam@example.com'))
+    eq(back.status, 303)
+    const tokens = JSON.parse(fs.readFileSync(path.join(sv.dataDir, 'users', 'sam', 'strava-oauth.json'), 'utf8'))
+    eq(tokens.refresh_token, 'ref')
+    const me = await (await get(`${sv.base}/api/auth/me`, as('sam@example.com'))).json()
+    eq(me.features.strava, true)
+    const cache = await (await get(`${sv.base}/api/strava`, as('sam@example.com'))).json()
+    eq([cache.configured, cache.activities.map(a => a.id)], [true, [99]])
+    ok(!fs.existsSync(path.join(sv.dataDir, 'strava.json')), 'Sam\'s pull wrote the owner\'s cache')
+  })
+
+  await step('own Strava: a callback with a state nobody started is refused', async () => {
+    eq((await get(`${sv.base}/strava/callback?state=forged&code=c`, as('sam@example.com'))).status, 400)
+  })
+
+  await step('own Strava: never for the owner, and not while acting as someone', async () => {
+    const owner = await get(`${sv.base}/api/strava/connect`, { method: 'POST', headers: { ...json, ...as('alex@example.com').headers }, body: '{}' })
+    eq(owner.status, 409)
+    const acting = await get(`${sv.base}/api/strava/connect`, { method: 'POST', headers: { ...json, ...as('alex@example.com', { cookie: 'bushido_as=sam' }).headers }, body: '{}' })
+    eq(acting.status, 409)
+    const me = await (await get(`${sv.base}/api/auth/me`, as('alex@example.com'))).json()
+    eq(me.features.stravaConnect, false)
+  })
+
+  await step('own Strava: disconnecting forgets the grant and the cache', async () => {
+    eq((await samPost('/api/strava/disconnect')).status, 200)
+    ok(!fs.existsSync(path.join(sv.dataDir, 'users', 'sam', 'strava.json')), 'the cache survived')
+    eq((await (await get(`${sv.base}/api/auth/me`, as('sam@example.com'))).json()).features.strava, false)
+  })
+
+  await step('own Strava: the client secret is masked in Settings', async () => {
+    const view = await (await get(`${sv.base}/api/settings`, as('alex@example.com'))).json()
+    eq(view.effective.strava.configured, true)
+    ok(!JSON.stringify(view).includes('strava-secret-for-tests'), 'the Strava client secret reached the browser')
+  })
+
+  await sv.stop()
+  fakeStrava.close()
+
   /* ---------------------------------- every person's AI runs, on their own space */
   /*
    * A fake Claude CLI that records what it was spawned with (argv and the prompt

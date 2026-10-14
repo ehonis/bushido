@@ -238,7 +238,7 @@ function render() {
   // Integrations
   const t = e.totem
   h += '<div class="card" id="c-int"><h2>Integrations</h2>' +
-    '<p class="sub">WHOOP and Strava are read through a <strong>Totem bridge</strong>, a separate service that holds the OAuth grants and exposes them over HTTP. Bushido stores no WHOOP or Strava credentials and cannot connect to either directly yet. With no bridge, the WHOOP and Strava panels stay hidden.</p>' +
+    '<p class="sub">WHOOP and Strava are read through a <strong>Totem bridge</strong>, a separate service that holds the OAuth grants and exposes them over HTTP. Your WHOOP and Strava come only through it; Bushido holds no grant of yours. With no bridge, your WHOOP and Strava panels stay hidden.</p>' +
     '<p>' + pill(t.enabled, 'bridge configured', 'no bridge') + ' ' + pill(t.whoop, 'WHOOP on', 'WHOOP off') + ' ' + pill(t.strava, 'Strava on', 'Strava off') + ' ' + pill(t.goals, 'goals on', 'goals off') + ' ' + pill(t.habitSync, 'habit sync on', 'habit sync off') + '</p>' +
     field('totem', 'url', 'Bridge URL', { source: t.urlSource, placeholder: 'http://127.0.0.1:8787' }) +
     field('totem', 'secret', 'Bridge secret', { secret: true, source: t.secretSource }) +
@@ -248,6 +248,16 @@ function render() {
     check('totem', 'strava', 'Strava activities and gear') +
     check('totem', 'goals', 'Show goals linked to this app') +
     check('totem', 'habitSync', 'Mark the daily habit when a session is logged') +
+    '<div class="row"><button class="primary save">Save</button><span class="msg"></span></div></div>'
+
+  // Everyone else's Strava
+  const sa = e.strava
+  h += '<div class="card" id="c-strava"><h2>Strava for other people</h2>' +
+    '<p class="sub">Yours comes through the bridge above. Anyone else on this install connects their own Strava account from Profile → Settings in the app, through a Strava API app you create at <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener">strava.com/settings/api</a>. A new app accepts only one athlete (you) until you raise it to ten from that page. Set its Authorization Callback Domain to the host people open Bushido on.</p>' +
+    '<p>' + pill(sa.configured, 'Strava app set', 'no Strava app') + '</p>' +
+    field('strava', 'clientId', 'Client ID', { source: sa.clientIdSource }) +
+    field('strava', 'clientSecret', 'Client secret', { secret: true, source: sa.secretSource }) +
+    field('strava', 'redirectUri', 'Redirect URI (optional)', { source: sa.redirectUriSource, placeholder: (sa.publicUrl || 'https://bushido.example.com') + '/strava/callback', note: 'Leave empty to use the address the person opened the app on.' }) +
     '<div class="row"><button class="primary save">Save</button><span class="msg"></span></div></div>'
 
   // Links
