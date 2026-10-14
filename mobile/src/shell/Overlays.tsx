@@ -5,7 +5,8 @@ import React, { useState } from 'react'
 import { localIso } from '../lib/dates.js'
 import { useApp } from './AppData'
 import { FabMenu, RestPrompt } from '../features/app'
-import { ActivityChooser, SessionPicker, activityFieldOf } from '../features/picker'
+import { ActivityChooser, activityFieldOf } from '../features/picker'
+import { outWith } from '../lib/unlogged.js'
 import { PlanFlow } from '../features/planner'
 import { WeekPlanFlow } from '../features/weekplanner'
 import { PersonDay } from '../features/trainer'
@@ -13,7 +14,8 @@ import * as trainerLib from '../lib/trainer.js'
 
 export function Overlays() {
   const {
-    store, plan, me, fab, setFab, placeToday, keepPlan, startPlanned,
+    store, plan, me, fab, setFab, placeAll, keepPlan, startPlanned,
+    menuFrom, viewDay, logAt, openLog, dayLabel,
     restOpt, restOn, restDate, askRest, takeRest, people, keepPlanFor,
   } = useApp()
   // Their week, opened from the planner's last screen after planning for them.
@@ -32,8 +34,7 @@ export function Overlays() {
       <FabMenu
         onClose={close}
         onPlan={() => setFab('plan')}
-        onLog={() => setFab('log')}
-        onPickSession={() => setFab('pick')}
+        onLog={() => openLog(menuFrom === 'today' ? viewDay : null)}
         onRest={restOpt ? () => askRest() : null}
         onPlanWeek={me.features.ai ? () => setFab('week') : null}
       />
@@ -48,18 +49,27 @@ export function Overlays() {
         people={people} owner={{ id: me.real.id, name: me.real.name }} />
     )
   }
-  // Log a workout: the SAME screen as "pick a session", over the sports catalog.
+  // Log a workout: the one door for something already done. The plan's cards
+  // are in it as the climbing folders; anything else is the sports catalog,
+  // answered before the form opens. A climb from the unlogged card lands on its
+  // card with the measurement attached, NOT done: the hard-finger question is the
+  // reason it goes through a climbing card at all, so the sheet opens to ask it.
   if (fab === 'log') {
+    const date = logAt.date || localIso()
     return (
       <ActivityChooser plan={plan} field={activityFieldOf(plan)}
-        onPick={(activity: string) => placeToday('log-workout', { out: { activity } })} onClose={close} />
+        dayLabel={dayLabel(logAt.date)} climbingOnly={Boolean(logAt.climb)}
+        onPick={(activity: string) => placeAll([{ optId: 'log-workout', data: { out: { activity } } }], { date })}
+        onPickCard={(optId: string) => {
+          const opt = (plan?.dailyMenu || []).find((o: any) => o.id === optId)
+          const out = logAt.climb && opt ? (outWith as any)(opt, {}, logAt.climb) : {}
+          placeAll([{ optId, data: { out } }], { date })
+        }}
+        onClose={close} />
     )
   }
   if (fab === 'rest' && restOpt) {
     return <RestPrompt opt={restOpt} date={restDate} entryFor={restOn} onSave={takeRest} onClose={close} />
-  }
-  if (fab === 'pick') {
-    return <SessionPicker plan={plan} onPick={(optId: string) => placeToday(optId)} onClose={close} />
   }
   if (fab === 'plan') {
     return (

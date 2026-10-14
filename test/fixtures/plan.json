@@ -391,6 +391,7 @@
         ]
       },
       "sched": {
+        "discipline": "rock-climbing",
         "fingerLoad": "sub",
         "venue": "home",
         "prefDays": [
@@ -544,6 +545,7 @@
         ]
       },
       "sched": {
+        "discipline": "rock-climbing",
         "whoopSport": "climbing",
         "fingerLoad": "sub",
         "venue": "climbing-gym",
@@ -704,6 +706,7 @@
         ]
       },
       "sched": {
+        "discipline": "rock-climbing",
         "fingerLoad": "none",
         "venue": "any",
         "prefDays": [
@@ -878,6 +881,7 @@
         ]
       },
       "sched": {
+        "discipline": "rock-climbing",
         "fingerLoad": "hard",
         "venue": "home",
         "prefDays": [
@@ -1052,6 +1056,7 @@
         ]
       },
       "sched": {
+        "discipline": "rock-climbing",
         "fingerLoad": "hard",
         "venue": "home",
         "prefDays": [
@@ -1268,6 +1273,7 @@
         ]
       },
       "sched": {
+        "discipline": "rock-climbing",
         "fingerLoad": "hard",
         "venue": "home",
         "prefDays": [
@@ -1466,6 +1472,7 @@
         ]
       },
       "sched": {
+        "discipline": "rock-climbing",
         "fingerLoad": "hard",
         "venue": "home",
         "prefDays": [
@@ -1726,6 +1733,7 @@
         ]
       },
       "sched": {
+        "discipline": "rock-climbing",
         "fingerLoad": "light",
         "venue": "home",
         "prefDays": [
@@ -1963,6 +1971,7 @@
         ]
       },
       "sched": {
+        "discipline": "bouldering",
         "whoopSport": "climbing",
         "fingerLoad": "hard",
         "venue": "climbing-gym",
@@ -1989,6 +1998,7 @@
       "level": 4,
       "icon": "Flame",
       "sched": {
+        "discipline": "bouldering",
         "whoopSport": "climbing",
         "fingerLoad": "hard",
         "venue": "climbing-gym",
@@ -2651,6 +2661,7 @@
         ]
       },
       "sched": {
+        "discipline": "rock-climbing",
         "fingerLoad": "hard",
         "venue": "home",
         "prefDays": [
@@ -2862,6 +2873,7 @@
         ]
       },
       "sched": {
+        "discipline": "rock-climbing",
         "fingerLoad": "sub",
         "venue": "home",
         "prefDays": [
@@ -3126,6 +3138,7 @@
         ]
       },
       "sched": {
+        "discipline": "rock-climbing",
         "fingerLoad": "none",
         "venue": "any",
         "prefDays": [
@@ -3253,6 +3266,7 @@
       ],
       "role": "session",
       "sched": {
+        "discipline": "rock-climbing",
         "fingerLoad": "none",
         "venue": "any",
         "days": [
@@ -3430,6 +3444,7 @@
         ]
       },
       "sched": {
+        "discipline": "rock-climbing",
         "fingerLoad": "none",
         "venue": "any",
         "prefDays": [
@@ -3611,6 +3626,7 @@
         ]
       },
       "sched": {
+        "discipline": "rock-climbing",
         "fingerLoad": "none",
         "venue": "any",
         "prefDays": [
@@ -3831,6 +3847,7 @@
         ]
       },
       "sched": {
+        "discipline": "bouldering",
         "whoopSport": "climbing",
         "fingerLoad": "hard",
         "venue": "climbing-gym",
@@ -4001,6 +4018,7 @@
         ]
       },
       "sched": {
+        "discipline": "rock-climbing",
         "whoopSport": "climbing",
         "fingerLoad": "light",
         "venue": "climbing-gym",
@@ -4163,6 +4181,7 @@
         ]
       },
       "sched": {
+        "discipline": "rock-climbing",
         "whoopSport": "climbing",
         "fingerLoad": "light",
         "venue": "climbing-gym",
@@ -4384,6 +4403,7 @@
         ]
       },
       "sched": {
+        "discipline": "rock-climbing",
         "whoopSport": "climbing",
         "fingerLoad": "light",
         "venue": "climbing-gym",
@@ -4654,6 +4674,7 @@
         ]
       },
       "sched": {
+        "discipline": "rock-climbing",
         "fingerLoad": "sub",
         "venue": "home",
         "prefDays": [
@@ -4697,6 +4718,7 @@
         }
       ],
       "sched": {
+        "discipline": "bouldering",
         "whoopSport": "climbing",
         "fingerLoad": "variable",
         "venue": "climbing-gym",
@@ -4892,6 +4914,7 @@
         }
       ],
       "sched": {
+        "discipline": "rock-climbing",
         "whoopSport": "climbing",
         "fingerLoad": "variable",
         "venue": "climbing-gym"
@@ -14786,6 +14809,7 @@
       ],
       "minutesFrom": "duration",
       "sched": {
+        "discipline": "rock-climbing",
         "whoopSport": "climbing",
         "fingerLoad": "variable",
         "venue": "crag",
@@ -15297,6 +15321,7 @@
       "hrvDrop": -10
     },
     "workoutModeRule": "Workout mode is offered only where a session DECLARES something for a clock to run: a `protocol.blocks[].timer`/`timers`, or a rest the session logs for itself (`setRest`, which is what gives the 4×4s their countdown). With no interval every phase counts up, nothing advances itself, and the mode is a full-screen wrapper around a set log. Doubled lead laps are the case that settled it — the five minutes between doubles is real programming, but nobody stands at a wall driving a timer through it, and on-the-wall work gets logged afterwards. Adding a timer to a session turns the mode on with no rebuild; `logSpec.workout: true|false` overrides the guess where the interval is a bad proxy for whether it would actually help. Losing the mode never costs a session its set log.",
+    "disciplineRule": "A card declares `sched.discipline` (`\"bouldering\"` or `\"rock-climbing\"`; hangboard and support work are rock climbing) to say which folder of *Log a workout* it sits in. A card that declares neither lands in \"From the plan\", so it is never unreachable. The folders are doors to these cards, not catalog activities: picking from one places the real card and its hard-finger question. See app/src/lib/folders.js.",
     "whoopSportRule": "A session declares `sched.whoopSport` when it is the kind of thing WHOOP gives a name to — \"climbing\" on the nine sessions that put them on a wall. It is how the app suggests which of the evening's WHOOP workouts WAS this session: a workout titled rock-climbing or bouldering on a climbing night agrees with the session about what happened, and one titled Weightlifting contradicts it and is never suggested however well the clock lines up. Declared rather than inferred from `venue`, because the grip economy drill is on a wall at the gym and crimp crawls are on a stair at home and the venue cannot tell them apart. A session that declares nothing gets no opinion, which is the same ranking the app did before this existed. Attaching is still always a tap — see `whoopRule`.",
     "whoopRule": "WHOOP describes last night, so it is the weakest term in the engine and is capped BELOW the coach at `whoop.cap` points against score gaps of forty. `lowRecovery` and `highRecovery` are WHOOP's own red and green bands; `hrvDrop` is the percentage under THE ATHLETE'S OWN fortnight median that counts as suppressed, never a population figure. Two independent signals agreeing — a red recovery AND a suppressed HRV — count for full weight, either alone for 60% of it. Like the coach's nudges these are read after the hard blocks have already returned, so no reading can put two hard finger days back to back, breach the weekly cap, or offer a gym session on a night the athlete is at home. A red morning also cannot decide the day is a rest day: it makes rest score better, and pressing the button stays their. No reading at all — no band worn, WHOOP still calibrating, nothing pulled — computes exactly what the app computed before WHOOP existed, which is pinned in recommend.test.js.",
     "whoopEvidence": "Read the deviation, not the number. WHOOP's recovery score is a proprietary composite with no published validation against training readiness, and the HRV underneath it (rmssd, measured during slow-wave sleep) has genuine day-to-day meaning against a personal baseline and almost none as an absolute. Nothing here is evidence that training against a recovery score improves an outcome — no trial has shown that in climbers or anyone else. It is in the engine because it is a cheap daily reading of something the plan already cares about, and it is capped low because that is exactly how much confidence it deserves.",

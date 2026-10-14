@@ -562,14 +562,24 @@ check('a measured workout with no log entry is offered', () => {
   eq(got[0].id, 'whoop:a')
 })
 
-check('CLIMBING IS NEVER OFFERED HERE', () => {
-  // A one-tap "log it" for a climbing workout would create a climbing entry that
+check('CLIMBING IS OFFERED, BUT NEVER AS A CATALOG ACTIVITY', () => {
+  // A one-tap "log it" on the workout card for a climb would create an entry that
   // never asked the hard-finger question — a hard finger day landing somewhere
-  // the injury budget cannot see it. The mechanism is that climbing resolves to
-  // no catalog activity at all, so there is nothing to offer.
+  // the injury budget cannot see it. So a climb resolves to no catalog activity,
+  // and is offered as a climbing row whose only route is a climbing card. Until
+  // 2026-10-14 it was not offered at all, which read as the sync missing it.
   const got = unloggedWorkouts({ plan, iso: '2026-09-14', entries: [],
     whoop: whoopCache([w('a', 'rock-climbing'), w('b', 'bouldering'), w('c', 'cycling')]) })
-  eq(got.map(g => g.activity.key), ['bike'], 'only the ride')
+  eq(got.filter(g => !g.climbing).map(g => g.activity.key), ['bike'], 'only the ride is a workout')
+  eq(got.filter(g => g.climbing).map(g => g.id), ['whoop:a', 'whoop:b'], 'both climbs, as climbs')
+  ok(got.filter(g => g.climbing).every(g => g.activity.key === null), 'a climb names no catalog activity')
+})
+
+check('a climb already on a climbing card is not offered again', () => {
+  const entries = [{ id: 'daily-2026-09-14', kind: 'daily', date: '2026-09-14',
+    data: { optId: 'board', done: true, out: { whoop: { id: 'a' } } } }]
+  eq(unloggedWorkouts({ plan, iso: '2026-09-14', entries,
+    whoop: whoopCache([w('a', 'rock-climbing')]) }), [])
 })
 
 check('a workout already attached to a session is not offered again', () => {
@@ -831,12 +841,13 @@ check('...and Strava answers the fields it measured better', () => {
 })
 
 check('a merge still cannot smuggle climbing onto the workout card', () => {
-  // Both services recording the same climbing session must still produce nothing:
-  // a merged one-tap climbing entry would never ask the hard-finger question.
-  eq(merged({
+  // Both services recording the same climbing session must never pair into a
+  // one-tap workout: each stays a climbing row, routed to the climbing cards.
+  const got = merged({
     whoop: { workouts: [ww('w1', 'rock-climbing', 18, 0, 120)] },
     strava: { activities: [sa('s1', 'climbing', 18, 0, 118)] },
-  }), [])
+  })
+  eq(got.filter(g => g.merged || !g.climbing), [], 'nothing merged, nothing on the catalog')
 })
 
 /* ================================================ two gyms, not one (venue) === */

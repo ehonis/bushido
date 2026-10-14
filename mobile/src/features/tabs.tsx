@@ -98,7 +98,7 @@ export function TodayTab({
   plan, entries, upsertEntry, deleteEntry,
   settings = {}, saveSettings = () => {},
   openEntryId = null, onOpened = () => {},
-  onPlan = null, onLog = null, onPickSession = null, onRest = null, onSetWeek = null,
+  onPlan = null, onLog = null, onRest = null, onSetWeek = null, onViewDay = null,
 }: {
   plan: any
   entries: any[]
@@ -109,13 +109,15 @@ export function TodayTab({
   openEntryId?: string | null
   onOpened?: () => void
   onPlan?: (() => void) | null
-  onLog?: (() => void) | null
-  onPickSession?: (() => void) | null
+  onLog?: ((iso: string, opts?: { climb?: any }) => void) | null
   onRest?: ((iso?: string) => void) | null
   onSetWeek?: (() => void) | null
+  onViewDay?: ((iso: string) => void) | null
 }) {
   const today = todayIso()
   const [iso, setIso] = useState(today)
+  // The + button logs onto the day being looked at, so it has to know which.
+  useEffect(() => { onViewDay?.(iso) }, [iso])
   /*
    * An entry the WEEK asked to open, as opposed to one the + button just created.
    * Kept apart from `openEntryId` because they want different screens: a session
@@ -318,7 +320,7 @@ export function TodayTab({
         openEntryId={openEntryId || openFromWeek}
         openAs={openFromWeek ? 'sheet' : 'auto'}
         onOpened={() => { onOpened(); setOpenFromWeek(null) }}
-        onPlan={onPlan} onLog={onLog} onPickSession={onPickSession} onRest={onRest} />
+        onPlan={onPlan} onLog={onLog ? () => onLog(iso) : null} onRest={onRest} />
 
       {/* The owner's window onto someone else's days, to coach without acting as
           them. Nothing for anyone else, while acting, or with one person. */}
@@ -333,6 +335,7 @@ export function TodayTab({
       {!isFuture && (
         <UnloggedWorkouts plan={plan} entries={entries} iso={iso}
           onLog={logMeasured} onMerge={saveOutputs}
+          onClimb={onLog ? (item: any) => onLog(iso, { climb: item }) : null}
           skipped={skippedWorkouts} onDismiss={dismissWorkout} onRestore={restoreWorkout}
           split={splitWorkouts} onSplit={splitWorkout} />
       )}
@@ -433,12 +436,11 @@ const ROW_TONE: Record<string, [string, string]> = {
  * the user put there — which is what lets every row carry a completion circle
  * without reading as a checklist you are behind on.
  */
-function DayList({ rows, onOpen, onPlan, onLog, onPickSession, onRest = null, isFuture, repeats = [], onAddAgain = null }: {
+function DayList({ rows, onOpen, onPlan, onLog, onRest = null, isFuture, repeats = [], onAddAgain = null }: {
   rows: any[]
   onOpen: (key: string) => void
   onPlan?: (() => void) | null
   onLog?: (() => void) | null
-  onPickSession?: (() => void) | null
   onRest?: (() => void) | null
   isFuture: boolean
   repeats?: any[]
@@ -454,14 +456,13 @@ function DayList({ rows, onOpen, onPlan, onLog, onPickSession, onRest = null, is
           {!isFuture && (onPlan || onLog) && (
             <>
               <T size={13} dim>
-                {'Plan one and it arrives with the sets already written; log one you have already done; pick one of the plan’s own sessions, protocol and all; or take the day off on purpose. All of it also lives on the '}
+                {'Plan one and it arrives with the sets already written; log one you have already done, a climbing session from the plan or anything else; or take the day off on purpose. All of it also lives on the '}
                 <T size={13} weight={700} color={colors.ink}>+</T>
                 {' button.'}
               </T>
               <View style={st.emptyActs}>
                 {onPlan && <Btn icon="Sparkles" title="Plan a workout" onPress={onPlan} />}
                 {onLog && <Btn kind="ghost" icon="NotebookPen" title="Log a workout" onPress={onLog} />}
-                {onPickSession && <Btn kind="ghost" icon="Layers" title="Pick from the plan" onPress={onPickSession} />}
                 {onRest && <Btn kind="ghost" icon="Sunset" title="Log a rest day" onPress={onRest} />}
               </View>
             </>
@@ -858,7 +859,7 @@ function DaySessions({
   onPickMain, onAddExtra, onRemove, onSaveOutputs, onSaveRun, onSavePlan,
   onSetDone, onSetTraining, viewIso, isFuture, onSaveEntry = null,
   openEntryId = null, openAs = 'auto', onOpened = () => {},
-  onPlan = null, onLog = null, onPickSession = null, onRest = null,
+  onPlan = null, onLog = null, onRest = null,
 }: any) {
   const [sheet, setSheet] = useState<string | null>(null)   // row key: 'main' | an extra entry id
   const [workout, setWorkout] = useState<string | null>(null) // same key, training in front of it
@@ -1086,7 +1087,7 @@ function DaySessions({
   return (
     <>
       <DayList rows={rows} onOpen={openRow} isFuture={isFuture}
-        onPlan={onPlan} onLog={onLog} onPickSession={onPickSession}
+        onPlan={onPlan} onLog={onLog}
         // The day the user is LOOKING at, so a forgotten rest day can be logged
         // from the day it belongs to. Not a future one — resting is not a plan.
         onRest={onRest && viewIso <= localIso() ? () => onRest(viewIso) : null}

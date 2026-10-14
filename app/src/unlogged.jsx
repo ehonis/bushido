@@ -51,7 +51,7 @@ const span = (a, b) => {
 }
 
 export function UnloggedWorkouts({
-  plan, entries, iso, onLog, onMerge = null,
+  plan, entries, iso, onLog, onMerge = null, onClimb = null,
   skipped = [], onDismiss, onRestore, split = [], onSplit,
 }) {
   const { cache: whoop } = useWhoop()
@@ -62,8 +62,9 @@ export function UnloggedWorkouts({
   const [merging, setMerging] = useState(null)
 
   const args = { plan, entries, iso, whoop, strava, skipped, split }
-  const items = useMemo(() => unloggedWorkouts(args),
-    [plan, entries, iso, whoop, strava, skipped, split])
+  // A climb is only offered where there is a climbing card to log it on.
+  const items = useMemo(() => unloggedWorkouts(args).filter(i => !i.climbing || onClimb),
+    [plan, entries, iso, whoop, strava, skipped, split, onClimb])
   const gone = useMemo(() => dismissedWorkouts(args),
     [plan, entries, iso, whoop, strava, skipped, split])
 
@@ -163,6 +164,7 @@ export function UnloggedWorkouts({
           <p className="sub">
             Recorded by {sources.map(k => SOURCE[k]).join(' and ')}.
             One tap logs it with the time and distance already filled in.
+            {items.some(i => i.climbing) && ' A climb asks which session it was first.'}
           </p>
         </>
       )}
@@ -195,15 +197,24 @@ export function UnloggedWorkouts({
             </span>
           </span>
           <span className="unlogrow-acts">
-            <button className="unlogrow-take" onClick={() => take(item)}>Log it</button>
-            <button className="unlogrow-miles" onClick={() => takeAsMiles(item)}
-              title="Counts the miles and the streak — not the quota, not as training">
-              Just miles
-            </button>
-            <button className="unlogrow-miles" onClick={() => takeAsWarmup(item)}
-              title="The front of another session — counts the minutes, not the quota">
-              Warm-up
-            </button>
+            {/* A climb goes to the climbing folders to pick its card, which asks the
+                hard-finger question. Never "just miles" or a warm-up: a climb that
+                skipped the finger budget is the thing this card must not make. */}
+            {item.climbing ? (
+              <button className="unlogrow-take" onClick={() => onClimb(item)}>Log it</button>
+            ) : (
+              <>
+                <button className="unlogrow-take" onClick={() => take(item)}>Log it</button>
+                <button className="unlogrow-miles" onClick={() => takeAsMiles(item)}
+                  title="Counts the miles and the streak — not the quota, not as training">
+                  Just miles
+                </button>
+                <button className="unlogrow-miles" onClick={() => takeAsWarmup(item)}
+                  title="The front of another session — counts the minutes, not the quota">
+                  Warm-up
+                </button>
+              </>
+            )}
             {/*
               * The route that did not exist until 2026-09-17. `pairUp` folds two
               * measurements into one offer only while BOTH are unlogged; when

@@ -15,7 +15,7 @@ import { PlanProvider } from '../lib/planctx.jsx'
 import { CoachProvider } from '../lib/coachapi.jsx'
 import { WhoopProvider } from '../lib/whoop.jsx'
 import { StravaProvider } from '../lib/strava.jsx'
-import { localIso } from '../lib/dates.js'
+import { localIso, fromIso } from '../lib/dates.js'
 import { splitPrescription } from '../lib/prescription.js'
 import { currentMe } from '../lib/whoami.js'
 import * as trainerLib from '../lib/trainer.js'
@@ -26,8 +26,8 @@ const { placeEntries, planPeople, keepPlanFor } = trainerLib as any
 import { onForeground } from '../lib/foreground'
 
 export type TabId = 'today' | 'week' | 'log' | 'progress' | 'achievements' | 'goals' | 'coach'
-/** null | 'menu' | 'plan' | 'pick' | 'log' | 'week' | 'rest' */
-export type Fab = null | 'menu' | 'plan' | 'pick' | 'log' | 'week' | 'rest'
+/** null | 'menu' | 'plan' | 'log' | 'week' | 'rest' */
+export type Fab = null | 'menu' | 'plan' | 'log' | 'week' | 'rest'
 
 export interface AppData {
   store: ReturnType<typeof useStore>
@@ -37,6 +37,18 @@ export interface AppData {
   me: ReturnType<typeof currentMe>
   fab: Fab
   setFab: (f: Fab) => void
+  /** The + button: opens the menu, remembering which tab it was pressed on. */
+  openMenu: (fromTab: string) => void
+  /** Which tab the + menu was opened from (Log a workout uses Today's day only from Today). */
+  menuFrom: string | null
+  /** The day Today is showing (TodayTab reports it through `onViewDay`). */
+  viewDay: string | null
+  setViewDay: (iso: string) => void
+  /** Where Log a workout lands, and the WHOOP/Strava climb it is for, if any. */
+  logAt: { date: string | null; climb: any }
+  openLog: (date?: string | null, opts?: { climb?: any }) => void
+  /** "for Mon, Oct 12" when a date is not today; null for today. */
+  dayLabel: (date: string | null) => string | null
   openEntryId: string | null
   setOpenEntryId: (id: string | null) => void
   setTab: (t: TabId) => void
@@ -108,6 +120,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const [fab, setFab] = useState<Fab>(null)
   const [openEntryId, setOpenEntryId] = useState<string | null>(null)
+  const [menuFrom, setMenuFrom] = useState<string | null>(null)
+  const openMenu = (fromTab: string) => { setMenuFrom(fromTab); setFab('menu') }
+
+  /*
+   * WHICH DAY a logged workout lands on. Until 2026-10-14 every pick landed on
+   * today, whatever day the user was looking at, so Monday's board session could
+   * not be logged on Monday. Now Log a workout lands on the day Today is showing
+   * (never a future one: you cannot have done tomorrow's workout). `climb` is a
+   * WHOOP or Strava climb from the unlogged card, attached to whichever card the
+   * user picks for it.
+   */
+  const [viewDay, setViewDay] = useState<string | null>(null)
+  const [logAt, setLogAt] = useState<{ date: string | null; climb: any }>({ date: null, climb: null })
+  const logDay = (date?: string | null) => {
+    const today = localIso()
+    return date && date <= today ? date : today
+  }
+  const openLog: AppData['openLog'] = (date, { climb = null } = {}) => {
+    setLogAt({ date: logDay(date), climb })
+    setFab('log')
+  }
+  const dayLabel: AppData['dayLabel'] = (date) => (date && date !== localIso()
+    ? `for ${(fromIso as any)(date).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}`
+    : null)
 
   /**
    * Put one or more sessions on today, in one go. BATCHED ON PURPOSE: ids are
@@ -186,7 +222,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   const value: AppData = {
-    store, plan, reloadPlan: loadPlan, me, fab, setFab, openEntryId, setOpenEntryId, setTab,
+    store, plan, reloadPlan: loadPlan, me, fab, setFab, openMenu, menuFrom, viewDay, setViewDay,
+    logAt, openLog, dayLabel, openEntryId, setOpenEntryId, setTab,
     placeAll, placeToday, placeFromCoach, keepPlan, startPlanned, people, keepPlanFor: keepPlanForPerson,
     restOpt, restOn, restDate, askRest, takeRest,
   }
