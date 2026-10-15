@@ -267,8 +267,9 @@ export function PeopleCard({ who }) {
 }
 
 /*
- * Anyone but the owner connects their own Strava here: the server holds their
- * grant in their own space (POST /api/strava/connect). Connecting leaves the app
+ * Everyone connects their own Strava here, the owner included: the server holds
+ * the grant in their own space (POST /api/strava/connect), and Totem reads the
+ * owner's from there. Connecting leaves the app
  * for Strava's consent page and comes back to `/`; both directions reload, since
  * whether Strava is on is decided at boot (whoami).
  */
@@ -293,7 +294,8 @@ function OwnStravaCard({ who, strava, onPullStrava, pulling }) {
     if (body?.authUrl) window.location.href = body.authUrl
   }
   const disconnect = async () => {
-    if (!window.confirm('Disconnect Strava? Workouts already attached to sessions stay in your log.')) return
+    const totem = who.owner ? ' Totem reads your Strava from here, so its Strava goals stop updating too.' : ''
+    if (!window.confirm(`Disconnect Strava? Workouts already attached to sessions stay in your log.${totem}`)) return
     if (await call('/api/strava/disconnect')) window.location.reload()
   }
   const connected = who.features.strava
@@ -372,25 +374,7 @@ function SettingsSection({ status, lastSync, strava, onPullStrava, pulling, who 
         </div>
       </div>
 
-      {/* The owner's Strava, through the owner's bridge: not someone else's to refresh. */}
-      {who.owner && (
-      <div className="card">
-        <h2>Strava</h2>
-        <p className="sub">
-          {strava?.athlete
-            ? `Connected as ${strava.athlete.name}. Your name, picture, bikes and shoes come from here.`
-            : strava?.configured === false
-              ? 'Not connected. Strava is read through a Totem bridge; set one up in Settings → Integrations.'
-              : 'Not connected. Connect it in Totem — the credentials live there, never in this app.'}
-        </p>
-        <button className="restbtn" onClick={() => onPullStrava?.()} disabled={pulling}>
-          <Icon name="RotateCw" size={16} />
-          <span>{pulling ? 'Refreshing…' : 'Refresh now'}</span>
-        </button>
-      </div>
-      )}
-
-      {!who.owner && !who.acting && (who.features.stravaConnect || who.features.strava) && (
+      {!who.acting && (who.features.stravaConnect || who.features.strava) && (
         <OwnStravaCard who={who} strava={strava} onPullStrava={onPullStrava} pulling={pulling} />
       )}
 

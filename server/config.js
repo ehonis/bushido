@@ -42,8 +42,8 @@ const blank = () => ({
   athlete: { name: '', notes: '' },
   ai: { provider: 'claude-cli', bin: '', apiKey: '', model: '' },
   plan: { file: '' },
-  totem: { url: '', secret: '', envFile: '', habit: '', habitSync: true, whoop: true, strava: true, goals: true },
-  /* A Strava API app for everyone but the owner, who reads Strava through the bridge. */
+  totem: { url: '', secret: '', envFile: '', habit: '', habitSync: true, whoop: true, goals: true },
+  /* The Strava API app everyone connects their own account through. */
   strava: { clientId: '', clientSecret: '', redirectUri: '' },
   links: { notifyCore: '', brainFile: '', krakatoaDir: '' },
   notifications: { tz: '' },
@@ -262,7 +262,6 @@ function createConfig({ root, dataDir, env = process.env }) {
       secretSource,
       habitSync: enabled && s.habitSync !== false,
       whoop: enabled && s.whoop !== false,
-      strava: enabled && s.strava !== false,
       goals: enabled && s.goals !== false,
     }
   }
@@ -270,10 +269,10 @@ function createConfig({ root, dataDir, env = process.env }) {
   /* ------------------------------------------------------------ strava */
 
   /*
-   * The Strava API app people other than the owner connect their own accounts
-   * through (see the per-person Strava block in server.js). The owner's Strava is
-   * the bridge's grant and never uses this. A new Strava app accepts one athlete,
-   * its creator, until it is raised to ten from strava.com/settings/api.
+   * The Strava API app everyone on the install connects their own account
+   * through, the owner included (see the Strava block in server.js). A new Strava
+   * app accepts one athlete, its creator, until it is raised to ten from
+   * strava.com/settings/api.
    */
   function strava() {
     const s = read().strava

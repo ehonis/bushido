@@ -13,11 +13,10 @@
  *                           training log; durable; survives Strava, the bridge
  *                           and the cache all going away.
  *
- * NO CREDENTIALS HERE. The bridge holds the one Strava grant and exposes
- * `GET /api/strava/training` (the recent activities, already shaped with both
- * unit systems and the athlete's local date) and `GET /api/strava/activity?id=`
- * (one activity in full, with laps and splits). Bushido reads both with the bridge
- * secret it already has for the habit push.
+ * NO CREDENTIALS HERE. The grants are held by server/strava-api/ (one client per
+ * person, see the Strava block in server.js), whose `training()` gives the recent
+ * activities already shaped with both unit systems and the athlete's local date,
+ * and `activity()` one activity in full, with laps and splits.
  *
  * MATCHING IS SUGGESTED, NEVER APPLIED — the same rule as WHOOP, for the same
  * reason. `rankForSession` may mark ONE activity as likely; attaching is their tap.
