@@ -241,7 +241,7 @@ export function WhoopWorkouts({ session, entry, entries, onSave }) {
   // point of the "attach here as well" route.
   const offers = ranked.filter(c => !attachedIdsHere.has(c.workout.id))
 
-  // No bridge on this install: nothing to pull and nothing to offer. Anything
+  // WHOOP not connected: nothing to pull and nothing to offer. Anything
   // already attached still shows, because that is the log, not the integration.
   if (cache?.configured === false && !attachedList.length) return null
 
@@ -254,7 +254,7 @@ export function WhoopWorkouts({ session, entry, entries, onSave }) {
         </button>
       </div>
 
-      {/* The fix, not the symptom — the bridge names the missing scope, and that
+      {/* The fix, not the symptom — the WHOOP client names the missing scope, and that
           sentence is carried through to here rather than flattened to "failed". */}
       {error && <p className="wh-err">{error}</p>}
       {!error && status?.ok === false && <p className="wh-err">{status.detail}</p>}
@@ -590,7 +590,7 @@ const pct = (v) => (v == null ? '—' : `${Math.round(v)}%`)
  * into stages, with its length above it. A score and a clock time are different
  * units, so they get different panels rather than two y-scales in one frame.
  *
- * Nothing here is logged by hand: the Totem bridge fills sleep from WHOOP each
+ * Nothing here is logged by hand: the WHOOP pull fills sleep in each
  * morning. Renders nothing when there are no nights at all, which keeps the app
  * looking as it did before sleep was here.
  */

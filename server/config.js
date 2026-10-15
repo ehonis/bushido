@@ -127,19 +127,14 @@ function createConfig({ root, dataDir, env = process.env }) {
     try {
       const raw = JSON.parse(fs.readFileSync(file, 'utf8'))
       const b = blank()
-      doc = {
-        ...b, ...raw,
-        auth: { ...b.auth, ...(raw.auth || {}) },
-        access: { ...b.access, ...(raw.access || {}) },
-        athlete: { ...b.athlete, ...(raw.athlete || {}) },
-        ai: { ...b.ai, ...(raw.ai || {}) },
-        plan: { ...b.plan, ...(raw.plan || {}) },
-        totem: { ...b.totem, ...(raw.totem || {}) },
-        strava: { ...b.strava, ...(raw.strava || {}) },
-        whoop: { ...b.whoop, ...(raw.whoop || {}) },
-        links: { ...b.links, ...(raw.links || {}) },
-        notifications: { ...b.notifications, ...(raw.notifications || {}) },
+      // Each section keeps only the keys blank() names, so a setting a later
+      // version removed is dropped on the next save rather than kept forever.
+      const known = (section) => {
+        const r = raw[section] && typeof raw[section] === 'object' ? raw[section] : {}
+        return Object.fromEntries(Object.keys(b[section]).map(k => [k, Object.hasOwn(r, k) ? r[k] : b[section][k]]))
       }
+      doc = { ...b, ...raw }
+      for (const section of ['auth', 'access', 'athlete', 'ai', 'plan', 'totem', 'strava', 'whoop', 'links', 'notifications']) doc[section] = known(section)
     } catch {
       doc = blank()
     }

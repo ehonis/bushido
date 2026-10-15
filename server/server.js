@@ -2266,7 +2266,7 @@ const server = http.createServer(async (req, res) => {
      * in Totem's database, which holds other data too.
      *
      * Cached to disk and refreshed in the background when stale, exactly like the
-     * WHOOP and Strava caches beside it: the bridge being down should make the
+     * WHOOP and Strava caches beside it: Totem being down should make the
      * goals card stale, never make the app fail to load.
      */
     if (p === '/api/goals' && req.method === 'GET') {

@@ -129,7 +129,7 @@ export function StravaActivities({ session, entry, entries, onSave }) {
   const offers = ranked.filter(c => !here.has(c.activity.id))
   const totalMin = attachedList.reduce((n, a) => n + (Number(attachedMinutes(a)) || 0), 0)
 
-  // No bridge on this install. Attached snapshots are the log and still show.
+  // Strava not connected. Attached snapshots are the log and still show.
   if (cache?.configured === false && !attachedList.length) return null
 
   return (

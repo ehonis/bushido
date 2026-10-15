@@ -671,7 +671,7 @@ export function readinessFor(cache, date) {
  * Keep the daily rows (sleep nights, recovery days) a pull returns AND the ones
  * already cached, one per date, the fresh pull winning, for up to `keepDays`.
  *
- * The bridge answers at most 60 days a pull, and the sleep graph is read over a
+ * The WHOOP client answers at most 60 days a pull, and the sleep graph is read over a
  * quarter or a year. So each pull is laid over what the cache already held rather
  * than replacing it, and the history fills in as the app is used. It is still a
  * mirror, not a record: every row is WHOOP's own and refetchable from WHOOP, the

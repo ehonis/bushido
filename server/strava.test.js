@@ -90,7 +90,7 @@ check('an activity window is start to end, falling back to elapsed minutes', () 
   eq(activityWindow({}), null)
 })
 
-check('activitiesOn buckets by the LOCAL date the bridge put on the record', () => {
+check('activitiesOn buckets by the LOCAL date strava-api put on the record', () => {
   eq(activitiesOn(cache, '2026-09-06').map(a => a.id), [1234, 5678])
   eq(activitiesOn(cache, '2026-09-07'), [])
   eq(activitiesOn(null, '2026-09-06'), [])

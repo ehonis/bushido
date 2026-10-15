@@ -96,7 +96,7 @@ export function WhoopProvider({ initial = null, children }) {
       })
       const doc = await r.json().catch(() => null)
       if (!r.ok) {
-        // The bridge puts the FIX in the message ("click Connect WHOOP again to
+        // The WHOOP client puts the FIX in the message ("click Connect WHOOP again to
         // grant it"), so it is shown as-is rather than replaced with "failed".
         const detail = doc?.error || doc?.status?.detail
         if (detail) {

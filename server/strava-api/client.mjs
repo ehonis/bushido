@@ -1,14 +1,13 @@
-// strava/client.mjs — OAuth 2 and the Strava v3 API, as the bridge uses it.
+// strava-api/client.mjs — OAuth 2 and the Strava v3 API, as Bushido holds them.
 //
-// The shape mirrors the WHOOP code in bridge.mjs on purpose (same token file
+// The shape mirrors ../whoop-api/client.mjs on purpose (same token file
 // convention, same "the fix is in the error message" rule, same status vocabulary)
-// so the two connectors are learned once. It lives in its own module because
-// bridge.mjs is already eleven thousand lines and this surface is large: Strava
-// exposes activities, streams, laps, zones, gear, routes, segments, clubs and
-// the athlete, and the brief was to expose all of it rather than the three
-// fields a ride card needs.
+// so the two connectors are learned once. The surface is large: Strava exposes
+// activities, streams, laps, zones, gear, routes, segments, clubs and the
+// athlete, and Totem reaches all of it through `POST /api/strava/owner`, not
+// just the three fields a ride card needs.
 //
-// Docs: https://developers.strava.com/docs/reference/ — see docs/strava.md.
+// Docs: https://developers.strava.com/docs/reference/
 //
 // Token handling, the part that bites:
 //   * Access tokens live six hours. Strava's refresh endpoint hands back the

@@ -72,8 +72,8 @@ export function TotemGoals({ compact = false, full = false }) {
       <div className="card">
         <h2><Icon name="Target" size={16} /> Goals from Totem</h2>
         <p className="sub" style={{ marginBottom: 0 }}>
-          Could not reach Totem. These are read over the same bridge as WHOOP and
-          Strava, so if those are also stale it is the bridge rather than the goals.
+          Could not reach Totem. Goals are read from its bridge, set in Settings →
+          Integrations.
         </p>
       </div>
     )

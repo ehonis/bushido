@@ -128,6 +128,19 @@ check('clearPlanFile forgets a plan file named in settings.json; update() cannot
   eq(JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')).plan.file, '', 'the setting is still on disk')
 })
 
+check('a key a section no longer has is dropped, not kept: totem.whoop and totem.strava', () => {
+  const dir = tmp()
+  fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({
+    totem: { url: 'http://bridge:1', habitSync: false, whoop: true, strava: true },
+  }))
+  const c = createConfig({ root: ROOT, dataDir: dir, env: bareEnv() })
+  eq(Object.keys(c.publicView().totem).sort(), ['envFile', 'goals', 'habit', 'habitSync', 'secret', 'url'])
+  eq([c.read().totem.url, c.read().totem.habitSync], ['http://bridge:1', false], 'a known key lost its value')
+  c.update({ totem: { habit: 'h' } })
+  const saved = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')).totem
+  ok(!('whoop' in saved) && !('strava' in saved), 'a removed key went back into settings.json')
+})
+
 check('a settings.json written by hand before the first start is kept, not migrated', () => {
   const dir = tmp()
   fs.writeFileSync(path.join(dir, 'state.json'), '{}')

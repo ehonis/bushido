@@ -234,8 +234,9 @@ Stored in `data/settings.json` (0600). Sections:
 | WHOOP | The WHOOP app's client ID, secret and optional redirect URI. The owner connects in the app. |
 | Other local services | Notify core directory, athlete-profile (brain) file, nutrition digest directory, timezone. |
 
-Secrets (`ai.apiKey`, `totem.secret`) are never sent to the browser; they are masked, and
-a masked value posted back is ignored.
+Secrets (`ai.apiKey`, `totem.secret`, `strava.clientSecret`, `whoop.clientSecret`) are
+never sent to the browser; they are masked, and a masked value posted back is ignored. Each
+section keeps only the keys `blank()` names, so a removed setting is dropped on the next save.
 
 ### More than one person (`server/users.js`, `app/src/lib/whoami.js`)
 
@@ -815,7 +816,7 @@ WHOOP refresh runs at a time (`accessToken` in `server/whoop-api/client.mjs`; th
 - **Sleep and recovery rows accumulate in the cache** (`mergeDaily`): each pull is laid
   over what was cached, newest copy winning, kept for a year, so the Today tab's sleep
   graph (30d / 90d / 1y, ported from Totem's Habits tab) can look back further than the
-  bridge's 60-day maximum. A cache with no `backfilledAt` gets one 60-day pull. It is still
+  client's 60-day maximum per pull. A cache with no `backfilledAt` gets one 60-day pull. It is still
   a refetchable mirror; deleting it loses only graph history.
 - WHOOP has no journal, behaviour or survey endpoint; the journal is native by necessity.
 
@@ -824,10 +825,10 @@ WHOOP refresh runs at a time (`accessToken` in `server/whoop-api/client.mjs`; th
 Same arrangement and the same cache-vs-snapshot rule (`data/strava.json` vs
 `out.strava`/`out.stravaMore`).
 
-- Bridge `GET /api/strava/training?days=N` → `{ fetchedAt, days, athlete, gear,
-  activities }`, already shaped: both unit systems, a `family`, and the athlete's local
-  `date`. `GET /api/strava/activity?id=` fetches full detail at attach time; on failure
-  the summary is attached.
+- The person's client (`server/strava-api/`, `training({ days })`) → `{ fetchedAt, days,
+  athlete, gear, activities }`, already shaped: both unit systems, a `family`, and the
+  athlete's local `date`. `GET /api/strava/activity?id=` fetches full detail at attach
+  time; on failure the summary is attached.
 - **Moving time is the headline** (`attachedMinutes` falls back to elapsed). In
   `lib/minutes.js` Strava sits below an attached WHOOP workout and above the workout-mode
   clock.

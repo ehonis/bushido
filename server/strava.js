@@ -2,15 +2,14 @@
  * Strava, as Bushido sees it.
  *
  * WHOOP tells this app how hard a session was; Strava tells it what the session
- * WAS — distance, climb, speed, which bike. The two arrive through the
- * same door (the Totem bridge) and are stored the same two ways, for the same
- * reasons written up at the top of whoop.js:
+ * WAS — distance, climb, speed, which bike. The two are stored the same two
+ * ways, for the same reasons written up at the top of whoop.js:
  *
  *   data/strava.json        A CACHE. Disposable, refetchable. A window onto
  *                           Strava's copy, never a record.
  *
  *   entry.data.out.strava   A SNAPSHOT the user attached by tapping a button. Their
- *                           training log; durable; survives Strava, the bridge
+ *                           training log; durable; survives Strava, the grant
  *                           and the cache all going away.
  *
  * NO CREDENTIALS HERE. The grants are held by server/strava-api/ (one client per
@@ -45,7 +44,7 @@ const ms = (iso) => {
 /* ----------------------------------------------------------------- sports */
 
 /*
- * The bridge groups Strava's ~50 sport types into families (ride, run, walk,
+ * strava-api/shape.mjs groups Strava's ~50 sport types into families (ride, run, walk,
  * hike, swim, lift, climbing, mobility, ski, water, sport, other) and puts the
  * family on every activity. This maps a family onto the *Other training* card's
  * `activity` choice — plan.json's vocabulary, so a value here must be one of its
@@ -102,7 +101,7 @@ export function familyMatches(session, out, activity) {
 
 /* ---------------------------------------------------------------- windows */
 
-/** The clock window an activity occupied. `end` is start + elapsed, from the bridge. */
+/** The clock window an activity occupied. `end` is start + elapsed, from strava-api. */
 export function activityWindow(a) {
   const start = ms(a?.start)
   if (start === null) return null
@@ -405,7 +404,7 @@ export function weekOf(dateStr) {
 
 /**
  * Weekly totals by family over a cache — what a coach reads to know whether the
- * legs are tired. Distance-weighted average speed, like the bridge's roll-up.
+ * legs are tired. Distance-weighted average speed, like strava-api's `mileage()`.
  */
 export function weeklyTotals(activities = [], { weeks = 4, until = null } = {}) {
   const buckets = new Map()
