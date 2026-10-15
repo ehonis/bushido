@@ -127,7 +127,7 @@ file that differs from a fresh install in exactly two ways:
 It logs what it did. Nothing in the training log changes.
 
 **3. Turn back on what you used.** Everything else starts off, exactly as on a fresh
-install: the Totem bridge (and with it WHOOP, Strava, goals and the habit sync), the
+install: the Totem bridge (goals and the habit sync), the Strava and WHOOP apps, the
 notification core, the athlete profile file, the food-log digest, the timezone and
 *About you*. Set the ones you had in Settings, or write them into `data/settings.json`
 before the first start; a `settings.json` that already exists is never migrated or

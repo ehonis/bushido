@@ -438,7 +438,7 @@ export function SettingsSection({ status, lastSync, strava, onPullStrava, pullin
         </View>
       </PopCard>
 
-      {/* The owner's Strava, through the owner's bridge: not someone else's to refresh. */}
+      {/* The owner's Strava. Connecting is done in the web app, Profile → Settings. */}
       {who.owner && (
         <PopCard>
           <H2>Strava</H2>
@@ -446,8 +446,8 @@ export function SettingsSection({ status, lastSync, strava, onPullStrava, pullin
             {strava?.athlete
               ? `Connected as ${strava.athlete.name}. Your name, picture, bikes and shoes come from here.`
               : strava?.configured === false
-                ? 'Not connected. Strava is read through a Totem bridge; set one up in Settings → Integrations.'
-                : 'Not connected. Connect it in Totem — the credentials live there, never in this app.'}
+                ? 'Not connected. Connect it from Profile → Settings in the web app.'
+                : 'Connected. Refresh to load your name, picture, bikes and shoes.'}
           </T>
           <RestBtn icon="RotateCw" label={pulling ? 'Refreshing…' : 'Refresh now'} disabled={pulling}
             onPress={() => onPullStrava?.()} />

@@ -292,7 +292,7 @@ export function WhoopWorkouts({ session, entry, entries, onSave }: { session: an
   // session still is — the "attach here as well" route.
   const offers = ranked.filter(c => !attachedIdsHere.has(c.workout.id))
 
-  // No bridge on this install: nothing to pull and nothing to offer.
+  // WHOOP not connected: nothing to pull and nothing to offer.
   if (cache?.configured === false && !attachedList.length) return null
 
   return (
@@ -303,7 +303,7 @@ export function WhoopWorkouts({ session, entry, entries, onSave }: { session: an
         <PullBtn pulling={pulling} onPress={pull} />
       </View>
 
-      {/* The fix, not the symptom — the bridge names the missing scope verbatim. */}
+      {/* The fix, not the symptom — the WHOOP client names the missing scope verbatim. */}
       {error ? <T size={12} color={colors.vizWarn} style={wh.err}>{error}</T> : null}
       {!error && status?.ok === false ? <T size={12} color={colors.vizWarn} style={wh.err}>{status.detail}</T> : null}
 
@@ -679,7 +679,7 @@ const TICK = { fill: colors.vizMuted, fontSize: 10 } as any
  * into stages, with its length above it. A score and a clock time are different
  * units, so they get different panels rather than two y-scales in one frame.
  *
- * Nothing here is logged by hand: the bridge fills sleep from WHOOP each morning.
+ * Nothing here is logged by hand: the WHOOP pull fills sleep in each morning.
  * Renders nothing when there are no nights at all.
  *
  * Native: press and drag across either panel to scrub night by night (a

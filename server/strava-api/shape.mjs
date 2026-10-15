@@ -30,7 +30,6 @@ export const mpsToMph = (v, dp = 1) => (num(v) === null ? null : num((num(v) * 3
 export const mpsToKph = (v, dp = 1) => (num(v) === null ? null : num(num(v) * 3.6, dp))
 export const secToMin = (s, dp = 0) => (num(s) === null ? null : num(num(s) / 60, dp))
 export const kgToLb = (kg, dp = 1) => (num(kg) === null ? null : num(num(kg) * 2.20462, dp))
-export const lbToKg = (lb, dp = 2) => (num(lb) === null ? null : num(num(lb) / 2.20462, dp))
 export const cToF = (c, dp = 0) => (num(c) === null ? null : num((num(c) * 9) / 5 + 32, dp))
 
 /** "8:04" per mile from metres and moving seconds. Null when either is missing or zero. */
