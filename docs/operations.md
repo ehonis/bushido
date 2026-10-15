@@ -26,6 +26,8 @@ bushido/
   data/coach/           the AI coach's conversations, one file each
   data/whoop.json       WHOOP cache: workouts + daily recovery (disposable)
   data/strava.json      Strava cache: recent rides/runs/walks + gear (disposable)
+  data/strava-oauth.json        the owner's Strava grant (0600; Bushido is its only holder)
+  data/strava-activities.json   the owner's full activity mirror, which Totem's goals read
 ```
 
 `BUSHIDO_DATA_DIR` moves everything under `data/`; the Docker image puts it at `/data`.
@@ -155,12 +157,13 @@ under its own key, and every API call from the app says whose log it holds
 merged into another's.
 
 For anyone but the owner: Settings are refused; WHOOP, linked goals, habit sync and
-notifications are off, because they hold the owner's accounts. Strava is off until they
-connect their own account (profile → Settings → *Connect Strava*), which needs a Strava API
-app in Settings → *Strava for other people*. A new Strava app accepts only its creator until
-it is raised to ten athletes at strava.com/settings/api, and its Authorization Callback Domain
-must cover the host people open Bushido on. Their grant is `data/users/<id>/strava-oauth.json`
-and their cache `data/users/<id>/strava.json`; the plan is their own
+notifications are off, because they hold the owner's accounts. Strava is everyone's own:
+each person, the owner included, connects their account in profile → Settings → *Connect
+Strava*, which needs a Strava API app in Settings → *Strava*. A new Strava app accepts only
+its creator until it is raised to ten athletes at strava.com/settings/api, and its
+Authorization Callback Domain must cover the host people open Bushido on. A person's grant is
+`strava-oauth.json` and their cache `strava.json`, in their space (the data dir for the owner,
+`data/users/<id>/` for anyone else); the plan is their own
 `data/users/<id>/plan.json` if one was imported while acting as them, else the starter.
 Removing someone in Settings stops them getting in and leaves their folder on disk.
 
@@ -234,7 +237,8 @@ only (`403`), not while acting as someone else (`409 acting`), never the owner's
 | `GET /api/whoop` · `POST /api/whoop/pull` | the WHOOP cache, and a refetch through the bridge (`configured: false` without one) |
 | `GET /api/strava` · `POST /api/strava/pull` | the Strava cache (activities, gear, athlete), and a refetch |
 | `GET /api/strava/activity?id=` | one activity in full (laps, splits, calories) — fetched when you attach it |
-| `POST /api/strava/connect` · `GET /strava/callback` · `POST /api/strava/disconnect` | anyone but the owner connects or drops their own Strava (`409` for the owner and while acting) |
+| `POST /api/strava/connect` · `GET /strava/callback` · `POST /api/strava/disconnect` | connect or drop your own Strava (`409` while acting as someone) |
+| `POST /api/strava/owner` | `{ method, args }` on the owner's Strava client: how Totem reads Strava (owner only) |
 | `GET /api/goals` · `POST /api/goals/pull` | Totem goals linked to this app |
 | `/api/push/*` | push subscriptions, when a notify core is configured |
 | `GET /api/state` | `{ version, updatedAt, state }` |
@@ -300,7 +304,7 @@ and outbox for that case.
 
 Optional, and off unless a Totem bridge is configured (Settings → Integrations, or
 `BUSHIDO_TOTEM_URL`). Totem is a separate personal-assistant app; its bridge holds the
-WHOOP and Strava grants and a habits API. Logging a daily session pushes it there so the
+WHOOP grant and a habits API, and it reads the owner's Strava from Bushido. Logging a daily session pushes it there so the
 streak shows up too:
 
 ```

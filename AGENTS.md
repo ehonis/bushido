@@ -229,7 +229,8 @@ Stored in `data/settings.json` (0600). Sections:
 | AI | Claude Code CLI path, optional API key (passed to the CLI as `ANTHROPIC_API_KEY`), model, and a **Test** button (`POST /api/settings/ai/test`). |
 | About you | Name and free-text notes given to every AI prompt. |
 | Training plan | Download; import a file; use the example; back to the starter. Replacing `data/plan.json` copies the old one to `data/backups/plans/` (never rotated) first. The log is never touched. |
-| Integrations | Totem bridge URL, secret or `.env` file to read `BRIDGE_SECRET` from, habit id, and toggles for WHOOP, Strava, linked goals and habit sync. |
+| Integrations | Totem bridge URL, secret or `.env` file to read `BRIDGE_SECRET` from, habit id, and toggles for WHOOP, linked goals and habit sync. |
+| Strava | The Strava API app's client ID, secret and optional redirect URI. Everyone connects their own account in the app. |
 | Other local services | Notify core directory, athlete-profile (brain) file, nutrition digest directory, timezone. |
 
 Secrets (`ai.apiKey`, `totem.secret`) are never sent to the browser; they are masked, and
@@ -249,13 +250,16 @@ a masked value posted back is ignored.
   `bushido:cache-v1`); every API call carries `X-Bushido-User` and the server refuses a
   mismatch with `409 switched`. All four are load-bearing.
 - **Integrations are the owner's; the AI is everyone's.** `featuresFor(space)` turns WHOOP,
-  Strava, goals, habit sync and notifications off for anyone else (they are the owner's
-  grants), which must render exactly like an install that never set them up. The one
-  exception is Strava: once Settings has a Strava API app (`config.strava()`), anyone else
-  connects their OWN account (`/api/strava/connect`, `/strava/callback`), and the grant and
-  cache live in their space (`strava-oauth.json`, `strava.json`). The client is a copy of
-  Totem's (`server/strava-api/`, copy it again rather than editing it here), and it is
-  refused for the owner (his Strava is the bridge's) and while acting as someone. Habit sync and
+  goals, habit sync and notifications off for anyone else (they are the owner's grants),
+  which must render exactly like an install that never set them up.
+- **Strava is everyone's own, and Bushido holds it, the owner's included.** Once Settings
+  has a Strava API app (`config.strava()`), each person connects their OWN account
+  (`/api/strava/connect`, `/strava/callback`; refused while acting as someone), and the
+  grant and cache live in their space (`strava-oauth.json`, `strava.json`). The client is
+  `server/strava-api/`. The owner's client also keeps the full activity mirror
+  (`strava-activities.json`) and is the only place Totem gets Strava from:
+  `POST /api/strava/owner` runs one of `STRAVA_OWNER_METHODS` on it for Totem's goals, agent
+  tools and CLI. Never give Totem a grant of its own again; one holder per account. Habit sync and
   the "logged" push run only for the owner's writes. `ai` is on for everyone once a CLI is
   configured, and every run is built from ONE person's space (`aiRun(space)` in server.js;
   §7 says what a non-owner's run can read). Without a CLI only the owner sees AI at all.
@@ -353,8 +357,8 @@ assume which plan an install runs on; code must work against the starter.
 ### Defaults off
 
 A **fresh install** (no `data/state.json`) gets: sign-in on; no AI unless a `claude` CLI
-is found (`CLAUDE_BIN`, `~/.local/bin/claude`, then `PATH`); no bridge, so WHOOP, Strava
-and linked goals are hidden and habit sync is off; no notify core and therefore **no
+is found (`CLAUDE_BIN`, `~/.local/bin/claude`, then `PATH`); no bridge, so WHOOP
+and linked goals are hidden; no Strava app, so Strava is hidden and habit sync is off; no notify core and therefore **no
 timers at all**; no brain file; no nutrition digest; starter content. AI routes answer
 `503` with `code: "ai-not-configured"` and the UI says to set AI up; nothing else is
 affected.

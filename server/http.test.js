@@ -612,6 +612,7 @@ const cookieFrom = (res) => (res.headers.get('set-cookie') || '').split(';')[0]
       BUSHIDO_ACCESS_CERTS_URL: `http://127.0.0.1:${certs.address().port}/certs`,
       STRAVA_API_ORIGIN: `http://127.0.0.1:${fakeStrava.address().port}`,
       BUSHIDO_STRAVA_CLIENT_ID: '4242', BUSHIDO_STRAVA_CLIENT_SECRET: 'strava-secret-for-tests',
+      BUSHIDO_API_TOKEN: TOKEN,
     },
     seed: {
       'settings.json': JSON.stringify({ version: 1, install: 'fresh', auth: { mode: 'proxy' } }),
@@ -647,13 +648,28 @@ const cookieFrom = (res) => (res.headers.get('set-cookie') || '').split(';')[0]
     eq((await get(`${sv.base}/strava/callback?state=forged&code=c`, as('sam@example.com'))).status, 400)
   })
 
-  await step('own Strava: never for the owner, and not while acting as someone', async () => {
-    const owner = await get(`${sv.base}/api/strava/connect`, { method: 'POST', headers: { ...json, ...as('alex@example.com').headers }, body: '{}' })
-    eq(owner.status, 409)
+  await step('own Strava: the owner connects his own too; nobody connects while acting as someone', async () => {
     const acting = await get(`${sv.base}/api/strava/connect`, { method: 'POST', headers: { ...json, ...as('alex@example.com', { cookie: 'bushido_as=sam' }).headers }, body: '{}' })
     eq(acting.status, 409)
+    const start = await (await get(`${sv.base}/api/strava/connect`, { method: 'POST', headers: { ...json, ...as('alex@example.com').headers }, body: '{}' })).json()
+    const state = new URL(start.authUrl).searchParams.get('state')
+    ok(/activity:write/.test(new URL(start.authUrl).searchParams.get('scope')), 'the owner was not asked for the writes Totem\'s agents use')
+    eq((await get(`${sv.base}/strava/callback?state=${state}&code=c&scope=read,activity:read_all,profile:read_all,activity:write,profile:write,read_all`, as('alex@example.com'))).status, 303)
+    ok(fs.existsSync(path.join(sv.dataDir, 'strava-oauth.json')), 'the owner\'s grant is not in the data dir')
     const me = await (await get(`${sv.base}/api/auth/me`, as('alex@example.com'))).json()
-    eq(me.features.stravaConnect, false)
+    eq([me.features.strava, me.features.stravaConnect], [true, true])
+    eq((await (await get(`${sv.base}/api/strava`, as('alex@example.com'))).json()).activities.map(a => a.id), [99])
+  })
+
+  await step('own Strava: Totem calls the owner\'s client with the API token, and nobody else\'s', async () => {
+    const call = (body, headers = { authorization: `Bearer ${TOKEN}` }) => get(`${sv.base}/api/strava/owner`, { method: 'POST', headers: { ...json, ...headers }, body: JSON.stringify(body) })
+    const status = await (await call({ method: 'status' })).json()
+    eq([status.result.connected, status.result.state], [true, 'ready'])
+    const list = await (await call({ method: 'activities', args: [{ days: 7 }] })).json()
+    eq(list.result.activities.map(a => a.id), [99])
+    eq((await call({ method: 'startAuth' })).status, 400, 'connecting is not Totem\'s to do')
+    eq((await call({ method: 'status' }, as('sam@example.com').headers)).status, 403)
+    eq((await call({ method: 'status' }, as('alex@example.com', { cookie: 'bushido_as=sam' }).headers)).status, 403)
   })
 
   await step('own Strava: disconnecting forgets the grant and the cache', async () => {

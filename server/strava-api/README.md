@@ -1,13 +1,11 @@
 # strava-api
 
-A copy of Totem's Strava connector (`strava/client.mjs`, `shape.mjs`, `cache.mjs` in the
-Totem repo, taken at Totem commit `12fd258`). Bushido uses it only for people other than
-the owner: each one connects their own Strava account, and `server.js` keeps one client
-per person, with its tokens in `data/users/<id>/strava-oauth.json`.
+Bushido's Strava connector: OAuth, the Strava v3 API, and the owner's full activity mirror.
+It started as Totem's `strava/` and moved here when Bushido became the only holder of
+Strava grants (2026-10-14). `server.js` keeps one client per person, with their tokens in
+`strava-oauth.json` in their space.
 
-The owner's Strava still comes through the Totem bridge. `training()` and `activity()`
-here return what the bridge's `/api/strava/training` and `/api/strava/activity` return,
-so both paths fill the same cache and snapshots.
-
-Don't edit these files here. Change them in Totem and copy them over again, so the two
-don't drift apart.
+Totem reads the owner's Strava through `POST /api/strava/owner`, which runs a method of the
+owner's client and returns what it returns. Totem still keeps its own copies of
+`shape.mjs` and `cache.mjs`, because its goals do arithmetic over the mirror that call
+returns. Change those two in both places together.

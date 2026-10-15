@@ -17,7 +17,7 @@ Thursday shouldn't cost the session, only move it.
 > **A personal project.** Bushido was built for one user and is used daily by one user.
 > It is single-owner by design (one account per install), and the full climbing and
 > triathlon programme it was built around lives on as the test fixture. The AI prompts carry no personal details: they use the name and notes you
-> enter in Settings. WHOOP and Strava are
+> enter in Settings. Strava connects directly; WHOOP is
 > read through a separate bridge service that is not part of this repository (see
 > [Integrations](#integrations)). It is published as a working example rather than a
 > supported product.
@@ -79,7 +79,7 @@ server/server.js  ── Node 22, no npm dependencies ────────�
         │                │                  │                             │
         ▼                ▼                  ▼                             ▼
   data/state.json   content/*.json   claude CLI (headless)        Totem bridge (optional)
-  + 60 backups      catalog, quotas  coach and planners,          WHOOP, Strava, goals,
+  + 60 backups      catalog, quotas  coach and planners,          WHOOP, goals,
                     sessions         structured output,           habit sync
                                      tool allow/deny lists
 ```
@@ -165,14 +165,17 @@ built-in sign-in.
 | | how | default |
 |---|---|---|
 | AI coach, workout and week planners | Claude Code CLI, spawned headless | on if a CLI is found |
-| WHOOP, Strava, linked goals, habit sync | through a **Totem bridge**, a separate HTTP service that holds the OAuth grants | off |
+| Strava | connected directly: everyone on the install connects their own account through a Strava API app set in Settings | off |
+| WHOOP, linked goals, habit sync | through a **Totem bridge**, a separate HTTP service that holds the WHOOP grant | off |
 | Push notifications | a notification core loaded by path | off |
 | Athlete profile, food-log digest | files the AI may read | off |
 
-Bushido stores no WHOOP or Strava credentials and has no direct OAuth connection to
-either. Both are read from a bridge that exposes `/api/whoop/training` and
-`/api/strava/training`. Totem, the author's personal-assistant app, is that bridge, and it
-is not in this repository. Without a bridge the WHOOP and Strava panels stay hidden.
+Strava is Bushido's own: create an API app at strava.com/settings/api, enter its client
+ID and secret in Settings → Strava, and each person connects from profile → Settings in the
+app. A new Strava app accepts only its creator until it is raised to ten athletes on that
+page. WHOOP is read from a bridge that exposes `/api/whoop/training`. Totem, the author's
+personal-assistant app, is that bridge (and reads the owner's Strava back from Bushido);
+it is not in this repository. Without a bridge the WHOOP panels stay hidden.
 
 ## Development
 
