@@ -107,7 +107,7 @@ function denyReads({ repoRoot, dataDir }) {
  * are denied by path too, so a model that guesses where they live still cannot
  * read them. Claude Code applies Read rules to Grep and Glob as well.
  */
-const OWNER_FILES = ['state.json*', 'coach.json*', 'plan.json*', 'whoop.json*', 'strava.json*', 'goals.json*',
+const OWNER_FILES = ['state.json*', 'coach.json*', 'plan.json*', 'whoop.json*', 'whoop-oauth.json*', 'strava.json*', 'goals.json*',
   'users.json*', 'about.json*']
 const OWNER_DIRS = ['coach', 'backups', 'users']
 

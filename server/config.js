@@ -42,9 +42,11 @@ const blank = () => ({
   athlete: { name: '', notes: '' },
   ai: { provider: 'claude-cli', bin: '', apiKey: '', model: '' },
   plan: { file: '' },
-  totem: { url: '', secret: '', envFile: '', habit: '', habitSync: true, whoop: true, goals: true },
+  totem: { url: '', secret: '', envFile: '', habit: '', habitSync: true, goals: true },
   /* The Strava API app everyone connects their own account through. */
   strava: { clientId: '', clientSecret: '', redirectUri: '' },
+  /* The WHOOP developer app the owner's WHOOP is connected through. */
+  whoop: { clientId: '', clientSecret: '', redirectUri: '' },
   links: { notifyCore: '', brainFile: '', krakatoaDir: '' },
   notifications: { tz: '' },
 })
@@ -59,7 +61,7 @@ const blank = () => ({
 const FILE_ONLY = [['ai', 'bin'], ['totem', 'envFile'], ['links', 'notifyCore'], ['links', 'brainFile'], ['links', 'krakatoaDir']]
 
 /* Settings keys that hold secrets: never sent to a browser, shown masked. */
-const SECRET_KEYS = [['ai', 'apiKey'], ['totem', 'secret'], ['strava', 'clientSecret']]
+const SECRET_KEYS = [['ai', 'apiKey'], ['totem', 'secret'], ['strava', 'clientSecret'], ['whoop', 'clientSecret']]
 
 function writePrivate(file, doc) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -134,6 +136,7 @@ function createConfig({ root, dataDir, env = process.env }) {
         plan: { ...b.plan, ...(raw.plan || {}) },
         totem: { ...b.totem, ...(raw.totem || {}) },
         strava: { ...b.strava, ...(raw.strava || {}) },
+        whoop: { ...b.whoop, ...(raw.whoop || {}) },
         links: { ...b.links, ...(raw.links || {}) },
         notifications: { ...b.notifications, ...(raw.notifications || {}) },
       }
@@ -150,7 +153,7 @@ function createConfig({ root, dataDir, env = process.env }) {
   function update(patch) {
     const cur = read()
     const next = structuredClone(cur)
-    for (const section of ['athlete', 'ai', 'totem', 'strava', 'links', 'notifications']) {
+    for (const section of ['athlete', 'ai', 'totem', 'strava', 'whoop', 'links', 'notifications']) {
       const p = patch?.[section]
       if (!p || typeof p !== 'object') continue
       for (const [k, v] of Object.entries(p)) {
@@ -261,7 +264,6 @@ function createConfig({ root, dataDir, env = process.env }) {
       secret,
       secretSource,
       habitSync: enabled && s.habitSync !== false,
-      whoop: enabled && s.whoop !== false,
       goals: enabled && s.goals !== false,
     }
   }
@@ -280,6 +282,30 @@ function createConfig({ root, dataDir, env = process.env }) {
     const redirectUri = src('BUSHIDO_STRAVA_REDIRECT_URI', s.redirectUri, null)
     const secretSource = has('BUSHIDO_STRAVA_CLIENT_SECRET') ? 'env BUSHIDO_STRAVA_CLIENT_SECRET' : s.clientSecret ? 'settings' : 'off'
     const clientSecret = () => (has('BUSHIDO_STRAVA_CLIENT_SECRET') ? env.BUSHIDO_STRAVA_CLIENT_SECRET : s.clientSecret || '')
+    return {
+      clientId: clientId.value ? String(clientId.value).trim() : '',
+      clientIdSource: clientId.source,
+      clientSecret,
+      secretSource,
+      redirectUri: redirectUri.value ? String(redirectUri.value).trim() : '',
+      redirectUriSource: redirectUri.source,
+      configured: Boolean(clientId.value && clientSecret()),
+    }
+  }
+
+  /* ------------------------------------------------------------- whoop */
+
+  /*
+   * The WHOOP developer app the owner's WHOOP is connected through (see the
+   * WHOOP block in server.js). Owner only: WHOOP's refresh token rotates, so
+   * this install holds one grant and Totem and Krakatoa read through it.
+   */
+  function whoop() {
+    const s = read().whoop
+    const clientId = src('BUSHIDO_WHOOP_CLIENT_ID', s.clientId, null)
+    const redirectUri = src('BUSHIDO_WHOOP_REDIRECT_URI', s.redirectUri, null)
+    const secretSource = has('BUSHIDO_WHOOP_CLIENT_SECRET') ? 'env BUSHIDO_WHOOP_CLIENT_SECRET' : s.clientSecret ? 'settings' : 'off'
+    const clientSecret = () => (has('BUSHIDO_WHOOP_CLIENT_SECRET') ? env.BUSHIDO_WHOOP_CLIENT_SECRET : s.clientSecret || '')
     return {
       clientId: clientId.value ? String(clientId.value).trim() : '',
       clientIdSource: clientId.source,
@@ -375,7 +401,7 @@ function createConfig({ root, dataDir, env = process.env }) {
     return out
   }
 
-  return { file, migrate, read, update, clearPlanFile, ai, totem, strava, links, tz, planFile, athlete, access, authMode, publicView, root, dataDir }
+  return { file, migrate, read, update, clearPlanFile, ai, totem, strava, whoop, links, tz, planFile, athlete, access, authMode, publicView, root, dataDir }
 }
 
 module.exports = { createConfig, LEGACY, DEFAULT_MODEL, FILE_ONLY }
