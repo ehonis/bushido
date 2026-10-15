@@ -195,8 +195,7 @@ Climbing workouts are never offered here, for the reason above.
 Today's side column has a **Last night** card under *How you arrived*: time asleep
 against what WHOOP says you needed, the sleep score, efficiency and debt, bedtime and
 wake, the stage split, and a two-week strip of hours asleep. Nothing is logged by hand.
-The Totem bridge fills sleep from WHOOP each morning and hands the nights over as
-`sleep[]` in the same `/api/whoop/training` pull as recovery (`sleepFor` and
+The nights come from WHOOP as `sleep[]` in the same pull as recovery (`sleepFor` and
 `sleepNights` in `server/whoop.js`). Nights are filed under the morning woken into, the
 same calendar as recovery. The coach reads them too (`whoopDigest`). A morning with no
 scored night shows no card.

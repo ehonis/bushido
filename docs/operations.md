@@ -234,7 +234,9 @@ Signed out, `/api/*` answers `401` with `X-Bushido-Auth: login` and pages redire
 
 `for` (a person's id) is the owner planning for someone else: the run uses their space. Owner
 only (`403`), not while acting as someone else (`409 acting`), never the owner's own id.
-| `GET /api/whoop` · `POST /api/whoop/pull` | the WHOOP cache, and a refetch through the bridge (`configured: false` without one) |
+| `GET /api/whoop` · `POST /api/whoop/pull` | the WHOOP cache, and a refetch (`configured: false` until the owner connects WHOOP) |
+| `POST /api/whoop/connect` · `GET /whoop/callback` · `POST /api/whoop/disconnect` | connect or drop the owner's WHOOP (owner only; `409` while acting as someone) |
+| `POST /api/whoop/owner` | `{ method, args }` on the owner's WHOOP client (`status`, `training`, `sleepNights`): how Totem and Krakatoa read WHOOP (owner only) |
 | `GET /api/strava` · `POST /api/strava/pull` | the Strava cache (activities, gear, athlete), and a refetch |
 | `GET /api/strava/activity?id=` | one activity in full (laps, splits, calories) — fetched when you attach it |
 | `POST /api/strava/connect` · `GET /strava/callback` · `POST /api/strava/disconnect` | connect or drop your own Strava (`409` while acting as someone) |
@@ -303,8 +305,8 @@ and outbox for that case.
 ## Totem habit sync
 
 Optional, and off unless a Totem bridge is configured (Settings → Integrations, or
-`BUSHIDO_TOTEM_URL`). Totem is a separate personal-assistant app; its bridge holds the
-WHOOP grant and a habits API, and it reads the owner's Strava from Bushido. Logging a daily session pushes it there so the
+`BUSHIDO_TOTEM_URL`). Totem is a separate personal-assistant app; its bridge has a habits
+API, and it reads the owner's Strava and WHOOP from Bushido. Logging a daily session pushes it there so the
 streak shows up too:
 
 ```

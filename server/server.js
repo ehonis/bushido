@@ -20,6 +20,9 @@
  *   POST /api/strava/connect  connect your own Strava; GET /strava/callback finishes it,
  *                             POST /api/strava/disconnect ends it
  *   POST /api/strava/owner    { method, args } on the owner's Strava client, for Totem
+ *   POST /api/whoop/connect   connect the owner's WHOOP; GET /whoop/callback finishes it,
+ *                             POST /api/whoop/disconnect ends it
+ *   POST /api/whoop/owner     { method, args } on the owner's WHOOP client, for Totem and Krakatoa
  *   GET  /api/goals           Totem goals linked to this app (when the bridge is configured)
  *   GET  /api/coach/threads   the AI coach's conversations; POST /api/coach/chat for a turn
  *   POST /api/plan/workout    { kinds, minutes, goal } -> a prescription, stored nowhere
@@ -140,12 +143,11 @@ function spaceFor(user) {
 const OWNER_SPACE = spaceFor({ id: OWNER })
 
 /*
- * What a person's app may offer. Integrations hold the owner's accounts (the
- * bridge's WHOOP and Strava grants, Totem goals and habits, the push identity,
- * the brain file), so for anyone else they are off, which renders exactly as
- * an install that never set them up. Strava is the exception: it is not the
- * bridge's, and everyone connects their own account here once Settings has a
- * Strava API app.
+ * What a person's app may offer. Integrations hold the owner's accounts (WHOOP,
+ * Totem goals and habits, the push identity, the brain file), so for anyone
+ * else they are off, which renders exactly as an install that never set them
+ * up. Strava is the exception: everyone connects their own account here once
+ * Settings has a Strava API app.
  *
  * AI is everyone's once a CLI is configured: each run is built from the person's
  * own space, About you and plan (`aiRun`), and a run for anyone but the owner is
@@ -158,7 +160,9 @@ function featuresFor(space) {
   const own = space.owner
   return {
     ai: own || config.ai().installed,
-    whoop: own && t.whoop,
+    // The owner's grant, held here (whoopLinked); and a WHOOP app to connect it through.
+    whoop: own && whoopLinked(),
+    whoopConnect: own && config.whoop().configured,
     // Everyone's own grant, held here (stravaLinked); the owner's too.
     strava: stravaLinked(space),
     // There is a Strava app to connect through.
@@ -637,26 +641,25 @@ async function syncHabitDay(dateIso, state) {
 // ------------------------------------------------------------------- whoop
 
 /*
- * WHOOP workouts and daily recovery, through the Totem bridge.
+ * The owner's WHOOP: workouts, daily recovery and sleep.
  *
- * Bushido holds no WHOOP credentials. WHOOP rotates its refresh token on every
- * refresh and invalidates the old pair, so exactly one process may hold it, and
- * that is the bridge — which has held it since the sleep sync was built. Giving
- * Bushido its own copy would mean two grants for one member and one of them dying
- * quietly. So this is a read through the bridge with the secret we already read
- * for the habit push. See server/whoop.js for what is cached versus what is their.
+ * The grant is held here (since 2026-10-14; before that, by the Totem bridge).
+ * WHOOP rotates its refresh token on every refresh and voids the old pair, so
+ * exactly one process may hold it, and within it one refresh may run at a time
+ * (server/whoop-api/client.mjs). Totem's sleep habit and Krakatoa's calorie
+ * burn read through this one client (`POST /api/whoop/owner`), never their own.
+ * Owner only: the WHOOP app in Settings is the owner's.
  *
- * Everything here is best-effort. A WHOOP outage, a revoked grant, a bridge that
- * is down: all of them leave the cache exactly as it was and none of them may
- * fail a request the app needs to load. The training log is the thing that
- * matters, and it does not need WHOOP to work.
+ * Everything here is best-effort. A WHOOP outage or a revoked grant leaves the
+ * cache exactly as it was and none of them may fail a request the app needs to
+ * load. See server/whoop.js for what is cached versus what is theirs.
  */
 
 const WHOOP_DAYS = Number(process.env.BUSHIDO_WHOOP_DAYS || 21)
 /*
- * The most the bridge answers in one pull. A cache that has never had a long pull
- * gets one, once, so the sleep graph opens on two months rather than three weeks;
- * after that the ordinary pulls extend it (see mergeDaily in server/whoop.js).
+ * The most one pull fetches. A cache that has never had a long pull gets one,
+ * once, so the sleep graph opens on two months rather than three weeks; after
+ * that the ordinary pulls extend it (see mergeDaily in server/whoop.js).
  */
 const WHOOP_BACKFILL_DAYS = 60
 // How stale the cache may be before opening the app refreshes it. Ten minutes is
@@ -664,9 +667,33 @@ const WHOOP_BACKFILL_DAYS = 60
 // the band usually has not synced by the time the user leaves the gym anyway — which is
 // what the Pull button is for.
 const WHOOP_TTL_MS = Number(process.env.BUSHIDO_WHOOP_TTL_MS || 10 * 60 * 1000)
+const WHOOP_TOKENS_FILE = path.join(DATA_DIR, 'whoop-oauth.json')
 
 let whoopState = { at: null, ok: null, detail: 'no pull attempted yet' }
 let whoopInFlight = null
+let whoopClient = null
+const whoopHolder = { redirectUri: '' }
+
+function whoopClientOf() {
+  if (!whoopClient) {
+    const { createWhoopClient } = require('./whoop-api/client.mjs')
+    const app = () => config.whoop()
+    whoopClient = createWhoopClient({
+      clientId: () => app().clientId,
+      clientSecret: () => app().clientSecret(),
+      redirectUri: () => app().redirectUri || whoopHolder.redirectUri,
+      tokensFile: WHOOP_TOKENS_FILE,
+      log: (m) => console.error(`[whoop] ${m}`),
+    })
+  }
+  return whoopClient
+}
+
+/** Whether the owner's grant is on disk. Sync: featuresFor runs on every request. */
+function whoopLinked() {
+  if (!config.whoop().configured) return false
+  return Boolean(readJson(WHOOP_TOKENS_FILE, null)?.refresh_token)
+}
 
 function readWhoopCache() {
   try {
@@ -684,41 +711,20 @@ async function writeWhoopCache(doc) {
 }
 
 /**
- * Pull from the bridge and replace the cache.
+ * Pull from WHOOP and replace the cache.
  *
  * Serialised through `whoopInFlight`: opening the app on a phone and a laptop at
  * once would otherwise start two pulls and have them race to rename the same
  * file. The second caller waits on the first's result rather than starting again.
  */
 function pullWhoop({ days = WHOOP_DAYS } = {}) {
-  if (!config.totem().whoop) return Promise.resolve({ ok: false, error: NOT_CONFIGURED })
+  if (!whoopLinked()) return Promise.resolve({ ok: false, error: 'WHOOP is not connected: connect it in profile → Settings' })
   if (whoopInFlight) return whoopInFlight
-  const TOTEM_URL = totemUrl()
   const prev = readWhoopCache()
   if (!prev?.backfilledAt) days = Math.max(days, WHOOP_BACKFILL_DAYS)
   whoopInFlight = (async () => {
-    const secret = totemSecret()
-    if (!secret) {
-      whoopState = { at: new Date().toISOString(), ok: false, detail: 'no BRIDGE_SECRET found' }
-      return { ok: false, error: whoopState.detail }
-    }
     try {
-      const url = `${TOTEM_URL}/api/whoop/training?days=${encodeURIComponent(days)}`
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${secret}` },
-        // Four WHOOP collections, paginated. Generous, but bounded — the app never
-        // waits on this, so a slow pull costs nothing but a stale card.
-        signal: AbortSignal.timeout(25000),
-      })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        // The bridge puts the FIX in the message — "reconnect WHOOP to grant the
-        // scope" — so it is carried through verbatim rather than flattened to a
-        // status code the card cannot act on.
-        const detail = body?.error || `HTTP ${res.status}`
-        whoopState = { at: new Date().toISOString(), ok: false, detail }
-        return { ok: false, error: detail }
-      }
+      const body = await whoopClientOf().training({ days })
       const today = new Date().toISOString().slice(0, 10)
       const sleep = Array.isArray(body.sleep) ? body.sleep : []
       const doc = {
@@ -728,10 +734,8 @@ function pullWhoop({ days = WHOOP_DAYS } = {}) {
         workouts: Array.isArray(body.workouts) ? body.workouts : [],
         // Laid over what was cached, so the sleep graph can look back further than one pull.
         recovery: mergeDaily(prev?.recovery, Array.isArray(body.recovery) ? body.recovery : [], { today }),
-        // Absent from a bridge older than 2026-10-07; the sleep card just stays away.
         sleep: mergeDaily(prev?.sleep, sleep, { today }),
-        // Only once a long pull actually brought nights back: an old bridge with no
-        // sleep[] gets the long pull again when it learns to send them.
+        // Only once a long pull actually brought nights back.
         backfilledAt: prev?.backfilledAt || (days >= WHOOP_BACKFILL_DAYS && sleep.length ? new Date().toISOString() : null),
       }
       await writeWhoopCache(doc)
@@ -742,6 +746,8 @@ function pullWhoop({ days = WHOOP_DAYS } = {}) {
       }
       return { ok: true, ...doc }
     } catch (err) {
+      // The client puts the FIX in the message ("reconnect WHOOP in Bushido to
+      // grant the scope"), so it is carried through verbatim.
       whoopState = { at: new Date().toISOString(), ok: false, detail: err.message }
       return { ok: false, error: err.message }
     }
@@ -757,11 +763,26 @@ function pullWhoop({ days = WHOOP_DAYS } = {}) {
  * Pull button exists for the case where the user wants it this second.
  */
 function refreshWhoopIfStale() {
-  if (!config.totem().whoop) return
+  if (!whoopLinked()) return
   const cache = readWhoopCache()
   const age = cache?.fetchedAt ? Date.now() - Date.parse(cache.fetchedAt) : Infinity
   if (!(age > WHOOP_TTL_MS)) return
   pullWhoop().catch(() => {}) // logged in whoopState; never thrown at a request
+}
+
+/*
+ * What Totem and Krakatoa may call on the owner's client (`POST /api/whoop/owner`):
+ * Totem's Connections row reads `status`, its sleep habit `sleepNights`, and
+ * Krakatoa's calorie burn `training`. Connecting is not on the list.
+ */
+const WHOOP_OWNER_METHODS = new Set(['status', 'training', 'sleepNights'])
+
+/* Where WHOOP sends the owner back to; the WHOOP app must list this exact URL. */
+function whoopRedirectFor(req) {
+  if (PUBLIC_URL) return `${PUBLIC_URL}/whoop/callback`
+  const proto = String(req.headers['x-forwarded-proto'] || (isHttps(req) ? 'https' : 'http')).split(',')[0].trim()
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim()
+  return `${proto}://${host}/whoop/callback`
 }
 
 // ------------------------------------------------------------------ strava
@@ -1460,11 +1481,15 @@ async function settingsView(who, ctx) {
       },
       totem: {
         enabled: t.enabled, url: t.url, urlSource: t.urlSource, secretSource: t.secretSource, envFileSource,
-        habitSync: t.habitSync, whoop: t.whoop, goals: t.goals,
+        habitSync: t.habitSync, goals: t.goals,
       },
       strava: (() => {
         const sa = config.strava()
         return { configured: sa.configured, clientIdSource: sa.clientIdSource, secretSource: sa.secretSource, redirectUriSource: sa.redirectUriSource, publicUrl: PUBLIC_URL || null }
+      })(),
+      whoop: (() => {
+        const wa = config.whoop()
+        return { configured: wa.configured, clientIdSource: wa.clientIdSource, secretSource: wa.secretSource, redirectUriSource: wa.redirectUriSource, linked: whoopLinked(), publicUrl: PUBLIC_URL || null }
       })(),
       links: config.links(),
       tz: config.tz(),
@@ -1876,6 +1901,60 @@ const server = http.createServer(async (req, res) => {
     }
 
     /*
+     * Connecting the owner's WHOOP. Owner only and never while acting as someone:
+     * the WHOOP app in Settings is the owner's, and Totem and Krakatoa read this
+     * grant. The callback comes back through the same sign-in; the client's
+     * `state` ties it to the start.
+     */
+    if (p === '/api/whoop/connect' || p === '/api/whoop/disconnect' || p === '/whoop/callback') {
+      const refuse = !space.owner || ctx?.acting ? 'Only the owner connects WHOOP, and not while logging for someone else.'
+          : !features.whoopConnect ? 'WHOOP is not set up on this install yet: add the WHOOP app in Settings.' : ''
+      if (p === '/whoop/callback' && req.method === 'GET') {
+        if (refuse) return html(res, 409, pages.refusedPage({ message: refuse }))
+        const result = await whoopClientOf().completeAuth(url.searchParams).catch(err => ({ ok: false, message: err.message }))
+        if (!result.ok) return html(res, 400, pages.refusedPage({ message: result.message }))
+        await pullWhoop()
+        return redirect(res, '/?whoop=connected')
+      }
+      if (refuse) return send(res, 409, { error: refuse })
+      if (p === '/api/whoop/connect' && req.method === 'POST') {
+        whoopHolder.redirectUri = whoopRedirectFor(req)
+        return send(res, 200, whoopClientOf().startAuth(), { 'Cache-Control': 'no-store' })
+      }
+      if (p === '/api/whoop/disconnect' && req.method === 'POST') {
+        const result = await whoopClientOf().disconnect()
+        whoopState = { at: new Date().toISOString(), ok: null, detail: 'disconnected' }
+        return send(res, 200, result)
+      }
+    }
+
+    /*
+     * Totem's and Krakatoa's way to the owner's WHOOP: `{ method, args }` run on
+     * the one client (WHOOP_OWNER_METHODS), answered with the result. Its errors
+     * keep their message and flags, because both show the fix it carries
+     * ("reconnect WHOOP in Bushido"). Owner only, never acting.
+     */
+    if (p === '/api/whoop/owner' && req.method === 'POST') {
+      if (!space.owner || ctx?.acting) return send(res, 403, { error: 'only the owner\'s WHOOP is served' })
+      const body = await readBody(req).catch(() => null)
+      const method = String(body?.method || '')
+      if (!WHOOP_OWNER_METHODS.has(method)) return send(res, 400, { error: `unknown WHOOP method: ${method || '(none)'}` })
+      if (!config.whoop().configured) return send(res, 409, { error: 'Bushido has no WHOOP app yet: add one in Bushido Settings → WHOOP.', needsReauth: true })
+      const args = Array.isArray(body?.args) ? body.args : []
+      try {
+        const result = await whoopClientOf()[method](...args)
+        if (method === 'status') result.connectWhere = 'profile → Settings → Connect WHOOP'
+        return send(res, 200, { result: result ?? null }, { 'Cache-Control': 'no-store' })
+      } catch (err) {
+        const status = err.name === 'WhoopError' ? (err.rateLimited ? 429 : 502) : 500
+        return send(res, status, {
+          error: err.message || String(err), status: err.status ?? null,
+          needsReauth: err.needsReauth || undefined, missingScope: err.missingScope || undefined, rateLimited: err.rateLimited || undefined,
+        })
+      }
+    }
+
+    /*
      * Who this is, for the app's boot (lib/whoami.js): whose log to cache, under
      * which key, and what to offer. `people` only for an admin, for the switcher.
      */
@@ -2031,7 +2110,7 @@ const server = http.createServer(async (req, res) => {
                  last: coachLast },
         totem: { enabled: t.enabled, url: t.url, habit: t.habit, secret: Boolean(t.secret()), lastSync: totemLast },
         notify: Boolean(notify),
-        whoop: { file: WHOOP_FILE, present: fs.existsSync(WHOOP_FILE), days: WHOOP_DAYS, last: whoopState },
+        whoop: { file: WHOOP_FILE, present: fs.existsSync(WHOOP_FILE), linked: whoopLinked(), days: WHOOP_DAYS, last: whoopState },
         strava: { file: stravaFileOf(space), present: fs.existsSync(stravaFileOf(space)), linked: stravaLinked(space), days: STRAVA_DAYS, last: stravaStateOf(space) },
       })
     }

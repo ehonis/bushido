@@ -687,6 +687,114 @@ const cookieFrom = (res) => (res.headers.get('set-cookie') || '').split(';')[0]
   await sv.stop()
   fakeStrava.close()
 
+  /* -------------------------------------------------- the owner's WHOOP, held here */
+  /*
+   * A pretend WHOOP: the token endpoint (counting refreshes) and the five reads a
+   * training pull makes, with one scored night. Pointed at by WHOOP_API_ORIGIN.
+   */
+  const whoopCalls = []
+  const night = {
+    id: 'sleep-1', cycle_id: 11, nap: false, score_state: 'SCORED', updated_at: '2026-10-14T12:00:00Z',
+    start: new Date(Date.now() - 10 * 3600e3).toISOString(), end: new Date(Date.now() - 2 * 3600e3).toISOString(), timezone_offset: '+00:00',
+    score: { sleep_performance_percentage: 91, stage_summary: { total_slow_wave_sleep_time_milli: 90 * 60e3, total_rem_sleep_time_milli: 100 * 60e3, total_light_sleep_time_milli: 200 * 60e3 } },
+  }
+  const fakeWhoop = http.createServer((q, r) => {
+    const u = q.url.split('?')[0]
+    whoopCalls.push(`${q.method} ${u}`)
+    const reply = (body) => { r.writeHead(200, { 'content-type': 'application/json' }); r.end(JSON.stringify(body)) }
+    if (u === '/oauth/oauth2/token') {
+      // Like WHOOP: the full grant on a code exchange, an echo of `offline` on a refresh.
+      let raw = ''
+      q.on('data', (c) => { raw += c })
+      return q.on('end', () => {
+        const code = new URLSearchParams(raw).get('grant_type') === 'authorization_code'
+        reply({ access_token: `acc-${whoopCalls.length}`, refresh_token: `ref-${whoopCalls.length}`, expires_in: 3600,
+          scope: code ? 'read:sleep read:workout read:recovery read:cycles read:body_measurement offline' : 'offline' })
+      })
+    }
+    if (u === '/developer/v2/activity/sleep') return reply({ records: [night] })
+    if (u === '/developer/v2/recovery') return reply({ records: [{ cycle_id: 11, score_state: 'SCORED', score: { recovery_score: 74 } }] })
+    if (u === '/developer/v2/cycle') return reply({ records: [{ id: 11, start: night.start, timezone_offset: '+00:00', score: { strain: 9.3, kilojoule: 8000 } }] })
+    if (u === '/developer/v2/activity/workout') return reply({ records: [] })
+    if (u === '/developer/v2/user/measurement/body') return reply({ max_heart_rate: 190 })
+    if (u === '/developer/v2/user/access') { r.writeHead(204); return r.end() }
+    r.writeHead(404); r.end('{}')
+  })
+  await new Promise(r => fakeWhoop.listen(0, '127.0.0.1', r))
+  const wv = await boot({
+    env: {
+      BUSHIDO_AUTH: 'proxy', BUSHIDO_ACCESS_TEAM: 'test-team', BUSHIDO_ACCESS_AUD: AUD,
+      BUSHIDO_ACCESS_CERTS_URL: `http://127.0.0.1:${certs.address().port}/certs`,
+      WHOOP_API_ORIGIN: `http://127.0.0.1:${fakeWhoop.address().port}`,
+      BUSHIDO_WHOOP_CLIENT_ID: 'whoop-app', BUSHIDO_WHOOP_CLIENT_SECRET: 'whoop-secret-for-tests',
+      BUSHIDO_API_TOKEN: TOKEN,
+    },
+    seed: {
+      'settings.json': JSON.stringify({ version: 1, install: 'fresh', auth: { mode: 'proxy' } }),
+      'users.json': JSON.stringify({ users: [{ id: 'owner', name: 'Alex', emails: ['alex@example.com'] }, { id: 'sam', name: 'Sam', emails: ['sam@example.com'] }] }),
+    },
+  })
+  const ownerPost = (p, extra = {}) => get(`${wv.base}${p}`, { method: 'POST', headers: { ...json, ...as('alex@example.com', extra).headers }, body: '{}' })
+  const whoopOwner = (body, headers = { authorization: `Bearer ${TOKEN}` }) => get(`${wv.base}/api/whoop/owner`, { method: 'POST', headers: { ...json, ...headers }, body: JSON.stringify(body) })
+
+  await step('whoop: the owner is offered Connect; nobody else is, and nobody connects while acting', async () => {
+    const me = await (await get(`${wv.base}/api/auth/me`, as('alex@example.com'))).json()
+    eq([me.features.whoop, me.features.whoopConnect], [false, true])
+    const sam = await (await get(`${wv.base}/api/auth/me`, as('sam@example.com'))).json()
+    eq([sam.features.whoop, sam.features.whoopConnect], [false, false])
+    eq((await get(`${wv.base}/api/whoop/connect`, { method: 'POST', headers: { ...json, ...as('sam@example.com').headers }, body: '{}' })).status, 409)
+    eq((await ownerPost('/api/whoop/connect', { cookie: 'bushido_as=sam' })).status, 409)
+    eq((await (await whoopOwner({ method: 'status' })).json()).result.state, 'disconnected')
+  })
+
+  await step('whoop: connect, the callback, and the first pull fills the cache', async () => {
+    const start = await (await ownerPost('/api/whoop/connect')).json()
+    const auth = new URL(start.authUrl)
+    eq([auth.searchParams.get('client_id'), auth.searchParams.get('redirect_uri')], ['whoop-app', `${wv.base}/whoop/callback`])
+    ok(/read:workout/.test(auth.searchParams.get('scope')) && /offline/.test(auth.searchParams.get('scope')), 'the scopes asked for are not the training ones')
+    eq((await get(`${wv.base}/whoop/callback?state=forged&code=c`, as('alex@example.com'))).status, 400)
+    eq((await get(`${wv.base}/whoop/callback?state=${auth.searchParams.get('state')}&code=c`, as('alex@example.com'))).status, 303)
+    const tokens = JSON.parse(fs.readFileSync(path.join(wv.dataDir, 'whoop-oauth.json'), 'utf8'))
+    ok(tokens.refresh_token && /read:workout/.test(tokens.scope), 'the grant or its real scope was not kept')
+    eq(fs.statSync(path.join(wv.dataDir, 'whoop-oauth.json')).mode & 0o777, 0o600)
+    eq((await (await get(`${wv.base}/api/auth/me`, as('alex@example.com'))).json()).features.whoop, true)
+    const cache = await (await get(`${wv.base}/api/whoop`, as('alex@example.com'))).json()
+    eq([cache.configured, cache.maxHeartRate, cache.sleep[0].score, cache.recovery[0].recovery], [true, 190, 91, 74])
+  })
+
+  await step('whoop: Totem and Krakatoa read through the owner endpoint with the API token', async () => {
+    eq((await (await whoopOwner({ method: 'status' })).json()).result.state, 'ready')
+    const training = (await (await whoopOwner({ method: 'training', args: [{ days: 7 }] })).json()).result
+    eq([training.ok, training.sleep.length, training.days], [true, 1, 7])
+    const nights = (await (await whoopOwner({ method: 'sleepNights', args: [{ start: night.start, end: night.end, value: 'performance' }] })).json()).result
+    eq([nights.length, nights[0].id, nights[0].value, nights[0].stats.recovery], [1, 'sleep-1', 91, 74])
+    eq((await whoopOwner({ method: 'startAuth' })).status, 400, 'connecting is not theirs to do')
+    eq((await whoopOwner({ method: 'status' }, as('sam@example.com').headers)).status, 403)
+    eq((await whoopOwner({ method: 'status' }, as('alex@example.com', { cookie: 'bushido_as=sam' }).headers)).status, 403)
+  })
+
+  await step('whoop: callers arriving together share one refresh, because WHOOP voids the old token', async () => {
+    const file = path.join(wv.dataDir, 'whoop-oauth.json')
+    fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), expires_at: 0 }))
+    const before = whoopCalls.filter(c => c.endsWith('/oauth/oauth2/token')).length
+    const all = await Promise.all([1, 2, 3].map(() => whoopOwner({ method: 'training', args: [{ days: 3 }] })))
+    eq(all.map(r => r.status), [200, 200, 200])
+    eq(whoopCalls.filter(c => c.endsWith('/oauth/oauth2/token')).length - before, 1)
+  })
+
+  await step('whoop: the secret is masked, and disconnecting forgets the grant', async () => {
+    const view = await (await get(`${wv.base}/api/settings`, as('alex@example.com'))).json()
+    eq([view.effective.whoop.configured, view.effective.whoop.linked], [true, true])
+    ok(!JSON.stringify(view).includes('whoop-secret-for-tests'), 'the WHOOP client secret reached the browser')
+    eq((await ownerPost('/api/whoop/disconnect')).status, 200)
+    ok(whoopCalls.includes('DELETE /developer/v2/user/access'), 'the grant was not revoked at WHOOP')
+    eq((await (await get(`${wv.base}/api/auth/me`, as('alex@example.com'))).json()).features.whoop, false)
+    eq((await (await whoopOwner({ method: 'status' })).json()).result.state, 'disconnected')
+  })
+
+  await wv.stop()
+  fakeWhoop.close()
+
   /* ---------------------------------- every person's AI runs, on their own space */
   /*
    * A fake Claude CLI that records what it was spawned with (argv and the prompt

@@ -273,7 +273,8 @@ export function PeopleCard({ who }) {
  * for Strava's consent page and comes back to `/`; both directions reload, since
  * whether Strava is on is decided at boot (whoami).
  */
-function OwnStravaCard({ who, strava, onPullStrava, pulling }) {
+/* A POST from a connect card: busy while it runs, its error kept for the card to show. */
+function useConnectCall() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const call = async (path) => {
@@ -289,6 +290,11 @@ function OwnStravaCard({ who, strava, onPullStrava, pulling }) {
       return null
     }
   }
+  return { busy, error, call }
+}
+
+function OwnStravaCard({ who, strava, onPullStrava, pulling }) {
+  const { busy, error, call } = useConnectCall()
   const connect = async () => {
     const body = await call('/api/strava/connect')
     if (body?.authUrl) window.location.href = body.authUrl
@@ -322,6 +328,47 @@ function OwnStravaCard({ who, strava, onPullStrava, pulling }) {
         <button className="restbtn" onClick={connect} disabled={busy}>
           <Icon name="ExternalLink" size={16} />
           <span>{busy ? 'Opening Strava…' : 'Connect Strava'}</span>
+        </button>
+      )}
+      {error && <p className="sub err">{error}</p>}
+    </div>
+  )
+}
+
+/*
+ * The owner's WHOOP, held here (POST /api/whoop/connect). Totem's sleep habit
+ * and Krakatoa's calorie burn read it from this app, so disconnecting stops
+ * those too. Like Strava, both directions reload: WHOOP being on is decided at
+ * boot (whoami).
+ */
+function OwnWhoopCard({ who }) {
+  const { busy, error, call } = useConnectCall()
+  const connect = async () => {
+    const body = await call('/api/whoop/connect')
+    if (body?.authUrl) window.location.href = body.authUrl
+  }
+  const disconnect = async () => {
+    if (!window.confirm('Disconnect WHOOP? Workouts already attached to sessions stay in your log. Totem\'s sleep habit and Krakatoa read WHOOP from here, so they stop updating too.')) return
+    if (await call('/api/whoop/disconnect')) window.location.reload()
+  }
+  const connected = who.features.whoop
+  return (
+    <div className="card">
+      <h2>WHOOP</h2>
+      <p className="sub">
+        {connected
+          ? 'Connected. Workouts, recovery and sleep come from here, for this app, Totem and Krakatoa.'
+          : 'Connect your WHOOP to attach workouts to sessions and see recovery and sleep. Totem and Krakatoa read it from here.'}
+      </p>
+      {connected ? (
+        <button className="restbtn" onClick={disconnect} disabled={busy}>
+          <Icon name="LogOut" size={16} />
+          <span>Disconnect WHOOP</span>
+        </button>
+      ) : (
+        <button className="restbtn" onClick={connect} disabled={busy}>
+          <Icon name="ExternalLink" size={16} />
+          <span>{busy ? 'Opening WHOOP…' : 'Connect WHOOP'}</span>
         </button>
       )}
       {error && <p className="sub err">{error}</p>}
@@ -377,6 +424,8 @@ function SettingsSection({ status, lastSync, strava, onPullStrava, pulling, who 
       {!who.acting && (who.features.stravaConnect || who.features.strava) && (
         <OwnStravaCard who={who} strava={strava} onPullStrava={onPullStrava} pulling={pulling} />
       )}
+
+      {who.owner && !who.acting && (who.features.whoopConnect || who.features.whoop) && <OwnWhoopCard who={who} />}
 
       <div className="card">
         <h2>Explanations</h2>

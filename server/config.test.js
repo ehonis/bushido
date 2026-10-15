@@ -26,7 +26,7 @@ check('a fresh install: every optional link is off', () => {
   const c = createConfig({ root: ROOT, dataDir: tmp(), env: bareEnv() })
   eq(c.migrate().install, 'fresh')
   const t = c.totem()
-  ok(!t.enabled && !t.whoop && !t.strava && !t.goals && !t.habitSync, 'a Totem feature is on by default')
+  ok(!t.enabled && !t.goals && !t.habitSync, 'a Totem feature is on by default')
   ok(t.secret() === '', 'a fresh install found a bridge secret')
   const l = c.links()
   eq([l.notifyCore, l.brainFile, l.krakatoaDir], [null, null, null], 'a sibling path is set by default')
@@ -140,7 +140,7 @@ check('a settings.json written by hand before the first start is kept, not migra
   eq(c.migrate(), { created: false, install: 'migrated' })
   eq(c.authMode().value, 'proxy')
   eq([c.athlete().name, c.tz(), c.totem().url, c.links().notifyCore], ['Sam', 'Europe/Oslo', 'http://bridge:1', '/n'])
-  ok(c.totem().whoop, 'a partial file loses its defaults')
+  ok(c.totem().goals, 'a partial file loses its defaults')
 })
 
 check('the migration runs once: later edits are not overwritten', () => {

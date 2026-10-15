@@ -21,12 +21,9 @@
  * not "create permanent copies of WHOOP Data": the refreshable mirror stays
  * refreshable, and what persists is the training record the user made from it.
  *
- * NO CREDENTIALS HERE. WHOOP rotates its refresh token on every refresh and
- * invalidates the old pair, so exactly one process may hold it — and that is the
- * Totem bridge, which has held it since the sleep sync was built. Bushido asks the
- * bridge (`GET /api/whoop/training`) with the bridge secret it already reads for
- * the habit push. A second copy of the credentials here would give one member two
- * grants, and the loser stops working silently.
+ * NO CREDENTIALS HERE. This file is pure: the grant and every call to WHOOP are
+ * in server/whoop-api/client.mjs, the one holder of the owner's WHOOP (WHOOP
+ * rotates its refresh token on every refresh, so there must be exactly one).
  *
  * MATCHING IS SUGGESTED, NEVER APPLIED. `rankForSession` scores the day's
  * workouts and may mark ONE as likely; attaching is a tap. Getting this wrong
@@ -664,8 +661,8 @@ export function readinessFor(cache, date) {
 /* -------------------------------------------------------------------- sleep */
 
 /*
- * Sleep is WHOOP's, filled in by the Totem bridge's nightly sync and handed over in
- * the same pull as recovery (`sleep[]` on /api/whoop/training). One night per WAKE
+ * Sleep is WHOOP's, handed over in the same pull as recovery (`sleep[]` from the
+ * client's `training()`). One night per WAKE
  * date, so the night you woke up from today is filed under today — the same
  * calendar `recovery` is on, which is what lets the two sit on one card.
  */

@@ -229,8 +229,9 @@ Stored in `data/settings.json` (0600). Sections:
 | AI | Claude Code CLI path, optional API key (passed to the CLI as `ANTHROPIC_API_KEY`), model, and a **Test** button (`POST /api/settings/ai/test`). |
 | About you | Name and free-text notes given to every AI prompt. |
 | Training plan | Download; import a file; use the example; back to the starter. Replacing `data/plan.json` copies the old one to `data/backups/plans/` (never rotated) first. The log is never touched. |
-| Integrations | Totem bridge URL, secret or `.env` file to read `BRIDGE_SECRET` from, habit id, and toggles for WHOOP, linked goals and habit sync. |
+| Integrations | Totem bridge URL, secret or `.env` file to read `BRIDGE_SECRET` from, habit id, and toggles for linked goals and habit sync. |
 | Strava | The Strava API app's client ID, secret and optional redirect URI. Everyone connects their own account in the app. |
+| WHOOP | The WHOOP app's client ID, secret and optional redirect URI. The owner connects in the app. |
 | Other local services | Notify core directory, athlete-profile (brain) file, nutrition digest directory, timezone. |
 
 Secrets (`ai.apiKey`, `totem.secret`) are never sent to the browser; they are masked, and
@@ -259,7 +260,13 @@ a masked value posted back is ignored.
   `server/strava-api/`. The owner's client also keeps the full activity mirror
   (`strava-activities.json`) and is the only place Totem gets Strava from:
   `POST /api/strava/owner` runs one of `STRAVA_OWNER_METHODS` on it for Totem's goals, agent
-  tools and CLI. Never give Totem a grant of its own again; one holder per account. Habit sync and
+  tools and CLI. Never give Totem a grant of its own again; one holder per account.
+- **The owner's WHOOP is held here too** (since 2026-10-14; it was the Totem bridge's). Owner
+  only: Settings has the WHOOP app (`config.whoop()`), the owner connects in the app
+  (`/api/whoop/connect`, `/whoop/callback`), and the grant is `whoop-oauth.json` in the data
+  dir. The client is `server/whoop-api/client.mjs`. Totem's sleep habit and Krakatoa's calorie
+  burn read it through `POST /api/whoop/owner` (`WHOOP_OWNER_METHODS`: `status`, `training`,
+  `sleepNights`). Habit sync and
   the "logged" push run only for the owner's writes. `ai` is on for everyone once a CLI is
   configured, and every run is built from ONE person's space (`aiRun(space)` in server.js;
   §7 says what a non-owner's run can read). Without a CLI only the owner sees AI at all.
@@ -357,8 +364,8 @@ assume which plan an install runs on; code must work against the starter.
 ### Defaults off
 
 A **fresh install** (no `data/state.json`) gets: sign-in on; no AI unless a `claude` CLI
-is found (`CLAUDE_BIN`, `~/.local/bin/claude`, then `PATH`); no bridge, so WHOOP
-and linked goals are hidden; no Strava app, so Strava is hidden and habit sync is off; no notify core and therefore **no
+is found (`CLAUDE_BIN`, `~/.local/bin/claude`, then `PATH`); no bridge, so linked goals
+are hidden and habit sync is off; no WHOOP or Strava app, so both are hidden; no notify core and therefore **no
 timers at all**; no brain file; no nutrition digest; starter content. AI routes answer
 `503` with `code: "ai-not-configured"` and the UI says to set AI up; nothing else is
 affected.
@@ -761,20 +768,24 @@ or a log being saved.
 
 ### 8.1 The Totem bridge
 
-Totem is the author's separate personal assistant app; its HTTP bridge is what holds the
-WHOOP and Strava OAuth grants and exposes goals and a habits API. Any service exposing the
-same endpoints would work. Configure with Settings → Integrations or
-`BUSHIDO_TOTEM_URL`, `BRIDGE_SECRET` / `BUSHIDO_TOTEM_ENV`, `BUSHIDO_TOTEM_HABIT`. The
-secret never reaches the browser.
+Totem is the author's separate personal assistant app; its HTTP bridge exposes goals and a
+habits API. Any service exposing the same endpoints would work. Configure with Settings →
+Integrations or `BUSHIDO_TOTEM_URL`, `BRIDGE_SECRET` / `BUSHIDO_TOTEM_ENV`,
+`BUSHIDO_TOTEM_HABIT`. The secret never reaches the browser.
 
-**Bushido holds no WHOOP or Strava credentials, and must not.** WHOOP rotates its refresh
-token on every refresh and invalidates the old pair, so exactly one process may hold a
-grant; a second copy silently kills one of them. Read through the bridge.
+**Bushido is the one holder of the owner's WHOOP and Strava grants.** WHOOP rotates its
+refresh token on every refresh and invalidates the old pair, and Strava's may rotate too,
+so exactly one process may hold a grant; a second copy silently kills one of them. Totem
+and Krakatoa read through Bushido (`/api/whoop/owner`, `/api/strava/owner`, with
+`BUSHIDO_API_TOKEN`) and must never be given credentials of their own. Within Bushido, one
+WHOOP refresh runs at a time (`accessToken` in `server/whoop-api/client.mjs`; the http test
+"share one refresh" checks it).
 
 ### 8.2 WHOOP (`server/whoop.js`, `app/src/lib/whoop.jsx`, `app/src/whoop.jsx`)
 
-- Bridge endpoint `GET /api/whoop/training`. Bushido: `GET /api/whoop` serves the cache
-  and refreshes in the background; `POST /api/whoop/pull` is the only synchronous path.
+- Bushido's own client (`server/whoop-api/client.mjs`, `training()`). `GET /api/whoop`
+  serves the cache and refreshes in the background; `POST /api/whoop/pull` is the only
+  synchronous path. `POST /api/whoop/owner` serves Totem and Krakatoa.
 - **The cache is disposable; the snapshot is the user's.** `data/whoop.json` is a
   refetchable mirror: delete freely, never hand-edit, never depend on a particular item
   being in it. What persists is `entry.data.out.whoop` (+ `out.whoopMore`), copied in on

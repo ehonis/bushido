@@ -17,8 +17,7 @@ Thursday shouldn't cost the session, only move it.
 > **A personal project.** Bushido was built for one user and is used daily by one user.
 > It is single-owner by design (one account per install), and the full climbing and
 > triathlon programme it was built around lives on as the test fixture. The AI prompts carry no personal details: they use the name and notes you
-> enter in Settings. Strava connects directly; WHOOP is
-> read through a separate bridge service that is not part of this repository (see
+> enter in Settings. Strava and WHOOP connect directly (see
 > [Integrations](#integrations)). It is published as a working example rather than a
 > supported product.
 
@@ -166,16 +165,19 @@ built-in sign-in.
 |---|---|---|
 | AI coach, workout and week planners | Claude Code CLI, spawned headless | on if a CLI is found |
 | Strava | connected directly: everyone on the install connects their own account through a Strava API app set in Settings | off |
-| WHOOP, linked goals, habit sync | through a **Totem bridge**, a separate HTTP service that holds the WHOOP grant | off |
+| WHOOP | connected directly by the owner, through a WHOOP app set in Settings | off |
+| Linked goals, habit sync | through a **Totem bridge**, a separate HTTP service | off |
 | Push notifications | a notification core loaded by path | off |
 | Athlete profile, food-log digest | files the AI may read | off |
 
 Strava is Bushido's own: create an API app at strava.com/settings/api, enter its client
 ID and secret in Settings → Strava, and each person connects from profile → Settings in the
 app. A new Strava app accepts only its creator until it is raised to ten athletes on that
-page. WHOOP is read from a bridge that exposes `/api/whoop/training`. Totem, the author's
-personal-assistant app, is that bridge (and reads the owner's Strava back from Bushido);
-it is not in this repository. Without a bridge the WHOOP panels stay hidden.
+page. WHOOP is the owner's: create an app at developer.whoop.com, add
+`<your Bushido address>/whoop/callback` as its redirect URL, enter its client ID and secret
+in Settings → WHOOP, and connect from profile → Settings. Totem, the author's
+personal-assistant app, provides linked goals and habit sync, and reads the owner's Strava
+and WHOOP back from Bushido; it is not in this repository.
 
 ## Development
 

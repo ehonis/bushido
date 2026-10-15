@@ -238,13 +238,12 @@ function render() {
   // Integrations
   const t = e.totem
   h += '<div class="card" id="c-int"><h2>Integrations</h2>' +
-    '<p class="sub">WHOOP is read through a <strong>Totem bridge</strong>, a separate service that holds its OAuth grant and exposes it over HTTP, as are linked goals and the daily habit. Strava is not: it is connected here, in the card below. With no bridge, the WHOOP panels stay hidden.</p>' +
-    '<p>' + pill(t.enabled, 'bridge configured', 'no bridge') + ' ' + pill(t.whoop, 'WHOOP on', 'WHOOP off') + ' ' + pill(t.goals, 'goals on', 'goals off') + ' ' + pill(t.habitSync, 'habit sync on', 'habit sync off') + '</p>' +
+    '<p class="sub">Linked goals and the daily habit come from a <strong>Totem bridge</strong>, a separate service reached over HTTP. WHOOP and Strava do not: they are connected here, in the cards below.</p>' +
+    '<p>' + pill(t.enabled, 'bridge configured', 'no bridge') + ' ' + pill(t.goals, 'goals on', 'goals off') + ' ' + pill(t.habitSync, 'habit sync on', 'habit sync off') + '</p>' +
     field('totem', 'url', 'Bridge URL', { source: t.urlSource, placeholder: 'http://127.0.0.1:8787' }) +
     field('totem', 'secret', 'Bridge secret', { secret: true, source: t.secretSource }) +
     field('totem', 'envFile', 'Or read BRIDGE_SECRET from this .env file', { readonly: true, source: t.envFileSource }) +
     field('totem', 'habit', 'Habit id to mark when you train', { placeholder: 'move-every-day' }) +
-    check('totem', 'whoop', 'WHOOP workouts and recovery') +
     check('totem', 'goals', 'Show goals linked to this app') +
     check('totem', 'habitSync', 'Mark the daily habit when a session is logged') +
     '<div class="row"><button class="primary save">Save</button><span class="msg"></span></div></div>'
@@ -257,6 +256,16 @@ function render() {
     field('strava', 'clientId', 'Client ID', { source: sa.clientIdSource }) +
     field('strava', 'clientSecret', 'Client secret', { secret: true, source: sa.secretSource }) +
     field('strava', 'redirectUri', 'Redirect URI (optional)', { source: sa.redirectUriSource, placeholder: (sa.publicUrl || 'https://bushido.example.com') + '/strava/callback', note: 'Leave empty to use the address the person opened the app on.' }) +
+    '<div class="row"><button class="primary save">Save</button><span class="msg"></span></div></div>'
+
+  // WHOOP, the owner's
+  const wa = e.whoop
+  h += '<div class="card" id="c-whoop"><h2>WHOOP</h2>' +
+    '<p class="sub">Your WHOOP, connected from Profile → Settings in the app through a WHOOP app you create at <a href="https://developer.whoop.com" target="_blank" rel="noopener">developer.whoop.com</a>. Add its Redirect URL exactly as shown below. Bushido is the only holder of the grant: Totem\'s sleep habit and Krakatoa read WHOOP from here, with <code>BUSHIDO_API_TOKEN</code>.</p>' +
+    '<p>' + pill(wa.configured, 'WHOOP app set', 'no WHOOP app') + ' ' + pill(wa.linked, 'connected', 'not connected') + '</p>' +
+    field('whoop', 'clientId', 'Client ID', { source: wa.clientIdSource }) +
+    field('whoop', 'clientSecret', 'Client secret', { secret: true, source: wa.secretSource }) +
+    field('whoop', 'redirectUri', 'Redirect URI (optional)', { source: wa.redirectUriSource, placeholder: (wa.publicUrl || 'https://bushido.example.com') + '/whoop/callback', note: 'Leave empty to use the address you opened the app on. WHOOP needs the exact URL listed in its app.' }) +
     '<div class="row"><button class="primary save">Save</button><span class="msg"></span></div></div>'
 
   // Links
