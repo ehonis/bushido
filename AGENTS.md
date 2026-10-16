@@ -54,7 +54,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | `deploy/bushido.service` | The systemd user unit. |
 | `scripts/start.js` | `npm start`: builds the app if there is no build, then runs the server. |
 | `Dockerfile`, `docker-compose.yml` | Container path; data in a volume at `/data`, no Claude CLI in the image. |
-| `.github/workflows/ci.yml` | CI: app tests, server tests, build. |
+| `.github/workflows/ci.yml` | CI: app tests, server tests, build. A private repo runs it on a self-hosted runner labelled `box`; a public copy on GitHub's hosted runner. |
 
 ### Server
 
