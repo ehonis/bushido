@@ -133,7 +133,13 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
    * run ended, or a revision started) `enter` moves the screen to match. A saved
    * edit does not change the step, so it never pulls the editor out from under them.
    */
-  const ai = currentMe().features.ai
+  /*
+   * Whether the model is on offer. The server says no (`ai-not-configured`: a fresh
+   * install with no CLI, or someone it is not set up for) and from then on this
+   * screen is the hand-built route alone, with nothing that mentions a model.
+   */
+  const [aiRefused, setAiRefused] = useState(false)
+  const ai = Boolean(currentMe().features.ai) && !aiRefused
   const { drafts: listed, upsert, drop } = useDrafts(ai)
   /*
    * Kept ONCE. A draft whose id is already on an entry in the log (this device
@@ -225,6 +231,11 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
         discardDraft(replacing).catch(() => {})
       }
     } catch (e) {
+      // No model here after all: build it by hand, from the same picks.
+      if (e.code === 'ai-not-configured') {
+        setAiRefused(true)
+        return buildRef.current()
+      }
       setError(e.message)
       setStep('failed')
     }
@@ -301,6 +312,8 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
     }))
     setStep('build')
   }, [picked, label, primary])
+  const buildRef = useRef(build)
+  buildRef.current = build
 
   /*
    * The discipline travels with the kind onto the next screen.
@@ -437,12 +450,12 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
 
       {step === 'kind' && (!target || theirs.ready) && (
         <KindStep plan={plan} custom={custom} setCustom={setCustom}
-          picked={picked} setPicked={setPicked}
+          picked={picked} setPicked={setPicked} ai={ai}
           onNext={() => { setNotice(null); setStep('ask') }} onBuild={build} />
       )}
 
       {step === 'ask' && (
-        <AskStep picked={picked} label={label} minutes={minutes} setMinutes={setMinutes}
+        <AskStep picked={picked} minutes={minutes} setMinutes={setMinutes}
           goal={goal} setGoal={setGoal} chips={minuteChips}
           placeholder={plan?.plannerKinds?.goalPlaceholder}
           evicts={draftId ? null : draftToEvict(drafts)}
@@ -457,23 +470,20 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
       {step === 'failed' && (
         <div className="plan-failed">
           <p className="plan-failed-lead">
-            <Icon name="TriangleAlert" size={15} /> {error}
+            <Icon name="TriangleAlert" size={16} /> {error}
           </p>
-          <p className="sub">
-            Nothing was written. The planner reads your log before it answers, so a box that is
-            busy or unreachable costs you the wait and nothing else.
-          </p>
+          <p className="sub">Nothing was written.</p>
           <div className="plan-actions fork">
             <button className="btn" onClick={() => retry()}><Icon name="RotateCw" size={16} /> Try again</button>
+            {/* Not a dead end. The box being busy is no reason not to plan the
+                session — it is only a reason to write it yourself. */}
+            <button className="btn secondary" onClick={build}>
+              <Icon name="ListPlus" size={16} /> Build it myself
+            </button>
             <button className="btn ghost" onClick={() => setStep('ask')}>Change the ask</button>
             {!open && drafts.length > 0 && (
               <button className="btn ghost" onClick={back}>See your drafts</button>
             )}
-            {/* Not a dead end. The box being busy is no reason not to plan the
-                session — it is only a reason to write it yourself. */}
-            <button className="btn ghost" onClick={build}>
-              <Icon name="ListPlus" size={16} /> Build it myself
-            </button>
           </div>
         </div>
       )}
@@ -537,9 +547,10 @@ export function groupedKinds(plan) {
   return groups
 }
 
-function KindStep({ plan, custom, setCustom, picked, setPicked, onNext, onBuild }) {
+export function KindStep({ plan, custom, setCustom, picked, setPicked, onNext, onBuild, ai = currentMe().features.ai }) {
   const groups = groupedKinds(plan)
-  const has = (k) => picked.some(p => p.key === k.key)
+  const at = (k) => picked.findIndex(p => p.key === k.key)
+  const has = (k) => at(k) >= 0
   const toggle = (k) =>
     setPicked(has(k) ? picked.filter(p => p.key !== k.key) : [...picked, k])
 
@@ -550,165 +561,135 @@ function KindStep({ plan, custom, setCustom, picked, setPicked, onNext, onBuild 
     if (!picked.some(p => p.key === key)) setPicked([...picked, { key, label, prompt: label }])
     setCustom('')
   }
+  const customs = picked.filter(p => p.key.startsWith('custom:'))
 
+  /*
+   * No paragraph (docs/DESIGN.md D7): the rows are toggles with a check, and the
+   * check carries the ORDER the user tapped them in, because the planner writes
+   * the blocks in that order — which one came first is a fact about the session.
+   */
   return (
     <>
-      <p className="sub plan-lead">
-        Pick what you are doing — <strong>as many as you like</strong>. A gym trip that is legs,
-        then core, then ten minutes on the bike is one session with three blocks. Then say who
-        writes it down: you, or the model. Either way you edit every number afterwards.
-      </p>
+      {groups.map(g => <KindGroup key={g.key} group={g} at={at} toggle={toggle} />)}
 
-      {/*
-        * What is selected, and the order it will be written in. Numbered rather
-        * than merely highlighted: the planner is told to write the blocks in this
-        * order, so which one the user tapped first is a real fact about the session and
-        * not decoration.
-        */}
-      {picked.length > 0 && (
-        <div className="pickedbar">
-          {picked.map((k, i) => (
-            <button key={k.key} className="pickedchip" onClick={() => toggle(k)}
-              aria-label={`Remove ${k.label}`}>
-              <span className="pickedchip-n">{i + 1}</span>
-              <span>{k.label}</span>
-              <Icon name="X" size={13} />
-            </button>
-          ))}
-        </div>
-      )}
-
-      {groups.map(g => <KindGroup key={g.key} group={g} has={has} toggle={toggle} />)}
-
-      <div className="kindcustom">
-        <label htmlFor="plan-custom">Something else</label>
+      <section className="kindgroup" aria-label="Something else">
+        <div className="section-head"><h3>Something else</h3></div>
+        {customs.length > 0 && (
+          <div className="card kindlist list">
+            {customs.map(k => <KindRow key={k.key} k={k} n={at(k) + 1} onToggle={() => toggle(k)} />)}
+          </div>
+        )}
         <div className="kindcustom-row">
           <input id="plan-custom" value={custom} onChange={e => setCustom(e.target.value)}
-            placeholder="a shoulder day, a 40 minute erg, a hike…"
+            aria-label="Something else" placeholder="A shoulder day, a 40 minute erg, a hike"
             onKeyDown={e => { if (e.key === 'Enter') addCustom() }} />
-          <button className="btn" disabled={!custom.trim()} onClick={addCustom}>Add</button>
+          <button className="btn secondary" disabled={!custom.trim()} onClick={addCustom}>Add</button>
         </div>
-      </div>
+      </section>
 
       {/*
-        * THE FORK, and it lives here rather than on a screen of its own.
+        * THE FORK, and it lives here rather than on a screen of its own: what the
+        * user is doing is the same question whoever writes it down. It appears once
+        * something is picked, because until then neither button can do anything.
         *
-        * What the user is doing is the same question whoever writes it down, and it is
-        * the question the user opened this screen to answer; who writes it is the next
-        * one and it belongs under the answer. A route step in front of the kinds
-        * would have put a tap between the + button and the thing that was already
-        * there, for a choice that reads better once there is something to make it
-        * about.
-        *
-        * Both are real buttons of the same height. The model's is the accent one
-        * because it is the one that goes and does something, not because it is
-        * the better answer — the build-it-yourself route exists precisely because
-        * the model's is not always it.
+        * With the model on offer, it is the primary (it is the one that goes and does
+        * something) and building it yourself is the secondary beside it. Without it
+        * (lib/whoami.js; the server's `ai-not-configured`), building it yourself is
+        * the only button and the primary, and nothing on the screen mentions a model.
         */}
-      <div className="plan-actions sticky fork">
-        <button className="btn big ghost" disabled={!picked.length} onClick={onBuild}>
-          <Icon name="ListPlus" size={17} />
-          Build it myself
-        </button>
-        {/* Not offered to someone the AI is not set up for (lib/whoami.js). */}
-        {currentMe().features.ai && (
-          <button className="btn big" disabled={!picked.length} onClick={onNext}>
-            <Icon name="Sparkles" size={17} />
-            {picked.length > 1 ? `Write me ${picked.length} in one` : 'Write it for me'}
+      {picked.length > 0 && (
+        <div className="plan-actions sticky fork">
+          {ai && (
+            <button className="btn big" onClick={onNext}>
+              <Icon name="Sparkles" size={17} />
+              Write it for me
+            </button>
+          )}
+          <button className={`btn big ${ai ? 'secondary' : ''}`} onClick={onBuild}>
+            <Icon name="ListPlus" size={17} />
+            Build it myself
           </button>
-        )}
-      </div>
-      {currentMe().features.ai && (
-        <p className="sub plan-fine">
-          Building it yourself sends nothing anywhere and takes no time; the model takes about a
-          minute and asks how long you have first.
-        </p>
+        </div>
       )}
     </>
   )
 }
 
+/** One kind as a row: its icon, its name, the one line that says what it is, and the check. */
+function KindRow({ k, n, onToggle }) {
+  const on = n > 0
+  return (
+    <button className={`list-row kindrow ${on ? 'on' : ''}`} onClick={onToggle} aria-pressed={on}>
+      <Icon name={k.icon || 'Dumbbell'} size={20} />
+      <span className="list-row-main">
+        <span className="list-row-title">{k.label}</span>
+        {k.hint && <span className="list-row-meta">{k.hint}</span>}
+      </span>
+      <span className="kindrow-check" aria-hidden="true">{on ? n : ''}</span>
+    </button>
+  )
+}
+
 /**
- * One divider and its cards.
+ * One group: a section head over one card of rows.
  *
  * A group may declare `collapsed: true` in content, and then it renders as a
- * native `<details>`: the header with a count, the cards one tap away. This
- * arrived with the endurance catalog on 2026-09-19 — thirty-odd swim, bike and
- * run variants, alongside sport-agnostic zone-2 kinds meant to be the bread and
- * butter — and thirty cards of ride variants
- * between those and the climbing section would have buried both.
+ * native `<details>`: the head with a count, the rows one tap away. This arrived
+ * with the endurance catalog on 2026-09-19 — thirty-odd swim, bike and run
+ * variants — and thirty rows of ride variants between the zone-2 kinds and the
+ * climbing section would have buried both.
  *
- * `<details>` rather than state, for two reasons. Every card is still IN the page
+ * `<details>` rather than state, for two reasons. Every row is still IN the page
  * — the reachability test in smoke.jsx reads the rendered HTML, and a kind that is
  * only mounted when a group is open is a kind that test cannot see. And it costs
  * nothing on the server render. A group with something picked in it is forced
  * open, so what the user chose is never hidden behind its own header.
+ *
+ * The groups' `blurb` paragraphs are content and stay in the file; the screen no
+ * longer prints them (D7: if a control needs a paragraph, change the control).
  */
-function KindGroup({ group: g, has, toggle }) {
-  const picked = g.items.filter(has).length
-  const cards = (
-    <div className="kindgrid">
-      {g.items.map(k => (
-        <button key={k.key} className={`kindcard ${has(k) ? 'on' : ''}`}
-          onClick={() => toggle(k)} aria-pressed={has(k)}>
-          <span className="kindcard-ico">
-            <Icon name={has(k) ? 'CircleCheck' : k.icon} size={22} />
-          </span>
-          <span className="kindcard-name">{k.label}</span>
-          {k.hint && <span className="kindcard-hint">{k.hint}</span>}
-        </button>
-      ))}
+function KindGroup({ group: g, at, toggle }) {
+  const picked = g.items.filter(k => at(k) >= 0).length
+  const rows = (
+    <div className="card kindlist list">
+      {g.items.map(k => <KindRow key={k.key} k={k} n={at(k) + 1} onToggle={() => toggle(k)} />)}
     </div>
   )
 
   if (!g.collapsed) {
     return (
-      <div className="kindgroup">
-        <div className="kindgroup-head">
-          <Icon name={g.icon} size={14} />
-          <span>{g.name}</span>
-        </div>
-        {g.blurb && <p className="sub kindgroup-blurb">{g.blurb}</p>}
-        {cards}
-      </div>
+      <section className="kindgroup" aria-label={g.name}>
+        <div className="section-head"><h3>{g.name}</h3></div>
+        {rows}
+      </section>
     )
   }
 
   return (
     <details className="kindgroup folded" open={picked > 0 || undefined}>
-      <summary className="kindgroup-head">
-        <Icon name={g.icon} size={14} />
-        <span>{g.name}</span>
-        <span className="kindgroup-n">
-          {picked ? `${picked} picked · ` : ''}{g.items.length} kinds
-        </span>
-        <Icon name="ChevronDown" size={14} className="kindgroup-chev" />
+      <summary className="section-head">
+        <h3>{g.name}</h3>
+        <span className="sub">{picked ? `${picked} picked · ` : ''}{g.items.length}</span>
+        <Icon name="ChevronDown" size={16} className="kindgroup-chev" />
       </summary>
-      {g.blurb && <p className="sub kindgroup-blurb">{g.blurb}</p>}
-      {cards}
+      {rows}
     </details>
   )
 }
 
 /* ------------------------------------------------- step: how long, what for */
 
-function AskStep({ picked, label, minutes, setMinutes, goal, setGoal, chips, placeholder, onGo, evicts = null }) {
+function AskStep({ picked, minutes, setMinutes, goal, setGoal, chips, placeholder, onGo, evicts = null }) {
   const many = picked.length > 1
   return (
     <>
-      <div className="askblock">
-        <h3>How long have you got{many ? ' altogether' : ''}?</h3>
-        {many && (
-          <p className="sub">
-            For the whole trip — {label.toLowerCase()} — not for each. It will fit them into
-            this and say so if they do not all go.
-          </p>
-        )}
+      <section className="askblock">
+        <div className="section-head"><h3>How long{many ? ', altogether' : ''}?</h3></div>
         <div className="chiprow">
           {chips.map(m => (
-            <button key={m} className={`timechip ${minutes === m ? 'on' : ''}`}
+            <button key={m} className={`out-chip ${minutes === m ? 'on' : ''}`}
               onClick={() => setMinutes(m)} aria-pressed={minutes === m}>
-              {m}<span>min</span>
+              {m} min
             </button>
           ))}
         </div>
@@ -719,35 +700,27 @@ function AskStep({ picked, label, minutes, setMinutes, goal, setGoal, chips, pla
           <button className="qbtn" onClick={() => setMinutes(m => Math.min(300, m + 5))}
             aria-label="five minutes more"><Icon name="Plus" size={16} /></button>
         </div>
-      </div>
+      </section>
 
-      <div className="askblock">
-        <h3>What do you want out of it?</h3>
-        <textarea className="goalbox" rows={4} value={goal} onChange={e => setGoal(e.target.value)}
-          placeholder={placeholder || 'Optional — say what you are after and it will build around it.'} />
-        <p className="sub">
-          Optional. It already knows what you lifted last time and how you slept; this is for the
-          part it cannot read — a niggle, a deadline, or just how you feel about it.
-        </p>
-      </div>
+      <section className="askblock">
+        <div className="section-head"><h3>What do you want out of it?</h3><span className="sub">Optional</span></div>
+        <textarea className="goalbox" rows={3} value={goal} onChange={e => setGoal(e.target.value)}
+          aria-label="What do you want out of it?"
+          placeholder={placeholder || 'A niggle, a deadline, how you feel'} />
+      </section>
 
       {/* At the cap, the oldest draft not being written makes room. Said before, not after. */}
       {evicts && (
-        <p className="sub plan-fine plan-evicts">
-          <Icon name="Info" size={13} /> You already have {DRAFT_MAX} drafts. Writing this one throws
-          away the oldest you have not kept: <strong>{draftTitle(evicts)}</strong>.
+        <p className="sub plan-evicts">
+          <Icon name="Info" size={14} /> Replaces your oldest draft, {draftTitle(evicts)}
         </p>
       )}
 
       <div className="plan-actions sticky">
         <button className="btn big" onClick={onGo}>
-          <Icon name="Sparkles" size={17} />{' '}
-          {many ? 'Build my session' : `Build my ${label ? label.toLowerCase() : 'workout'}`}
+          <Icon name="Sparkles" size={17} /> Write it for me
         </button>
       </div>
-      {picked.length === 1 && picked[0].hint && (
-        <p className="sub plan-fine">It will lean toward {picked[0].hint}.</p>
-      )}
     </>
   )
 }
@@ -792,12 +765,9 @@ export function Working({ label, minutes, since = null, onDiscard = null }) {
       <div className="plan-working-title">Building {minutes} minutes of {label.toLowerCase()}</div>
       <p className="plan-working-stage">{stage}</p>
       <div className="plan-working-dots"><i /><i /><i /></div>
-      <p className="sub">
-        {secs}s — it usually takes under a minute. You can leave: it carries on, and waits for
-        you under Plan a workout.
-      </p>
+      <p className="sub">{secs}s · You can leave; it keeps going</p>
       {onDiscard && (
-        <button className="linkbtn plan-working-stop" onClick={onDiscard}>Stop and throw it away</button>
+        <button className="btn quiet plan-working-stop" onClick={onDiscard}>Stop and throw it away</button>
       )}
     </div>
   )
@@ -824,34 +794,29 @@ export function DraftList({ drafts = [], onOpen, onRetry, onDiscard, now = null 
 
   return (
     <section className="plandrafts" aria-label="Your drafts">
-      <div className="kindgroup-head">
-        <Icon name="Sparkles" size={14} />
-        <span>Drafts — not on your day yet</span>
-      </div>
-      {drafts.map(d => (
-        <div key={d.id} className={`plandraft ${d.status}`}>
-          <button className="plandraft-open" onClick={() => onOpen(d)}>
-            <span className="plandraft-ico">
-              <Icon name={d.status === 'working' ? 'Timer' : d.status === 'failed' ? 'TriangleAlert' : 'ClipboardCheck'} size={17} />
-            </span>
-            <span className="plandraft-body">
-              <strong>{draftTitle(d)}</strong>
-              <span className="sub">{draftLine(d, at)}</span>
-            </span>
-          </button>
-          {d.status === 'failed' && (
-            <button className="btn ghost plandraft-retry" onClick={() => onRetry(d)}>
-              <Icon name="RotateCw" size={15} /> Try again
+      <div className="section-head"><h3>Drafts</h3><span className="sub">Not on your day yet</span></div>
+      <div className="card list">
+        {drafts.map(d => (
+          <div key={d.id} className={`list-row plandraft ${d.status}`}>
+            <button className="plandraft-open" onClick={() => onOpen(d)}>
+              <Icon name={d.status === 'working' ? 'Timer' : d.status === 'failed' ? 'TriangleAlert' : 'ClipboardCheck'} size={20} />
+              <span className="list-row-main">
+                <span className="list-row-title">{draftTitle(d)}</span>
+                <span className="list-row-meta">{draftLine(d, at)}</span>
+              </span>
             </button>
-          )}
-          <button className="plandraft-del" onClick={() => {
-            if (d.status === 'ready' && typeof window !== 'undefined' && !window.confirm(`Throw away “${draftTitle(d)}”?`)) return
-            onDiscard(d)
-          }} aria-label={`Discard ${draftTitle(d)}`}>
-            <Icon name="Trash2" size={15} /> <span>Discard</span>
-          </button>
-        </div>
-      ))}
+            {d.status === 'failed' && (
+              <button className="btn secondary plandraft-retry" onClick={() => onRetry(d)}>Try again</button>
+            )}
+            <button className="iconbtn plandraft-del" onClick={() => {
+              if (d.status === 'ready' && typeof window !== 'undefined' && !window.confirm(`Throw away “${draftTitle(d)}”?`)) return
+              onDiscard(d)
+            }} aria-label={`Discard ${draftTitle(d)}`} title="Discard">
+              <Icon name="Trash2" size={17} />
+            </button>
+          </div>
+        ))}
+      </div>
     </section>
   )
 }
@@ -1095,12 +1060,6 @@ export function BuildStep({ pres, setPres, liftField, entries = [], categories =
 
   return (
     <>
-      <p className="sub plan-lead">
-        <strong>Add an exercise</strong> searches the catalogue of two hundred movements;
-        <strong> add a piece</strong> is the work that is not one — a swim set, an interval,
-        a hold.
-      </p>
-
       <SplitNote parts={splitPrescription(dropEmptyBlocks(pres))} />
 
       <PrescriptionEditor pres={pres} onChange={setPres} liftField={liftField} entries={entries}
@@ -1114,11 +1073,7 @@ export function BuildStep({ pres, setPres, liftField, entries = [], categories =
         </button>
       </div>
 
-      <p className="sub plan-fine">
-        {sets
-          ? 'Nothing is written until you press it. Blocks you left empty are dropped.'
-          : 'Add at least one exercise or piece and this becomes a workout you can follow.'}
-      </p>
+      {!sets && <p className="sub plan-fine">Add an exercise or a piece to keep it</p>}
     </>
   )
 }
@@ -1195,9 +1150,7 @@ function ReviewStep({ pres, setPres, liftField, entries = [], categories = [], o
       )}
 
       <p className="sub plan-fine">
-        Written by {pres.model || 'a model'} from {forName ? `${forName}’s log and profile` : 'your log and your profile'}.
-        Change anything — what it asked for stays on the entry, so you can see afterwards where
-        {forName ? ` ${forName} went` : ' you went'} off it.
+        Written from {forName ? `${forName}’s log` : 'your log'}. Change anything before you keep it.
       </p>
 
       <div className="plan-actions sticky">
@@ -1228,11 +1181,7 @@ function SplitNote({ parts }) {
       <Icon name="Layers" size={14} />
       <div>
         <strong>This lands as {parts.length} separate workouts</strong>
-        <span className="sub">
-          {parts.map(p => p.title).join(' · ')} — each with its own log, so a ride your
-          watch recorded attaches to the ride. Change which blocks are
-          <em> their own workout</em> below to move the seams.
-        </span>
+        <span className="sub">{parts.map(p => p.title).join(' · ')}</span>
       </div>
     </div>
   )
@@ -1311,13 +1260,8 @@ export function KeptStep({ pres, count = 1, parts = [], onStart, onAnother, onDo
       )}
 
       <p className="sub">
-        {many
-          ? 'Separate entries, so each one logs on its own and a ride your watch recorded '
-            + 'attaches to the ride rather than to the lifting. '
-          : `${prescriptionLine(pres)}. `}
-        {forName
-          ? `Nothing has started. It shows on ${forName}’s day as planned by you, and ${forName} can edit or log it like anything else.`
-          : 'Nothing has started — the clock runs when you do. You can edit any of it from the day, and it will still be there tonight.'}
+        {many ? '' : `${prescriptionLine(pres)} · `}
+        {forName ? `Nothing has started. ${forName} can edit or log it.` : 'Nothing has started.'}
       </p>
 
       <div className="kept-acts">
@@ -1326,7 +1270,7 @@ export function KeptStep({ pres, count = 1, parts = [], onStart, onAnother, onDo
             <Icon name="Play" size={18} /> {forName ? `Open it on ${forName}’s side` : many ? 'Start the first one' : 'Start it now'}
           </button>
         )}
-        <button className="btn ghost" onClick={onAnother}>
+        <button className={`btn ${onStart ? 'secondary' : ''}`} onClick={onAnother}>
           <Icon name="Plus" size={16} /> Plan another workout
         </button>
         <button className="btn ghost" onClick={onDone}>

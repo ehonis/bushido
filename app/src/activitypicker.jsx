@@ -69,20 +69,27 @@ export function ActivityPicker({ field, value, onChange, out = null }) {
    */
   const source = out ? filledBy(out, field.key) : null
 
-  /* Picked, and not being changed: one row, and the fields below are the card. */
+  /*
+   * Picked, and not being changed: one row that opens the picker (docs/DESIGN.md,
+   * the session sheet: "Activity is a .list-row that opens the picker"), and the
+   * fields below are the card. It used to be an underlined "Change" link inside a
+   * box; the whole row is the target now, and still says the word.
+   */
   if (picked && !open) {
     return (
-      <div className="actpick picked">
-        <span className="actpick-ico"><Icon name={picked.icon} size={18} /></span>
-        <span className="actpick-name">
-          <strong>{picked.name}</strong>
-          <span className="sub">
+      <button type="button" className="list-row actpick picked" onClick={startSearch}
+        aria-label={`Activity: ${picked.name}. Change`}>
+        <Icon name={picked.icon} size={20} />
+        <span className="list-row-main">
+          <span className="list-row-title">{picked.name}</span>
+          <span className="list-row-meta">
             {picked.group}
             {source && <span className="out-from">from {source}</span>}
           </span>
         </span>
-        <button className="actpick-change" onClick={startSearch}>Change</button>
-      </div>
+        <span className="list-row-meta">Change</span>
+        <Icon name="ChevronRight" size={16} className="list-row-chev" />
+      </button>
     )
   }
 
@@ -94,14 +101,16 @@ export function ActivityPicker({ field, value, onChange, out = null }) {
    */
   if (value && !picked && !open) {
     return (
-      <div className="actpick picked unknown">
-        <span className="actpick-ico"><Icon name="Sparkles" size={18} /></span>
-        <span className="actpick-name">
-          <strong>{activityLabel(field, value)}</strong>
-          <span className="sub">no longer in the catalog</span>
+      <button type="button" className="list-row actpick picked unknown" onClick={startSearch}
+        aria-label={`Activity: ${activityLabel(field, value)}. Change`}>
+        <Icon name="Sparkles" size={20} />
+        <span className="list-row-main">
+          <span className="list-row-title">{activityLabel(field, value)}</span>
+          <span className="list-row-meta">No longer in the catalog</span>
         </span>
-        <button className="actpick-change" onClick={startSearch}>Change</button>
-      </div>
+        <span className="list-row-meta">Change</span>
+        <Icon name="ChevronRight" size={16} className="list-row-chev" />
+      </button>
     )
   }
 
@@ -111,18 +120,18 @@ export function ActivityPicker({ field, value, onChange, out = null }) {
 
       {!open && (
         <>
-          <div className="actpick-pins">
+          <div className="out-choices actpick-pins">
             {pins.map(a => (
-              <button key={a.key} className={`actpin ${value === a.key ? 'on' : ''}`}
-                onClick={() => choose(a.key)}>
-                <Icon name={a.icon} size={17} />
+              <button key={a.key} type="button" className={`out-chip ${value === a.key ? 'on' : ''}`}
+                aria-pressed={value === a.key} onClick={() => choose(a.key)}>
+                <Icon name={a.icon} size={16} />
                 <span>{a.name}</span>
               </button>
             ))}
           </div>
           <button className="actpick-more" onClick={startSearch}>
-            <Icon name="Plus" size={15} />
-            <span>Something else — {(field.activities || []).length} to choose from</span>
+            <Icon name="Target" size={16} />
+            <span>Something else</span>
           </button>
         </>
       )}
@@ -130,7 +139,7 @@ export function ActivityPicker({ field, value, onChange, out = null }) {
       {open && (
         <div className="actpick-search">
           <input
-            ref={inputRef} type="search" value={q} placeholder={field.hint || 'Search activities'}
+            ref={inputRef} type="search" value={q} placeholder="Search activities" aria-label="Search activities"
             onChange={e => setQ(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter' && results?.length) choose(results[0].key)
@@ -149,10 +158,7 @@ export function ActivityPicker({ field, value, onChange, out = null }) {
                       </button>
                     ))
                   : (
-                    <p className="sub actpick-none">
-                      Nothing matches “{q}”. Log it as <strong>Something else</strong> and it still
-                      counts — or add it to the catalog in <code>plan.json</code>, which needs no rebuild.
-                    </p>
+                    <p className="sub actpick-none">Nothing matches “{q}”.</p>
                   ))
               : groups.map(g => (
                   <div key={g.name} className="actgroup">

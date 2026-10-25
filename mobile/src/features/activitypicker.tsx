@@ -21,9 +21,9 @@
 import React, { useMemo, useState } from 'react'
 import { FlatList, SectionList, StyleSheet, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { colors, radius, TAP } from '../theme'
+import { colors, font, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
-import { IconBtn, Input, Press } from '../ui/kit'
+import { Chip, IconBtn, Input, Press } from '../ui/kit'
 import { Popover } from '../ui/Sheet'
 import { tap } from '../ui/haptics'
 import { Icon } from '../lib/icons'
@@ -61,16 +61,16 @@ export function ActivityPicker({ field, value, onChange, out = null }: any) {
   const sheet = open ? (
     <Popover label={field.label} onClose={cancel}>
       <View style={st.sheetHead}>
-        <T size={13} dim style={{ flex: 1 }}>{field.label}</T>
+        <T size={font.small} dim style={{ flex: 1 }}>{field.label}</T>
         <IconBtn icon="X" size={16} label="Close" onPress={cancel} />
       </View>
       <View style={{ paddingHorizontal: 12, paddingBottom: 8 }}>
         <Input
-          autoFocus value={q} placeholder={field.hint || 'Search activities'}
+          autoFocus value={q} placeholder="Search activities" accessibilityLabel="Search activities"
           onChangeText={setQ}
           autoCorrect={false} autoCapitalize="none" returnKeyType="search" clearButtonMode="while-editing"
           onSubmitEditing={() => { if (results?.length) choose(results[0].key) }}
-          style={{ borderColor: colors.inkFaint, borderRadius: radius.md }}
+          style={{ borderColor: colors.lineStrong, borderRadius: radius.control }}
         />
       </View>
       {results ? (
@@ -82,18 +82,14 @@ export function ActivityPicker({ field, value, onChange, out = null }: any) {
           contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 12 }}
           renderItem={({ item: a }) => (
             <Press onPress={() => choose(a.key)} style={st.actrow} accessibilityRole="button">
-              <Icon name={a.icon} size={16} color={colors.ink} />
-              <T size={14} style={{ flex: 1, minWidth: 0 }}>{a.name}</T>
-              <T size={11} faint>{a.group}</T>
+              <Icon name={a.icon} size={18} color={colors.inkDim} />
+              <T size={font.body} style={{ flex: 1, minWidth: 0 }}>{a.name}</T>
+              <T size={font.small} dim>{a.group}</T>
             </Press>
           )}
           ListEmptyComponent={(
-            <T size={12.5} dim lineHeight={19} style={{ marginVertical: 10, marginHorizontal: 2 }}>
-              {`Nothing matches “${q}”. Log it as `}
-              <T size={12.5} weight={700} dim>Something else</T>
-              {' and it still counts — or add it to the catalog in '}
-              <T size={12} mono dim>plan.json</T>
-              {', which needs no rebuild.'}
+            <T size={font.small} dim style={{ marginVertical: space[2], marginHorizontal: 2 }}>
+              {`Nothing matches “${q}”.`}
             </T>
           )}
         />
@@ -106,12 +102,12 @@ export function ActivityPicker({ field, value, onChange, out = null }: any) {
           stickySectionHeadersEnabled
           contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 12 }}
           renderSectionHeader={({ section }) => (
-            <View style={st.groupHead}><T size={11} faint caps>{section.title}</T></View>
+            <View style={st.groupHead}><T size={font.small} weight={600} dim>{section.title}</T></View>
           )}
           renderItem={({ item: a }: any) => (
             <Press onPress={() => choose(a.key)} style={st.actrow} accessibilityRole="button">
-              <Icon name={a.icon} size={16} color={colors.ink} />
-              <T size={14} style={{ flex: 1, minWidth: 0 }}>{a.name}</T>
+              <Icon name={a.icon} size={18} color={colors.inkDim} />
+              <T size={font.body} style={{ flex: 1, minWidth: 0 }}>{a.name}</T>
             </Press>
           )}
         />
@@ -119,71 +115,52 @@ export function ActivityPicker({ field, value, onChange, out = null }: any) {
       {value ? (
         <View style={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: Math.max(12, insets.bottom) }}>
           <Press onPress={cancel} style={st.cancel} accessibilityRole="button">
-            <T size={13} dim>{`Keep ${activityLabel(field, value)}`}</T>
+            <T size={font.small} dim>{`Keep ${activityLabel(field, value)}`}</T>
           </Press>
         </View>
       ) : null}
     </Popover>
   ) : null
 
-  /* Picked, and not being changed: one row, and the fields below are the card. */
-  if (picked) {
-    return (
-      <View style={st.picked}>
-        <Icon name={picked.icon} size={18} color={colors.accent} />
-        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-          <T size={15} weight={700}>{picked.name}</T>
-          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-            <T size={11} dim>{picked.group}</T>
-            {source ? <T size={10} caps color={colors.accent}>{`from ${source}`}</T> : null}
-          </View>
-        </View>
-        <Press onPress={startSearch} style={st.change} accessibilityRole="button">
-          <T size={12} dim style={{ textDecorationLine: 'underline' }}>Change</T>
-        </Press>
-        {sheet}
-      </View>
-    )
-  }
-
   /*
-   * An activity the catalog has forgotten still reads back as what the user
-   * logged rather than as a blank card: the catalog may change, history may not.
+   * Picked, and not being changed: one row that opens the picker, with the word
+   * on it (the web's .list-row; it was an underlined "Change" inside a box), and
+   * the fields below are the card. An activity the catalog has forgotten still
+   * reads back as what the user logged: the catalog may change, history may not.
    */
   if (value) {
+    const name = picked ? picked.name : activityLabel(field, value)
     return (
-      <View style={st.picked}>
-        <Icon name="Sparkles" size={18} color={colors.inkFaint} />
-        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-          <T size={15} weight={700}>{activityLabel(field, value)}</T>
-          <T size={11} dim>no longer in the catalog</T>
-        </View>
-        <Press onPress={startSearch} style={st.change} accessibilityRole="button">
-          <T size={12} dim style={{ textDecorationLine: 'underline' }}>Change</T>
+      <>
+        <Press onPress={startSearch} style={st.picked} accessibilityRole="button" accessibilityLabel={`Activity: ${name}. Change`}>
+          <Icon name={picked ? picked.icon : 'Sparkles'} size={20} color={picked ? colors.accent : colors.inkFaint} />
+          <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+            <T size={font.body} weight={500} numberOfLines={1}>{name}</T>
+            <View style={{ flexDirection: 'row', gap: space[2], alignItems: 'center' }}>
+              <T size={font.small} dim>{picked ? picked.group : 'No longer in the catalog'}</T>
+              {picked && source ? <T size={font.small} color={colors.accent}>{`from ${source}`}</T> : null}
+            </View>
+          </View>
+          <T size={font.small} dim>Change</T>
+          <Icon name="ChevronRight" size={16} color={colors.inkFaint} />
         </Press>
         {sheet}
-      </View>
+      </>
     )
   }
 
   return (
-    <View style={{ gap: 8 }}>
-      <T size={13} dim>{field.label}</T>
+    <View style={{ gap: space[2] }}>
+      <T size={font.small} dim>{field.label}</T>
+      {/* The pinned sports, one tap each, as answer chips. */}
       <View style={st.pins}>
-        {pins.map((a) => {
-          const on = value === a.key
-          return (
-            <Press key={a.key} onPress={() => choose(a.key)} style={[st.pin, on && { borderColor: colors.accent }]}
-              accessibilityRole="button" accessibilityState={{ selected: on }}>
-              <Icon name={a.icon} size={17} color={on ? colors.accent : colors.ink} />
-              <T size={13} color={on ? colors.accent : colors.ink}>{a.name}</T>
-            </Press>
-          )
-        })}
+        {pins.map((a) => (
+          <Chip key={a.key} out on={value === a.key} icon={a.icon} label={a.name} onPress={() => choose(a.key)} />
+        ))}
       </View>
       <Press onPress={startSearch} style={st.more} accessibilityRole="button">
-        <Icon name="Plus" size={15} color={colors.inkDim} />
-        <T size={12} dim style={{ flex: 1 }}>{`Something else — ${(field.activities || []).length} to choose from`}</T>
+        <Icon name="Target" size={16} color={colors.inkDim} />
+        <T size={font.small} dim style={{ flex: 1 }}>Something else</T>
       </Press>
       {sheet}
     </View>
@@ -191,25 +168,21 @@ export function ActivityPicker({ field, value, onChange, out = null }: any) {
 }
 
 const st = StyleSheet.create({
+  // The web's .list-row, with a hairline under it to close the row off from the fields.
   picked: {
-    flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: 12,
-    borderWidth: 1, borderColor: colors.line, borderRadius: radius.md, backgroundColor: colors.panel2,
+    flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: 52, paddingVertical: space[2],
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line,
   },
-  change: { minHeight: TAP, paddingHorizontal: 12, justifyContent: 'center', marginLeft: 'auto' },
-  pins: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  pin: {
-    flexDirection: 'row', alignItems: 'center', gap: 7, minHeight: TAP, paddingHorizontal: 12,
-    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: radius.md,
-  },
+  pins: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
   more: {
-    flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: TAP, paddingHorizontal: 12,
-    borderWidth: 1, borderStyle: 'dashed', borderColor: colors.line, borderRadius: radius.md,
+    flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: TAP, paddingHorizontal: space[3],
+    borderWidth: 1, borderStyle: 'dashed', borderColor: colors.lineStrong, borderRadius: radius.control,
   },
   sheetHead: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 8 },
   groupHead: { marginTop: 10, marginBottom: 2, paddingVertical: 4, backgroundColor: colors.panel },
-  actrow: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: TAP, paddingHorizontal: 8, borderRadius: radius.md },
+  actrow: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: TAP, paddingHorizontal: space[2], borderRadius: radius.control },
   cancel: {
     minHeight: TAP, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: colors.line, borderRadius: radius.md,
+    borderWidth: 1, borderColor: colors.lineStrong, borderRadius: radius.control,
   },
 })

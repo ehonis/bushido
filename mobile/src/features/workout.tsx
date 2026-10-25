@@ -23,20 +23,20 @@
  *
  * Native: the web's fixed `.wo` overlay is a full-screen modal this component
  * owns (tabs renders it in place of the day, as on the web); the cues are
- * haptic patterns (lib/cues.ts), so they work face-down on a pad; the leave
- * confirm is a system alert.
+ * haptic patterns (lib/cues.ts), so they work face-down on a pad. The leave
+ * confirm is drawn on the screen, as on the web (docs/DESIGN.md, Confirm).
  */
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Alert, KeyboardAvoidingView, Modal as RNModal, Platform, Pressable, ScrollView, StyleSheet, View,
-  useWindowDimensions,
+  KeyboardAvoidingView, Modal as RNModal, Platform, Pressable, ScrollView, StyleSheet, View,
+  useWindowDimensions, type StyleProp, type ViewStyle,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { SideRule, SideWho } from '../ui/Person'
-import { colors, mix, radius, TAP } from '../theme'
+import { colors, font, mix, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
-import { Empty, IconBtn, Input, Press } from '../ui/kit'
+import { Btn, Empty, IconBtn, Input, Press, SectionHeader, s as kit } from '../ui/kit'
 import { impact, success, tap } from '../ui/haptics'
 import { Icon } from '../lib/icons'
 import { onForeground } from '../lib/foreground'
@@ -61,14 +61,21 @@ const CUE_FOR: Record<string, string> = {
   countin: 'countIn', work: 'work', represt: 'rest', setrest: 'rest', finished: 'finished',
 }
 
-/** The phase tints the whole screen, so you can read it from the floor without focusing on any number. */
-const TINT: Record<string, string> = {
-  work: mix(colors.accent, 7, colors.bg),
-  represt: mix(colors.series1, 8, colors.bg),
-  setrest: mix(colors.series1, 8, colors.bg),
-  countin: mix(colors.vizWarn, 7, colors.bg),
-  finished: mix(colors.vizGood, 6, colors.bg),
+/*
+ * The phase tints the whole screen, so you can read it from the floor without
+ * focusing on any particular number. `K` is the interval timer's phase colour
+ * (timer.tsx KIND_COLOR, the web's `--k`), mapped from workout mode's phase
+ * names, so the face takes the same colours as the timer.
+ */
+const K: Record<string, string> = {
+  countin: colors.vizWarn,
+  work: colors.accent,
+  represt: colors.load3,
+  setrest: colors.load3,
+  finished: colors.vizGood,
 }
+const TINT: Record<string, string> = Object.fromEntries(
+  Object.entries(K).map(([phase, k]) => [phase, mix(k, 13, colors.bg)]))
 
 /** Where to drop you in: the first set you haven't logged yet. */
 function firstUnlogged(steps: any[]) {
@@ -112,6 +119,7 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
   const [startedAt, setStartedAt] = useState<string | null>(() => out.startedAt || null)
   const [finalMin, setFinalMin] = useState('')
   const [howOpen, setHowOpen] = useState(false)
+  const [confirmExit, setConfirmExit] = useState(false)
 
   const step = steps[i] || null
   const timing = step?.timing || { work: null, reps: 1, repRest: null, setRest: null }
@@ -299,10 +307,7 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
   const askExit = () => {
     if (!active) { onExit(); return }
     impact()
-    Alert.alert('Leave the workout?', 'Every set you’ve marked is already saved.', [
-      { text: 'Keep going', style: 'cancel' },
-      { text: 'Leave', onPress: onExit },
-    ], { cancelable: true, userInterfaceStyle: 'dark' })
+    setConfirmExit(true)
   }
 
   /* ------------------------------------------------------------- rendering */
@@ -316,7 +321,7 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
       </GestureHandlerRootView>
     </RNModal>
   )
-  const bodyPad = { paddingBottom: 20 + insets.bottom }
+  const bodyPad = { paddingBottom: space[5] + insets.bottom }
 
   if (!steps.length) {
     return frame(
@@ -373,6 +378,17 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
       {howOpen && step?.how && (
         <HowSheet how={step.how} title={step.exName} onClose={() => setHowOpen(false)} />
       )}
+
+      {confirmExit && (
+        <View style={[st.confirm, { paddingBottom: space[4] + insets.bottom }]}
+          accessibilityViewIsModal accessibilityLabel="Leave the workout?">
+          <T size={font.body} style={{ marginBottom: space[3] }}>Leave the workout? Every set you marked is saved.</T>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <Btn kind="ghost" title="Keep going" flex onPress={() => setConfirmExit(false)} />
+            <Btn title="Leave" flex onPress={onExit} />
+          </View>
+        </View>
+      )}
     </>,
   )
 }
@@ -385,10 +401,10 @@ function WoHead({ session, elapsed, onExit, muted, onMute, who = null }: any) {
       <IconBtn icon="ChevronLeft" size={19} label="Leave workout" onPress={onExit} />
       <View style={{ flex: 1, minWidth: 0 }}>
         <SideWho who={who} />
-        <T size={14} weight={600} numberOfLines={1}>{session.name}</T>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-          <Icon name="Timer" size={12} color={colors.inkFaint} />
-          <T size={12} faint tabular>{clock(elapsed)}</T>
+        <T size={font.title} weight={600} lineHeight={22} numberOfLines={1}>{session.name}</T>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[1] }}>
+          <Icon name="Timer" size={12} color={colors.inkDim} />
+          <T size={font.small} dim tabular>{clock(elapsed)}</T>
         </View>
       </View>
       <IconBtn icon={muted ? 'VolumeX' : 'Volume2'} size={18} onPress={() => onMute(!muted)}
@@ -397,22 +413,30 @@ function WoHead({ session, elapsed, onExit, muted, onMute, who = null }: any) {
   )
 }
 
-/** .wo-link: a quiet underlined action, still 44pt tall. */
+/** .wo-link: a minor action, the quiet button's look, still 44pt tall. */
 function WoLink({ icon, label, onPress, style }: { icon?: string; label: string; onPress: () => void; style?: any }) {
   return (
     <Press onPress={onPress} style={[st.link, style]} accessibilityRole="button">
-      {icon ? <Icon name={icon} size={15} color={colors.inkFaint} /> : null}
-      <T size={13} faint style={{ textDecorationLine: 'underline', flexShrink: 1 }}>{label}</T>
+      {icon ? <Icon name={icon} size={15} color={colors.inkDim} /> : null}
+      <T size={font.small} weight={500} dim style={{ flexShrink: 1 }}>{label}</T>
     </Press>
   )
 }
 
-/** button.btn.wo-start / .wo-setdone: the accent, oversized. */
-function BigBtn({ icon, label, onPress, style }: { icon: string; label: string; onPress: () => void; style?: any }) {
+/**
+ * button.btn.wo-start / .wo-setdone: the screen's one primary, made big (56pt,
+ * title size); `quiet` is the kit's quiet button. Not the kit's Btn because the
+ * handlers here choose the haptic (a set done buzzes success, a cue is its own).
+ */
+function BigBtn({ icon, label, onPress, style, quiet = false }: {
+  icon: string; label: string; onPress: () => void; style?: StyleProp<ViewStyle>; quiet?: boolean
+}) {
+  const fg = quiet ? colors.inkDim : colors.onAccent
   return (
-    <Press onPress={onPress} style={[st.bigBtn, style]} accessibilityRole="button">
-      <Icon name={icon} size={18} color={colors.onAccent} />
-      <T size={16} weight={600} color={colors.onAccent}>{label}</T>
+    <Press onPress={onPress} accessibilityRole="button"
+      style={[kit.btn, quiet ? st.quietBtn : st.bigBtn, style]}>
+      <Icon name={icon} size={quiet ? 16 : 18} color={fg} />
+      <T size={quiet ? font.body : font.title} weight={600} color={fg}>{label}</T>
     </Press>
   )
 }
@@ -434,12 +458,8 @@ function Intro({ session, steps, onStart, resumed }: any) {
   const [open, setOpen] = useState(byEx[0]?.key || null)
 
   return (
-    <View style={{ gap: 14 }}>
-      <T size={15} dim>
-        {resumed || done
-          ? `Picking up where you left off — ${done} of ${steps.length} sets already marked.`
-          : 'One set at a time. The timer counts the reps; you mark the set.'}
-      </T>
+    <View style={{ gap: space[3] }}>
+      {(resumed || done) ? <T size={font.body} dim tabular>{`${done} of ${steps.length} sets marked`}</T> : null}
 
       <View style={{ gap: 8 }}>
         {byEx.map(e => (
@@ -451,21 +471,16 @@ function Intro({ session, steps, onStart, resumed }: any) {
 
       <BigBtn icon="Play" label={done ? 'Continue workout' : 'Start workout'} onPress={onStart} />
 
-      {/* Worth one tap before a session rather than finding out three sets in:
-          the cues are haptic here, so this is how you learn what "go" feels
-          like before the phone is face-down on the pad. */}
-      <WoLink icon="Vibrate" label="Test the buzz" onPress={() => { primeAudio(); CUES.work() }}
-        style={{ alignSelf: 'flex-start' }} />
-
-      <T size={12} faint>
-        {`Timed sets run themselves — ${LEAD_IN}s to get set after you tap start, then it counts you in and switches on its own. The screen stays awake while it runs, and each change of phase buzzes, a different pattern for each, so you can tell them apart with the phone face-down.`}
-      </T>
+      {/* Worth one tap before a session rather than finding out three sets in.
+          Native: the cues are haptic (no sound), so this is "Test the buzz": how
+          you learn what "go" feels like before the phone is face-down on the pad. */}
+      <BigBtn quiet icon="Vibrate" label="Test the buzz" onPress={() => { primeAudio(); CUES.work() }}
+        style={{ alignSelf: 'center' }} />
     </View>
   )
 }
 
 const PHASE_LABEL: Record<string, string> = { countin: 'Get ready', work: 'Work', represt: 'Rest', setrest: 'Rest between sets' }
-const PHASE_COLOR: Record<string, string> = { work: colors.accent, represt: colors.load3, setrest: colors.load3, countin: colors.vizWarn }
 
 export function Face({ phase, left, counted, rep, timing, step, paused, onPause, onBump, onSkip, onEndSet, onHow }: any) {
   const { width } = useWindowDimensions()
@@ -487,25 +502,34 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onPause,
   // to spare, so that is where the how-to opens itself. Everywhere else it
   // collapses to a picture and one line: mid-hang the clock is all that matters.
   const reading = phase === 'setrest' && step.how
-  const tint = PHASE_COLOR[phase]
-  // clamp(72px, 26vw, 128px): the number is the whole point of the screen.
-  const countSize = Math.min(128, Math.max(72, width * 0.26))
+  const k = K[phase] || colors.inkDim
+  // The timer's face sizes (timer.tsx): the phase word clamp(heading, 8vw, 36),
+  // and the clock clamp(88, 30vw, 180) — a little under the timer's own, because
+  // here it sits among the how-to and the rail rather than filling the screen.
+  const phaseSize = Math.min(36, Math.max(font.heading, width * 0.08))
+  const countSize = Math.min(180, Math.max(88, width * 0.3))
 
+  /*
+   * THE INTERVAL TIMER'S FACE, where the two overlap (docs/DESIGN.md, Workout
+   * mode): the phase in words, the clock as wide as the screen allows, where you
+   * are, and the row of controls, drawn as timer.tsx draws them. What is workout
+   * mode's own stays its own: the how-to, the rep pips, the set log and the rail.
+   */
   const clockBody = (
     <>
-      <T size={13} weight={600} color={tint || colors.inkDim} align="center" style={{ textTransform: 'uppercase', letterSpacing: 1.8 }}>
-        {`${PHASE_LABEL[phase] || ''}${paused ? ' · paused' : ''}`}
+      <T size={phaseSize} weight={600} color={k} align="center" numberOfLines={1}>
+        {`${PHASE_LABEL[phase] || ''}${paused ? ' · Paused' : ''}`}
       </T>
-      <T size={countSize} weight={700} tabular align="center" lineHeight={Math.round(countSize * 1.02)}
-        color={phase === 'work' || phase === 'represt' || phase === 'setrest' ? tint : colors.ink}
-        style={{ letterSpacing: -0.03 * countSize, opacity: paused ? 0.45 : 1 }}>
+      <T size={countSize} weight={600} tabular align="center" color={k}
+        style={{ lineHeight: countSize * 1.02, letterSpacing: -0.03 * countSize, opacity: paused ? 0.4 : 1 }}>
         {left != null ? clock(showing) : clock(counted)}
       </T>
+      <T size={font.title} weight={600} tabular align="center">
+        {`${step.exName} · Set ${step.setIndex + 1} of ${step.setCount}`}
+      </T>
       {left == null ? (
-        <T size={13} faint align="center" style={{ maxWidth: 260 }}>
-          {openEnded
-            ? 'No target on this one — tap the clock when the set is done.'
-            : 'Rest as long as you need. Tap the clock to start the next set.'}
+        <T size={font.small} dim align="center">
+          {openEnded ? 'Tap the clock when the set is done' : 'Tap the clock to start the next set'}
         </T>
       ) : null}
     </>
@@ -513,20 +537,18 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onPause,
 
   return (
     <View style={st.face}>
-      <T size={12} faint caps align="center">{`${step.exName} · set ${step.setIndex + 1} of ${step.setCount}`}</T>
-
       {step.how && !reading ? (
         <Press onPress={onHow} style={st.how} accessibilityRole="button" accessibilityLabel={`How to do ${step.exName}`}>
           <Figure name={step.how.figure} color={colors.accent} style={st.howFig} />
-          <T size={13} dim lineHeight={18} style={{ flex: 1, minWidth: 0 }}>{step.how.gist}</T>
-          <View style={st.howMore}><T size={11} weight={700} caps color={colors.accent}>How</T></View>
+          <T size={font.small} dim lineHeight={18} style={{ flex: 1, minWidth: 0 }}>{step.how.gist}</T>
+          <View style={st.howMore}><T size={font.small} weight={600}>How</T></View>
         </Press>
       ) : null}
 
       {onClock ? (
         <Pressable onPress={onClock} accessibilityRole="button"
           accessibilityLabel={openEnded ? 'End the set' : 'Start the next set'}
-          style={({ pressed }) => [st.clock, st.clockTap, pressed && { backgroundColor: colors.panel }]}>
+          style={({ pressed }) => [st.clock, st.clockTap, pressed && { backgroundColor: mix(colors.panel, 70, TINT[phase] || colors.bg) }]}>
           {clockBody}
         </Pressable>
       ) : (
@@ -535,56 +557,57 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onPause,
 
       {phase !== 'setrest' && timing.reps > 1 ? (
         pips ? (
-          <View style={st.pips} accessibilityLabel={`rep ${rep} of ${timing.reps}`}>
+          <View style={st.pips} accessibilityLabel={`Rep ${rep} of ${timing.reps}`}>
             {Array.from({ length: timing.reps }, (_, n) => (
-              <View key={n} style={[st.pip, n + 1 < rep && st.pipDone, n + 1 === rep && st.pipOn]} />
+              <View key={n} style={[st.pip,
+                n + 1 < rep && { backgroundColor: k, borderColor: k },
+                n + 1 === rep && { borderColor: k, backgroundColor: mix(k, 35, TINT[phase] || colors.bg), transform: [{ scale: 1.35 }] }]} />
             ))}
           </View>
         ) : (
-          <T size={14} dim tabular>{`rep ${rep} of ${timing.reps}`}</T>
+          <T size={font.small} dim tabular>{`Rep ${rep} of ${timing.reps}`}</T>
         )
       ) : null}
 
       {openEnded ? (
-        <BigBtn icon="Check" label="Done — log this set" onPress={onEndSet} style={st.setDone} />
+        <BigBtn icon="Check" label="Done set" onPress={onEndSet} style={st.setDone} />
       ) : null}
 
+      {/* The controls are the timer's row (timer.tsx CtlBtn): Pause is the raised one. */}
       <View style={st.ctl}>
         {left != null ? (
-          <Press onPress={() => onBump(-15)} style={st.woBtn} accessibilityRole="button" accessibilityLabel="15 seconds less">
-            <Icon name="Minus" size={16} color={colors.inkDim} />
-            <T size={14} weight={500} dim tabular>15s</T>
-          </Press>
+          <CtlBtn icon="Minus" label="15s" a11y="15 seconds less" onPress={() => onBump(-15)} />
         ) : null}
-        <Press onPress={onPause} style={[st.woBtn, st.woBtnPrimary]} accessibilityRole="button">
-          <Icon name={paused ? 'Play' : 'Pause'} size={18} color={colors.ink} />
-          <T size={15} weight={600}>{paused ? 'Resume' : 'Pause'}</T>
-        </Press>
+        <CtlBtn on icon={paused ? 'Play' : 'Pause'} label={paused ? 'Resume' : 'Pause'} onPress={onPause} />
         {left != null ? (
-          <Press onPress={() => onBump(15)} style={st.woBtn} accessibilityRole="button" accessibilityLabel="15 seconds more">
-            <Icon name="Plus" size={16} color={colors.inkDim} />
-            <T size={14} weight={500} dim tabular>15s</T>
-          </Press>
+          <CtlBtn icon="Plus" label="15s" a11y="15 seconds more" onPress={() => onBump(15)} />
         ) : null}
-      </View>
-
-      <View style={st.ctl2}>
-        <WoLink icon="SkipForward" label={phase === 'setrest' ? 'Start next set' : 'Skip ahead'} onPress={onSkip} />
+        <CtlBtn icon="SkipForward" label={phase === 'setrest' ? 'Next set' : 'Skip'} onPress={onSkip} />
         {phase !== 'setrest' && !openEnded ? (
-          <WoLink icon="Flag" label="End set here" onPress={onEndSet} />
+          <CtlBtn icon="Flag" label="End set" onPress={onEndSet} />
         ) : null}
       </View>
 
       {reading ? (
         <View style={st.howNext}>
-          <View style={st.howNextHead}>
-            <Icon name="PersonStanding" size={14} color={colors.inkFaint} />
-            <T size={11} faint caps>{`Next up — ${step.exName}`}</T>
-          </View>
+          <SectionHeader title={`Next up: ${step.exName}`} style={st.howNextHead} />
           <HowBody how={step.how} />
         </View>
       ) : null}
     </View>
+  )
+}
+
+/** The interval timer's control button (timer.tsx CtlBtn, the web's .it-btn); `on` is the raised one. */
+function CtlBtn({ icon, label, a11y, onPress, on }: {
+  icon: string; label: string; a11y?: string; onPress: () => void; on?: boolean
+}) {
+  return (
+    <Press onPress={onPress} accessibilityRole="button" accessibilityLabel={a11y || label}
+      style={[st.ctlBtn, on && st.ctlOn]}>
+      <Icon name={icon} size={on ? 20 : 18} color={on ? colors.ink : colors.inkDim} />
+      <T size={font.caption} weight={on ? 600 : 400} color={on ? colors.ink : colors.inkDim}>{label}</T>
+    </Press>
   )
 }
 
@@ -635,9 +658,9 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }: any) {
 
   return (
     <View style={st.review}>
-      <T size={12} faint caps align="center">{`${step.exName} · set ${step.setIndex + 1} of ${step.setCount}`}</T>
-      <T size={20} weight={600} align="center" style={{ marginTop: 2 }}>What actually happened?</T>
-      <T size={13} dim align="center" style={{ maxWidth: 280, marginBottom: 6 }}>
+      <T size={font.small} dim tabular align="center">{`${step.exName} · Set ${step.setIndex + 1} of ${step.setCount}`}</T>
+      <T size={font.heading} weight={600} lineHeight={28} align="center" style={{ marginTop: 2 }}>What actually happened?</T>
+      <T size={font.small} dim align="center" style={{ maxWidth: 280, marginBottom: space[2] }}>
         Pre-filled from the plan. Change anything that didn’t match.
       </T>
 
@@ -654,7 +677,7 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }: any) {
       <View style={st.fields}>
         {step.fields.filter((f: string) => f !== GRADE_FIELD).map((f: string) => (
           <View key={f} style={st.field}>
-            <T size={11} faint caps align="center">
+            <T size={font.small} dim align="center">
               {`${FIELD_LABEL[f] || f}${f === 'weight' && step.sign === '-' ? ' (off)' : ''}`}
             </T>
             {f === 'reps' && detailed ? (
@@ -681,7 +704,7 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }: any) {
 
       {detailed ? (
         <View style={st.climbs}>
-          <T size={11} faint caps>{`each ${what}${falls > 0 ? ` · fell on ${falls}` : ''}`}</T>
+          <T size={font.small} dim>{`each ${what}${falls > 0 ? ` · fell on ${falls}` : ''}`}</T>
           <View style={{ width: '100%', maxWidth: 340 }}>
             <ClimbLog count={repCount(draft.reps)} values={draft[CLIMB_FIELD]}
               spec={step.climbLog} what={what} omitGrade={perRep}
@@ -696,7 +719,7 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }: any) {
           same route — the same control as the per-set log. */}
       {perRep ? (
         <View style={st.grades}>
-          <T size={11} faint caps>{`grade per ${step.repName || 'rep'}`}</T>
+          <T size={font.small} dim>{`grade per ${step.repName || 'rep'}`}</T>
           <GradeLaps count={repCount(draft.reps)} values={draft[GRADE_FIELD]}
             what={step.repName || 'rep'} where={`set ${step.setIndex + 1} `}
             onChange={(list: any) => onDraft({ ...draft, [GRADE_FIELD]: list })} />
@@ -726,7 +749,7 @@ function Rail({ steps, current, onJump }: any) {
     <View style={st.rail}>
       {groups.map(g => (
         <View key={g.key} style={st.railRow}>
-          <T size={12} faint numberOfLines={1} style={{ flex: 1, minWidth: 0 }}>{g.name}</T>
+          <T size={font.small} dim numberOfLines={1} style={{ flex: 1, minWidth: 0 }}>{g.name}</T>
           <View style={st.railSets}>
             {g.items.map(({ n, s }: any) => {
               const on = n === current
@@ -736,7 +759,7 @@ function Rail({ steps, current, onJump }: any) {
                   style={[st.railSet, s.logged && st.railSetDone, on && st.railSetOn]}>
                   {s.logged
                     ? <Icon name="Check" size={13} color={on ? colors.ink : colors.vizGood} />
-                    : <T size={12} tabular color={on ? colors.ink : colors.inkFaint}>{String(s.setIndex + 1)}</T>}
+                    : <T size={font.small} tabular color={on ? colors.ink : colors.inkDim}>{String(s.setIndex + 1)}</T>}
                 </Press>
               )
             })}
@@ -755,7 +778,7 @@ function Finish({ session, out, startedAt, value, onValue, onFinish }: any) {
   return (
     <View style={st.finish}>
       <Icon name="CircleCheck" size={44} color={colors.vizGood} />
-      <T size={20} weight={600} align="center">{`${session.name} — done`}</T>
+      <T size={font.heading} weight={600} lineHeight={28} align="center">{`${session.name} — done`}</T>
 
       <View style={st.stats}>
         <Stat n={sets} label="sets" />
@@ -764,12 +787,12 @@ function Finish({ session, out, startedAt, value, onValue, onFinish }: any) {
       </View>
 
       <View style={{ gap: 6, width: 160 }}>
-        <T size={11} faint caps align="center">Minutes to record</T>
+        <T size={font.small} dim align="center">Minutes to record</T>
         <Input keyboardType="number-pad" value={value} onChangeText={onValue}
           placeholder={measured != null ? String(measured) : String(session.minutes ?? '')}
           style={st.fieldIn} />
       </View>
-      <T size={12} faint align="center">
+      <T size={font.small} dim align="center">
         Measured from when you hit start. This is what the weekly training-load chart multiplies
         by your RPE, so a real number beats the card’s nominal one.
       </T>
@@ -783,8 +806,8 @@ function Finish({ session, out, startedAt, value, onValue, onFinish }: any) {
 function Stat({ n, label }: { n: number; label: string }) {
   return (
     <View style={{ gap: 2, alignItems: 'center' }}>
-      <T size={27} weight={700} tabular>{String(n)}</T>
-      <T size={11} faint caps>{label}</T>
+      <T size={font.display} weight={600} tabular lineHeight={38}>{String(n)}</T>
+      <T size={font.small} dim>{label}</T>
     </View>
   )
 }
@@ -792,46 +815,48 @@ function Stat({ n, label }: { n: number; label: string }) {
 const st = StyleSheet.create({
   wo: { flex: 1, backgroundColor: colors.bg },
   head: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.line,
+    flexDirection: 'row', alignItems: 'center', gap: space[1],
+    padding: space[2], borderBottomWidth: 1, borderBottomColor: colors.line,
   },
-  body: { flexGrow: 1, paddingTop: 16, paddingHorizontal: 16 },
-  link: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 10, paddingHorizontal: 4, minHeight: TAP },
-  bigBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9,
-    backgroundColor: colors.accent, borderRadius: 8, paddingVertical: 15, paddingHorizontal: 16, minHeight: 54,
-  },
-  setDone: { width: '100%', maxWidth: 340, minHeight: 60, paddingVertical: 17, marginTop: 8 },
+  body: { flexGrow: 1, paddingTop: space[4], paddingHorizontal: space.gutter },
+  link: { flexDirection: 'row', alignItems: 'center', gap: space[2], paddingHorizontal: space[2], minHeight: TAP, borderRadius: radius.control },
+  // The one primary, made big: the accent at title size.
+  bigBtn: { backgroundColor: colors.accent, borderColor: colors.accent, minHeight: 56 },
+  quietBtn: { backgroundColor: 'transparent', borderColor: 'transparent' },
+  setDone: { width: '100%', maxWidth: 340, marginTop: space[2] },
   face: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingTop: 10, paddingBottom: 18 },
+  // The how-to, mid-set: a picture and one line, small enough never to compete
+  // with the clock. Tapping opens the full card.
   how: {
     flexDirection: 'row', alignItems: 'center', gap: 11, width: '100%', maxWidth: 400,
     minHeight: TAP, paddingVertical: 7, paddingHorizontal: 10,
-    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.md,
+    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control,
   },
   howFig: { width: 44, height: 38 },
   howMore: {
-    borderWidth: 1, borderColor: mix(colors.accent, 40, colors.line), borderRadius: radius.pill,
-    paddingVertical: 5, paddingHorizontal: 10,
+    borderWidth: 1, borderColor: colors.lineStrong, borderRadius: radius.pill,
+    paddingVertical: 6, paddingHorizontal: space[3],
   },
   howNext: {
-    width: '100%', maxWidth: 460, marginTop: 16, paddingTop: 13,
-    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.md,
+    width: '100%', maxWidth: 460, marginTop: space[4], paddingTop: 13,
+    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.card,
   },
-  howNextHead: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 14, paddingBottom: 11 },
-  clock: { alignItems: 'center', gap: 10, width: '100%' },
-  clockTap: { paddingVertical: 10, paddingHorizontal: 14, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.line, borderRadius: 16 },
+  howNextHead: { marginTop: 0, marginBottom: 0, paddingHorizontal: space[4], paddingBottom: space[2] },
+  // The timer's face; a button only on the open-ended phases (see Face).
+  clock: { alignItems: 'center', gap: space[3], width: '100%', paddingVertical: space[2] },
+  clockTap: {
+    paddingVertical: space[3], paddingHorizontal: space[4],
+    borderWidth: 1, borderStyle: 'dashed', borderColor: colors.lineStrong, borderRadius: radius.sheet,
+  },
   pips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, justifyContent: 'center', maxWidth: 280, marginTop: 2 },
-  pip: { width: 13, height: 13, borderRadius: 7, borderWidth: 2, borderColor: colors.line },
-  pipDone: { backgroundColor: colors.accent, borderColor: colors.accent },
-  pipOn: { borderColor: colors.accent, backgroundColor: mix(colors.accent, 35, colors.bg), transform: [{ scale: 1.35 }] },
-  ctl: { flexDirection: 'row', gap: 10, alignItems: 'center', marginTop: 8 },
-  woBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.md,
-    paddingVertical: 12, paddingHorizontal: 14, minHeight: TAP, minWidth: 68,
+  pip: { width: 13, height: 13, borderRadius: 7, borderWidth: 2, borderColor: colors.lineStrong },
+  ctl: { flexDirection: 'row', gap: space[2], justifyContent: 'center', alignSelf: 'stretch', marginTop: space[2] },
+  ctlBtn: {
+    flex: 1, maxWidth: 92, minHeight: 60, gap: 2, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.lineStrong, borderRadius: radius.card,
   },
-  woBtnPrimary: { backgroundColor: colors.panel2, borderColor: colors.inkFaint, minWidth: 128 },
-  ctl2: { flexDirection: 'row', gap: 16, marginTop: 6, flexWrap: 'wrap', justifyContent: 'center' },
+  // Pause is the control you reach for: the secondary button's raised surface, not the accent.
+  ctlOn: { maxWidth: 110, backgroundColor: colors.panel3 },
   review: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
   signtog: {
     backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.pill,
@@ -854,15 +879,21 @@ const st = StyleSheet.create({
   },
   climbs: { alignItems: 'center', gap: 4, width: '100%' },
   grades: { alignItems: 'center', gap: 6, width: '100%', marginTop: 4 },
-  rail: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.line, gap: 8 },
+  rail: { marginTop: 14, paddingTop: space[3], borderTopWidth: 1, borderTopColor: colors.line, gap: space[2] },
   railRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   railSets: { flexDirection: 'row', gap: 5, flexWrap: 'wrap', flexShrink: 1, justifyContent: 'flex-end' },
   railSet: {
-    width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center',
+    width: 36, height: 36, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center',
     backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line,
   },
   railSetDone: { borderColor: mix(colors.vizGood, 40, colors.line) },
-  railSetOn: { borderColor: colors.accent, backgroundColor: mix(colors.accent, 16, colors.panel) },
-  finish: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  stats: { flexDirection: 'row', gap: 22, marginVertical: 4 },
+  railSetOn: { borderColor: colors.accentLine, backgroundColor: colors.accentSoft },
+  finish: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: space[3] },
+  stats: { flexDirection: 'row', gap: space[6], marginVertical: space[1] },
+  // Leaving mid-set: a panel at the foot, the clock still running above it.
+  confirm: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    backgroundColor: colors.panel, borderTopWidth: 1, borderTopColor: colors.line,
+    paddingHorizontal: space[4], paddingTop: space[4],
+  },
 })

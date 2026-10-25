@@ -271,7 +271,7 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
           onAdd={(n) => commit(nudgeRest(run, n))}
           onSkip={() => commit(endRest(run))} />
       ) : done ? (
-        <FinishScreen pres={pres} progress={progress} elapsed={elapsed}
+        <FinishScreen progress={progress} elapsed={elapsed}
           onFinish={finish} onReview={() => setListOpen(true)} />
       ) : step ? (
         <SetScreen
@@ -289,15 +289,14 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
 
       {confirmExit && (
         <div className="run-confirm">
-          <div className="run-confirm-box">
+          <div className="run-confirm-box" role="dialog" aria-label="Leave the workout?">
             <h3>Leave the workout?</h3>
-            <p className="sub">
-              Everything you have marked is already saved, and the rest clock keeps running.
-              Open it again from today and you will be on the same set.
-            </p>
+            <p className="sub">Every set you marked is saved, and the clock keeps running.</p>
+            {/* One primary: finishing is the decision this asks for; leaving it open
+                is the quieter second, and Keep going backs out. */}
             <div className="run-confirm-acts">
               <button className="btn ghost" onClick={() => setConfirmExit(false)}>Keep going</button>
-              <button className="btn" onClick={onExit}>Leave it open</button>
+              <button className="btn secondary" onClick={onExit}>Leave it open</button>
               <button className="btn" onClick={finish}>Finish now</button>
             </div>
           </div>
@@ -359,14 +358,13 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
   return (
     <div className="run-body">
       <div className="run-where">
-        <span className="run-block">{step.blockName}</span>
-        <span className="run-setof">set {step.index + 1} of {step.of}</span>
-        {/* One more of these, same numbers. Small and beside the count it changes,
-            because the enormous button on this screen is for marking a set and a
-            second one would compete with it; the 44px target is padding. */}
+        <span>{step.blockName} · Set {step.index + 1} of {step.of}</span>
+        {/* One more of these, same numbers. Quiet and beside the count it changes,
+            because the big button on this screen is for marking a set and a second
+            one would compete with it; the 44px target is padding. */}
         <button className="run-addset" onClick={onAddSet}
           aria-label={`One more set of ${item.name}, same as this one`}>
-          <Icon name="Plus" size={12} /> set
+          <Icon name="Plus" size={14} /> Add a set
         </button>
       </div>
 
@@ -382,10 +380,7 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
         </div>
       )}
 
-      <div className="run-target">
-        <span className="run-target-label">planned</span>
-        <span className="run-target-value">{target}</span>
-      </div>
+      <p className="run-target">Planned <strong>{target}</strong></p>
 
       {/* The same fields the editor shows, from the same function — a box the user can
           plan in and not record in is worse than no box. See setFieldsFor. */}
@@ -426,25 +421,27 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
         </div>
       )}
 
+      {/* ONE primary on this screen (docs/DESIGN.md D7): Done set. A set already
+          marked offers its undo as a secondary in the same place instead. */}
       <div className="run-acts">
         {logged ? (
-          <button className="run-done on" onClick={onUnmark}>
-            <Icon name="CircleCheck" size={26} />
-            <span>Done — tap to take it back</span>
+          <button className="btn big secondary run-done" onClick={onUnmark}>
+            <Icon name="RotateCw" size={20} />
+            <span>Undo this set</span>
           </button>
         ) : (
-          <button className="run-done" onClick={onMark}>
-            <Icon name="Check" size={28} />
-            <span>Mark set {step.index + 1}</span>
+          <button className="btn big run-done" onClick={onMark}>
+            <Icon name="Check" size={24} />
+            <span>Done set</span>
           </button>
         )}
         <div className="run-acts-row">
-          <button className="run-minor" onClick={onSkip}>
-            <Icon name="SkipForward" size={16} /> skip
+          <button className="btn quiet" onClick={onSkip}>
+            <Icon name="SkipForward" size={16} /> Skip
           </button>
-          <span className="run-acts-mid">{doneHere}/{step.of} of this one · {itemLine(item)}</span>
-          <button className="run-minor" onClick={onList}>
-            <Icon name="Layers" size={16} /> all sets
+          <span className="run-acts-mid">{doneHere} of {step.of} · {itemLine(item)}</span>
+          <button className="btn quiet" onClick={onList}>
+            <Icon name="Layers" size={16} /> All sets
           </button>
         </div>
       </div>
@@ -502,26 +499,28 @@ function RestScreen({ seconds, of, next, onAdd, onSkip }) {
   const pct = of > 0 ? Math.max(0, Math.min(1, seconds / of)) : 0
   return (
     <div className="run-body rest">
-      <div className="rest-label">rest</div>
+      <div className="rest-label">Rest</div>
       <div className="rest-clock" style={{ '--pct': pct }}>
         <span>{mmss(seconds)}</span>
       </div>
 
       <div className="rest-nudge">
-        <button onClick={() => onAdd(-15)}><Icon name="Minus" size={20} /> 15s</button>
-        <button onClick={() => onAdd(30)}><Icon name="Plus" size={20} /> 30s</button>
+        <button className="btn secondary" onClick={() => onAdd(-15)}><Icon name="Minus" size={18} /> 15s</button>
+        <button className="btn secondary" onClick={() => onAdd(30)}><Icon name="Plus" size={18} /> 30s</button>
       </div>
 
       {next && (
         <p className="rest-next">
-          next: <strong>{next.item.name}</strong> · set {next.index + 1} of {next.of}
+          Next: <strong>{next.item.name}</strong> · Set {next.index + 1} of {next.of}
           {' · '}{setLine(next.set, next.item)}
         </p>
       )}
 
+      {/* No primary while resting: the commonest mistake is not resting long enough,
+          so ending it early is a quiet button, not the big one. */}
       <div className="run-acts">
-        <button className="run-done ghost" onClick={onSkip}>
-          <Icon name="SkipForward" size={24} />
+        <button className="btn ghost run-skip" onClick={onSkip}>
+          <Icon name="SkipForward" size={18} />
           <span>Skip the rest</span>
         </button>
       </div>
@@ -531,25 +530,21 @@ function RestScreen({ seconds, of, next, onAdd, onSkip }) {
 
 /* --------------------------------------------------------------- finished */
 
-function FinishScreen({ pres, progress, elapsed, onFinish, onReview }) {
+function FinishScreen({ progress, elapsed, onFinish, onReview }) {
   return (
     <div className="run-body finish">
       <span className="finish-ico"><Icon name="CircleCheck" size={44} /></span>
       <h2>That is everything</h2>
       <p className="sub">
         {progress.done} of {progress.total} sets in {mmss(elapsed)}
-        {progress.skipped ? ` · ${progress.skipped} skipped` : ''}.
-      </p>
-      <p className="sub">
-        Finishing marks the session done and writes what you did into the log, where you can
-        edit any of it. {pres.title} stays on the entry as what was asked for.
+        {progress.skipped ? ` · ${progress.skipped} skipped` : ''}
       </p>
       <div className="run-acts">
-        <button className="run-done" onClick={onFinish}>
-          <Icon name="Flag" size={26} /><span>Finish and log it</span>
+        <button className="btn big run-done" onClick={onFinish}>
+          <Icon name="Flag" size={22} /><span>Finish and log it</span>
         </button>
-        <div className="run-acts-row">
-          <button className="run-minor" onClick={onReview}><Icon name="Layers" size={16} /> go back over the sets</button>
+        <div className="run-acts-row center">
+          <button className="btn quiet" onClick={onReview}><Icon name="Layers" size={16} /> Go back over the sets</button>
         </div>
       </div>
     </div>
@@ -564,16 +559,22 @@ function FinishScreen({ pres, progress, elapsed, onFinish, onReview }) {
  * on a phone it would cost the set screen the room that makes it readable.
  */
 function SetList({ pres, steps, run, cursor, onJump, onUnmark, onUnskip, onClose, onFinish }) {
-  let lastItem = null
   // Blocks that are only prose have no rows, so they get named here rather than
   // being missing from the one screen that claims to show the whole session.
   const proseBlocks = (pres?.blocks || []).filter(b => !b.items.length && b.note)
+  // One section per exercise: its name as the head, its sets as rows in one card.
+  const groups = []
+  for (const s of steps) {
+    const g = groups.at(-1)
+    if (g && g.itemId === s.itemId) g.sets.push(s)
+    else groups.push({ itemId: s.itemId, item: s.item, blockName: s.blockName, sets: [s] })
+  }
   return (
     <div className="setlist-scrim" onClick={onClose} role="presentation">
-      <div className="setlist" onClick={e => e.stopPropagation()} role="dialog" aria-label="Every set">
+      <div className="setlist" onClick={e => e.stopPropagation()} role="dialog" aria-label="All sets">
         <header className="setlist-head">
-          <span>Every set</span>
-          <button className="modal-btn" onClick={onClose} aria-label="Close"><Icon name="X" size={18} /></button>
+          <span>All sets</span>
+          <button className="iconbtn" onClick={onClose} aria-label="Close"><Icon name="X" size={18} /></button>
         </header>
         <div className="setlist-body">
           {proseBlocks.map(b => (
@@ -582,43 +583,47 @@ function SetList({ pres, steps, run, cursor, onJump, onUnmark, onUnskip, onClose
               <span className="sub">{b.note}</span>
             </div>
           ))}
-          {steps.map(s => {
-            const head = s.itemId !== lastItem ? s : null
-            lastItem = s.itemId
-            const logged = isLogged(run, s.setId)
-            const skipped = isSkipped(run, s.setId)
-            const actual = run?.sets?.[s.setId]
-            return (
-              <div key={s.setId}>
-                {head && (
-                  <div className="setlist-item">
-                    <strong>{s.item.name}</strong>
-                    <span className="sub">{s.blockName}</span>
-                  </div>
-                )}
-                <div className={`setlist-row ${logged ? 'done' : ''} ${skipped ? 'skipped' : ''} ${s.setId === cursor ? 'here' : ''}`}>
-                  <button className="setlist-go" onClick={() => onJump(s.setId)}>
-                    <span className="setlist-n">{s.index + 1}</span>
-                    <span className="setlist-target">
-                      {logged && actual ? setLine(actual, s.item) : setLine(s.set, s.item)}
-                    </span>
-                    {logged && <span className="setlist-tag">done</span>}
-                    {skipped && <span className="setlist-tag">skipped</span>}
-                  </button>
-                  {logged && (
-                    <button className="setlist-undo" onClick={() => onUnmark(s.setId)} aria-label="Un-mark this set">
-                      <Icon name="RotateCw" size={15} />
-                    </button>
-                  )}
-                  {skipped && (
-                    <button className="setlist-undo" onClick={() => onUnskip(s.setId)} aria-label="Put this set back">
-                      <Icon name="RotateCw" size={15} />
-                    </button>
-                  )}
-                </div>
+          {groups.map(g => (
+            <section key={g.itemId} aria-label={g.item.name}>
+              <div className="section-head">
+                <h3>{g.item.name}</h3>
+                <span className="sub">{g.blockName}</span>
               </div>
-            )
-          })}
+              <div className="card list setlist-card">
+                {g.sets.map(s => {
+                  const logged = isLogged(run, s.setId)
+                  const skipped = isSkipped(run, s.setId)
+                  const actual = run?.sets?.[s.setId]
+                  return (
+                    <div key={s.setId} className={`list-row setlist-row ${logged ? 'done' : ''} ${skipped ? 'skipped' : ''} ${s.setId === cursor ? 'here' : ''}`}>
+                      <button className="setlist-go" onClick={() => onJump(s.setId)}
+                        aria-current={s.setId === cursor ? 'step' : undefined}>
+                        <Icon name={logged ? 'CircleCheck' : skipped ? 'SkipForward' : 'Circle'} size={20} />
+                        <span className="list-row-main">
+                          <span className="list-row-title">
+                            {logged && actual ? setLine(actual, s.item) : setLine(s.set, s.item)}
+                          </span>
+                          <span className="list-row-meta">
+                            Set {s.index + 1}{logged ? ' · Done' : skipped ? ' · Skipped' : s.setId === cursor ? ' · Next' : ''}
+                          </span>
+                        </span>
+                      </button>
+                      {logged && (
+                        <button className="iconbtn setlist-undo" onClick={() => onUnmark(s.setId)} aria-label={`Undo set ${s.index + 1} of ${s.item.name}`}>
+                          <Icon name="RotateCw" size={17} />
+                        </button>
+                      )}
+                      {skipped && (
+                        <button className="iconbtn setlist-undo" onClick={() => onUnskip(s.setId)} aria-label={`Put set ${s.index + 1} of ${s.item.name} back`}>
+                          <Icon name="RotateCw" size={17} />
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+          ))}
         </div>
         <footer className="setlist-foot">
           <button className="btn" onClick={onFinish}><Icon name="Flag" size={16} /> Finish and log it</button>
