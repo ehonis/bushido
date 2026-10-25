@@ -158,11 +158,38 @@ async function waitFor(fn, label, ms = 8000) {
       method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: '{"kinds":["legs"],"minutes":30}',
     })
     eq(plan.status, 503)
-    eq((await plan.json()).code, 'ai-not-configured')
+    const refusal = await plan.json()
+    eq(refusal.code, 'ai-not-configured')
+    ok(/Settings/.test(refusal.error), `the owner was not told where to set AI up: ${refusal.error}`)
+    // Off for the owner too (#55): the app offers Build it myself alone.
+    eq((await (await get(`${s.base}/api/auth/me`, h)).json()).features.ai, false, 'the owner was offered AI with no CLI')
     const content = await (await get(`${s.base}/api/content`, h)).json()
     ok(!('achievements' in content), 'a fresh install seeds achievements')
     ok(!('facility' in content), 'a fresh install serves the example plan')
     ok(!/error|failed/i.test(s.log()), `the server logged an error:\n${s.log()}`)
+  })
+
+  await step('AI is on only while the CLI runs: not a plain file, not one that fails', async () => {
+    const dir = mkdtemp('bushido-cli-')
+    const cli = (name, body, mode) => { const f = path.join(dir, name); fs.writeFileSync(f, body, { mode }); return f }
+    const cases = [
+      ['not executable', cli('plain', '#!/bin/sh\necho 1.0\n', 0o644), false],
+      ['exits non-zero', cli('broken', '#!/bin/sh\nexit 1\n', 0o755), false],
+      ['a directory', dir, false],
+      ['runs', cli('works', '#!/bin/sh\necho 1.0.0\n', 0o755), true],
+    ]
+    for (const [label, bin, want] of cases) {
+      const srv = await boot({ env: { BUSHIDO_AUTH: 'proxy', CLAUDE_BIN: bin } })
+      try {
+        // The settings view waits for the `--version` probe that featuresFor reads.
+        eq((await get(`${srv.base}/api/settings`)).status, 200, label)
+        eq((await (await get(`${srv.base}/api/auth/me`)).json()).features.ai, want, label)
+        if (!want) {
+          const r = await get(`${srv.base}/api/plan/drafts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+          eq([r.status, (await r.json()).code], [503, 'ai-not-configured'], label)
+        }
+      } finally { await srv.stop() }
+    }
   })
 
   await step('settings round-trip and never echo a secret', async () => {
@@ -812,10 +839,12 @@ async function waitFor(fn, label, ms = 8000) {
   await step('trainer: planning "for" someone is the owner\'s, not while acting, never for the owner', async () => {
     const plan = (body, h = owns()) => get(`${two.base}/api/plan/workout`, { method: 'POST', headers: { ...json, ...h.headers },
       body: JSON.stringify({ kinds: ['legs'], minutes: 30, ...body }) })
-    eq((await plan({ for: 'nobody' })).status, 404)
-    // With no CLI the target is accepted and the answer is the ordinary "set AI up".
-    const none = await plan({ for: 'sam' })
-    eq([none.status, (await none.json()).code], [503, 'ai-not-configured'])
+    // With no CLI the answer is the ordinary "set AI up", whoever it is for (an
+    // unknown target is a 404 once there is a CLI, in the "ai for everyone" steps).
+    for (const target of ['sam', 'nobody']) {
+      const none = await plan({ for: target })
+      eq([none.status, (await none.json()).code], [503, 'ai-not-configured'], target)
+    }
     const week = await get(`${two.base}/api/plan/week`, { method: 'POST', headers: { ...json, ...owns().headers },
       body: JSON.stringify({ monday: '2026-10-12', message: 'x', for: 'nobody' }) })
     eq(week.status, 404)
@@ -1136,6 +1165,7 @@ process.stdin.on('end', () => {
   })
 
   await step('ai for everyone: the owner planning FOR Sam runs on Sam\'s context, not the owner\'s', async () => {
+    eq((await postAi('/api/plan/workout', { kinds: ['legs'], minutes: 30, for: 'nobody' }, ownerH())).status, 404)
     eq((await postAi('/api/plan/workout', { kinds: ['legs'], minutes: 30, for: 'sam' }, ownerH())).status, 200)
     assertSamRun(lastRun(), 'owner planning for Sam')
     eq((await postAi('/api/plan/revise', { plan: { blocks: [] }, message: 'shorter', for: 'sam' }, ownerH())).status, 200)

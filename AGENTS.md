@@ -279,10 +279,13 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
   burn read it through `POST /api/whoop/owner` (`WHOOP_OWNER_METHODS`: `status`, `training`,
   `sleepNights`). Habit sync and
   the "logged" push run only for the owner's writes. `ai` is on for everyone once a CLI is
-  configured, and every run is built from ONE person's space (`aiRun(space)` in server.js;
-  §7 says what a non-owner's run can read). Without a CLI only the owner sees "Write it
-  for me", so the "set AI up" answer has somewhere to appear; nobody else is shown a setup
-  they cannot do.
+  configured AND runs (`aiUsable` in server.js: an executable file whose `--version` did not
+  fail), and every run is built from ONE person's space (`aiRun(space)` in server.js;
+  §7 says what a non-owner's run can read). Without one it is off for everyone, the owner
+  included (#55): Plan a workout is Build it myself alone, and Settings → AI is where the
+  owner learns why. A refusal (`ai-not-configured`) is remembered for the rest of the page's
+  life (`aiOffered` in `lib/plannerapi.js`), so reopening the planner does not offer the model
+  again.
 - **About you is per person.** The owner's is in Settings, as always. Anyone else's is
   `about.json` in their space (`aboutFor`/`writeAbout`), edited by them (`/api/about`,
   profile → You) or by the owner (`/api/people/:id/about`, "About Sam" in Sam's day), and
@@ -432,7 +435,7 @@ A **fresh install** (no `data/state.json`) gets: sign-in on; no AI unless a `cla
 is found (`CLAUDE_BIN`, `~/.local/bin/claude`, then `PATH`); no bridge, so habit sync is
 off; no WHOOP or Strava app, so both are hidden; no notify core and therefore **no
 timers at all**; no brain file; starter content. AI routes answer
-`503` with `code: "ai-not-configured"` and the UI says to set AI up; nothing else is
+`503` with `code: "ai-not-configured"` and the planner offers only Build it myself; nothing else is
 affected.
 
 An **existing install** (`state.json` present, no `settings.json`, no `auth.json`) is

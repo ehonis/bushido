@@ -36,7 +36,7 @@ import { Fold } from '../ui/Fold'
 import { impact, success, tap, warn } from '../ui/haptics'
 import { Markdown } from '../lib/markdown'
 import {
-  reviseWorkout, plannerContext, createDraft, reviseDraft, retryDraft, saveDraft, discardDraft, claimDraft,
+  reviseWorkout, plannerContext, aiOffered, createDraft, reviseDraft, retryDraft, saveDraft, discardDraft, claimDraft,
 } from '../lib/plannerapi.js'
 import {
   useDrafts, draftKey, draftStep, draftPres, draftTitle, draftLine, presForServer,
@@ -184,10 +184,11 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
    * step, so it never pulls the editor out from under them.
    *
    * Whether the model is on offer: once the server says no (`ai-not-configured`),
-   * this screen is the hand-built route alone, with nothing that mentions a model.
+   * for the rest of the session (`aiOffered`, lib/plannerapi.js), this screen is
+   * the hand-built route alone, with nothing that mentions a model.
    */
   const [aiRefused, setAiRefused] = useState(false)
-  const ai = Boolean(currentMe().features.ai) && !aiRefused
+  const ai = aiOffered(currentMe().features) && !aiRefused
   const { drafts: listed, upsert, drop } = (useDrafts as any)(ai)
   /*
    * Kept ONCE. A draft whose id is already on an entry in the log (kept here,
@@ -562,7 +563,7 @@ export function groupedKinds(plan: any) {
 }
 
 export function KindStep({
-  plan, custom, setCustom, picked, setPicked, onNext, onBuild, ai = currentMe().features.ai,
+  plan, custom, setCustom, picked, setPicked, onNext, onBuild, ai = aiOffered(currentMe().features),
   head = null, waiting = null, spaced = false,
 }: any) {
   const groups = groupedKinds(plan)

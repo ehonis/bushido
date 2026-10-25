@@ -533,7 +533,7 @@ export default function App() {
         * stands in (`isHardEntry`).
         */}
       {fab === 'log' && (
-        <ActivityChooser plan={plan} field={activityFieldOf(plan)}
+        <ActivityChooser plan={plan} field={activityFieldOf(plan)} entries={store.entries}
           dayLabel={dayLabel(logAt.date)} climbingOnly={Boolean(logAt.climb)}
           onPick={(activity) => placeAll([{ optId: 'log-workout', data: { out: { activity } } }],
             { date: logAt.date || localIso() })}

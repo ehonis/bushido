@@ -48,7 +48,7 @@ import { Icon } from './lib/icons.jsx'
 import { FullScreen } from './modal.jsx'
 import { Markdown } from './lib/markdown.jsx'
 import {
-  reviseWorkout, plannerContext, createDraft, reviseDraft, retryDraft, saveDraft, discardDraft, claimDraft,
+  reviseWorkout, plannerContext, aiOffered, createDraft, reviseDraft, retryDraft, saveDraft, discardDraft, claimDraft,
 } from './lib/plannerapi.js'
 import {
   useDrafts, draftKey, draftStep, draftPres, draftTitle, draftLine, presForServer,
@@ -135,11 +135,12 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
    */
   /*
    * Whether the model is on offer. The server says no (`ai-not-configured`: a fresh
-   * install with no CLI, or someone it is not set up for) and from then on this
-   * screen is the hand-built route alone, with nothing that mentions a model.
+   * install with no CLI, or someone it is not set up for) and from then on, for
+   * the rest of the session (`aiOffered`, lib/plannerapi.js), this screen is the
+   * hand-built route alone, with nothing that mentions a model.
    */
   const [aiRefused, setAiRefused] = useState(false)
-  const ai = Boolean(currentMe().features.ai) && !aiRefused
+  const ai = aiOffered(currentMe().features) && !aiRefused
   const { drafts: listed, upsert, drop } = useDrafts(ai)
   /*
    * Kept ONCE. A draft whose id is already on an entry in the log (this device
@@ -547,7 +548,7 @@ export function groupedKinds(plan) {
   return groups
 }
 
-export function KindStep({ plan, custom, setCustom, picked, setPicked, onNext, onBuild, ai = currentMe().features.ai }) {
+export function KindStep({ plan, custom, setCustom, picked, setPicked, onNext, onBuild, ai = aiOffered(currentMe().features) }) {
   const groups = groupedKinds(plan)
   const at = (k) => picked.findIndex(p => p.key === k.key)
   const has = (k) => at(k) >= 0
