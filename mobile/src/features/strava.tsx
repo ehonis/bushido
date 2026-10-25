@@ -13,13 +13,17 @@
  * Attaching fetches the activity in FULL first (laps, splits, calories,
  * description), so the snapshot is the whole ride. If that fetch fails the
  * summary is attached instead — every headline number is on it.
+ *
+ * Since wave 2 (#44): offers are rows with one action, attached ones are rows
+ * that open onto their numbers, laps and Detach (the pieces are whoop.tsx's).
  */
 import React, { useState } from 'react'
 import { Linking, View } from 'react-native'
-import { colors } from '../theme'
+import { colors, font, TAP } from '../theme'
 import { T } from '../ui/Text'
+import { Btn } from '../ui/kit'
 import { Fold } from '../ui/Fold'
-import { success } from '../ui/haptics'
+import { tap } from '../ui/haptics'
 import { Icon } from '../lib/icons'
 import { gateResolver } from '../lib/activities.js'
 import {
@@ -27,7 +31,7 @@ import {
   attachedStrava,
 } from '../lib/strava.jsx'
 import { pruneAttached } from '../lib/outputs.js'
-import { PullBtn, WhBtn, wh } from './whoop'
+import { AttachedRow, BlockHead, Line2, OfferRow, wh } from './whoop'
 
 /* ---------------------------------------------------------------- formatting */
 
@@ -38,9 +42,6 @@ const clock = (iso: any) => {
 }
 const span = (a: any, b: any) => (clock(b) ? `${clock(a)}–${clock(b)}` : clock(a))
 const n1 = (v: any) => (v == null ? null : Math.round(Number(v) * 10) / 10)
-
-// Strava's own orange, for its mark in the block's head (.wh-head svg.sv-ico).
-const STRAVA_ORANGE = '#fc4c02'
 
 /**
  * The line of numbers under an activity. Distance first, because that is the
@@ -61,20 +62,20 @@ function Numbers({ a }: { a: any }) {
   if (a.avgWatts) bits.push(`${Math.round(a.weightedAvgWatts || a.avgWatts)} W`)
   if (a.calories) bits.push(`${Math.round(a.calories)} cal`)
   if (a.sufferScore != null) bits.push(`RE ${a.sufferScore}`)
-  return <T size={12} dim tabular style={wh.nums}>{bits.join(' · ')}</T>
+  return <T size={font.small} dim tabular>{bits.join(' · ')}</T>
 }
 
 /** Laps or mile splits, folded away — the detail that makes a snapshot the whole ride. */
 function Laps({ rows, label }: { rows: any[]; label: string }) {
   if (!rows?.length) return null
   const pace = rows.some(r => r.paceMinPerMi)
-  const cols = ['#', 'mi', 'min', pace ? 'pace' : 'mph', 'bpm', 'W', 'ft']
+  const cols = ['Lap', 'mi', 'min', pace ? 'Pace' : 'mph', 'bpm', 'W', 'ft']
   const cell = (k: number) => ({ flex: k === 0 ? 0.6 : 1, paddingHorizontal: 6, textAlign: (k === 0 ? 'left' : 'right') as 'left' | 'right' })
   return (
-    <Fold style={{ marginTop: 9 }} headStyle={{ minHeight: 32 }} summary={<T size={12} dim>{rows.length} {label}</T>}>
+    <Fold headStyle={{ minHeight: TAP }} summary={`${rows.length} ${label}`}>
       <View style={{ marginTop: 6 }}>
         <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.line, paddingVertical: 2 }}>
-          {cols.map((c, k) => <T key={c} size={12} weight={500} faint tabular style={cell(k)}>{c}</T>)}
+          {cols.map((c, k) => <T key={c} size={font.caption} weight={500} faint tabular style={cell(k)}>{c}</T>)}
         </View>
         {rows.map((r, i) => {
           const vals = [
@@ -90,7 +91,7 @@ function Laps({ rows, label }: { rows: any[]; label: string }) {
           ]
           return (
             <View key={r.index ?? i} style={{ flexDirection: 'row', paddingVertical: 3 }}>
-              {vals.map((v, k) => <T key={k} size={12} dim tabular style={cell(k)}>{String(v)}</T>)}
+              {vals.map((v, k) => <T key={k} size={font.caption} dim tabular style={cell(k)}>{String(v)}</T>)}
             </View>
           )
         })}
@@ -126,13 +127,14 @@ export function StravaActivities({ session, entry, entries, onSave }: { session:
       // and pruning keeps a lift day from acquiring a distance off a mislabelled
       // activity. See lib/outputs.js.
       onSave((pruneAttached as any)(session, attachTo(session, out, snap), gateResolver(session)))
-      success()
     } finally {
       setAttaching(null)
     }
   }
-  const detach = (snap: any) =>
+  const detach = (snap: any) => {
+    tap()
     onSave((pruneAttached as any)(session, detachFrom(out, snap.id), gateResolver(session)))
+  }
 
   const alsoOnFor = (snap: any) => ranked.find(c => c.activity.id === snap.id)?.attachedTo || null
   const here = new Set(attachedList.map(a => a.id))
@@ -144,119 +146,95 @@ export function StravaActivities({ session, entry, entries, onSave }: { session:
 
   return (
     <View style={wh.block}>
-      <View style={wh.head}>
-        <Icon name="Bike" size={13} color={STRAVA_ORANGE} />
-        <T size={11} faint caps>Strava</T>
-        <PullBtn pulling={pulling} onPress={pull} />
-      </View>
+      <BlockHead icon="Bike" title="Strava" pulling={pulling} onPull={pull} />
 
-      {error ? <T size={12} color={colors.vizWarn} style={wh.err}>{error}</T> : null}
-      {!error && status?.ok === false ? <T size={12} color={colors.vizWarn} style={wh.err}>{status.detail}</T> : null}
+      {error ? <T size={font.small} color={colors.warn} style={wh.err}>{error}</T> : null}
+      {!error && status?.ok === false ? <T size={font.small} color={colors.warn} style={wh.err}>{status.detail}</T> : null}
 
-      {/* Everything attached, each detachable on its own. A brick is two rides
-          and a run; a slot that held one lost whichever landed first. */}
-      {attachedList.map(snap => {
-        const alsoOn = alsoOnFor(snap)
-        const filledKeys = Object.keys(snap.filled || {})
-        return (
-          <View key={snap.id} style={[wh.item, wh.attached, { marginTop: 9 }]}>
-            <View style={wh.itemTop}>
-              <View style={wh.sport}>
-                <Icon name="CircleCheck" size={13} color={colors.vizGood} />
-                <T size={14} weight={600}>{snap.name || snap.sport}</T>
-              </View>
-              <T size={12} faint tabular style={{ flexShrink: 1 }}>{snap.sport} · {span(snap.start, snap.end)}</T>
-              <WhBtn ghost title="detach" onPress={() => detach(snap)} style={{ marginLeft: 'auto' }} />
-            </View>
-            <Numbers a={snap} />
-            {snap.gear?.name ? (
-              <T size={12} dim tabular style={wh.nums}>
-                on {snap.gear.name}{snap.gear.distanceMi ? ` · ${Math.round(snap.gear.distanceMi).toLocaleString()} mi on it` : ''}
-              </T>
-            ) : null}
-            {snap.description ? (
-              <T size={12} faint style={[wh.note, { fontStyle: 'italic' }]}>{'“'}{snap.description}{'”'}</T>
-            ) : null}
-            <Laps rows={snap.laps} label="laps" />
-            {!snap.laps?.length ? <Laps rows={snap.splits} label="mile splits" /> : null}
-            <T size={12} faint style={wh.note}>
-              Saved with this session — these numbers stay put whether or not Strava is reachable.
-              {filledKeys.length > 0
-                ? ` It filled in ${filledKeys.join(', ')} above; detaching clears whichever you have not changed.`
-                : ''}
-              {snap.url ? (
-                <>
-                  {' '}
-                  <T size={12} faint accessibilityRole="link" onPress={() => { Linking.openURL(snap.url).catch(() => {}) }}
-                    style={{ textDecorationLine: 'underline' }}>open on Strava</T>
-                </>
-              ) : null}
-            </T>
-            {alsoOn ? (
-              <T size={12} color={colors.vizWarn} style={wh.err}>
-                Also on <T size={12} weight={700} color={colors.vizWarn}>{alsoOn.name}</T> — a ride is one session, so one of these is wrong.
-              </T>
-            ) : null}
-          </View>
-        )
-      })}
+      {/* Everything attached, each a row that opens onto its numbers, laps and
+          detach. A brick is two rides and a run; a slot that held one lost
+          whichever landed first. */}
+      {attachedList.length > 0 ? (
+        <View style={wh.list}>
+          {attachedList.map((snap, i) => {
+            const alsoOn = alsoOnFor(snap)
+            const filledKeys = Object.keys(snap.filled || {})
+            const mins = attachedMinutes(snap)
+            const meta = [span(snap.start, snap.end), snap.distanceMi ? `${n1(snap.distanceMi)} mi` : '', mins ? `${Math.round(mins)} min` : '']
+              .filter(Boolean).join(' · ')
+            return (
+              <AttachedRow key={snap.id} first={i === 0} title={snap.name || snap.sport} meta={meta} open={Boolean(alsoOn)}>
+                {alsoOn ? (
+                  <T size={font.small} color={colors.warn}>
+                    Also on <T size={font.small} weight={600} color={colors.warn}>{alsoOn.name}</T>. A ride is one session, so one of these is wrong.
+                  </T>
+                ) : null}
+                <Numbers a={snap} />
+                {snap.gear?.name ? (
+                  <Line2>{`On ${snap.gear.name}${snap.gear.distanceMi ? ` · ${Math.round(snap.gear.distanceMi).toLocaleString()} mi on it` : ''}`}</Line2>
+                ) : null}
+                {snap.description ? (
+                  <T size={font.small} dim style={{ fontStyle: 'italic' }}>{'“'}{snap.description}{'”'}</T>
+                ) : null}
+                <Laps rows={snap.laps} label="laps" />
+                {!snap.laps?.length ? <Laps rows={snap.splits} label="mile splits" /> : null}
+                <Line2>
+                  Saved with this session, so it stays if Strava goes away.
+                  {filledKeys.length > 0 ? ` It filled in ${filledKeys.join(', ')}; detaching clears whichever you have not changed.` : ''}
+                </Line2>
+                <View style={wh.acts}>
+                  {snap.url ? (
+                    <Btn kind="quiet" small title="Open on Strava" style={{ marginRight: 'auto' }}
+                      onPress={() => { Linking.openURL(snap.url).catch(() => {}) }} />
+                  ) : null}
+                  <Btn kind="quiet" small title="Detach" onPress={() => detach(snap)} />
+                </View>
+              </AttachedRow>
+            )
+          })}
+        </View>
+      ) : null}
 
       {attachedList.length > 1 ? (
         <View style={wh.total}>
-          <Icon name="Timer" size={13} color={colors.inkFaint} />
-          <T size={12} faint style={{ flex: 1 }}>
+          <Icon name="Timer" size={14} color={colors.inkDim} />
+          <T size={font.small} dim style={{ flex: 1 }}>
             {attachedList.length} activities on this session,{' '}
-            <T size={12} weight={700} color={colors.inkFaint}>{totalMin} min</T> moving in total. That is what the weekly load chart
-            multiplies your RPE by.
+            <T size={font.small} weight={600}>{totalMin} min</T> moving in total
           </T>
         </View>
       ) : null}
 
       {offers.length === 0 ? (
         attachedList.length === 0 ? (
-          <T size={12} faint style={wh.empty}>
+          <T size={font.small} dim style={wh.empty}>
             {cache?.fetchedAt
-              ? 'Nothing on Strava for this day. If you have just finished, give the upload a minute and pull again.'
+              ? 'Nothing on Strava for this day. Just finished? Refresh once it uploads.'
               : 'No Strava data yet.'}
           </T>
         ) : null
       ) : (
-        <View style={wh.list}>
-          {attachedList.length > 0 ? (
-            <T size={12} faint style={wh.more}>Also on this day — attach as many as belong to this session:</T>
-          ) : null}
-          {offers.map(c => {
-            const a = c.activity
-            return (
-              <View key={a.id} style={[wh.item, c.likely && wh.likely, c.attachedTo && wh.taken]}>
-                <View style={wh.itemTop}>
-                  <T size={14} weight={600}>{a.name || a.sport}</T>
-                  <T size={12} faint tabular>{a.sport} · {span(a.start, a.end)}</T>
-                  {c.likely ? (
-                    <View style={wh.tag} accessibilityLabel={c.overlapMin
-                      ? `likely: overlaps this session by ${c.overlapMin} min`
-                      : c.fit === true ? 'likely: the sport you picked' : 'likely: the only activity on Strava this day'}>
-                      <T size={10} caps color={colors.accent} lineHeight={13}>likely</T>
-                    </View>
-                  ) : null}
-                </View>
-                <Numbers a={a} />
-                {c.attachedTo ? (
-                  <View>
-                    <T size={12} faint style={wh.note}>
-                      Already on <T size={12} weight={700} color={colors.inkFaint}>{c.attachedTo.name}</T>.
-                    </T>
-                    <WhBtn ghost haptic="none" title="attach here instead" onPress={() => attach(a)}
-                      disabled={attaching !== null} style={{ marginTop: 6 }} />
-                  </View>
-                ) : (
-                  <WhBtn icon="Plus" haptic="none" onPress={() => attach(a)} disabled={attaching !== null}
-                    title={attaching === a.id ? 'attaching…' : 'attach to this session'} />
-                )}
-              </View>
-            )
-          })}
-        </View>
+        <>
+          {attachedList.length > 0 ? <T size={font.small} weight={600} style={wh.more}>Also on this day</T> : null}
+          <View style={wh.list}>
+            {offers.map((c, i) => {
+              const a = c.activity
+              return (
+                <OfferRow key={a.id} first={i === 0} title={a.name || a.sport}
+                  likely={c.likely} taken={Boolean(c.attachedTo)}
+                  likelyWhy={c.overlapMin ? `overlaps this session by ${c.overlapMin} min`
+                    : c.fit === true ? 'the sport you picked' : 'the only activity on Strava this day'}
+                  action={attaching === a.id ? 'Attaching…' : c.attachedTo ? 'Attach here too' : 'Attach'}
+                  disabled={attaching !== null} onAttach={() => attach(a)}
+                  lines={[
+                    <Line2 key="when">{`${a.sport} · ${span(a.start, a.end)}`}</Line2>,
+                    <Numbers key="nums" a={a} />,
+                    c.attachedTo ? <Line2 key="on">{`Already on ${c.attachedTo.name}`}</Line2> : null,
+                  ]} />
+              )
+            })}
+          </View>
+        </>
       )}
     </View>
   )

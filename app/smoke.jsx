@@ -4,7 +4,9 @@
  */
 import { renderToString } from 'react-dom/server'
 import { readFileSync } from 'node:fs'
-import { TodayTab, SessionSheet } from './src/tabs.jsx'
+import { TodayTab, SessionSheet, DaySwitcher, dayWords } from './src/tabs.jsx'
+import { ToastList } from './src/toast.jsx'
+import { pushToast, dismissToast, useToasts } from './src/lib/toast.js'
 import { TestingTab, WhyTab } from './src/testing.jsx'
 import {
   PlanFlow, PrescriptionEditor, KeptStep, PlanTalk, BuildStep, groupedKinds, liftFieldOf,
@@ -24,10 +26,10 @@ import {
 } from './src/lib/prescription.js'
 import { LogTab } from './src/log.jsx'
 import { GearSection } from './src/gear.jsx'
-import { ProfileMenu, PeopleCard } from './src/profile.jsx'
+import { ProfileMenu, ProfilePanel, PeopleCard, homePages } from './src/profile.jsx'
 import { TheirSide } from './src/sharedwith.jsx'
 import { sharedCopy } from './src/lib/shared.js'
-import { SidesWorkout, PeopleDays, PersonDay, MyAbout, ForChoice } from './src/trainer.jsx'
+import { SidesWorkout, PeopleDays, PersonDay, MyAbout, ForChoice, ForLine, SideSwitch } from './src/trainer.jsx'
 import { planPeople } from './src/lib/trainer.js'
 import { PlanProvider } from './src/lib/planctx.jsx'
 import { PrefsProvider } from './src/lib/prefs.jsx'
@@ -358,7 +360,7 @@ const cases = [
     upsertEntry={noop} deleteEntry={noop} onPlan={noop} onLog={noop} onRest={noop} />,
     (html) => {
       const t = text(html)
-      if (!/Nothing on today yet/.test(t)) throw new Error('a legacy entry shows up as something on the day')
+      if (!/Nothing logged today/.test(t)) throw new Error('a legacy entry shows up as something on the day')
       if (LEGACY_WORDS.test(t)) throw new Error(`a removed feature's data is on screen: ${t.match(LEGACY_WORDS)}`)
     }],
   // Day navigator: the future-preview path hides logging and must still render.
@@ -437,42 +439,30 @@ const cases = [
       // Two rows, named apart, with the numbers that differ between them.
       if (!/Run/.test(t) || !/Lift/.test(t)) throw new Error('the two workouts are not named apart')
       if (!/38 min/.test(t) || !/52 min/.test(t)) throw new Error('each one carries its own length')
-      if (!/RPE 8/.test(t) || !/RPE 5/.test(t)) throw new Error('each one carries its own effort')
-      if (!/1 exercise · 2 sets · 1,650 lb/.test(t)) throw new Error('the lift day does not say what it was')
+      // One line each: time · distance, or what was lifted. Effort ("RPE") is in
+      // the sheet, not on the row (#41).
+      if (!/38 min · 4\.2 mi/.test(t)) throw new Error('the run does not read time · distance')
+      if (!/52 min · 1 exercise · 2 sets · 1,650 lb/.test(t)) throw new Error('the lift day does not say what it was')
+      if (/RPE/.test(t)) throw new Error('a bare "RPE" is on the day list')
     }],
-  /* The route that was missing.
-   *
-   * A run logged as the day's MAIN, and no second one yet. There was no way to
-   * add the lift: "Add another session" opened the swap list, and the swap list
-   * hid whatever was currently your main — so the card was absent from the one
-   * list anyone would think to look in. Both
-   * of these have to be true from the day list alone, with nothing opened. */
-  ['TodayTab(other training as main: the way to a second one)', <TodayTab plan={plan} entries={[
-    { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
-      data: { slot: 'main', optId: 'log-workout', level: 4, name: 'Run', minutes: 38, done: true,
-        out: { activity: 'run', distance: 4.2, duration: 38, rpe: 8 } } },
-  ]} upsertEntry={noop} deleteEntry={noop} />,
-    html => {
-      const t = text(html)
-      // One tap, on the day, in the card's own words (`sched.repeatLabel`). The
-      // other half of this case checked that the card was still in the swap list,
-      // which is where users went looking — there is no swap list any more, and the
-      // + button is the other way in. This is the route that has to keep working.
-      if (!/Log another workout/.test(t)) throw new Error('no one-tap way to log a second workout')
-    }],
-  // Two already on the day: the button says how many, and does not stop working.
-  ['TodayTab(other training twice: still another)', <TodayTab plan={plan} entries={[
+  /*
+   * "Log another workout" CAME OFF THE DAY on 2026-10-25 (#41). It was a dashed
+   * full-width button under the list that looked like an empty slot, saying what
+   * the + beside the dock already does in one tap. Pinned as an absence; the +
+   * menu's own doors are pinned in the shell section (`FabMenu(four doors…)`).
+   */
+  ['TodayTab(no "Log another" under the day: the + is the way to a second one)', <TodayTab plan={plan} entries={[
     { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
       data: { slot: 'main', optId: 'log-workout', level: 4, name: 'Run', minutes: 38, done: true,
         out: { activity: 'run', duration: 38, rpe: 8 } } },
     { id: `daily-${TODAY}-log-workout`, kind: 'daily', date: TODAY, updatedAt: 'z',
       data: { slot: 'extra', optId: 'log-workout', level: 2, name: 'Lift', minutes: 52, done: true,
         out: { activity: 'lift', duration: 52, rpe: 5 } } },
-  ]} upsertEntry={noop} deleteEntry={noop} />,
+  ]} upsertEntry={noop} deleteEntry={noop} onLog={noop} onPlan={noop} />,
     html => {
       const t = text(html)
-      if (!/Log another workout/.test(t)) throw new Error('a third one should still be possible')
-      if (!/2 on today/.test(t)) throw new Error('the count of what is already on the day is missing')
+      if (/Log another workout|on today/.test(t)) throw new Error('the dashed "Log another" button is back')
+      if (/dl-add|dl-again/.test(html)) throw new Error('the dashed "Log another" button is back')
     }],
   // ...and with nothing but the activity picked, which has to be enough.
   ['TodayTab(other training, bare)', <TodayTab plan={plan} entries={[
@@ -498,12 +488,15 @@ const cases = [
     onPlan={noop} onLog={noop} onRest={noop} />,
     (html) => {
       const t = text(html)
-      if (!/Nothing on today yet/.test(t)) throw new Error('an empty day does not say it is empty')
-      // Every way in, from the screen that has nothing on it — the rest day
-      // included, because "Your day" is where users look for it.
-      for (const route of ['Plan a workout', 'Log a workout', 'Log a rest day']) {
-        if (!t.includes(route)) throw new Error(`no route to "${route}" from an empty day`)
-      }
+      if (!/Nothing logged today/.test(t)) throw new Error('an empty day does not say it is empty')
+      // The ways in from an empty day (docs/DESIGN.md "Today, first run"): Log a
+      // workout as the one primary, a rest day as a quiet button. Planning lives
+      // behind the +, which is on screen.
+      if (!/<button type="button" class="btn">Log a workout<\/button>/.test(html)) throw new Error('Log a workout is not the primary')
+      if (!/<button type="button" class="btn quiet">Rest day<\/button>/.test(html)) throw new Error('no quiet rest-day button')
+      if (/Plan a workout/.test(t)) throw new Error('Plan a workout is back on the empty day; it is the + menu\u2019s')
+      // No paragraph above the buttons (#41).
+      if (/arrives with the sets already written|also lives on the/.test(t)) throw new Error('the empty day\u2019s paragraph is back')
       // The plan's cards moved into Log a workout on 2026-10-14; a second door to
       // them is a second list to know about.
       if (/Pick from the plan/.test(t)) throw new Error('the separate session door is back')
@@ -512,7 +505,58 @@ const cases = [
       if (/Swap your main session/.test(t)) throw new Error('the swap list is back')
       if (/Take a rest day instead/.test(t)) throw new Error('the rest-day suggestion is back')
       if (/still owes|Why .*? today/.test(t)) throw new Error('the recommendation card is back')
-      if (/not done yet/.test(t)) throw new Error('something he never chose reads as a missed session')
+      if (/Not done/.test(t)) throw new Error('something he never chose reads as a missed session')
+    }],
+  /*
+   * THE DAY IS THE TITLE (#41). The day switcher used to be a whole card for two
+   * arrows; now the day, in words, is the screen's heading with ‹ › beside it.
+   */
+  ['TodayTab(the day is the title, with ‹ › beside it)', <TodayTab plan={plan} entries={[]}
+    upsertEntry={noop} deleteEntry={noop} onLog={noop} />,
+    html => {
+      if (!/class="daytitle[^"]*"><div class="daytitle-words"><h2>Today<\/h2>/.test(html)) throw new Error('the day is not the screen\u2019s title')
+      if (!/aria-label="Previous day"/.test(html) || !/aria-label="Next day"/.test(html)) throw new Error('no ‹ › beside the day')
+      if (/class="daynav/.test(html)) throw new Error('the boxed day switcher is back')
+      // Already on today: no way "back to today" to offer.
+      if (/class="btn quiet">Today</.test(html)) throw new Error('a "Today" button while on today')
+    }],
+  ['DaySwitcher(another day says which, offers the way back, and stops at max)', null, () => {
+    const t = TODAY
+    const y = isoShift(t, -1)
+    const html = renderToString(<DaySwitcher value={y} today={t} max={t} onChange={noop} title />)
+    if (!/<h2>Yesterday<\/h2>/.test(html)) throw new Error('yesterday is not in words')
+    if (!/class="btn quiet">Today</.test(html)) throw new Error('no way back to today')
+    const atMax = renderToString(<DaySwitcher value={t} today={t} max={t} onChange={noop} />)
+    if (!/aria-label="Next day"[^>]*disabled|disabled=""[^>]*aria-label="Next day"/.test(atMax)) throw new Error('the switcher steps past max')
+    const far = dayWords(isoShift(t, -9), t)
+    if (/days ago|^\d{4}-/.test(far)) throw new Error(`a far day reads "${far}", not a date in words`)
+  }],
+  /*
+   * ONE CARD OF ROWS (#41): the name, one meta line, and done said once, by the
+   * leading icon. Gone, and pinned absent: the MAIN/ADDED pill, the second tick
+   * beside the chevron, the "planned" chip, and the card's estimate posing as the
+   * time (a typed 29 must not read 45).
+   */
+  ['TodayTab(one card of rows: name, time · distance, done by the leading icon)', <TodayTab plan={plan} entries={[
+    { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { slot: 'main', optId: 'log-workout', level: 2, name: 'Run', minutes: 45, done: true,
+        out: { activity: 'run', duration: 29, distance: 3.1, rpe: 4 } } },
+    { id: `daily-${TODAY}-log-workout`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { slot: 'extra', optId: 'log-workout', level: 2, name: 'Lift', minutes: 50, done: false, undone: true,
+        out: { activity: 'lift' } } },
+  ]} upsertEntry={noop} deleteEntry={noop} onLog={noop} />,
+    html => {
+      const t = text(html)
+      if ((html.match(/class="card daylist"/g) || []).length !== 1) throw new Error('the day is not one card')
+      if ((html.match(/class="list-row dl-row/g) || []).length !== 2) throw new Error('the rows are not list rows')
+      if (!/29 min · 3\.1 mi/.test(t)) throw new Error('the row does not read time · distance as typed')
+      if (/45 min/.test(t)) throw new Error('the card\u2019s estimate is on the row as if it were the time')
+      if (!/aria-label="Done"/.test(html)) throw new Error('a done session does not say so by its icon')
+      if (!/aria-label="Not done"/.test(html) || !/Not done/.test(t)) throw new Error('a session marked undone does not say so')
+      if (/>Main<|>Added<|class="dl-tag"/.test(html)) throw new Error('the MAIN / ADDED pill is back')
+      if (/class="dl-check/.test(html)) throw new Error('a second tick beside the chevron is back')
+      if (/plannedchip/.test(html)) throw new Error('the "planned" chip is back')
+      if (/Your day/.test(t)) throw new Error('the card title is back; the day is the screen\u2019s title')
     }],
   /*
    * ABSENCES, which are the only thing a render test can say about a removal.
@@ -570,7 +614,7 @@ const cases = [
     (html) => {
       const t = text(html)
       if (/Swapped/.test(t)) throw new Error('the swap label survived the recommender')
-      if (!/class="dl-tag">Main</.test(t)) throw new Error('the logged session is not the day\u2019s main')
+      if (!/Unilateral Sub-Threshold Block Set/.test(t)) throw new Error('the logged session is not on the day')
     }],
   // A hard session on the day: the set log has to come from THAT session.
   ['TodayTab(hard session, logged)', <TodayTab plan={plan}
@@ -698,7 +742,8 @@ const cases = [
       // What the user typed has settled it, so nothing is being offered instead.
       const t = text(html)
       if (/use \d+ from/.test(t)) throw new Error('a typed number should not be second-guessed')
-      if (!/multiplies your RPE by/.test(t)) throw new Error('no hint about what the number does')
+      // No jargon under it ("RPE", "training load"): the typed number needs no sentence (#41).
+      if (/RPE|training-load/.test(t)) throw new Error('jargon under the time box')
     }],
   /* Attaching a WHOOP workout SETS the length — the whole point of the ordering.
    * Nothing to confirm, and the number in use is on screen rather than implied. */
@@ -766,7 +811,15 @@ const cases = [
       // to do. Offered as a PLACEHOLDER, never as a value the user did not give.
       if (!/placeholder="4\.9"/.test(html)) throw new Error('the pace was not worked out for him')
       if (/aria-label[^>]*speed[^>]*value="4\.9"/i.test(html)) throw new Error('a computed number was pre-filled')
-      if (!/worked out from your distance and time/.test(t)) throw new Error('the derived number is unlabelled')
+      if (!/Worked out from your distance and time/.test(t)) throw new Error('the derived number is unlabelled')
+      // The card's example numbers ("450 ft") are not shown: in a number box they
+      // read as guesses the app had made, and it had made none (#41).
+      if (/placeholder="450"|placeholder="45"|placeholder="14\.2"/.test(html)) throw new Error('a content example is posing as a guess')
+      // The activity is a row that opens the picker, not a "Change" link in a box.
+      if (!/class="list-row actrow"/.test(html)) throw new Error('the activity is not a row')
+      if (/actpick-change/.test(html)) throw new Error('the underlined "Change" link is back')
+      // The form is open: no fold title over it.
+      if (/Session logged|How did it go/.test(t)) throw new Error('the form is folded behind a title again')
     }],
   /*
    * RENAMING ONE WORKOUT.
@@ -855,7 +908,7 @@ const cases = [
     html => {
       const t = text(html)
       if (!/out-name-box/.test(html)) throw new Error('no name box')
-      if (!/Just miles — not a workout/.test(t)) throw new Error('no just-miles box')
+      if (!/Just miles, not a workout/.test(t)) throw new Error('no just-miles box')
       // This card asks for its own duration, so it must NOT also get the generic
       // box — two boxes for one fact is two answers. See asksItsOwnDuration.
       if (/aria-label="Time spent, in minutes"/.test(html)) {
@@ -1189,39 +1242,81 @@ const cases = [
     if (/rest sec/.test(t)) throw new Error('lifting grew a rest interval back')
   }],
   /*
-   * DONE BY DEFAULT (AGENTS.md §4). A session on today is done the moment it
-   * lands, so the sheet's control says so and offers "Mark undone"; one marked
-   * undone offers "Mark done"; a later day has no control at all, only the
-   * preview line. The old "tap to undo" toggle is pinned absent, and "Start"
-   * survives a session being done, because today's always is.
+   * DONE BY DEFAULT (AGENTS.md §4), and THE FOOTER (#41). Every field saves as
+   * typed, so the footer's primary is Close (or Start, where there is a workout
+   * to run); beside it, quiet, "Mark undone" on a session done by default, "Mark
+   * done" on one marked undone, and neither on a later day. Pinned absent: the old
+   * toggles that put a state and an action in one label ("Done · Mark undone").
    */
-  ['SessionSheet(Mark undone on today, Mark done once undone, nothing on a later day)', null, () => {
-    const sheet = (entry, isFuture = false) => text(renderToString(
+  ['SessionSheet(Close is the primary; Mark undone quiet beside it; Mark done once undone; neither later)', null, () => {
+    const sheet = (entry, isFuture = false, opt = PLANNED_CARD) => renderToString(
       <PlanProvider plan={plan}>
-        <SessionSheet opt={PLANNED_CARD} entry={entry} tone="rec" entries={rich} isFuture={isFuture}
+        <SessionSheet opt={opt} entry={entry} tone="rec" entries={rich} isFuture={isFuture}
           onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={noop}
           onClose={noop} />
-      </PlanProvider>))
-    const today = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false } })
-    if (!/Done · Mark undone/.test(today)) throw new Error('a session planned for today does not read as done with a way to undo it')
-    if (/tap to undo|Mark as done/.test(today)) throw new Error('the old done toggle is back')
-    if (!/Start the workout/.test(today)) throw new Error('a done-by-default session lost its Start')
-    const undone = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false, undone: true } })
+      </PlanProvider>)
+    const foot = (html) => (html.match(/<footer class="modal-foot">([\s\S]*?)<\/footer>/) || [])[1] || ''
+    const today = foot(sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false } }))
+    if (!/class="btn quiet"[^>]*>Mark undone</.test(today)) throw new Error('a session planned for today has no quiet "Mark undone"')
+    if (/Done · Mark undone|tap to undo|Mark as done/.test(text(today))) throw new Error('an old done toggle is back')
+    // This one has a clock to run, so Start is the primary rather than Close.
+    if (!/class="btn"[^>]*>.*Start the workout/.test(today)) throw new Error('a done-by-default session lost its Start')
+    const undone = text(foot(sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false, undone: true } })))
     if (!/Mark done/.test(undone) || /Mark undone/.test(undone)) throw new Error('a session marked undone does not offer "Mark done"')
-    const finished = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: true, run: { startedAt: 1, endedAt: 2 } } })
+    const finished = foot(sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: true, run: { startedAt: 1, endedAt: 2 } } }))
     if (/Start the workout/.test(finished)) throw new Error('a finished run offers Start again')
-    const later = sheet({ ...PLANNED_ENTRY, date: '2999-01-01', data: { ...PLANNED_ENTRY.data, done: false } }, true)
+    if (!/<button type="button" class="btn">Close<\/button>/.test(finished)) throw new Error('Close is not the primary once nothing is left to start')
+    const later = foot(sheet({ ...PLANNED_ENTRY, date: '2999-01-01', data: { ...PLANNED_ENTRY.data, done: false } }, true))
     if (/Mark (un)?done/.test(later)) throw new Error('a session on a later day offers a done control')
-    if (!/Preview only/.test(later)) throw new Error('a later day lost its preview line')
+    if (!/>Close</.test(later)) throw new Error('a later day has no way to close its sheet')
+    if (/Preview only/.test(text(later))) throw new Error('the explanatory preview line is back')
+  }],
+  /*
+   * THE HEADER (#41): the name, then the day and the time as typed. It used to
+   * say the card's "45 min · any sport · counts anyway" over a typed 29.
+   */
+  ['SessionSheet(header: day · time as typed, no tier, no estimate)', null, () => {
+    const entry = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { slot: 'main', optId: 'log-workout', level: 2, name: 'Run', minutes: 45, done: true,
+        out: { activity: 'run', duration: 29, distance: 3.1 } } }
+    const html = renderToString(<SessionSheet opt={otherCard} entry={entry} entries={rich} isFuture={false}
+      onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop} />)
+    const sub = text((html.match(/<div class="modal-sub">(.*?)<\/div>/) || [])[1] || '')
+    if (sub !== 'Today · 29 min') throw new Error(`the header reads "${sub}"`)
+    if (/any sport|counts anyway/.test(text(html))) throw new Error('the card\u2019s tier is back in the header')
+    // The form is open, and the timer is a row at the foot rather than a big button.
+    if (/Session logged|How did it go/.test(text(html))) throw new Error('the form is folded behind a title again')
+    if (!/class="list sheet-tools"/.test(html) || !/Interval timer/.test(html)) throw new Error('the interval timer is not a row in the sheet')
+    if (/wo-cta|done-btn/.test(html)) throw new Error('the old footer buttons are back')
+  }],
+  /* The toast (toast.jsx + lib/toast.js, mobile's API): "Removed …" with Undo. */
+  ['ToastList(removed, with Undo; dismissed by its X)', null, () => {
+    let undone = false
+    const id = pushToast('Removed Run', 'info', { duration: 0, action: { label: 'Undo', onClick: () => { undone = true } } })
+    const Probe = () => <ToastList toasts={useToasts()} />
+    const html = renderToString(<Probe />)
+    if (!/class="toast t-info"/.test(html) || !/Removed Run/.test(html)) throw new Error('the toast did not render')
+    if (!/class="toast-act"[^>]*>.*Undo/.test(html)) throw new Error('no Undo on a removal toast')
+    if (!/aria-label="Dismiss"/.test(html)) throw new Error('no way to dismiss it')
+    // Repeats of one message join one toast rather than stacking.
+    pushToast('Not saved', 'error', { duration: 0 })
+    const again = pushToast('Not saved', 'error', { duration: 0 })
+    if ((renderToString(<Probe />).match(/Not saved/g) || []).length !== 1) throw new Error('a repeated toast stacked')
+    dismissToast(id)
+    dismissToast(again)
+    if (/Removed Run|Not saved/.test(renderToString(<Probe />))) throw new Error('dismissed, and still showing')
+    if (undone) throw new Error('Undo ran without being pressed')
   }],
   ['TodayTab(a planned session on the day)', <TodayTab plan={plan} entries={[PLANNED_ENTRY]}
     upsertEntry={noop} deleteEntry={noop} onPlan={noop} onLog={noop} />,
     (html) => {
       const t = text(html)
       if (!t.includes(PRESCRIPTION.title)) throw new Error('the day names it "Planned workout" instead of its title')
-      if (!/planned/.test(t)) throw new Error('nothing marks it as a session with sets in it')
-      // Its "and another one" button appears once one is on the day.
-      if (!/Plan another workout/.test(t)) throw new Error('no way to plan a second one from the day')
+      // What it holds says it has sets in it; the "planned" chip went (#41).
+      if (!/\d+ sets/.test(t)) throw new Error('nothing marks it as a session with sets in it')
+      if (/plannedchip/.test(html)) throw new Error('the "planned" chip is back')
+      // The "and another one" button went with "Log another" (#41): the + plans another.
+      if (/Plan another workout/.test(t)) throw new Error('the "Plan another" button is back under the day')
     }],
   ['SessionSheet(an ordinary workout opens the interval timer)', null, () => {
     const opt = plan.dailyMenu.find(m => m.id === 'log-workout')
@@ -1268,14 +1363,18 @@ const cases = [
         if (!t.includes(w)) throw new Error(`no "${w}"`)
       }
       if (!/<textarea/.test(html)) throw new Error('no box for his own words')
-      // A forgotten rest day is logged after the fact, so the day is choosable.
-      if (!/type="date"/.test(html)) throw new Error('a rest day can only be logged for today')
+      if (!/notefield-label">Notes</.test(html)) throw new Error('the notes box is not labelled "Notes"')
+      if (/In your own words/.test(t)) throw new Error('the second label for the notes box is back')
+      // A forgotten rest day is logged after the fact, so the day is choosable,
+      // with the day switcher rather than a browser date box (#41).
+      if (!/class="dayswitch"/.test(html) || !/aria-label="Previous day"/.test(html)) throw new Error('a rest day can only be logged for today')
+      if (/type="date"/.test(html)) throw new Error('the raw date input is back')
     }],
   ['RestPrompt(opens on the day it was asked from)',
     <RestPrompt opt={plan.dailyMenu.find(m => m.role === 'rest')} date="2026-09-20"
       entryFor={() => null} onSave={noop} onClose={noop} />,
     (html) => {
-      if (!/value="2026-09-20"/.test(html)) throw new Error('the prompt ignored the day it was opened on')
+      if (!text(html).includes(dayWords('2026-09-20'))) throw new Error('the prompt ignored the day it was opened on')
     }],
   // What the user said about a rest day shows ON the rest day, in Your day and in the
   // log — not only inside the sheet (2026-09-25).
@@ -2297,12 +2396,82 @@ const cases = [
       if (!/Sam/.test(text(html))) throw new Error('the header does not say who the athlete is')
       // Closed by default: the panel is a menu, not a page, and mounting it open
       // would put a gear editor over the app on every load.
-      if (/Your gear/.test(text(html))) throw new Error('the menu should start closed')
+      if (/Connections|Add gear/.test(text(html))) throw new Error('the menu should start closed')
+      // On a phone the button is a face and nothing else, so it needs a name.
+      if (!/class="mebtn"[^>]*aria-label="Profile: [^"]+"/.test(html)) throw new Error('the avatar button has no accessible name')
     }],
   ['ProfileMenu(no strava at all)', <ProfileMenu plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} status="offline" />,
     (html) => {
       if (!/You/.test(text(html))) throw new Error('a header saying null is worse than one saying nothing')
     }],
+  /*
+   * The profile is a list of sections (#44), not six tabs in a strip that cut
+   * off on a phone. Pinned from both sides: the list and its order at the new
+   * address, and Testing and Why gone from the top level (they are under
+   * Climbing, where a climbing plan fills them).
+   */
+  ...(() => {
+    const owner = { id: 'owner', name: 'Alex', owner: true, acting: false,
+      real: { id: 'owner', name: 'Alex', admin: true }, people: [],
+      features: { ai: true, whoop: true, strava: true, stravaConnect: true, whoopConnect: true, notifications: true } }
+    const nobody = { ...owner, features: { ...owner.features, whoop: false, strava: false, stravaConnect: false, whoopConnect: false } }
+    const panel = (props) => renderToString(
+      <ProfilePanel plan={plan} entries={entries} upsertEntry={noop} deleteEntry={noop} status="synced"
+        who={owner} onClose={noop} {...props} />)
+    const rowTitles = (html) => [...html.matchAll(/class="list-row-title">([^<]+)</g)].map(m => m[1])
+    return [
+      ['ProfilePanel(a list of sections, Climbing holding Testing and Why)', null, () => {
+        const home = rowTitles(panel({}))
+        const want = ['You', 'Gear', 'Notifications', 'Connections', 'Climbing', 'Settings']
+        if (home.join() !== want.join()) throw new Error(`home rows: ${home.join(', ')}`)
+        if (/>Alerts</.test(panel({}))) throw new Error('the old "Alerts" tab is back')
+        if (/role="tablist"|pop-rail/.test(panel({}))) throw new Error('the sideways strip of tabs is back')
+        for (const gone of ['Testing', 'Why']) {
+          if (home.includes(gone)) throw new Error(`${gone} is at the top level again; it lives under Climbing`)
+        }
+        const climbing = panel({ initialPage: 'climbing' })
+        const sub = rowTitles(climbing)
+        if (!sub.includes('Testing') || !sub.includes('Why')) throw new Error(`Climbing should open Testing and Why: ${sub.join(', ')}`)
+        if (!/Your grades/.test(text(climbing))) throw new Error('the climbing numbers moved here from You')
+        if (!/aria-label="Back to your profile"/.test(climbing)) throw new Error('no way back from a page')
+        if (!/aria-label="Back to Climbing"/.test(panel({ initialPage: 'testing' }))) throw new Error('Testing goes back to Climbing')
+        // You keeps the body numbers and nothing about climbing.
+        const you = text(panel({ initialPage: 'you' }))
+        if (!/Bodyweight/.test(you)) throw new Error('bodyweight is missing from You')
+        if (/Redpoint grade/.test(you)) throw new Error('climbing grades are still on You')
+      }],
+      ['ProfilePanel(nothing to connect, nothing behind Testing)', null, () => {
+        // No Strava or WHOOP app on the server: no Connections row at all, as before.
+        if (homePages(nobody).includes('connections')) throw new Error('a Connections row with nothing to connect')
+        if (homePages({ ...owner, acting: true }).includes('connections')) throw new Error('acting as someone offers their connections')
+        // The starter defines no tests and no evidence: Climbing has the grades and no empty doors.
+        const starterClimb = rowTitles(renderToString(
+          <ProfilePanel plan={starter} entries={[]} upsertEntry={noop} deleteEntry={noop} status="synced"
+            who={owner} onClose={noop} initialPage="climbing" />))
+        if (starterClimb.length) throw new Error(`the starter's Climbing offers empty pages: ${starterClimb.join(', ')}`)
+      }],
+      ['ProfilePanel(connections: one service, one action)', null, () => {
+        const on = text(panel({ initialPage: 'connections', who: { ...owner, features: { ...owner.features, whoop: false } } }))
+        if (!/Strava/.test(on) || !/Disconnect/.test(on)) throw new Error('a connected Strava can be disconnected')
+        if (!/WHOOP.*Not connected.*Connect/.test(on)) throw new Error('an unconnected WHOOP offers to connect')
+        // Two services, neither connected: two Connect buttons, and neither is the accent.
+        const both = panel({ initialPage: 'connections', who: { ...nobody, features: { ...nobody.features, stravaConnect: true, whoopConnect: true } } })
+        if ((both.match(/>Connect</g) || []).length !== 2) throw new Error('each service offers to connect')
+        if (/class="btn"[ >]/.test(both)) throw new Error('two primaries on one page')
+        const someone = text(panel({ initialPage: 'connections', who: { ...owner, owner: false, real: { id: 'sam', admin: false } } }))
+        if (/WHOOP/.test(someone)) throw new Error('WHOOP is the owner\'s grant, not everyone\'s')
+      }],
+      ['ProfilePanel(settings: sync, explanations, the server page)', null, () => {
+        const t = text(panel({ initialPage: 'settings' }))
+        if (!/Synced/.test(t)) throw new Error('the sync state is not shown')
+        if (!/Show explanations/.test(t)) throw new Error('the explanations switch is missing')
+        if (!/Server settings/.test(t)) throw new Error('the owner has no way to the server Settings page')
+        if (/This is what the header used to say/.test(t)) throw new Error('the explanatory paragraph came back')
+        const someone = text(panel({ initialPage: 'settings', who: { ...owner, owner: false, real: { id: 'sam', admin: false } } }))
+        if (/Server settings/.test(someone)) throw new Error('only the owner opens server Settings')
+      }],
+    ]
+  })(),
   ['WhyTab', <WhyTab plan={plan} />],
   ['TestingTab(empty)', <TestingTab plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
   // Trip mode: the four days the whole block points at.
@@ -2374,7 +2543,7 @@ const cases = [
           if (!/avg 132 \(68%\)/.test(t2)) throw new Error('no percentage of max heart rate')
           if (!/26 min zone 3\+/.test(t2)) throw new Error('hard minutes missing')
           if (!/only 71% recorded/.test(t2)) throw new Error('a partly-recorded workout must say so')
-          if (!/attach to this session/.test(t2)) throw new Error('nothing to tap')
+          if (!/>Attach</.test(html)) throw new Error('nothing to tap')
         }],
       /* No clock on the session at all — logged by hand — and the sport decides it:
        * four-by-four declares `whoopSport: climbing` in plan.json, one of the two
@@ -2388,7 +2557,7 @@ const cases = [
           if (t2.indexOf('rock-climbing') > t2.indexOf('Weightlifting')) {
             throw new Error('the mismatched sport should sink below the climb')
           }
-          if (!/attach to this session/.test(t2)) throw new Error('both should still be attachable')
+          if ((html.match(/>Attach</g) || []).length !== 2) throw new Error('both should still be attachable')
         }],
       // Two climbs is ambiguous again, and the app goes quiet rather than guessing.
       ['Whoop(two climbs, no claim)',
@@ -2404,8 +2573,8 @@ const cases = [
         maxHeartRate: 195, zones: { three: 18, four: 7, five: 1 }, attachedAt: 'z' } }),
         html => {
           const t2 = text(html)
-          if (!/detach/.test(t2)) throw new Error('no way to undo a wrong attachment')
-          if (!/stay put whether or not WHOOP is reachable/.test(t2)) {
+          if (!/Detach/.test(t2)) throw new Error('no way to undo a wrong attachment')
+          if (!/Saved with this session, so it stays if WHOOP goes away/.test(t2)) {
             throw new Error('the snapshot has to say it is durable')
           }
           /*
@@ -2415,7 +2584,7 @@ const cases = [
            * and the version that stopped offering after the first made the
            * second unreachable rather than merely unattached.
            */
-          if (!/attach to this session/.test(t2)) {
+          if (!/>Attach</.test(html)) {
             throw new Error('a second workout must still be attachable')
           }
           if (!/Also on this day/.test(t2)) throw new Error('the rest of the day is unlabelled')
@@ -2436,6 +2605,7 @@ const cases = [
             throw new Error('both attached workouts should render')
           }
           if (!/2 workouts on this session/.test(t2)) throw new Error('the total is not stated')
+          if (/load chart multiplies/.test(t2)) throw new Error('the jargon about the load chart is back')
           if (!/118 min/.test(t2)) throw new Error('the minutes should add up, not replace each other')
         }],
       /* ONE GYM VISIT, TWO SESSIONS.
@@ -2467,7 +2637,8 @@ const cases = [
               if (!/ARC laps/.test(t2)) throw new Error('it must name the other session')
               if (!/counts these 88 minutes twice/.test(t2)) throw new Error('the double count is not called out')
               if (!/class="wh-err"/.test(html)) throw new Error('and it should read as a problem, not a note')
-              // The editor opens itself when there is something to fix.
+              // The row and its editor open themselves when there is something to fix.
+              if (!/<details class="wh-item attached" open/.test(html)) throw new Error('the row should be open')
               if (!/<details class="wh-splitwrap" open/.test(html)) throw new Error('the fix should be open')
             }],
           // Split: this session shows ITS minutes, says which numbers are the whole
@@ -2491,6 +2662,7 @@ const cases = [
                 throw new Error('the offer should exist')
               }
               if (/<details class="wh-splitwrap" open/.test(html)) throw new Error('...but stay shut')
+              if (/<details class="wh-item attached" open/.test(html)) throw new Error('...and so does the row')
               if (/wh-err/.test(html)) throw new Error('nothing is wrong on an ordinary night')
             }],
         ]
@@ -2555,7 +2727,7 @@ const cases = [
               if (/class="wh-tag"/.test(html)) throw new Error('with nothing declared there is no likely')
               if (!/18\.3 mi/.test(t2) || !/13\.9 mph/.test(t2) || !/512 ft/.test(t2)) throw new Error('the ride\'s numbers are missing')
               if (!/12:40 \/mi/.test(t2)) throw new Error('a walk shows pace, not speed')
-              if (!/attach to this session/.test(t2)) throw new Error('nothing to tap')
+              if ((html.match(/>Attach</g) || []).length !== 2) throw new Error('one action per row')
             }],
           ['Strava(picked Bike: the ride is likely, the walk sinks)', acts({ activity: 'bike' }),
             html => {
@@ -2572,18 +2744,18 @@ const cases = [
             attachedAt: 'z', filled: { activity: 'bike', duration: 82, distance: 18.3 } } }),
             html => {
               const t2 = text(html)
-              if (!/detach/.test(t2)) throw new Error('no way to undo a wrong attachment')
+              if (!/Detach/.test(t2)) throw new Error('no way to undo a wrong attachment')
               // Still offers the rest of the day — a brick is a ride and a run
               // and one session. See the WHOOP case above.
-              if (!/attach to this session/.test(t2)) {
+              if (!/>Attach</.test(html)) {
                 throw new Error('a second activity must still be attachable')
               }
-              if (!/stay put whether or not Strava is reachable/.test(t2)) throw new Error('the snapshot has to say it is durable')
+              if (!/Saved with this session, so it stays if Strava goes away/.test(t2)) throw new Error('the snapshot has to say it is durable')
               if (!/Test Gravel Bike/.test(t2)) throw new Error('the bike should be named')
               if (!/812 cal/.test(t2)) throw new Error('the detail\'s calories are missing')
               if (!/2 laps/.test(t2)) throw new Error('laps should be offered')
               if (!/filled in activity, duration, distance/.test(t2)) throw new Error('it must say what it filled')
-              if (!/open on Strava/.test(t2)) throw new Error('a link back to the source')
+              if (!/Open on Strava/.test(t2)) throw new Error('a link back to the source')
             }],
           // An attached snapshot with no cache: their log by then.
           ['Strava(attached, Strava gone)', acts({ strava: { id: 1234, name: 'Example loop', sport: 'GravelRide', ...t('14:47', 95), minutes: 82, distanceMi: 18.3 } }, { cache: null }),
@@ -2641,7 +2813,7 @@ const cases = [
                   // The strap's climb resolves to no catalog activity on purpose,
                   // so the strava ride, the strava walk and the whoop lift is all
                   // there is to offer.
-                  if (!/3 workouts you have not logged/.test(t2)) {
+                  if (!/3 workouts not logged yet/.test(t2)) {
                     throw new Error(`expected three offers, got: ${t2.slice(0, 120)}`)
                   }
                   // The start without its meridiem, because the row writes that
@@ -2657,16 +2829,31 @@ const cases = [
                     throw new Error('"just miles" still talks about a quota, which the app no longer has')
                   }
                   /*
-                   * Three doors per row: a measured activity such as a short row
-                   * can be labelled a warm-up, alongside "Log it" and "Just
-                   * miles". A warm-up takes the same disposition as a
-                   * commute — it happened, it is not a workout of its own — so the
-                   * only thing that distinguishes them is what they are called,
-                   * which is exactly why it had to be a button and not a rename.
+                   * One action per row (#44): "Log it" on every row, and the rest
+                   * behind the row rather than four small buttons beside it. A
+                   * warm-up takes the same disposition as a commute — it happened,
+                   * it is not a workout of its own — so the only thing that
+                   * distinguishes them is what they are called, which is why it
+                   * is a button and not a rename.
                    */
-                  for (const label of ['Log it', 'Just miles', 'Warm-up']) {
-                    if (!t2.includes(label)) throw new Error(`no "${label}" button on the row`)
+                  if ((html.match(/>Log it</g) || []).length !== 3) throw new Error('every row has its one action')
+                  for (const label of ['Just miles', 'Warm-up', 'Dismiss']) {
+                    if (t2.includes(label)) throw new Error(`"${label}" should be behind the row, not on it`)
                   }
+                  if (/aria-label="not this one"/.test(html)) throw new Error('the unlabelled dismiss X is back')
+                }],
+              ['UnloggedWorkouts(the rest is behind the row)',
+                bothWrap(<UnloggedWorkouts plan={plan} entries={[]} iso={day} onLog={noop}
+                  skipped={[]} onDismiss={noop} onRestore={noop} split={[]} onSplit={noop}
+                  initialOpen={`strava:${ride.id}`} />),
+                html => {
+                  const t2 = text(html)
+                  if (!/aria-expanded="true"/.test(html)) throw new Error(`the row did not open: check the item id`)
+                  for (const label of ['Just miles', 'Warm-up', 'Dismiss']) {
+                    if (!t2.includes(label)) throw new Error(`no "${label}" behind the row`)
+                  }
+                  // Only the opened row's: one at a time.
+                  if ((t2.match(/Just miles/g) || []).length !== 1) throw new Error('more than one row is open')
                 }],
             ]
           })(),
@@ -2680,9 +2867,10 @@ const cases = [
           if (!/-21%/.test(t2)) throw new Error('no deviation from his own baseline')
           if (!/vs your 53 ms/.test(t2)) throw new Error('the baseline itself should be shown')
           if (!/\+5\.5 vs your 52\.5/.test(t2)) throw new Error('resting heart rate delta missing')
-          if (!/can never put a hard finger day next to another one/.test(t2)) {
-            throw new Error('the card must say what it cannot do')
-          }
+          // The recommender this card once nudged is gone (2026-10-25), and so is the
+          // paragraph about it.
+          if (/hard finger day|nudges the ranking/.test(t2)) throw new Error('the card talks about a ranking that no longer exists')
+          if (!/Refresh/.test(t2)) throw new Error('no way to pull again')
         }],
       // Not enough history for a baseline: the raw numbers, no invented trend.
       ['WhoopReadiness(no baseline yet)',
@@ -2786,9 +2974,10 @@ const cases = [
   ['PeopleCard(the owner can open anyone\'s log; nobody else sees it)', null, () => {
     const people = [{ id: 'owner', name: 'Alex' }, { id: 'sam', name: 'Sam' }]
     const owner = { id: 'owner', real: { id: 'owner', admin: true }, people }
-    const t = text(renderToString(<PeopleCard who={owner} />))
+    const html = renderToString(<PeopleCard who={owner} />)
+    const t = text(html)
     if (!/Log for Sam/.test(t)) throw new Error('no door into Sam\'s log')
-    if (!/Your log \(open\)/.test(t)) throw new Error('the open log is not marked')
+    if (!/Your log<\/span><\/span><span class="list-row-meta">Open</.test(html)) throw new Error('the open log is not marked')
     const acting = text(renderToString(<PeopleCard who={{ ...owner, id: 'sam' }} />))
     if (!/Back to your log/.test(acting)) throw new Error('no way back from Sam\'s log')
     if (renderToString(<PeopleCard who={{ id: 'sam', real: { id: 'sam', admin: false }, people: [] }} />) !== '') throw new Error('someone who is not the owner can switch logs')
@@ -2952,6 +3141,31 @@ const cases = [
         if (!/Sam’s last 1 session/.test(t) || /Your last/.test(t)) throw new Error('the session history is not labelled as Sam\'s')
         if (/last time \(/.test(draw([]).replace(/<[^>]+>/g, ''))) throw new Error('a last time with no history')
       }],
+      ['SessionSheet("With" is a section head, and each person on the workout a person chip with their initial)', null, () => {
+        const html = sheet(ownerMe, syncedEntry)
+        const withRow = html.slice(html.indexOf('class="withrow"'))
+        if (!/^class="withrow"[^>]*><div class="section-head"><h3>With<\/h3>/.test(withRow)) throw new Error(`"With" is not a section head: ${withRow.slice(0, 200)}`)
+        if (!/class="chip personchip on" data-tone="1"><span class="avatar sm" data-tone="1"[^>]*>S<\/span><span class="personchip-name">Sam</.test(html)) {
+          throw new Error('Sam is not a person chip with an initial in Sam\'s colour')
+        }
+        // The old small "👥 With" lead in front of the chips is gone.
+        if (/withrow-lead/.test(html)) throw new Error('the old "With" lead is back')
+        const open = sheet(ownerMe)
+        if (!/class="chip ghost personchip"[^>]*aria-label="Add Sam to this workout"/.test(open)) throw new Error('adding Sam is not a dashed person chip')
+      }],
+      ['SessionSheet(the person bar is a segmented control: the side on screen raised in its person\'s colour, the rule under the bar in it too)', null, () => {
+        const html = sheet(ownerMe, syncedEntry)
+        if (!/class="personbar" data-tone="0"><div class="seg whoseg" role="tablist"/.test(html)) throw new Error('the bar is not a segmented control in your colour')
+        const prev = globalThis.localStorage
+        const saved = { 'bushido:shared-side': JSON.stringify({ [entry.id]: 'sam' }) }
+        globalThis.localStorage = { getItem: (k) => saved[k] ?? null, setItem: (k, v) => { saved[k] = v } }
+        try {
+          if (!/class="personbar" data-tone="1">/.test(sheet(ownerMe, syncedEntry))) throw new Error('on Sam\'s side the bar is not in Sam\'s colour')
+        } finally { globalThis.localStorage = prev }
+        const css = readFileSync(new URL('./src/css/people.css', import.meta.url), 'utf8')
+        if (!/\.whoseg button\.on \{[^}]*var\(--who-soft\)/.test(css)) throw new Error('the picked side is not filled in its person\'s colour')
+        if (!/\.personbar \{[^}]*border-bottom: 2px solid var\(--who/.test(css)) throw new Error('no rule in the person\'s colour under the bar')
+      }],
       ['TodayTab(a shared workout says who it was with, small, on the row)', null, () => {
         _setMe(ownerMe)
         try {
@@ -3000,6 +3214,27 @@ const cases = [
       ['ForChoice(nothing with nobody to choose)', null, () => {
         if (renderToString(<ForChoice people={[]} target={null} onTarget={noop} />) !== '') throw new Error('a choice of one')
       }],
+      ['ForChoice(the same person chips as "With …", You picked by default, no segmented control)', null, () => {
+        const html = renderToString(<ForChoice people={planPeople(ownerMe)} target={null} onTarget={noop} />)
+        const chips = [...html.matchAll(/class="chip personchip( on)?" data-tone="(\d)" aria-pressed="(true|false)"><span class="avatar sm"[^>]*>(.)<\/span><span class="personchip-name">([^<]*)</g)]
+          .map(m => [Boolean(m[1]), m[2], m[4], m[5]])
+        if (JSON.stringify(chips) !== JSON.stringify([[true, '0', 'Y', 'You'], [false, '1', 'S', 'Sam']])) throw new Error(`the choice reads ${JSON.stringify(chips)}`)
+        if (/class="seg"/.test(html)) throw new Error('"For" is still a segmented control')
+        const sam = renderToString(<ForChoice people={planPeople(ownerMe)} target={{ id: 'sam', name: 'Sam' }} onTarget={noop} />)
+        if (!/class="chip personchip on" data-tone="1"/.test(sam)) throw new Error('picking Sam does not light Sam\'s chip')
+      }],
+      ['ForLine(one line: whose plan this is, with their initial, no paragraph)', null, () => {
+        const t = text(renderToString(<ForLine person={{ id: 'sam', name: 'Sam' }} people={planPeople(ownerMe)} />)).replace(/<[^>]+>/g, '')
+        if (!/Planning for Sam · it goes in Sam’s log/.test(t)) throw new Error(`the line reads: ${t}`)
+        if (/from you/.test(t)) throw new Error('the old explanatory sentence is back')
+      }],
+      ['SideSwitch(the same segmented control as the sheet\'s person bar)', null, () => {
+        const html = renderToString(<SideSwitch sides={[{ id: null, name: 'You', tone: 0 }, { id: 'sam', name: 'Sam', tone: 1 }]} side="sam" onSide={noop} status={{ sam: 'rest 0:42' }} />)
+        if (!/class="seg whoseg sideswitch"/.test(html)) throw new Error('the workout switcher is not the person segmented control')
+        if (!/aria-selected="true" class="on" data-tone="1"><span class="avatar" data-tone="1"[^>]*>S<\/span><span class="side-name">Sam<\/span><span class="side-status">rest 0:42</.test(html)) {
+          throw new Error('Sam\'s side does not read initial, name and what it is doing')
+        }
+      }],
       ['SidesWorkout(runner: both names in the switcher, whose side in the header, in their colour)', null, () => {
         const sides = [{ id: null, name: 'You', entryId: PLANNED_ENTRY.id, tone: 0 }, { id: 'sam', name: 'Sam', entryId: PLANNED_ENTRY.id, tone: 1 }]
         const html = renderToString(<PlanProvider plan={plan}>
@@ -3025,7 +3260,13 @@ const cases = [
       }],
       ['TodayTab("Sam\'s day" for the owner; nothing with one person, while acting, or for anyone else)', null, () => {
         const today = (me) => { _setMe(me); try { return renderToString(<TodayTab plan={plan} entries={[]} upsertEntry={noop} />) } finally { _setMe({}) } }
-        if (!/Sam’s day/.test(text(today(ownerMe)))) throw new Error('no way to see Sam\'s day')
+        const owner = today(ownerMe)
+        if (!/Sam’s day/.test(text(owner))) throw new Error('no way to see Sam\'s day')
+        // A list row in a card (initial, "Sam's day", chevron), not the chip it used to be.
+        if (!/class="card peopledays"[^>]*><div class="list"><button type="button" class="list-row peopleday" data-tone="1"><span class="avatar" data-tone="1"[^>]*>S<\/span>/.test(owner)) {
+          throw new Error('"Sam\'s day" is not a list row with Sam\'s initial')
+        }
+        if (/class="chip peopleday"|side-dot/.test(owner)) throw new Error('"Sam\'s day" is still a chip with a dot')
         for (const [who, me] of [['one person', alone], ['acting', acting], ['someone else', sam]]) {
           if (/peopledays/.test(today(me))) throw new Error(`"Sam's day" with ${who}`)
         }
@@ -3054,6 +3295,14 @@ const cases = [
         const t = text(renderToString(<PersonDay person={{ id: 'sam', name: 'Sam', tone: 1 }} date={TODAY} plan={plan} onClose={noop} />))
         if (!/Sam’s week/.test(t)) throw new Error('the view does not say whose week it is')
         if (!/About Sam/.test(t)) throw new Error('no way to edit Sam\'s About you')
+        if (!/Everything you change here goes in Sam’s log/.test(t)) throw new Error('the week does not say whose log a change goes in')
+        if (/What is on Sam/.test(t)) throw new Error('the old paragraph is back')
+      }],
+      ['people.css(no small capitals, and every font size on the type scale)', null, () => {
+        const css = readFileSync(new URL('./src/css/people.css', import.meta.url), 'utf8')
+        if (/text-transform|letter-spacing/.test(css)) throw new Error('small capitals in the people screens')
+        const raw = [...css.matchAll(/font-size: (?!var\(--fs-)([^;]+)/g)].map(m => m[1])
+        if (raw.length) throw new Error(`font sizes off the scale: ${raw.join(', ')}`)
       }],
       ['MyAbout(About you in the app for anyone but the owner, whose is in Settings)', null, () => {
         if (!/About you/.test(text(renderToString(<MyAbout me={sam} />)))) throw new Error('Sam cannot edit Sam\'s About you')

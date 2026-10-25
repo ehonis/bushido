@@ -77,7 +77,7 @@ export function NotificationsSection() {
     try {
       const r = await sendTest()
       setNote(r.ok
-        ? `Sent to ${r.delivered} device${r.delivered === 1 ? '' : 's'}. If nothing arrives, the push service took it but the phone didn't show it — check Focus modes.`
+        ? `Sent to ${r.delivered} device${r.delivered === 1 ? '' : 's'}. Nothing arrived? Check Focus modes.`
         : r.reason === 'no-devices' ? 'No registered devices yet.' : 'The push service refused it.')
     } catch (e) { setNote(e.message) }
     await refresh(); setBusy(false)
@@ -90,69 +90,74 @@ export function NotificationsSection() {
     try { setWeights((await listWeights()).weights || []) } catch { /* advisory */ }
   }
 
-  if (!state) return <div className="card"><h2>Notifications</h2></div>
+  if (!state) return <p className="sub">Checking this device…</p>
 
   const active = devices.filter((d) => d.state === 'active')
   const expired = devices.filter((d) => d.state === 'expired')
   const tuned = weights.filter((w) => w.multiplier !== 1)
+  const off = async () => { setBusy(true); await unsubscribe(); await refresh(); setBusy(false) }
 
   return (
     <>
-      <div className="card">
-        <h2>Notifications</h2>
-        <p className="sub">
-          Bushido tells you about training: a session logged, your morning recovery,
-          a workout your watch recorded. Totem handles everything personal — they're
-          separate apps on your phone on purpose.
-        </p>
-
+      <section className="prof-sec">
+        <h2>{state.subscribed ? 'On for this device' : 'Off for this device'}</h2>
+        {/* Why it cannot work, said where the button is: on iOS every failure
+            is silent, and a button that does nothing is a button that lies. */}
         {!configured && (
           <p className="sub warn">The server has no push identity yet. Restart Bushido and it will make one.</p>
         )}
         {state.blocker && <p className="sub warn">{state.blocker}</p>}
 
-        <div className="setrow">
-          {state.subscribed
-            ? <button className="restbtn" onClick={async () => { setBusy(true); await unsubscribe(); await refresh(); setBusy(false) }} disabled={busy}>
-              <Icon name="BellOff" size={16} /><span>Turn off</span>
+        <div className="prof-actions">
+          {state.subscribed ? (
+            <>
+              <button className="btn quiet" onClick={off} disabled={busy}>Turn off</button>
+              <button className="btn secondary" onClick={test} disabled={busy || active.length === 0}>Send a test</button>
+            </>
+          ) : (
+            <button className="btn" onClick={enable} disabled={busy || Boolean(state.blocker) || !configured}>
+              {busy ? 'Working…' : 'Turn on'}
             </button>
-            : <button className="restbtn" onClick={enable} disabled={busy || Boolean(state.blocker) || !configured}>
-              <Icon name="Bell" size={16} /><span>{busy ? 'Working…' : 'Turn on'}</span>
-            </button>}
-          <button className="restbtn" onClick={test} disabled={busy || active.length === 0}>
-            <Icon name="Send" size={16} /><span>Send test</span>
-          </button>
+          )}
         </div>
-
         {note && <p className="sub">{note}</p>}
 
-        {active.map((d) => (
-          <div className="setrow" key={d.id}>
-            <span className="dot synced" />
-            <strong>{d.label}</strong>
-            <span className="sub">last notification {ago(d.lastDeliveredAt)}</span>
-          </div>
-        ))}
-        {expired.map((d) => (
-          <div className="setrow" key={d.id}>
-            <span className="dot offline" />
-            <strong>{d.label}</strong>
-            {/* Named rather than hidden: the usual cause is the app being removed
-                from the Home Screen, and dropping the row makes that look like it
-                never happened. */}
-            <span className="sub">gone — add Bushido back to that device and turn push on again</span>
-          </div>
-        ))}
-      </div>
+        {devices.length > 0 && (
+          <>
+            <div className="section-head"><h3>Devices</h3></div>
+            <div className="list">
+              {active.map((d) => (
+                <div className="list-row prof-static" key={d.id}>
+                  <span className="dot synced" />
+                  <span className="list-row-main">
+                    <span className="list-row-title">{d.label}</span>
+                    <span className="list-row-meta">Last notification {ago(d.lastDeliveredAt)}</span>
+                  </span>
+                </div>
+              ))}
+              {expired.map((d) => (
+                <div className="list-row prof-static" key={d.id}>
+                  <span className="dot offline" />
+                  {/* Named rather than hidden: the usual cause is the app being removed
+                      from the Home Screen, and dropping the row makes that look like it
+                      never happened. */}
+                  <span className="list-row-main">
+                    <span className="list-row-title">{d.label}</span>
+                    <span className="list-row-meta">Gone. Add Bushido back to that device and turn this on again.</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </section>
 
       {items.length > 0 && (
-        <div className="card">
-          <h2>Sent</h2>
-          <p className="sub">
-            Rate these and Bushido sends fewer of the ones you don't want. It can never
-            learn its way to silence — a kind gets rarer, not muted — and the things
-            it's told to always say stay pinned.
-          </p>
+        <section className="prof-sec">
+          <div className="section-head">
+            <h3>Sent</h3>
+            <span className="sub">Rate them to get fewer you don&rsquo;t want</span>
+          </div>
           {items.slice(0, 20).map((item) => (
             <div className="notifrow" key={item.id}>
               <div className="notifcopy">
@@ -172,35 +177,38 @@ export function NotificationsSection() {
                 <div className="notifvote">
                   <button
                     className={`iconbtn${item.feedback?.vote === 'up' ? ' on' : ''}`}
-                    onClick={() => vote(item, 'up')} aria-label="Useful"
-                  ><Icon name="ThumbsUp" size={15} /></button>
+                    onClick={() => vote(item, 'up')} aria-label="Useful" aria-pressed={item.feedback?.vote === 'up'}
+                  ><Icon name="ThumbsUp" size={16} /></button>
                   <button
                     className={`iconbtn${item.feedback?.vote === 'down' ? ' on down' : ''}`}
                     onClick={() => setRating(rating === item.id ? null : item.id)} aria-label="Not useful"
-                  ><Icon name="ThumbsDown" size={15} /></button>
+                    aria-pressed={item.feedback?.vote === 'down'}
+                  ><Icon name="ThumbsDown" size={16} /></button>
                 </div>
               )}
             </div>
           ))}
-        </div>
+        </section>
       )}
 
+      {/* A kind gets rarer from ratings, never muted, and a pinned kind is unaffected. */}
       {tuned.length > 0 && (
-        <div className="card">
-          <h2>What it has learned</h2>
-          <p className="sub">
-            Derived from your ratings, and reversible — resetting loses no history.
-          </p>
-          {tuned.map((w) => (
-            <div className="setrow" key={w.kind}>
-              <strong>{w.kind}</strong>
-              <span className="sub">×{w.multiplier} — {w.because}{w.pinned ? ' (pinned, so this has no effect)' : ''}</span>
-              <button className="chip ghost" onClick={async () => { await resetWeights(w.kind); setWeights((await listWeights()).weights || []) }}>
-                Reset
-              </button>
-            </div>
-          ))}
-        </div>
+        <section className="prof-sec">
+          <div className="section-head"><h3>Sent less often</h3></div>
+          <div className="list">
+            {tuned.map((w) => (
+              <div className="list-row prof-static" key={w.kind}>
+                <span className="list-row-main">
+                  <span className="list-row-title">{w.kind}</span>
+                  <span className="list-row-meta">×{w.multiplier}, {w.because}{w.pinned ? ' (pinned, so no effect)' : ''}</span>
+                </span>
+                <button className="btn quiet" onClick={async () => { await resetWeights(w.kind); setWeights((await listWeights()).weights || []) }}>
+                  Reset
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
     </>
   )

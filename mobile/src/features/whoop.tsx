@@ -8,22 +8,25 @@
  * never attaches one by itself. Getting a match wrong writes a belay partner's
  * climb, or the warm-up lift, into the training log as this session's heart rate —
  * and nothing on screen afterwards would look wrong. So the app may mark ONE
- * candidate as likely, and the tap is theirs.
+ * candidate as likely, and the tap is theirs (AGENTS.md §8.2).
+ *
+ * Since wave 2 (#44) each offer is a row with one action, "Attach", and each
+ * attached workout is a row that opens onto its numbers, its split and Detach.
  *
  * `WhoopReadiness` shows how recovered the user arrived, against their own
- * baseline rather than a population. It is a readout, not an instruction: what it
- * feeds into the recommendation is clamped and read after the hard blocks.
+ * baseline rather than a population. A readout: nothing ranks or blocks a
+ * session on it any more (the recommender went on 2026-10-25).
  *
  * `WhoopSleep` is the sleep graph from Totem's Habits tab, drawn with
  * react-native-svg and scrubbed by press-and-drag.
  */
 import React, { useState } from 'react'
-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import Svg, { Circle, Defs, G, Line, LinearGradient, Path, Rect, Stop, Text as SvgText } from 'react-native-svg'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-import { colors, mix, radius, TAP } from '../theme'
+import { colors, font, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
-import { Card, Input, Press, s as kit } from '../ui/kit'
+import { Btn, Card, H2 as CardTitle, Input, Press, Segmented } from '../ui/kit'
 import { Fold } from '../ui/Fold'
 import { impact, success, tap } from '../ui/haptics'
 import { Icon } from '../lib/icons'
@@ -48,43 +51,81 @@ const span = (a: any, b: any) => (clock(b) ? `${clock(a)}–${clock(b)}` : clock
 
 /* ------------------------------------------- shared with strava.tsx (.wh-*) */
 
-/** .wh-pull: the small pill that refetches. A primary action, so it gets impact(). */
-export function PullBtn({ pulling, onPress, label = 'pull', busy = 'pulling…', style }: {
-  pulling: boolean
-  onPress: () => void
-  label?: string
-  busy?: string
-  style?: StyleProp<ViewStyle>
-}) {
+/** .wh-head: the block's section head (its icon, its name), with Refresh as a quiet word on the right. */
+export function BlockHead({ icon, title, pulling, onPull }: { icon: string; title: string; pulling: boolean; onPull: () => void }) {
   return (
-    <Press onPress={() => { impact(); onPress() }} disabled={pulling} accessibilityRole="button"
-      hitSlop={7} style={[wh.pull, style]}>
-      <T size={11} dim>{pulling ? busy : label}</T>
-    </Press>
+    <View style={wh.head}>
+      <Icon name={icon} size={16} color={colors.series2} />
+      <T size={font.body} weight={600} style={{ flex: 1 }} numberOfLines={1}>{title}</T>
+      <Btn kind="quiet" small title={pulling ? 'Refreshing…' : 'Refresh'} disabled={pulling}
+        onPress={() => { impact(); onPull() }} />
+    </View>
   )
 }
 
-/** .wh-btn and .wh-btn.ghost. */
-export function WhBtn({ title, icon, ghost, onPress, disabled, haptic = 'tap', style }: {
+/** One attached measurement: a row that opens (Fold) onto what is behind it. */
+export function AttachedRow({ title, meta, open = false, first, children }: {
   title: string
-  icon?: string
-  ghost?: boolean
-  onPress: () => void
-  disabled?: boolean
-  haptic?: 'tap' | 'impact' | 'none'
-  style?: StyleProp<ViewStyle>
+  meta: string
+  open?: boolean
+  first?: boolean
+  children: React.ReactNode
 }) {
-  const go = () => {
-    if (haptic === 'tap') tap()
-    else if (haptic === 'impact') impact()
-    onPress()
-  }
   return (
-    <Press onPress={go} disabled={disabled} accessibilityRole="button" style={[wh.btn, ghost && wh.btnGhost, style]}>
-      {icon ? <Icon name={icon} size={14} color={ghost ? colors.inkDim : colors.ink} /> : null}
-      <T size={ghost ? 12 : 13} color={ghost ? colors.inkDim : colors.ink}>{title}</T>
-    </Press>
+    <Fold
+      key={String(open)}
+      open={open}
+      style={!first ? wh.rule : null}
+      headStyle={{ minHeight: 52 }}
+      summary={(
+        <View style={wh.rowIn}>
+          <Icon name="CircleCheck" size={20} color={colors.vizGood} />
+          <View style={wh.rowMain}>
+            <T size={font.body} weight={500} numberOfLines={1}>{title}</T>
+            {meta ? <T size={font.small} dim tabular>{meta}</T> : null}
+          </View>
+        </View>
+      )}
+    >
+      <View style={wh.body}>{children}</View>
+    </Fold>
   )
+}
+
+/** One on offer: what it was and when, a Likely tag when the app has evidence, and the one action. */
+export function OfferRow({ title, lines, likely, likelyWhy, taken, first, action, onAttach, disabled }: {
+  title: string
+  lines: React.ReactNode[]
+  likely?: boolean
+  likelyWhy?: string
+  taken?: boolean
+  first?: boolean
+  action: string
+  onAttach: () => void
+  disabled?: boolean
+}) {
+  return (
+    <View style={[wh.row, !first && wh.rule]}>
+      <View style={wh.rowMain}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2], flexWrap: 'wrap' }}>
+          <T size={font.body} weight={500} color={taken ? colors.inkDim : colors.ink}>{title}</T>
+          {/* The suggestion is marked, not applied: it still takes the tap (§8.2). */}
+          {likely ? (
+            <View style={wh.tag} accessibilityLabel={`Likely: ${likelyWhy || ''}`}>
+              <T size={font.caption} weight={500}>Likely</T>
+            </View>
+          ) : null}
+        </View>
+        {lines}
+      </View>
+      <Btn kind="secondary" small title={action} disabled={disabled} onPress={() => { success(); onAttach() }} />
+    </View>
+  )
+}
+
+/** A line under an offer or inside an attached row. */
+export function Line2({ children, warn }: { children: React.ReactNode; warn?: boolean }) {
+  return <T size={font.small} color={warn ? colors.warn : colors.inkDim} tabular>{children}</T>
 }
 
 /**
@@ -109,10 +150,10 @@ function Numbers({ w, minutes }: { w: any; minutes?: any }) {
   if (hard) bits.push(`${hard} min zone 3+`)
   if (w.calories) bits.push(`${w.calories} cal`)
   return (
-    <T size={12} dim tabular style={wh.nums}>
+    <T size={font.small} dim tabular>
       {bits.join(' · ')}
       {recorded !== null && recorded < 95 ? (
-        <T size={12} color={colors.vizWarn}> · only {recorded}% recorded</T>
+        <T size={font.small} color={colors.vizWarn}> · only {recorded}% recorded</T>
       ) : null}
     </T>
   )
@@ -155,8 +196,8 @@ function typedTime(raw: string) {
 
 function TimeBox({ label, value, onChange, a11y }: { label: string; value: string; onChange: (v: string) => void; a11y: string }) {
   return (
-    <View style={{ gap: 4 }}>
-      <T size={11} faint caps>{label}</T>
+    <View style={{ gap: 6 }}>
+      <T size={font.small} dim>{label}</T>
       <Input
         value={value}
         onChangeText={onChange}
@@ -191,27 +232,25 @@ function SplitEditor({ snap, onChange, onClear }: { snap: any; onChange: (part: 
   const computed: any = (partOf as any)(snap, { start: isoAt(anchor, typedTime(from)), end: isoAt(anchor, typedTime(to)) })
 
   return (
-    <View style={{ paddingTop: 4, paddingBottom: 2 }}>
+    <View style={{ paddingTop: space[1], paddingBottom: space[2], gap: space[2] }}>
       <View style={wh.splitRow}>
-        <TimeBox label="from" value={from} onChange={setFrom} a11y="This session started at" />
-        <TimeBox label="to" value={to} onChange={setTo} a11y="This session ended at" />
-        <T size={15} weight={600} tabular style={{ paddingBottom: 12 }}>
+        <TimeBox label="From" value={from} onChange={setFrom} a11y="This session started at" />
+        <TimeBox label="To" value={to} onChange={setTo} a11y="This session ended at" />
+        <T size={font.body} weight={600} tabular style={{ paddingBottom: space[3] }}>
           {computed ? `${computed.minutes} min` : '—'}
         </T>
       </View>
 
       {computed && computed.minutes === 0 ? (
-        <T size={12} color={colors.vizWarn} style={wh.err}>
-          Those times do not overlap the workout at all ({span(snap.start, snap.end)}). Check them —
-          saved as they are, this session gets none of it.
+        <T size={font.small} color={colors.warn}>
+          Those times miss the workout ({span(snap.start, snap.end)}), so this session would get none of it.
         </T>
       ) : null}
 
-      <View style={wh.splitBtns}>
-        <WhBtn icon="Check" haptic="impact" disabled={!computed}
-          title={part ? 'update this session\'s part' : 'save this session\'s part'}
+      <View style={wh.acts}>
+        {part ? <Btn kind="quiet" small title="Use the whole workout" onPress={onClear} /> : null}
+        <Btn kind="secondary" small title="Save this part" disabled={!computed}
           onPress={() => computed && onChange(computed)} />
-        {part ? <WhBtn ghost title="use the whole workout" onPress={onClear} style={{ marginTop: 8 }} /> : null}
       </View>
     </View>
   )
@@ -247,7 +286,6 @@ export function WhoopWorkouts({ session, entry, entries, onSave }: { session: an
   const put = (o: any) => onSave((pruneAttached as any)(session, o, gateResolver(session)))
 
   const attach = (w: any) => {
-    success()
     put(attachTo(session, out, {
       ...(snapshotOf as any)(w, { maxHeartRate: cache?.maxHeartRate }),
       attachedAt: new Date().toISOString(),
@@ -256,7 +294,7 @@ export function WhoopWorkouts({ session, entry, entries, onSave }: { session: an
       ...(suggestPart(w) ? { part: suggestPart(w) } : {}),
     }))
   }
-  const detach = (snap: any) => put(detachFrom(out, snap.id))
+  const detach = (snap: any) => { tap(); put(detachFrom(out, snap.id)) }
 
   /*
    * Setting or clearing the split re-runs the attach, because the workout's
@@ -264,7 +302,7 @@ export function WhoopWorkouts({ session, entry, entries, onSave }: { session: an
    * gives back only the blanks it took, so a typed duration survives.
    */
   const reattach = (snap: any) => put(attachTo(session, detachFrom(out, snap.id), snap))
-  const setPart = (snap: any, part: any) => reattach({ ...snap, part })
+  const setPart = (snap: any, part: any) => { impact(); reattach({ ...snap, part }) }
   const clearPart = (snap: any) => {
     const w = { ...snap }
     delete w.part
@@ -289,7 +327,7 @@ export function WhoopWorkouts({ session, entry, entries, onSave }: { session: an
   const alsoOnFor = (snap: any) => ranked.find(c => c.workout.id === snap.id)?.attachedTo || null
   const attachedIdsHere = new Set(attachedList.map(w => w.id))
   // One already on this session is not a candidate for it again; one on ANOTHER
-  // session still is — the "attach here as well" route.
+  // session still is — the "attach here too" route.
   const offers = ranked.filter(c => !attachedIdsHere.has(c.workout.id))
 
   // WHOOP not connected: nothing to pull and nothing to offer.
@@ -297,148 +335,115 @@ export function WhoopWorkouts({ session, entry, entries, onSave }: { session: an
 
   return (
     <View style={wh.block}>
-      <View style={wh.head}>
-        <Icon name="HeartPulse" size={13} color={colors.series2} />
-        <T size={11} faint caps>WHOOP</T>
-        <PullBtn pulling={pulling} onPress={pull} />
-      </View>
+      <BlockHead icon="HeartPulse" title="WHOOP" pulling={pulling} onPull={pull} />
 
       {/* The fix, not the symptom — the WHOOP client names the missing scope verbatim. */}
-      {error ? <T size={12} color={colors.vizWarn} style={wh.err}>{error}</T> : null}
-      {!error && status?.ok === false ? <T size={12} color={colors.vizWarn} style={wh.err}>{status.detail}</T> : null}
+      {error ? <T size={font.small} color={colors.warn} style={wh.err}>{error}</T> : null}
+      {!error && status?.ok === false ? <T size={font.small} color={colors.warn} style={wh.err}>{status.detail}</T> : null}
 
-      {/* Everything attached, each with its own detach and its own split. A list
-          rather than a slot: two measurements of one session is ordinary. */}
-      {attachedList.map(snap => {
-        const filledKeys = Object.keys(snap.filled || {})
-        const alsoOn = alsoOnFor(snap)
-        const doubled = Boolean(alsoOn && !isSplit(snap) && !alsoOn.part)
-        const openSplit = Boolean(doubled || isSplit(snap))
-        return (
-          <View key={snap.id} style={[wh.item, wh.attached, { marginTop: 9 }]}>
-            <View style={wh.itemTop}>
-              <View style={wh.sport}>
-                <Icon name="CircleCheck" size={13} color={colors.vizGood} />
-                <T size={14} weight={600}>{snap.sport}</T>
-              </View>
-              <T size={12} faint tabular style={{ flexShrink: 1 }}>
-                {span(snap.start, snap.end)}
-                {isSplit(snap) ? ` · this session ${span(snap.part.start, snap.part.end)}` : ''}
-              </T>
-              <WhBtn ghost title="detach" onPress={() => detach(snap)} style={{ marginLeft: 'auto' }} />
-            </View>
-            <Numbers w={snap} minutes={attachedMinutes(snap)} />
-            <T size={12} faint style={wh.note}>
-              Saved with this session — these numbers stay put whether or not WHOOP is reachable.
-              {isSplit(snap)
-                ? ' The minutes are this session’s share; the strain, heart rates and zones are the whole workout’s, because WHOOP publishes no way to recover them for part of one.'
-                : ''}
-              {/* Named rather than silent: a field the app answered is one the user
-                  has to be able to find and argue with. */}
-              {filledKeys.length > 0
-                ? ` It filled in ${filledKeys.join(', ')} above; detaching clears whichever you have not changed.`
-                : ''}
-            </T>
+      {/* Everything attached, each a row that opens onto its numbers, its split
+          and its detach. A list rather than a slot: two measurements of one
+          session is ordinary. */}
+      {attachedList.length > 0 ? (
+        <View style={wh.list}>
+          {attachedList.map((snap, i) => {
+            const filledKeys = Object.keys(snap.filled || {})
+            const alsoOn = alsoOnFor(snap)
+            const doubled = Boolean(alsoOn && !isSplit(snap) && !alsoOn.part)
+            const openSplit = Boolean(doubled || isSplit(snap))
+            const meta = `${span(snap.start, snap.end)}${isSplit(snap) ? ` · this session ${attachedMinutes(snap)} min` : snap.minutes ? ` · ${snap.minutes} min` : ''}`
+            return (
+              <AttachedRow key={snap.id} first={i === 0} title={snap.sport} meta={meta} open={doubled}>
+                <Numbers w={snap} minutes={attachedMinutes(snap)} />
 
-            {alsoOn ? (
-              doubled ? (
-                <T size={12} color={colors.vizWarn} style={wh.err}>
-                  Also on <T size={12} weight={700} color={colors.vizWarn}>{alsoOn.name}</T>, and neither has been split — so this day
-                  counts these {snap.minutes} minutes twice. Set the part below on both.
-                </T>
-              ) : (
-                <T size={12} faint style={wh.note}>
-                  Shared with <T size={12} weight={700} color={colors.inkFaint}>{alsoOn.name}</T>
-                  {alsoOn.part ? ` (${span(alsoOn.part.start, alsoOn.part.end)} there)` : ''}.
-                </T>
-              )
-            ) : null}
+                {alsoOn ? (
+                  doubled ? (
+                    <T size={font.small} color={colors.warn}>
+                      Also on <T size={font.small} weight={600} color={colors.warn}>{alsoOn.name}</T> and neither is split, so this day
+                      counts these {snap.minutes} minutes twice. Set the part on both.
+                    </T>
+                  ) : (
+                    <Line2>
+                      Shared with <T size={font.small} weight={600} color={colors.inkDim}>{alsoOn.name}</T>
+                      {alsoOn.part ? ` (${span(alsoOn.part.start, alsoOn.part.end)} there)` : ''}.
+                    </Line2>
+                  )
+                ) : null}
 
-            {/* Optional, and the fold is the point: on the ordinary night this is a
-                line of text you never open. Re-keyed so it opens itself when it
-                becomes the fix. */}
-            <Fold
-              key={String(openSplit)}
-              open={openSplit}
-              style={{ marginTop: 9 }}
-              headStyle={{ minHeight: 32 }}
-              summary={
-                <T size={12} dim>
-                  {isSplit(snap)
+                <Line2>
+                  Saved with this session, so it stays if WHOOP goes away.
+                  {isSplit(snap) ? ' The minutes are this session’s share; strain, heart rate and zones are the whole workout’s.' : ''}
+                  {/* Named rather than silent: a field the app answered is one the user
+                      has to be able to find and argue with. */}
+                  {filledKeys.length > 0 ? ` It filled in ${filledKeys.join(', ')}; detaching clears whichever you have not changed.` : ''}
+                </Line2>
+
+                {/* Optional, and the fold is the point: on the ordinary night this is a
+                    line of text you never open. Re-keyed so it opens itself when it
+                    becomes the fix. */}
+                <Fold
+                  key={String(openSplit)}
+                  open={openSplit}
+                  headStyle={{ minHeight: TAP }}
+                  summary={isSplit(snap)
                     ? `This session was ${attachedMinutes(snap)} min of it`
                     : 'Was this session only part of that workout?'}
-                </T>
-              }
-            >
-              <SplitEditor snap={snap} onChange={(part) => setPart(snap, part)} onClear={() => clearPart(snap)} />
-            </Fold>
-          </View>
-        )
-      })}
+                >
+                  <SplitEditor snap={snap} onChange={(part) => setPart(snap, part)} onClear={() => clearPart(snap)} />
+                </Fold>
 
-      {/* The session's total, once more than one thing adds up to it — the
-          number the load chart uses and nothing else on screen states. */}
+                <View style={wh.acts}>
+                  <Btn kind="quiet" small title="Detach" onPress={() => detach(snap)} />
+                </View>
+              </AttachedRow>
+            )
+          })}
+        </View>
+      ) : null}
+
+      {/* The session's total, once more than one thing adds up to it. */}
       {attachedList.length > 1 ? (
         <View style={wh.total}>
-          <Icon name="Timer" size={13} color={colors.inkFaint} />
-          <T size={12} faint style={{ flex: 1 }}>
+          <Icon name="Timer" size={14} color={colors.inkDim} />
+          <T size={font.small} dim style={{ flex: 1 }}>
             {attachedList.length} workouts on this session,{' '}
-            <T size={12} weight={700} color={colors.inkFaint}>
+            <T size={font.small} weight={600}>
               {attachedList.reduce((n, w) => n + (Number(attachedMinutes(w)) || 0), 0)} min
-            </T> in total. That is what the weekly load chart multiplies your RPE by.
+            </T> in total
           </T>
         </View>
       ) : null}
 
       {offers.length === 0 ? (
         attachedList.length === 0 ? (
-          <T size={12} faint style={wh.empty}>
+          <T size={font.small} dim style={wh.empty}>
             {cache?.fetchedAt
-              ? 'Nothing recorded on this day. If you have just finished, give the band a minute to sync and pull again.'
+              ? 'Nothing recorded on this day. Just finished? Refresh once the band syncs.'
               : 'No WHOOP data yet.'}
           </T>
         ) : null
       ) : (
-        <View style={wh.list}>
-          {attachedList.length > 0 ? (
-            <T size={12} faint style={wh.more}>Also on this day — attach as many as belong to this session:</T>
-          ) : null}
-          {offers.map(c => {
-            const w = { ...c.workout, ...(snapshotOf as any)(c.workout, { maxHeartRate: cache?.maxHeartRate }) }
-            return (
-              <View key={c.workout.id} style={[wh.item, c.likely && wh.likely, c.attachedTo && wh.taken]}>
-                <View style={wh.itemTop}>
-                  <T size={14} weight={600}>{c.workout.sport}</T>
-                  <T size={12} faint tabular>{span(c.workout.start, c.workout.end)}</T>
-                  {c.likely ? (
-                    <View style={wh.tag} accessibilityLabel={c.overlapMin
-                      ? `likely: overlaps this session by ${c.overlapMin} min`
-                      : 'likely: the only workout WHOOP recorded on this day'}>
-                      <T size={10} caps color={colors.accent} lineHeight={13}>likely</T>
-                    </View>
-                  ) : null}
-                </View>
-                <Numbers w={w} />
-                {c.attachedTo ? (
-                  /* Shown rather than hidden: a workout on the wrong session is
-                     invisible if the list quietly drops it. */
-                  <View>
-                    <T size={12} faint style={wh.note}>
-                      Already on <T size={12} weight={700} color={colors.inkFaint}>{c.attachedTo.name}</T>. Two sessions inside one gym
-                      visit can share it — attach it here too, then say which part of it each
-                      session was.
-                    </T>
-                    <WhBtn ghost haptic="none" title="attach here as well" onPress={() => attach(c.workout)}
-                      style={{ marginTop: 6, alignSelf: 'flex-start' }} />
-                  </View>
-                ) : (
-                  <WhBtn icon="Plus" haptic="none" title="attach to this session" onPress={() => attach(c.workout)}
-                    style={{ alignSelf: 'flex-start' }} />
-                )}
-              </View>
-            )
-          })}
-        </View>
+        <>
+          {attachedList.length > 0 ? <T size={font.small} weight={600} style={wh.more}>Also on this day</T> : null}
+          <View style={wh.list}>
+            {offers.map((c, i) => {
+              const w = { ...c.workout, ...(snapshotOf as any)(c.workout, { maxHeartRate: cache?.maxHeartRate }) }
+              return (
+                <OfferRow key={c.workout.id} first={i === 0} title={c.workout.sport}
+                  likely={c.likely} taken={Boolean(c.attachedTo)}
+                  likelyWhy={c.overlapMin ? `overlaps this session by ${c.overlapMin} min` : 'the only workout WHOOP recorded on this day'}
+                  action={c.attachedTo ? 'Attach here too' : 'Attach'} onAttach={() => attach(c.workout)}
+                  lines={[
+                    <Line2 key="when">{span(c.workout.start, c.workout.end)}</Line2>,
+                    <Numbers key="nums" w={w} />,
+                    // Shown rather than hidden: a workout on the wrong session is
+                    // invisible if the list quietly drops it.
+                    c.attachedTo ? <Line2 key="on">{`Already on ${c.attachedTo.name}`}</Line2> : null,
+                  ]} />
+              )
+            })}
+          </View>
+        </>
       )}
     </View>
   )
@@ -462,22 +467,12 @@ const TONE_EDGE: Record<Tone, string> = {
 function Stat({ label, value, unit, sub, toneName = '' }: { label: string; value: any; unit: string; sub?: string | null; toneName?: Tone }) {
   if (value == null) return null
   return (
-    <View style={[wh.stat, { borderLeftColor: TONE_EDGE[toneName] }]}>
-      <T size={10} faint caps>{label}</T>
-      <T size={21} weight={600} tabular lineHeight={27}>
-        {value}<T size={12} faint>{unit}</T>
+    <View style={[wh.stat, toneName ? { borderLeftWidth: 3, borderLeftColor: TONE_EDGE[toneName] } : null]}>
+      <T size={font.small} dim>{label}</T>
+      <T size={font.heading} weight={600} tabular lineHeight={28}>
+        {value}<T size={font.caption} dim>{unit}</T>
       </T>
-      {sub ? <T size={11} faint tabular>{sub}</T> : null}
-    </View>
-  )
-}
-
-/** .wh-card h2: the heading with its icon in --series-2. */
-function CardHead({ icon, children }: { icon: string; children: React.ReactNode }) {
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-      <Icon name={icon} size={16} color={colors.series2} />
-      <T size={14} weight={600} style={{ letterSpacing: 0.15 }}>{children}</T>
+      {sub ? <T size={font.caption} dim tabular>{sub}</T> : null}
     </View>
   )
 }
@@ -500,12 +495,10 @@ export function WhoopReadiness({ date }: { date: string }) {
     if (status?.ok !== false) return null
     return (
       <Card>
-        <CardHead icon="HeartPulse">WHOOP</CardHead>
-        <T size={12} color={colors.vizWarn}>{error || status.detail}</T>
-        <Press onPress={() => { impact(); pull() }} disabled={pulling} accessibilityRole="button"
-          style={[kit.btn, { backgroundColor: 'transparent', borderColor: colors.line, marginTop: 10, alignSelf: 'flex-start' }]}>
-          <T size={15} weight={600} dim>{pulling ? 'Pulling…' : 'Try again'}</T>
-        </Press>
+        <CardTitle>WHOOP</CardTitle>
+        <T size={font.small} color={colors.warn} style={{ marginBottom: space[3] }}>{error || status.detail}</T>
+        <Btn kind="secondary" title={pulling ? 'Refreshing…' : 'Try again'} disabled={pulling}
+          onPress={() => pull()} style={{ alignSelf: 'flex-start' }} />
       </Card>
     )
   }
@@ -514,26 +507,19 @@ export function WhoopReadiness({ date }: { date: string }) {
 
   return (
     <Card>
-      <CardHead icon="HeartPulse">How you arrived</CardHead>
+      <BlockHead icon="HeartPulse" title="WHOOP" pulling={pulling} onPull={pull} />
       <View style={wh.stats}>
-        <Stat label="recovery" value={r.recovery} unit="%"
+        <Stat label="Recovery" value={r.recovery} unit="%"
           toneName={r.recovery == null ? '' : r.recovery >= 67 ? 'good' : r.recovery >= 34 ? 'flat' : 'warn'} />
         <Stat label="HRV" value={r.hrv} unit=" ms"
           sub={r.hrvDeltaPct != null ? `${pct(r.hrvDeltaPct)} vs your ${r.hrvBaseline} ms` : null}
           toneName={tone(r.hrvDeltaPct, 'up')} />
-        <Stat label="resting HR" value={r.restingHr} unit=" bpm"
+        <Stat label="Resting HR" value={r.restingHr} unit=" bpm"
           sub={r.restingHrDelta != null
             ? `${r.restingHrDelta > 0 ? '+' : ''}${r.restingHrDelta} vs your ${r.restingHrBaseline}`
             : null}
           toneName={tone(r.restingHrDelta == null ? null : -r.restingHrDelta, 'up')} />
-        <Stat label="day strain" value={r.strain} unit="" />
-      </View>
-      <View style={wh.cardNote}>
-        <T size={13} dim style={{ flexShrink: 1 }}>
-          Against your own median over the last fortnight, not anyone else's. This nudges the ranking
-          below and can never put a hard finger day next to another one.
-        </T>
-        <PullBtn pulling={pulling} onPress={pull} style={{ marginLeft: 0 }} />
+        <Stat label="Day strain" value={r.strain} unit="" />
       </View>
     </Card>
   )
@@ -570,8 +556,8 @@ const STAGES = [
 // it is a highlight and not a data series).
 const SLEEP_TODAY = colors.accent
 
-/* WHOOP's own recovery bands: red to 33, yellow to 66, green above. */
-const recoveryColor = (v: number) => (v >= 67 ? colors.good : v >= 34 ? colors.warn : colors.bad)
+/* WHOOP's own recovery bands: red to 33, yellow to 66, green above, on the viz tokens. */
+const recoveryColor = (v: number) => (v >= 67 ? colors.vizGood : v >= 34 ? colors.vizWarn : colors.vizCrit)
 
 export const SLEEP_RANGES = [
   { days: 30, label: '30d' },
@@ -764,19 +750,13 @@ export function WhoopSleep({ date }: { date: string }) {
     <Card>
       <View onLayout={e => setWidth(Math.round(e.nativeEvent.layout.width))}>
         <View style={wh.sleepHead}>
-          <CardHead icon="Moon">Sleep</CardHead>
-          <View style={[kit.segWrap, { flexDirection: 'row', gap: 4, marginBottom: 0 }]} accessibilityRole="tablist" accessibilityLabel="Range">
-            {SLEEP_RANGES.map(r => {
-              const on = days === r.days
-              return (
-                <Press key={r.days} haptic accessibilityRole="tab" accessibilityState={{ selected: on }}
-                  onPress={() => { setDays(r.days); setHover(null) }}
-                  style={[kit.seg, { minWidth: 48, minHeight: 36, paddingVertical: 6, paddingHorizontal: 10 }, on && { backgroundColor: colors.panel2 }]}>
-                  <T size={13} weight={500} color={on ? colors.ink : colors.inkFaint}>{r.label}</T>
-                </Press>
-              )
-            })}
-          </View>
+          <CardTitle style={{ marginBottom: 0 }}>Sleep</CardTitle>
+          <Segmented<string>
+            style={{ marginBottom: 0, minWidth: 180 }}
+            value={String(days)}
+            onChange={(v) => { setDays(Number(v)); setHover(null) }}
+            options={SLEEP_RANGES.map(r => ({ value: String(r.days), label: r.label }))}
+          />
         </View>
 
         <View style={wh.sleepStats}>
@@ -784,12 +764,12 @@ export function WhoopSleep({ date }: { date: string }) {
           <StatPair value={pct(stats.recent)} label="7-day avg" />
           {stats.delta != null && !flat ? (
             <StatPair value={`${good ? '▲' : '▼'} ${Math.round(Math.abs(stats.delta))}`} label="vs prior week"
-              color={good ? colors.good : colors.bad} />
+              color={good ? colors.vizGood : colors.vizCrit} />
           ) : null}
           <StatPair value={pct(stats.avg)} label="average" color={colors.inkDim} />
           <Press haptic onPress={() => setShowTable(t => !t)} accessibilityRole="button"
             accessibilityState={{ selected: showTable }} hitSlop={8} style={wh.vizToggle}>
-            <T size={12} dim>{showTable ? 'chart' : 'table'}</T>
+            <T size={font.small} dim>{showTable ? 'Chart' : 'Table'}</T>
           </Press>
         </View>
 
@@ -819,8 +799,8 @@ export function WhoopSleep({ date }: { date: string }) {
                   <Defs>
                     {/* Recovery's colour is a function of its value, so the gradient runs up the axis. */}
                     <LinearGradient id="sleep-recovery" gradientUnits="userSpaceOnUse" x1="0" x2="0" y1={y1(0)} y2={y1(100)}>
-                      <Stop offset="0.33" stopColor={colors.bad} /><Stop offset="0.34" stopColor={colors.warn} />
-                      <Stop offset="0.66" stopColor={colors.warn} /><Stop offset="0.67" stopColor={colors.good} />
+                      <Stop offset="0.33" stopColor={colors.vizCrit} /><Stop offset="0.34" stopColor={colors.vizWarn} />
+                      <Stop offset="0.66" stopColor={colors.vizWarn} /><Stop offset="0.67" stopColor={colors.vizGood} />
                     </LinearGradient>
                   </Defs>
                   {mark(H1)}
@@ -877,7 +857,7 @@ export function WhoopSleep({ date }: { date: string }) {
                         ) : null}
                         {showLabel ? (
                           <SvgText x={Math.min(Math.max(xAt(i), padL + 16), W - padR - 16)} y={Math.max(y2(r.span.from) - 4, 10)}
-                            textAnchor="middle" {...TICK} fontSize={9.5}>
+                            textAnchor="middle" {...TICK} fontSize={font.micro}>
                             {hmTight(r.span.to - r.span.from)}
                           </SvgText>
                         ) : null}
@@ -911,7 +891,7 @@ export function WhoopSleep({ date }: { date: string }) {
                       ))}
                     </>
                   ) : <T size={12} dim>no night from WHOOP</T>}
-                  {hover == null ? <T size={12} faint>· touch another night for its numbers</T> : null}
+                  {hover == null ? <T size={12} faint>· touch a night for its numbers</T> : null}
                 </>
               ) : null}
             </View>
@@ -924,10 +904,11 @@ export function WhoopSleep({ date }: { date: string }) {
             </View>
           </>
         )}
-        <T size={13} dim style={{ marginTop: 12 }}>
-          Bar ends are the real bedtime and wake; segment sizes are real minutes, not the order the
-          stages came in.{shortHistory ? ` History here starts ${dayLabel(firstNight, { month: 'short', day: 'numeric' })} and fills in as the app pulls from WHOOP.` : ''}
-        </T>
+        {shortHistory ? (
+          <T size={font.small} dim style={{ marginTop: space[3] }}>
+            {`History starts ${dayLabel(firstNight, { month: 'short', day: 'numeric' })} and fills in from WHOOP.`}
+          </T>
+        ) : null}
       </View>
     </Card>
   )
@@ -937,8 +918,8 @@ export function WhoopSleep({ date }: { date: string }) {
 function StatPair({ value, label, big, color }: { value: string; label: string; big?: boolean; color?: string }) {
   return (
     <View>
-      <T size={big ? 22 : 15} weight={600} tabular color={color} lineHeight={big ? 25 : 17}>{value}</T>
-      <T size={11} faint lineHeight={13}>{label}</T>
+      <T size={big ? font.heading : font.body} weight={600} tabular color={color} lineHeight={big ? 26 : 18}>{value}</T>
+      <T size={font.caption} dim lineHeight={15}>{label}</T>
     </View>
   )
 }
@@ -958,9 +939,9 @@ function Swatch({ color, line, recKey, opacity = 1, size = 11, dim, children }: 
       {recKey ? (
         // linear-gradient(90deg, bad 33%, warn 33% 66%, good 66%), as three stops.
         <View style={[wh.keyLine, { flexDirection: 'row', overflow: 'hidden' }]}>
-          <View style={{ flex: 33, backgroundColor: colors.bad }} />
-          <View style={{ flex: 33, backgroundColor: colors.warn }} />
-          <View style={{ flex: 34, backgroundColor: colors.good }} />
+          <View style={{ flex: 33, backgroundColor: colors.vizCrit }} />
+          <View style={{ flex: 33, backgroundColor: colors.vizWarn }} />
+          <View style={{ flex: 34, backgroundColor: colors.vizGood }} />
         </View>
       ) : (
         <View style={[line ? wh.keyLine : wh.keySquare, { backgroundColor: color, opacity }]} />
@@ -972,54 +953,37 @@ function Swatch({ color, line, recKey, opacity = 1, size = 11, dim, children }: 
 
 export const wh = StyleSheet.create({
   // .wh: the block inside the session log.
-  block: { marginTop: 16, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 13 },
-  head: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  pull: {
-    marginLeft: 'auto', borderWidth: 1, borderColor: colors.line, borderRadius: radius.pill,
-    paddingHorizontal: 11, minHeight: 30, justifyContent: 'center',
-  },
-  list: { gap: 9, marginTop: 9 },
-  item: { borderWidth: 1, borderColor: colors.line, borderRadius: 9, paddingVertical: 10, paddingHorizontal: 11, backgroundColor: colors.panel2 },
+  block: { marginTop: space[6] },
+  head: { flexDirection: 'row', alignItems: 'center', gap: space[2], marginBottom: space[2] },
+  list: { borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.line },
+  rule: { borderTopWidth: 1, borderTopColor: colors.line },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: 52, paddingVertical: space[2] },
+  rowIn: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
+  rowMain: { flex: 1, minWidth: 0, gap: 2 },
+  body: { paddingBottom: space[3], paddingLeft: 20 + space[3], gap: space[2] },
+  acts: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', gap: space[2] },
   // The suggestion is marked, not selected — it still takes a tap.
-  likely: { borderColor: mix(colors.accent, 45, colors.line) },
-  attached: { borderColor: mix(colors.vizGood, 40, colors.line) },
-  taken: { opacity: 0.72 },
-  itemTop: { flexDirection: 'row', alignItems: 'center', gap: 9, flexWrap: 'wrap' },
-  sport: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   tag: {
-    borderWidth: 1, borderColor: mix(colors.accent, 50, colors.line), borderRadius: 4,
-    paddingVertical: 2, paddingHorizontal: 6,
+    borderWidth: 1, borderColor: colors.accentLine, backgroundColor: colors.accentSoft,
+    borderRadius: radius.pill, paddingHorizontal: space[2],
   },
-  nums: { marginTop: 5 },
-  note: { marginTop: 7 },
-  more: { marginTop: 3, marginBottom: 0 },
-  total: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    marginTop: 10, paddingTop: 9, borderTopWidth: 1, borderTopColor: colors.line,
-  },
-  empty: { marginTop: 9 },
-  err: { marginTop: 9 },
-  btn: {
-    marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 7, alignSelf: 'flex-start',
-    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: 8,
-    paddingHorizontal: 13, minHeight: TAP,
-  },
-  btnGhost: { minHeight: 32, paddingHorizontal: 10, marginTop: 0 },
-  splitRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' },
-  splitBtns: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+  more: { marginTop: space[4], marginBottom: space[2] },
+  total: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: space[2] },
+  empty: { marginTop: space[2] },
+  err: { marginTop: space[2] },
+  splitRow: { flexDirection: 'row', alignItems: 'flex-end', gap: space[3], flexWrap: 'wrap' },
 
-  // The readiness card.
-  stats: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
+  // The recovery card.
+  stats: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
   stat: {
-    flexGrow: 1, flexBasis: 108, borderWidth: 1, borderLeftWidth: 3, borderColor: colors.line, borderRadius: 8,
-    paddingVertical: 9, paddingHorizontal: 10, backgroundColor: colors.panel2, gap: 2,
+    flexGrow: 1, flexBasis: 104, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control,
+    paddingVertical: space[2], paddingHorizontal: space[3], backgroundColor: colors.panel2, gap: 2,
   },
-  cardNote: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 12 },
 
   // The sleep card.
   sleepHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' },
   sleepStats: { flexDirection: 'row', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap', marginTop: 12, marginBottom: 6 },
-  vizToggle: { marginLeft: 'auto', borderWidth: 1, borderColor: colors.line, borderRadius: 6, paddingVertical: 5, paddingHorizontal: 9 },
+  vizToggle: { marginLeft: 'auto', borderWidth: 1, borderColor: colors.line, borderRadius: radius.control, minHeight: 36, justifyContent: 'center', paddingHorizontal: space[3] },
   readout: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 4, columnGap: 12, minHeight: 22, marginTop: 6, alignItems: 'center' },
   legend: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 4, columnGap: 12, marginTop: 8 },
   keySquare: { width: 8, height: 8, borderRadius: 2, marginRight: 5 },

@@ -78,12 +78,9 @@ export function ScreenCard() {
 
   const ios = m?.ua?.match(/OS (\d+)_(\d+)/)
   return (
-    <div className="card screen-card">
-      <h2>Screen</h2>
-      <p className="sub">
-        What this device is actually giving the page. A reading, for when a button is
-        hiding under the clock or there is a dead strip at the bottom.
-      </p>
+    <section className="prof-sec screen-card">
+      {/* A reading for when a button hides under the clock or the bottom strip is dead. */}
+      <div className="section-head"><h3>Screen</h3><span className="sub">What this device gives the page</span></div>
       {!m ? (
         <p className="sub">Measuring…</p>
       ) : (
@@ -97,6 +94,6 @@ export function ScreenCard() {
           <p className="sub screen-verdict"><Icon name="Info" size={13} /> {describeScreen(m)}</p>
         </>
       )}
-    </div>
+    </section>
   )
 }

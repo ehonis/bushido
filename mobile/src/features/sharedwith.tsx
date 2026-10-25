@@ -18,9 +18,9 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { AppState, StyleSheet, View } from 'react-native'
-import { colors, mix } from '../theme'
+import { colors, font, mix, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
-import { Btn, Chip, Press, Spinner, Toggle } from '../ui/kit'
+import { Btn, Press, SectionHeader, Spinner, Toggle, s as kit } from '../ui/kit'
 import { toneColor } from '../ui/Person'
 import { tap } from '../ui/haptics'
 import { Icon } from '../lib/icons'
@@ -36,7 +36,15 @@ const REREAD_MS = 10000
 const SIDE_KEY = 'bushido:shared-side'
 const SIDES_KEPT = 50
 
-/** Who else is on this workout, and the way to add or take off someone. */
+/** A picked person's fill and edge, the way accentSoft / accentLine are a picked chip's (people.css `--who-soft`, `--who-line`). */
+export const toneSoft = (tone?: number | null) => mix(toneColor(tone), 16, colors.panel3)
+export const toneLine = (tone?: number | null) => mix(toneColor(tone), 70, colors.line)
+
+/**
+ * Who else is on this workout, and the way to add or take off someone: a section
+ * head, then one person chip each (× to take them off) and a dashed chip for
+ * everyone who could be added.
+ */
 export function WithControl({ on = [], people = [], busy = null, error = null, onAdd, onRemove }: {
   on?: Person[]
   people?: Person[]
@@ -48,42 +56,107 @@ export function WithControl({ on = [], people = [], busy = null, error = null, o
   if (!people.length) return null
   const free = people.filter((p) => !on.some((o) => o.id === p.id))
   return (
-    <View style={st.row} accessibilityLabel="Who else did this workout">
-      <View style={st.lead}>
-        <Icon name="Users" size={14} color={colors.inkFaint} />
-        <T size={12} faint>With</T>
-      </View>
-      {on.map((p) => (
-        <View key={p.id} style={st.onChip}>
-          <T size={13}>{p.name}</T>
-          <Press onPress={() => onRemove(p)} disabled={Boolean(busy)} style={st.x}
-            accessibilityRole="button" accessibilityLabel={`Take ${p.name} off this workout`}>
-            <Icon name="X" size={13} color={colors.inkFaint} />
+    <View style={st.with} accessibilityLabel="Who else did this workout">
+      <SectionHeader title="With" right={busy || undefined} style={{ marginTop: space[4] }} />
+      <View style={st.chips}>
+        {on.map((p) => (
+          <View key={p.id} style={[kit.chip, st.personChip, { backgroundColor: toneSoft(p.tone ?? 1), borderColor: toneLine(p.tone ?? 1) }]}>
+            <Avatar name={p.name} tone={p.tone ?? 1} size={22} />
+            <T size={font.small} numberOfLines={1} style={{ flexShrink: 1 }}>{p.name}</T>
+            <Press onPress={() => onRemove(p)} disabled={Boolean(busy)} style={st.x}
+              accessibilityRole="button" accessibilityLabel={`Take ${p.name} off this workout`}>
+              <Icon name="X" size={14} color={colors.inkDim} />
+            </Press>
+          </View>
+        ))}
+        {free.map((p) => (
+          <Press key={p.id} haptic disabled={Boolean(busy)} onPress={() => onAdd(p)} accessibilityRole="button"
+            accessibilityLabel={`Add ${p.name} to this workout`} style={[kit.chip, st.ghostChip]}>
+            <Icon name="Plus" size={14} color={colors.inkFaint} />
+            <T size={font.small} dim>{p.name}</T>
           </Press>
-        </View>
-      ))}
-      {free.map((p) => (
-        <Chip key={p.id} small icon="Plus" label={p.name} onPress={busy ? undefined : () => onAdd(p)} />
-      ))}
-      {busy ? <T size={12} faint>{busy}</T> : null}
-      {error ? <T size={12} color={colors.bad} style={{ width: '100%' }}>{error}</T> : null}
-    </View>
-  )
-}
-
-/** A person's initial in their colour. */
-export function Avatar({ name, tone = 0, size = 28 }: { name: string; tone?: number; size?: number }) {
-  return (
-    <View style={[st.avatar, { width: size, height: size, borderRadius: size / 2, backgroundColor: toneColor(tone) }]}>
-      <T size={Math.round(size / 2)} weight={700} color={colors.bg}>{(String(name || '?').trim().charAt(0) || '?').toUpperCase()}</T>
+        ))}
+      </View>
+      {error ? <T size={font.small} color={colors.bad} style={{ marginTop: space[2] }}>{error}</T> : null}
     </View>
   )
 }
 
 /**
- * You / Sam, at the top of a shared workout's sheet: each person's initial and
- * name in their colour, the one being filled in filled in. Nothing without
- * someone on it. `on` people carry `tone`.
+ * A person's initial in their colour: filled when it is the one picked or the
+ * only one shown, an outline in their colour beside a picked one, so which side
+ * is on is never told by colour alone.
+ */
+export function Avatar({ name, tone = 0, size = 28, outline = false }: { name: string; tone?: number; size?: number; outline?: boolean }) {
+  const c = toneColor(tone)
+  return (
+    <View style={[st.avatar, { width: size, height: size, borderRadius: size / 2 },
+      outline ? { borderWidth: 1.5, borderColor: c } : { backgroundColor: c }]}>
+      <T size={size <= 22 ? font.caption : font.small} weight={700} color={outline ? c : colors.bg} lineHeight={size - 4}>
+        {(String(name || '?').trim().charAt(0) || '?').toUpperCase()}
+      </T>
+    </View>
+  )
+}
+
+/**
+ * One person as a choice: their initial and name, in their colour when picked.
+ * The same chip in "With …" and "For: …". `tall` for an answer (44pt).
+ */
+export function PersonChip({ person, tone = 1, on = false, onPress, tall = false }: {
+  person: { name: string }
+  tone?: number
+  on?: boolean
+  onPress: () => void
+  tall?: boolean
+}) {
+  return (
+    <Press haptic onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: on }}
+      style={[kit.chip, st.personChip, tall && { minHeight: TAP, paddingRight: space[4] },
+        on && { backgroundColor: toneSoft(tone), borderColor: toneLine(tone) }]}>
+      <Avatar name={person.name} tone={tone} size={22} outline={!on} />
+      <T size={font.small} color={on ? colors.ink : colors.inkDim} numberOfLines={1} style={{ flexShrink: 1 }}>{person.name}</T>
+    </Press>
+  )
+}
+
+/**
+ * The segmented control for people: the sheet's person bar and the workout's
+ * side switcher. The side on screen is raised in that person's colour with their
+ * initial filled; the others are outlined. `status` is what each side is doing.
+ */
+export function PersonSegmented({ people, side, onSide, label, status = {}, style }: {
+  people: { id: string | null; name: string; tone?: number }[]
+  side: string | null
+  onSide: (id: string | null) => void
+  label: string
+  status?: Record<string, string>
+  style?: any
+}) {
+  return (
+    <View style={[kit.segWrap, { flexDirection: 'row', gap: 4, marginBottom: 0 }, style]} accessibilityRole="tablist" accessibilityLabel={label}>
+      {people.map((p) => {
+        const sel = (p.id || null) === (side || null)
+        const tone = p.tone ?? 1
+        const stt = status[p.id || '']
+        return (
+          <Press key={p.id || 'you'} accessibilityRole="tab" accessibilityState={{ selected: sel }}
+            onPress={() => { if (!sel) { tap(); onSide(p.id || null) } }}
+            style={[kit.seg, { flex: 1, minHeight: TAP, gap: space[2] },
+              sel && { backgroundColor: toneSoft(tone), borderWidth: 1, borderColor: toneLine(tone) }]}>
+            <Avatar name={p.name} tone={tone} outline={!sel} />
+            <T size={font.body} weight={sel ? 600 : 400} color={sel ? colors.ink : colors.inkDim} numberOfLines={1} style={{ flexShrink: 1 }}>{p.name}</T>
+            {stt ? <T size={font.caption} dim tabular>{stt}</T> : null}
+          </Press>
+        )
+      })}
+    </View>
+  )
+}
+
+/**
+ * You / Sam, at the top of a shared workout's sheet, with a rule in the picked
+ * person's colour under it. Nothing without someone on it. `on` people carry `tone`.
  */
 export function PersonSwitch({ on = [], side = null, onSide }: {
   on?: Person[]
@@ -91,21 +164,12 @@ export function PersonSwitch({ on = [], side = null, onSide }: {
   onSide: (id: string | null) => void
 }) {
   if (!on.length) return null
-  const who: Person[] = [{ id: '', name: 'You', tone: 0 }, ...on]
+  const who = [{ id: null as string | null, name: 'You', tone: 0 }, ...on.map((p) => ({ id: p.id as string | null, name: p.name, tone: p.tone ?? 1 }))]
+  const current = who.find((p) => (p.id || null) === (side || null)) || who[0]
   return (
-    <View style={st.bar} accessibilityRole="tablist" accessibilityLabel="Whose log this is">
-      {who.map((p) => {
-        const sel = (p.id || null) === (side || null)
-        const c = toneColor(p.tone ?? 1)
-        return (
-          <Press key={p.id || 'you'} accessibilityRole="tab" accessibilityState={{ selected: sel }}
-            onPress={() => { if (!sel) { tap(); onSide(p.id || null) } }}
-            style={[st.barBtn, sel ? { borderColor: c, backgroundColor: mix(c, 18, colors.panel) } : null]}>
-            <Avatar name={p.name} tone={p.tone ?? 1} />
-            <T size={15} weight={sel ? 700 : 400} color={sel ? colors.ink : colors.inkDim} numberOfLines={1} style={{ flexShrink: 1 }}>{p.name}</T>
-          </Press>
-        )
-      })}
+    <View style={{ marginTop: 10 }}>
+      <PersonSegmented people={who} side={side || null} onSide={onSide} label="Whose log this is" />
+      <View style={[st.rule, { backgroundColor: toneColor(current.tone) }]} />
     </View>
   )
 }
@@ -115,8 +179,8 @@ export function SyncToggle({ person, on, onChange }: { person: Person; on: boole
   return (
     <View style={st.sync}>
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-        <T size={15} weight={600}>{`Sync exercises with ${person.name}`}</T>
-        <T size={12} faint>
+        <T size={font.body} weight={600}>{`Sync exercises with ${person.name}`}</T>
+        <T size={font.small} dim>
           {on ? 'Exercises and sets stay the same on both sides; your numbers stay yours.' : 'Off: changes stay on the side you make them.'}
         </T>
       </View>
@@ -153,9 +217,9 @@ export function SharedNote({ entry, people = [] }: { entry: any; people?: Person
   const line = withLine(entry, people)
   if (!line) return null
   return (
-    <View style={[st.lead, { marginBottom: 10 }]}>
+    <View style={st.note}>
       <Icon name="Users" size={12} color={colors.inkFaint} />
-      <T size={12} faint>{line}</T>
+      <T size={font.caption} faint>{line}</T>
     </View>
   )
 }
@@ -234,12 +298,12 @@ export function TheirSide({
 }) {
   if (loading) return <Spinner label={`Opening ${person.name}’s log…`} />
   if (!copy || copy.deleted) {
-    return <T size={13} dim>{error || `This workout is not in ${person.name}'s log any more.`}</T>
+    return <T size={font.small} dim>{error || `This workout is not in ${person.name}'s log any more.`}</T>
   }
   return (
     <View style={{ gap: 4 }}>
-      <T size={13} dim>{`Everything here goes in ${person.name}’s log. Your numbers show in grey.`}</T>
-      {error ? <T size={12} color={colors.bad}>{error}</T> : null}
+      <T size={font.small} dim>{`Everything here goes in ${person.name}’s log. Your numbers show in grey.`}</T>
+      {error ? <T size={font.small} color={colors.bad}>{error}</T> : null}
       {plan}
       <SessionLog session={session} entry={copy} entries={entries} onSave={onSave}
         hints={ownerOut || null} measured={false} defaultOpen whose={person.name} />
@@ -247,28 +311,23 @@ export function TheirSide({
       {synced ? null : onCopyMine ? (
         <Btn title={`Copy my exercises to ${person.name}`} icon="Copy" kind="ghost" onPress={onCopyMine} />
       ) : ownerHasExercises ? (
-        <T size={13} dim>{`${person.name} has all your exercises.`}</T>
+        <T size={font.small} dim>{`${person.name} has all your exercises.`}</T>
       ) : null}
     </View>
   )
 }
 
 const st = StyleSheet.create({
-  row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 12 },
-  lead: { flexDirection: 'row', alignItems: 'center', gap: 5, marginRight: 2 },
-  onChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 2, paddingLeft: 12, minHeight: 36,
-    borderRadius: 999, borderWidth: 1, borderColor: colors.accent, backgroundColor: colors.panel,
-  },
-  x: { minWidth: 36, minHeight: 36, alignItems: 'center', justifyContent: 'center' },
-  bar: { flexDirection: 'row', gap: 8, marginTop: 10 },
-  barBtn: {
-    flex: 1, minWidth: 0, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: colors.line,
-  },
+  with: { marginBottom: space[4] },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
+  personChip: { paddingLeft: 5 },
+  ghostChip: { borderStyle: 'dashed', backgroundColor: 'transparent' },
+  x: { width: 36, minHeight: 34, marginLeft: -4, marginRight: -space[3], alignItems: 'center', justifyContent: 'center' },
+  note: { flexDirection: 'row', alignItems: 'center', gap: space[1], marginBottom: space[3] },
   avatar: { alignItems: 'center', justifyContent: 'center' },
+  rule: { height: 2, marginTop: space[2], borderRadius: 1 },
   sync: {
-    flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44, marginBottom: 12, paddingVertical: 10, paddingHorizontal: 12,
-    borderRadius: 10, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel2,
+    flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: TAP, marginBottom: space[3], padding: space[3],
+    borderRadius: radius.card, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel2,
   },
 })

@@ -12,7 +12,8 @@ import { Modal } from './modal.jsx'
 import { SetLog, GradeSelect, totalSets, totalReps } from './setlog.jsx'
 import { LiftLog } from './liftlog.jsx'
 import { ActivityPicker } from './activitypicker.jsx'
-import { liftSets, liftReps, liftsLine } from './lib/lifts.js'
+import { activityOf, activityLabel } from './lib/activities.js'
+import { liftsLine } from './lib/lifts.js'
 import { asksItsOwnDuration, minutesFor, minutesSourceOf } from './lib/minutes.js'
 import { visibleOutputs, pruneHidden, derivedValue, filledBy } from './lib/outputs.js'
 import { gateResolver } from './lib/activities.js'
@@ -112,7 +113,7 @@ export function PriorNote({ entries, session, excludeId, all = false, whose = nu
           <div key={e.id} className="prior-item">
             <div className="prior-when">
               {dayLabel(e.date)}
-              {Number.isFinite(e.data?.out?.rpe) && <span> · RPE {e.data.out.rpe}</span>}
+              {Number.isFinite(e.data?.out?.rpe) && <span> · how hard {e.data.out.rpe}</span>}
               {Number.isFinite(e.data?.out?.fingers) && <span> · fingers {e.data.out.fingers}/5</span>}
             </div>
             {work && <p className="prior-work">{work}</p>}
@@ -160,7 +161,9 @@ function Slider({ field, value, onChange, yours = undefined }) {
     <div className="out-field">
       <div className="out-label">
         <span>{field.label}<Yours value={yours} /></span>
-        <span className="out-value">{v}</span>
+        {/* Unanswered, the thumb sits on the default and the number reads as a
+            placeholder: a guess is never shown as an answer (AGENTS.md §6.4). */}
+        <span className={`out-value ${value == null ? 'guess' : ''}`}>{v}</span>
       </div>
       <input
         type="range" min={field.min} max={field.max} step={field.step} value={v}
@@ -322,13 +325,11 @@ function TimeSpent({ session, out, onChange }) {
   const measured = Number(out?.elapsedMin)
 
   const hint = {
-    typed: 'This is what the weekly training-load chart multiplies your RPE by.',
+    typed: null,
     whoop: `Using the ${inUse} min WHOOP recorded. Type to change it.`,
-    strava: `Using the ${inUse} min moving on the Strava activity you attached. Type to change it.`,
-    timer: `Using the ${inUse} min workout mode measured. Type to change it.`,
-    estimate: Number.isFinite(inUse)
-      ? `Blank uses the card's ${inUse} min estimate. The weekly load chart is RPE × this, so a night that ran short or long is worth a second here.`
-      : 'The weekly load chart is RPE × this.',
+    strava: `Using the ${inUse} min moving on Strava. Type to change it.`,
+    timer: `Using the ${inUse} min the workout timer measured. Type to change it.`,
+    estimate: Number.isFinite(inUse) ? `Left blank, it counts as about ${inUse} min.` : null,
   }[source]
 
   return (
@@ -354,7 +355,7 @@ function TimeSpent({ session, out, onChange }) {
           </button>
         )}
       </div>
-      <p className="spent-hint">{hint}</p>
+      {hint && <p className="spent-hint">{hint}</p>}
     </div>
   )
 }
@@ -407,8 +408,8 @@ export function SessionDetails({ session, entry, entries, onSave, training, onTr
           <input type="checkbox" checked={training === false}
             onChange={e => onTraining(!e.target.checked)} />
           <span>
-            Just miles — not a workout
-            <em>Counts the distance and the streak. Not the training load.</em>
+            Just miles, not a workout
+            <em>Counts the miles and the streak, not the effort charts.</em>
           </span>
         </label>
       )}
@@ -454,7 +455,54 @@ export function DetailsSheet({
 }
 
 /**
- * `bare` drops the collapse header — the log feed's sheet is already the form.
+ * The activity, once it is picked: a row that says what it is and opens the
+ * picker (docs/DESIGN.md, "Session sheet"). It replaced an underlined "Change"
+ * link inside a box. Changing it shows the picker's own choices, with the way
+ * to keep what was there.
+ */
+function ActivityRow({ field, value, out, onChange }) {
+  const [changing, setChanging] = useState(false)
+  if (!value) return <ActivityPicker field={field} value={value} out={out} onChange={onChange} />
+  if (changing) {
+    return (
+      <div className="actrow-change">
+        <ActivityPicker field={field} value={null} out={null}
+          onChange={(v) => { setChanging(false); if (v && v !== value) onChange(v) }} />
+        <button type="button" className="btn quiet" onClick={() => setChanging(false)}>
+          Keep {activityLabel(field, value)}
+        </button>
+      </div>
+    )
+  }
+  const picked = activityOf(field, value)
+  // Which service chose it, if one did: a value the user did not give never
+  // looks like one they did.
+  const source = filledBy(out, field.key)
+  return (
+    <div className="list">
+      <button type="button" className="list-row actrow" onClick={() => setChanging(true)}>
+        <Icon name={picked?.icon || 'Sparkles'} size={20} />
+        <span className="list-row-main">
+          <span className="list-row-title">{picked?.name || activityLabel(field, value)}</span>
+          <span className="list-row-meta">
+            {picked ? 'Activity' : 'No longer in the catalog'}{source ? ` · from ${source}` : ''}
+          </span>
+        </span>
+        <span className="list-row-chev"><Icon name="ChevronDown" size={16} style={{ transform: 'rotate(-90deg)' }} /></span>
+      </button>
+    </div>
+  )
+}
+
+/**
+ * The log form: what was done, how hard, what WHOOP and Strava measured, notes.
+ * Always open, and every field saves as it is typed: there is no Save to press.
+ *
+ * It used to sit folded under a "How did it go?" header that turned into a green
+ * "Session logged" once something was filled in, so on a logged session the form
+ * the user opened the sheet for was one more tap away (gone 2026-10-25, #41).
+ * `bare` (the log feed's sheet) now only drops the divider above it, and
+ * `defaultOpen` is accepted and ignored.
  *
  * `hints` and `measured` are for someone else's copy of a shared workout, filled
  * in from the owner's sheet (sharedwith.jsx). `hints` is the owner's own `out`,
@@ -463,35 +511,23 @@ export function DetailsSheet({
  */
 export function SessionLog({
   session, entry, entries, onSave, bare = false,
-  defaultOpen = false, hints = null, measured = true, whose = null,
+  hints = null, measured = true, whose = null,
 }) {
   const declared = session?.outputs || []
   const hasSets = Boolean(session?.logSpec?.exercises?.length)
-  /*
-   * Collapsed by default, because on a real session the protocol is what you
-   * open the sheet to read and the form is what you fill in afterwards.
-   *
-   * `defaultOpen` is for the cards where that is backwards — the workout card has
-   * no protocol worth reading and the form IS the card. It used to open itself in
-   * practice, because the first field was the activity question and answering it
-   * was the only way in; since 2026-09-17 the activity is picked before the card
-   * opens, so without this the fields the user came for sit behind a tap.
-   */
-  const [open, setOpen] = useState(defaultOpen)
   const out = entry?.data?.out || {}
+
+  // Which fields are questions today. On the free-form cards the answer to the
+  // first one decides that: miles and incline are the point of a run and noise
+  // on a bench-press day. The catalog resolver lets a field gate on what the
+  // CATALOG says about the picked activity (`shape`, `elevation`, `incline`)
+  // rather than on a list of ninety-one keys. See lib/outputs.js.
+  const derive = useMemo(() => gateResolver(session), [session])
 
   // Notes are app-level, not plan-level: every session gets them, including the
   // ones with no measurable outputs at all.
   if (!declared.length && !hasSets && !entry) return null
 
-  // Which fields are questions today. On the free-form cards the answer to the
-  // first one decides that: miles and incline are the point of a run and noise
-  // on a bench-press day. See lib/outputs.js.
-  // The catalog resolver, so a field may gate on what the CATALOG says about the
-  // picked activity (`shape`, `elevation`, `incline`) rather than on a list of
-  // ninety-one activity keys. Null for every session that is not the workout
-  // card, and then every gate reads only what the user answered — see lib/outputs.js.
-  const derive = useMemo(() => gateResolver(session), [session])
   const fields = visibleOutputs(session, out, derive)
 
   // Pruned on the way in, so what is stored and what is on screen can never
@@ -499,64 +535,8 @@ export function SessionLog({
   // leaving a mileage on a lifting day for the stats line to report.
   const set = (key, value) => onSave(pruneHidden(session, { ...out, [key]: value }, derive))
 
-  /*
-   * WHAT COUNTS AS HAVING LOGGED SOMETHING.
-   *
-   * Two exclusions, and both exist because this header went green on a card with
-   * nothing in it.
-   *
-   * A field marked `optional` never BLOCKS "logged" — the free-form cards are
-   * mostly optional detail, and a form that can never read as finished is a form
-   * you stop filling in. But a card whose fields are ALL optional then satisfied
-   * `every()` vacuously and claimed to be logged before the user had typed anything.
-   * So where nothing is required, one real answer is.
-   *
-   * And the field the card NAMES ITSELF from is not an answer at all — it is the
-   * card's identity. On the workout card that is the activity, and since
-   * 2026-09-17 it is picked before the card even opens (see picker.jsx), so
-   * counting it would make "Session logged" true the instant the user chose "Mountain
-   * bike". Both of these were invisible while the form sat collapsed under a
-   * header you had to open anyway; leading the card with the form put them on
-   * screen.
-   */
-  const identity = session?.nameFrom
-  const asked = fields.filter(f => f.key !== identity)
-  const filled = asked.filter(f => out[f.key] !== undefined).length
-  const setsDone = totalSets(out) + liftSets(out)
-  const repsDone = totalReps(out) + liftReps(out)
-  const hasNote = Boolean(String(out.notes || '').trim() || String(out.improve || '').trim())
-  // A field that is not being ASKED cannot block it either.
-  const required = asked.filter(f => !f.optional)
-  const answered = filled > 0 || setsDone > 0 || hasNote
-  const complete = required.every(f => out[f.key] !== undefined)
-    && (required.length > 0 || answered)
-    && (!hasSets || totalSets(out) > 0)
-
-  const shown = bare || open
-
   return (
-    <div className={`outlog ${complete ? 'done' : ''} ${bare ? 'bare' : ''}`}>
-      {!bare && (
-      <button className="alt-head" onClick={() => setOpen(o => !o)} aria-expanded={open}>
-        <span>
-          <Icon name={complete ? 'CircleCheck' : 'NotebookPen'} size={15} />{' '}
-          {complete
-            ? `Session logged${setsDone ? ` — ${setsDone} sets${repsDone ? `, ${repsDone} reps` : ''}` : ''}${hasNote ? ' · noted' : ''}`
-            : filled || setsDone || hasNote
-              ? `How did it go? (${filled}/${asked.length})${hasNote ? ' · noted' : ''}`
-              : 'How did it go?'}
-        </span>
-        <span className={`alt-chev ${open ? 'open' : ''}`}><Icon name="ChevronDown" size={17} /></span>
-      </button>
-      )}
-
-      {!shown && !filled && (
-        <p className="sub" style={{ margin: '8px 0 0' }}>
-          Takes about twenty seconds and it's what makes the progress charts mean anything.
-        </p>
-      )}
-
-      {shown && (
+    <div className={`outlog ${bare ? 'bare' : ''}`}>
         <div className="out-body">
           {hasSets && <SetLog session={session} out={out} onSave={onSave} hints={hints} />}
 
@@ -571,7 +551,7 @@ export function SessionLog({
             // decides what the rest of this form even means, so it is always
             // first and it is the only one on an empty card. See lib/activities.js.
             if (f.type === 'activity') {
-              return <ActivityPicker key={f.key} field={f} value={out[f.key]} out={out} onChange={v => set(f.key, v)} />
+              return <ActivityRow key={f.key} field={f} value={out[f.key]} out={out} onChange={v => set(f.key, v)} />
             }
             // A grade is a fixed ladder, not a number you type: see lib/grades.js.
             if (f.type === 'grade') {
@@ -601,23 +581,27 @@ export function SessionLog({
             }
             // A number the app can work out gets it as a PLACEHOLDER — average
             // speed out of distance and time — and a number a service measured
-            // says which service, because a value the user did not type must never look
-            // like one the user did. Both live in lib/outputs.js.
+            // says which service, because a value the user did not type must never
+            // look like one the user did. Both live in lib/outputs.js. The card's
+            // example number (`hint`, "450") is NOT shown: in a number box it read
+            // as a guess the app had made, and the app had made none.
             const derived = derivedValue(f, out)
             const source = filledBy(out, f.key)
             return (
               <label key={f.key} className="field out-num">
-                {f.label} {f.unit ? `(${f.unit})` : ''}
-                {source && <span className="out-from">from {source}</span>}
+                <span>
+                  {f.label}{f.unit ? ` (${f.unit})` : ''}
+                  {source && <span className="out-from">from {source}</span>}
+                </span>
                 <input
                   type="number" inputMode="decimal"
                   placeholder={derived != null ? String(derived)
-                    : hints?.[f.key] != null ? String(hints[f.key]) : f.hint}
+                    : hints?.[f.key] != null ? String(hints[f.key]) : ''}
                   value={out[f.key] ?? ''}
                   onChange={e => set(f.key, e.target.value === '' ? undefined : Number(e.target.value))}
                 />
                 {derived != null && out[f.key] === undefined && (
-                  <span className="out-derived">worked out from your distance and time</span>
+                  <span className="out-derived">Worked out from your distance and time</span>
                 )}
               </label>
             )
@@ -648,9 +632,6 @@ export function SessionLog({
             */}
 
           <div className="notes">
-            <div className="notes-head">
-              <Icon name="NotebookPen" size={13} /> Notes for this session
-            </div>
             {/*
               * "How did it feel?" used to sit here, and it asked the same
               * question as the slider six inches above it. It was redundant, and
@@ -689,7 +670,6 @@ export function SessionLog({
             <PriorNote entries={entries} session={session} excludeId={entry?.id} all whose={whose} />
           </div>
         </div>
-      )}
     </div>
   )
 }

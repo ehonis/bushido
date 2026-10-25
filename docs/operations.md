@@ -151,7 +151,7 @@ server verifies it against the team's public keys and looks the email up:
 Add each person's email to the Access application's policy as well, or Cloudflare will
 not let them reach the server at all. With built-in sign-in there is one account, the owner.
 
-**The owner can act as anyone** (profile → Settings → People → *Log for …*). That sets a
+**The owner can act as anyone** (profile → Settings → Whose log → *Log for …*). That sets a
 12-hour `bushido_as` cookie, honoured only for the owner, and the app reloads into that
 person's log with a banner saying whose it is. Each person's log is cached on a device
 under its own key, and every API call from the app says whose log it holds
@@ -161,8 +161,8 @@ merged into another's.
 
 For anyone but the owner: Settings are refused; WHOOP, habit sync and notifications
 are off, because they hold the owner's accounts. Strava is everyone's own:
-each person, the owner included, connects their account in profile → Settings → *Connect
-Strava*, which needs a Strava API app in Settings → *Strava*. A new Strava app accepts only
+each person, the owner included, connects their account in profile → Connections → Strava →
+*Connect*, which needs a Strava API app in Settings → *Strava*. A new Strava app accepts only
 its creator until it is raised to ten athletes at strava.com/settings/api, and its
 Authorization Callback Domain must cover the host people open Bushido on. A person's grant is
 `strava-oauth.json` and their cache `strava.json`, in their space (the data dir for the owner,

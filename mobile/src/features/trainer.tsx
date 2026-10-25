@@ -16,18 +16,18 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Modal as RNModal, StyleSheet, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { colors, radius, TAP } from '../theme'
+import { colors, font, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
-import { Btn, Card, H2, Input, Field, Press, Spinner, Sub } from '../ui/kit'
+import { Btn, Card, H2, IconBtn, Input, Field, Press, SectionHeader, Spinner, Sub, s as kit } from '../ui/kit'
 import { FullScreen, Modal } from '../ui/Sheet'
 import { Fold } from '../ui/Fold'
-import { Dot, toneColor } from '../ui/Person'
+import { toneColor } from '../ui/Person'
 import { impact, success } from '../ui/haptics'
 import { Icon } from '../lib/icons'
 import { WorkoutRunner } from './runner'
 import { WorkoutMode } from './workout'
 import { SessionLog } from './sessionlog'
-import { usePersonCopy, Avatar } from './sharedwith'
+import { usePersonCopy, Avatar, PersonChip, PersonSegmented } from './sharedwith'
 import * as peopleApi from '../lib/peopleapi.js'
 import { optFor } from '../lib/menu.js'
 import * as trainerLib from '../lib/trainer.js'
@@ -47,29 +47,20 @@ const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).pa
 
 /* ------------------------------------------------------------ For: … */
 
-/** "For: You / Sam", at the top of the planners. Nothing for anyone but the owner. */
+/** "For: You / Sam", at the top of the planners: the same person chips as "With …". Nothing for anyone but the owner. */
 export function ForChoice({ people = [], target = null, onTarget }: {
   people?: Person[]
   target?: Person | null
   onTarget: (p: Person | null) => void
 }) {
   if (!people.length) return null
-  const opts = [{ id: null as string | null, name: 'You', tone: 0 }, ...people.map((p) => ({ id: p.id, name: p.name, tone: toneFor(people, p.id) }))]
   return (
     <View style={st.forRow} accessibilityLabel="Who this is for">
-      <T size={12} faint>For</T>
-      <View style={st.seg}>
-        {opts.map((o) => {
-          const on = (target?.id || null) === o.id
-          return (
-            <Press key={o.id || 'you'} haptic onPress={() => onTarget(o.id ? people.find((p) => p.id === o.id) || null : null)}
-              accessibilityRole="tab" accessibilityState={{ selected: on }}
-              style={[st.segBtn, on && { backgroundColor: colors.panel2, borderBottomColor: toneColor(o.tone) }]}>
-              <T size={13} weight={500} color={on ? toneColor(o.tone) : colors.inkFaint} numberOfLines={1}>{o.name}</T>
-            </Press>
-          )
-        })}
-      </View>
+      <T size={font.small} dim style={{ marginRight: space[1] }}>For</T>
+      <PersonChip person={{ name: 'You' }} tone={0} on={!target} onPress={() => onTarget(null)} tall />
+      {people.map((p) => (
+        <PersonChip key={p.id} person={p} tone={toneFor(people, p.id)} on={target?.id === p.id} onPress={() => onTarget(p)} tall />
+      ))}
     </View>
   )
 }
@@ -77,13 +68,12 @@ export function ForChoice({ people = [], target = null, onTarget }: {
 /** "Planning for Sam", on every screen after the choice. */
 export function ForLine({ person, people = [] }: { person?: Person | null; people?: Person[] }) {
   if (!person) return null
-  const c = toneColor(toneFor(people, person.id))
+  const tone = toneFor(people, person.id)
   return (
-    <View style={[st.forLine, { borderLeftColor: c }]}>
-      <Icon name="Users" size={13} color={colors.inkDim} />
-      <T size={13} dim style={{ flex: 1 }}>
-        {'Planning for '}<T size={13} weight={700} color={c}>{person.name}</T>
-        {`, with ${person.name}’s log. It is written to ${person.name}’s, from you.`}
+    <View style={[st.forLine, { borderLeftColor: toneColor(tone) }]}>
+      <Avatar name={person.name} tone={tone} size={22} />
+      <T size={font.small} dim style={{ flex: 1 }}>
+        {'Planning for '}<T size={font.small} weight={600}>{person.name}</T>{` · it goes in ${person.name}’s log`}
       </T>
     </View>
   )
@@ -127,7 +117,7 @@ export function sideStatus(kind: string, entry: any, now = Date.now(), finished 
   return p.total ? `${p.done}/${p.total}` : ''
 }
 
-/** You / Sam inside a running workout, each with its colour and what that side is doing. */
+/** You / Sam inside a running workout: the sheet's person segmented control, with what each side is doing. */
 export function SideSwitch({ sides = [], side = null, onSide, status = {} }: {
   sides?: Side[]
   side?: string | null
@@ -136,20 +126,8 @@ export function SideSwitch({ sides = [], side = null, onSide, status = {} }: {
 }) {
   if (sides.length < 2) return null
   return (
-    <View style={[st.seg, { marginHorizontal: 10, marginTop: 8 }]} accessibilityLabel="Whose side of the workout is showing">
-      {sides.map((s) => {
-        const on = (s.id || null) === (side || null)
-        const stt = status[s.id || '']
-        return (
-          <Press key={s.id || 'you'} onPress={() => onSide(s.id || null)} accessibilityRole="tab" accessibilityState={{ selected: on }}
-            style={[st.segBtn, { minHeight: TAP, flexDirection: 'row', gap: 6 }, on && { backgroundColor: colors.panel2, borderBottomColor: toneColor(s.tone) }]}>
-            <Avatar name={s.name} tone={s.tone} size={24} />
-            <T size={13} weight={600} color={on ? colors.ink : colors.inkFaint} numberOfLines={1}>{s.name}</T>
-            {stt ? <T size={11} faint tabular>{stt}</T> : null}
-          </Press>
-        )
-      })}
-    </View>
+    <PersonSegmented people={sides} side={side || null} onSide={onSide} status={status}
+      label="Whose side of the workout is showing" style={{ marginHorizontal: 10, marginTop: space[2] }} />
   )
 }
 
@@ -275,24 +253,55 @@ function TheirSlot({ kind, person, session, shown, who, switcher, onExit, onFini
 
 /* ------------------------------------------------------ someone's day */
 
-/** "Sam's day", on Today: the owner's way to see someone's days without acting as them. */
+const dayWords = (iso: string) => fromIso(iso).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+
+/** What a row says about one of someone's sessions: where it stands, who planned it. */
+const rowMeta = (r: any) => [r.running ? 'In progress' : r.done ? 'Done' : 'Not done yet', r.plannedBy, r.sharedFrom ? 'shared' : null]
+  .filter(Boolean).join(' · ')
+
+/** "Sam's day", on Today: a card with one row per person, the owner's way into someone's days without acting as them. */
 export function PeopleDays({ people = [], date, plan }: { people?: Person[]; date: string; plan: any }) {
   const [open, setOpen] = useState<Person | null>(null)
+  const [seen, setSeen] = useState(0)
   if (!people.length) return null
   return (
     <>
-      <View style={st.peopleDays}>
-        {people.map((p) => (
-          <Press key={p.id} haptic onPress={() => setOpen(p)} accessibilityRole="button" style={st.peopleDay}>
-            <Dot tone={toneFor(people, p.id)} />
-            <T size={13} dim>{`${p.name}’s day`}</T>
-          </Press>
+      <Card style={st.listCard}>
+        {people.map((p, i) => (
+          <PersonDayRow key={p.id} person={p} tone={toneFor(people, p.id)} date={date} plan={plan} seen={seen}
+            first={i === 0} onOpen={() => setOpen(p)} />
         ))}
-      </View>
+      </Card>
       {open ? (
-        <PersonDay person={{ ...open, tone: toneFor(people, open.id) }} date={date} plan={plan} onClose={() => setOpen(null)} />
+        <PersonDay person={{ ...open, tone: toneFor(people, open.id) }} date={date} plan={plan}
+          onClose={() => { setOpen(null); setSeen((n) => n + 1) }} />
       ) : null}
     </>
+  )
+}
+
+/** One person's row: their initial, "Sam's day", and what is on it, from their log. Until that answers the row is just the door. */
+function PersonDayRow({ person, tone, date, plan, seen, first, onOpen }: {
+  person: Person; tone: number; date: string; plan: any; seen: number; first: boolean; onOpen: () => void
+}) {
+  const [names, setNames] = useState<string[] | null>(null)
+  useEffect(() => {
+    let live = true
+    setNames(null)
+    ;(peopleApi.getPersonDay as any)(person.id, date)
+      .then((entries: any[]) => { if (live) setNames(dayOf(entries, date).map((e: any) => dayRow(e, plan?.dailyMenu || []).name)) })
+      .catch(() => { /* offline or refused: the row is still the way in */ })
+    return () => { live = false }
+  }, [person.id, date, plan, seen])
+  return (
+    <Press haptic onPress={onOpen} accessibilityRole="button" style={[kit.row, !first && st.divider]}>
+      <Avatar name={person.name} tone={tone} />
+      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+        <T size={font.body} weight={500} numberOfLines={1}>{`${person.name}’s day`}</T>
+        {names ? <T size={font.small} dim numberOfLines={1}>{names.length ? names.join(' · ') : 'Nothing on it yet'}</T> : null}
+      </View>
+      <Icon name="ChevronRight" size={16} color={colors.inkFaint} />
+    </Press>
   )
 }
 
@@ -310,52 +319,51 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
   const me = currentMe()
   const menu = (log.plan || plan)?.dailyMenu || []
   const today = localIso()
-  const c = toneColor(person.tone ?? 1)
+  const tone = person.tone ?? 1
+  const c = toneColor(tone)
   const label = `${fromIso(monday).toLocaleDateString([], { month: 'short', day: 'numeric' })} – ` +
     `${fromIso(weekDays(monday)[6]).toLocaleDateString([], { month: 'short', day: 'numeric' })}`
 
   return (
     <FullScreen title={`${person.name}’s week`} sub={label} icon="Users" onBack={onClose}>
-      <View style={{ height: 3, backgroundColor: c, marginBottom: 8, borderRadius: 2 }} />
+      <View style={{ height: 3, backgroundColor: c, marginBottom: space[2], borderRadius: 2 }} />
       <View style={st.daynav}>
-        <Press haptic onPress={() => setMonday((m: string) => shiftWeek(m, -1))} style={st.navBtn} accessibilityLabel="previous week">
-          <Icon name="ChevronLeft" size={18} color={colors.inkDim} />
-        </Press>
-        <T size={14} weight={600} style={{ flex: 1 }} align="center">
-          {label}{monday === mondayOf(today) ? ' · this week' : ''}
+        <IconBtn icon="ChevronLeft" size={20} label="Previous week" onPress={() => setMonday((m: string) => shiftWeek(m, -1))} />
+        <T size={font.body} weight={600} style={{ flex: 1 }} align="center">
+          {monday === mondayOf(today) ? 'This week' : label}
         </T>
-        <Press haptic onPress={() => setMonday((m: string) => shiftWeek(m, 1))} style={st.navBtn} accessibilityLabel="next week">
-          <Icon name="ChevronRight" size={18} color={colors.inkDim} />
-        </Press>
+        <IconBtn icon="ChevronRight" size={20} label="Next week" onPress={() => setMonday((m: string) => shiftWeek(m, 1))} />
       </View>
-      <Sub style={{ marginBottom: 10 }}>
-        {`What is on ${person.name}’s days. Open one to log it or run it from ${person.name}’s side; everything you change is written to ${person.name}’s log.`}
-      </Sub>
+      <View style={st.lead}>
+        <Avatar name={person.name} tone={tone} size={22} />
+        <Sub style={{ flex: 1 }}>{`Everything you change here goes in ${person.name}’s log.`}</Sub>
+      </View>
       {log.loading ? <Spinner label={`Opening ${person.name}’s log…`} /> : null}
-      {log.error ? <T size={12} color={colors.bad}>{`Could not open ${person.name}’s log: ${log.error}`}</T> : null}
-      {log.ready ? weekDays(monday).map((d: string) => {
+      {log.error ? <T size={font.small} color={colors.bad}>{`Could not open ${person.name}’s log: ${log.error}`}</T> : null}
+      {log.ready ? weekDays(monday).map((d: string, i: number) => {
         const rows = dayOf(log.entries, d).map((e: any) => dayRow(e, menu, me))
         return (
-          <View key={d} style={{ marginBottom: 12 }}>
-            <T size={12} weight={600} color={d === today ? c : colors.inkFaint} style={{ marginBottom: 4, letterSpacing: 0.5 }}>
-              {fromIso(d).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase()}
-            </T>
-            {rows.length ? rows.map((r: any) => (
-              <Press key={r.id} haptic onPress={() => setOpenId(r.id)} accessibilityRole="button" style={st.dayRow}>
-                <Icon name={r.done ? 'CircleCheck' : 'Circle'} size={16} color={r.done ? colors.vizGood : colors.inkFaint} />
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <T size={14} weight={600} numberOfLines={1}>{r.name}</T>
-                  <T size={12} faint numberOfLines={1}>
-                    {[r.running ? 'in progress' : r.done ? 'done' : 'not done yet', r.plannedBy, r.sharedFrom ? 'shared' : null].filter(Boolean).join(' · ')}
-                  </T>
-                </View>
-                <Icon name="ChevronRight" size={16} color={colors.inkFaint} />
-              </Press>
-            )) : <T size={12} faint style={{ marginBottom: 4 }}>Nothing on this day.</T>}
+          <View key={d} style={i ? { marginTop: space[5] } : null}>
+            <SectionHeader title={dayWords(d)} style={{ marginTop: 0 }}
+              right={d === today ? <T size={font.small} weight={600} color={c}>Today</T> : rows.length ? undefined : 'Nothing'} />
+            {rows.length ? (
+              <Card style={[st.listCard, { marginBottom: 0 }]}>
+                {rows.map((r: any, j: number) => (
+                  <Press key={r.id} haptic onPress={() => setOpenId(r.id)} accessibilityRole="button" style={[kit.row, j > 0 && st.divider]}>
+                    <Icon name={r.done ? 'CircleCheck' : 'Circle'} size={20} color={r.done ? colors.vizGood : colors.inkFaint} />
+                    <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                      <T size={font.body} weight={500} numberOfLines={1}>{r.name}</T>
+                      <T size={font.small} dim numberOfLines={1}>{rowMeta(r)}</T>
+                    </View>
+                    <Icon name="ChevronRight" size={16} color={colors.inkFaint} />
+                  </Press>
+                ))}
+              </Card>
+            ) : d === today ? <Sub>Nothing on today.</Sub> : null}
           </View>
         )
       }) : null}
-      <Fold summary={`About ${person.name}`} style={{ marginTop: 16 }}>
+      <Fold summary={`About ${person.name}`} style={{ marginTop: space[6] }}>
         <AboutForm load={() => peopleApi.getPersonAbout(person.id)} save={(doc: any) => peopleApi.putPersonAbout(person.id, doc)}
           lead={`What ${person.name}'s workout planner is told, and what yours is told when you plan for ${person.name}.`} />
       </Fold>
@@ -368,7 +376,11 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
   )
 }
 
-/** One of someone's sessions, opened by the owner. Every write goes to that one entry in their log. */
+/**
+ * One of someone's sessions, opened by the owner. Every write goes to that one
+ * entry in their log. Done is the default once its day arrives, so the footer
+ * offers the exception: Mark undone, or Mark done on one that was undone.
+ */
 export function PersonEntrySheet({ person, entryId, menu = [], entries = [], onClose }: {
   person: Person
   entryId: string
@@ -393,38 +405,38 @@ export function PersonEntrySheet({ person, entryId, menu = [], entries = [], onC
 
   const done = isDone(e)
   const pres = e?.data?.plan || null
+  const start = Boolean(kind && e && canStart(e))
   const by = e ? plannedLine(e, me) : null
   return (
-    <Modal title={e?.data?.name || opt?.name || 'Session'} sub={`${person.name}’s log`} icon="Users" onClose={onClose}
+    <Modal title={e?.data?.name || opt?.name || 'Session'} sub={e?.date ? dayWords(e.date) : `${person.name}’s log`} icon="Users" onClose={onClose}
       footer={e && !e.deleted ? (
-        <View style={{ gap: 8 }}>
-          {kind && canStart(e) ? (
+        <View style={{ gap: space[2] }}>
+          {start ? (
             <Btn icon="Play" title={`Start for ${person.name}`} onPress={() => { impact(); setRunning(true) }} />
           ) : null}
-          <Btn kind={done ? 'ghost' : 'primary'} icon={done ? 'CircleCheck' : 'Circle'}
-            title={done ? `Done for ${person.name} · Mark undone` : `Mark done for ${person.name}`}
+          <Btn kind={done ? 'quiet' : start ? 'secondary' : 'primary'} icon={done ? 'CircleCheck' : 'Circle'}
+            title={done ? 'Mark undone' : `Mark done for ${person.name}`}
             onPress={() => { if (!done) success(); copy.update((cur: any) => applyDone(cur, !done)) }} />
         </View>
       ) : null}>
       <View style={[st.forLine, { borderLeftColor: toneColor(tone) }]}>
-        <Icon name="Users" size={13} color={colors.inkDim} />
-        <T size={13} dim>{`${person.name}’s side`}</T>
+        <Avatar name={person.name} tone={tone} size={22} />
+        <T size={font.small} dim style={{ flex: 1 }}>
+          <T size={font.small} weight={600}>{`${person.name}’s log`}</T>{by ? ` · ${by}` : ''}
+        </T>
       </View>
       {copy.loading ? <Spinner label={`Opening ${person.name}’s log…`} /> : null}
-      {copy.error ? <T size={12} color={colors.bad}>{copy.error}</T> : null}
+      {copy.error ? <T size={font.small} color={colors.bad}>{copy.error}</T> : null}
       {e && !e.deleted ? (
         <>
-          {by ? (
-            <View style={st.note}><Icon name="ClipboardCheck" size={12} color={colors.inkFaint} /><T size={12} faint>{by}</T></View>
-          ) : null}
           {pres ? (
-            <View style={{ marginBottom: 12, gap: 6 }}>
-              <T size={13} dim>{prescriptionLine(pres)}</T>
+            <View style={{ marginBottom: space[3], gap: space[2] }}>
+              <Sub>{prescriptionLine(pres)}</Sub>
               {(pres.blocks || []).map((b: any) => (
                 <View key={b.id} style={{ gap: 2 }}>
-                  <T size={14} weight={600}>{b.name}</T>
-                  {(b.items || []).map((it: any) => <T key={it.id} size={12} dim>{`${it.name} · ${itemLine(it)}`}</T>)}
-                  {!b.items?.length && b.note ? <T size={12} dim>{b.note}</T> : null}
+                  <T size={font.body} weight={600}>{b.name}</T>
+                  {(b.items || []).map((it: any) => <Sub key={it.id}>{`${it.name} · ${itemLine(it)}`}</Sub>)}
+                  {!b.items?.length && b.note ? <Sub>{b.note}</Sub> : null}
                 </View>
               ))}
             </View>
@@ -502,31 +514,15 @@ export function MyAbout({ me = currentMe() }: { me?: any }) {
 }
 
 const st = StyleSheet.create({
-  forRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
-  seg: {
-    flex: 1, flexDirection: 'row', gap: 4, padding: 3, borderRadius: radius.md,
-    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line,
-  },
-  segBtn: {
-    flex: 1, minHeight: 38, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm,
-    borderBottomWidth: 2, borderBottomColor: 'transparent', paddingHorizontal: 6,
-  },
+  forRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space[2], marginBottom: space[4] },
   forLine: {
-    flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12, padding: 10,
-    borderRadius: radius.md, borderLeftWidth: 3, backgroundColor: colors.panel,
+    flexDirection: 'row', alignItems: 'center', gap: space[2], marginBottom: space[3], paddingVertical: space[2], paddingHorizontal: space[3],
+    borderRadius: radius.control, borderLeftWidth: 3, backgroundColor: colors.panel2,
   },
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24 },
-  err: { position: 'absolute', left: 12, right: 12, bottom: 24, padding: 10, borderRadius: radius.md, backgroundColor: colors.panel2 },
-  peopleDays: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4, marginBottom: 16 },
-  peopleDay: {
-    flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: TAP, paddingHorizontal: 14,
-    borderRadius: 999, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel,
-  },
-  daynav: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  navBtn: { width: TAP, height: TAP, alignItems: 'center', justifyContent: 'center' },
-  dayRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: TAP, padding: 10, marginBottom: 4,
-    borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel,
-  },
-  note: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 10 },
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space[4], padding: space[6] },
+  err: { position: 'absolute', left: space[3], right: space[3], bottom: space[6], padding: 10, borderRadius: radius.card, backgroundColor: colors.panel2 },
+  listCard: { paddingVertical: space[1] },
+  divider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+  daynav: { flexDirection: 'row', alignItems: 'center', gap: space[2], marginBottom: space[2] },
+  lead: { flexDirection: 'row', alignItems: 'center', gap: space[2], marginBottom: space[2] },
 })

@@ -46,6 +46,11 @@
   --accent-soft: color-mix(in oklab, var(--accent) 14%, var(--panel-2));
   --accent-line: color-mix(in oklab, var(--accent) 55%, var(--line));
   --scrim: rgb(0 0 0 / 0.62);
+  /* Toast fills (toast.jsx), one per kind; white text clears 4.5:1 on each.
+     The same values as mobile/src/theme.ts toastError/Success/Info. */
+  --toast-error: #b8382a;
+  --toast-success: #2f7a2f;
+  --toast-info: #2b6aa8;
 
   /* Type. Seven sizes; the CSS had twenty-seven. --fs-micro is for the dock's
      labels and chart ticks only, never for something a person has to read to

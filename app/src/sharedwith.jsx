@@ -30,61 +30,91 @@ const SIDE_KEY = 'bushido:shared-side'
 const SIDES_KEPT = 50
 
 /**
- * Who else is on this workout, and the way to add or take off someone.
- * `on` is `sharedPeopleOn(entry, people)`; `people` is `sharePeople(me)`.
+ * Who else is on this workout, and the way to add or take off someone: a
+ * section head, then one person chip each (their initial and name in their
+ * colour, × to take them off) and a dashed chip for everyone who could be added.
+ * `on` is `sharedPeopleOn(entry, people)` (with `tone`); `people` is `sharePeople(me)`.
  */
 export function WithControl({ on = [], people = [], busy = null, error = null, onAdd, onRemove }) {
   if (!people.length) return null
   const free = people.filter(p => !on.some(o => o.id === p.id))
   return (
-    <div className="withrow" role="group" aria-label="Who else did this workout">
-      <span className="withrow-lead"><Icon name="Users" size={14} /> With</span>
-      {on.map(p => (
-        <span key={p.id} className="chip on withchip">
-          {p.name}
-          <button type="button" className="withchip-x" disabled={Boolean(busy)}
-            onClick={() => onRemove(p)} aria-label={`Take ${p.name} off this workout`}>
-            <Icon name="X" size={12} />
+    <section className="withrow" role="group" aria-label="Who else did this workout">
+      <div className="section-head">
+        <h3>With</h3>
+        {busy && <span className="sub">{busy}</span>}
+      </div>
+      <div className="personchips">
+        {on.map(p => (
+          <span key={p.id} className="chip personchip on" data-tone={p.tone ?? 1}>
+            <Avatar name={p.name} tone={p.tone ?? 1} small />
+            <span className="personchip-name">{p.name}</span>
+            <button type="button" className="personchip-x" disabled={Boolean(busy)}
+              onClick={() => onRemove(p)} aria-label={`Take ${p.name} off this workout`}>
+              <Icon name="X" size={14} />
+            </button>
+          </span>
+        ))}
+        {free.map(p => (
+          <button key={p.id} type="button" className="chip ghost personchip" disabled={Boolean(busy)}
+            onClick={() => onAdd(p)} aria-label={`Add ${p.name} to this workout`}>
+            <Icon name="Plus" size={14} /> {p.name}
           </button>
-        </span>
-      ))}
-      {free.map(p => (
-        <button key={p.id} type="button" className="chip withadd" disabled={Boolean(busy)}
-          onClick={() => onAdd(p)} aria-label={`Add ${p.name} to this workout`}>
-          <Icon name="Plus" size={12} /> {p.name}
-        </button>
-      ))}
-      {busy && <span className="withrow-busy">{busy}</span>}
-      {error && <span className="withrow-err">{error}</span>}
-    </div>
+        ))}
+      </div>
+      {error && <p className="withrow-err">{error}</p>}
+    </section>
   )
 }
 
-/** A person's initial in their colour. */
-export function Avatar({ name, tone = 0 }) {
-  return <span className="avatar" data-tone={tone} aria-hidden="true">{String(name || '?').trim().charAt(0).toUpperCase() || '?'}</span>
+/** A person's initial in their colour. `small` inside a chip or a line of text. */
+export function Avatar({ name, tone = 0, small = false }) {
+  return (
+    <span className={small ? 'avatar sm' : 'avatar'} data-tone={tone} aria-hidden="true">
+      {String(name || '?').trim().charAt(0).toUpperCase() || '?'}
+    </span>
+  )
 }
 
 /**
- * You / Sam, pinned to the top of a shared workout's sheet while it scrolls:
- * each person's initial and name in their colour, the one being filled in
- * filled in. Nothing without someone on it. `on` people carry `tone`.
+ * One person as a choice: their initial and name, in their colour when picked.
+ * The same chip in "With …" and "For: …", so a person looks the same wherever
+ * the owner meets them.
+ */
+export function PersonChip({ person, tone = 1, on = false, onClick, label = null }) {
+  return (
+    <button type="button" className={on ? 'chip personchip on' : 'chip personchip'} data-tone={tone}
+      aria-pressed={on} aria-label={label || undefined} onClick={onClick}>
+      <Avatar name={person.name} tone={tone} small />
+      <span className="personchip-name">{person.name}</span>
+    </button>
+  )
+}
+
+/**
+ * You / Sam, pinned to the top of a shared workout's sheet while it scrolls: a
+ * segmented control, each person's initial and name, the side being filled in
+ * raised in that person's colour, with a rule in it under the bar. Nothing
+ * without someone on it. `on` people carry `tone`.
  */
 export function PersonSwitch({ on = [], side = null, onSide }) {
   if (!on.length) return null
   const who = [{ id: null, name: 'You', tone: 0 }, ...on]
+  const current = who.find(p => (p.id || null) === (side || null)) || who[0]
   return (
-    <div className="personbar" role="tablist" aria-label="Whose log this is">
-      {who.map(p => {
-        const sel = (p.id || null) === (side || null)
-        return (
-          <button key={p.id || 'you'} type="button" role="tab" aria-selected={sel} data-tone={p.tone ?? 1}
-            className={sel ? 'personbar-btn on' : 'personbar-btn'} onClick={() => onSide(p.id || null)}>
-            <Avatar name={p.name} tone={p.tone ?? 1} />
-            <span className="personbar-name">{p.name}</span>
-          </button>
-        )
-      })}
+    <div className="personbar" data-tone={current.tone ?? 1}>
+      <div className="seg whoseg" role="tablist" aria-label="Whose log this is">
+        {who.map(p => {
+          const sel = (p.id || null) === (side || null)
+          return (
+            <button key={p.id || 'you'} type="button" role="tab" aria-selected={sel} data-tone={p.tone ?? 1}
+              className={sel ? 'personbar-btn on' : 'personbar-btn'} onClick={() => onSide(p.id || null)}>
+              <Avatar name={p.name} tone={p.tone ?? 1} />
+              <span className="personbar-name">{p.name}</span>
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }

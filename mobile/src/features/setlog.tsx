@@ -126,7 +126,7 @@ export function GradeLaps({ count, values, onChange, what = 'rep', where = '' }:
     <View style={st.gradelaps}>
       {Array.from({ length: count }, (_, i) => (
         <View key={i} style={st.gradelap}>
-          <T size={10} faint caps>{`${what} ${i + 1}`}</T>
+          <T size={12} faint>{`${what} ${i + 1}`}</T>
           <GradeSelect value={list[i]} onChange={(v: any) => at(i, v)} label={`${where}${what} ${i + 1} grade`} />
         </View>
       ))}
@@ -231,7 +231,7 @@ export function ClimbLog({ count, values, spec, onChange, onMore, what = 'climb'
         return (
           <View key={i} style={st.climb}>
             <View style={st.climbRow}>
-              <T size={10} faint caps>{`${what} ${i + 1}`}</T>
+              <T size={12} faint>{`${what} ${i + 1}`}</T>
               {!omitGrade && (
                 <LadderSelect ladder={ladder} fmt={fmt} value={c.grade} label={`${tag} grade`}
                   onChange={(v: any) => at(i, { grade: v })} />
@@ -354,9 +354,9 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null }: any
       </View>
 
       <View style={st.thead}>
-        <T size={10} faint caps weight={500} align="center" style={st.cSet}>set</T>
+        <T size={12} faint weight={500} align="center" style={st.cSet}>set</T>
         {cols.map((f) => (
-          <T key={f} size={10} faint caps weight={500} align="center" style={{ width: meta(f).width }}>{meta(f).label}</T>
+          <T key={f} size={12} faint weight={500} align="center" style={{ width: meta(f).width }}>{meta(f).label}</T>
         ))}
       </View>
 

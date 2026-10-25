@@ -157,11 +157,11 @@ built-in sign-in.
 | Athlete profile | a Markdown file the planner may read | off |
 
 Strava is Bushido's own: create an API app at strava.com/settings/api, enter its client
-ID and secret in Settings → Strava, and each person connects from profile → Settings in the
+ID and secret in Settings → Strava, and each person connects from profile → Connections in the
 app. A new Strava app accepts only its creator until it is raised to ten athletes on that
 page. WHOOP is the owner's: create an app at developer.whoop.com, add
 `<your Bushido address>/whoop/callback` as its redirect URL, enter its client ID and secret
-in Settings → WHOOP, and connect from profile → Settings. Totem, the author's
+in Settings → WHOOP, and connect from profile → Connections. Totem, the author's
 personal-assistant app, receives the habit sync and reads the owner's Strava
 and WHOOP back from Bushido; it is not in this repository.
 

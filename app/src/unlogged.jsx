@@ -1,6 +1,11 @@
 /*
  * The card for `lib/unlogged.js` — workouts your watch knows about and your log
  * does not. The rules, and why each one is there, are documented in that file.
+ *
+ * Since wave 2 (#44) each workout is a row with one action, "Log it". Everything
+ * else (just miles, warm-up, same as another session, not the same, dismiss) is
+ * behind the row: tap it and the rest opens underneath. The common case stays
+ * one tap; the rest is two, and each is a word rather than an unlabelled icon.
  */
 
 import { useMemo, useState } from 'react'
@@ -12,6 +17,7 @@ import {
 } from './lib/unlogged.js'
 import { withCasualName, withWarmupName } from './lib/naming.js'
 import { isDone } from './lib/store.js'
+import { optFor } from './lib/menu.js'
 
 const SOURCE = { whoop: 'WHOOP', strava: 'Strava' }
 
@@ -37,8 +43,8 @@ const clock = (iso) => {
  * "6:05–7:33 PM", or just the start where there is no end.
  *
  * The meridiem is written once where both ends share it, unlike the fuller span
- * in `whoop.jsx`: this row is three buttons wide on a phone, and "1:10 PM–1:45
- * PM · 35 min · WHOOP" wraps onto a second line to say PM twice.
+ * in `whoop.jsx`: "1:10 PM–1:45 PM · 35 min · WHOOP" wraps on a phone to say PM
+ * twice.
  */
 const span = (a, b) => {
   const start = clock(a)
@@ -52,7 +58,7 @@ const span = (a, b) => {
 
 export function UnloggedWorkouts({
   plan, entries, iso, onLog, onMerge = null, onClimb = null,
-  skipped = [], onDismiss, onRestore, split = [], onSplit,
+  skipped = [], onDismiss, onRestore, split = [], onSplit, initialOpen = null,
 }) {
   const { cache: whoop } = useWhoop()
   const { cache: strava } = useStrava()
@@ -60,6 +66,8 @@ export function UnloggedWorkouts({
   // Which row is asking "into which session?". One at a time — two open target
   // lists on a card this size is a card you cannot read.
   const [merging, setMerging] = useState(null)
+  // Which row has its other actions open. One at a time, for the same reason.
+  const [openId, setOpenId] = useState(initialOpen)
 
   const args = { plan, entries, iso, whoop, strava, skipped, split }
   // A climb is only offered where there is a climbing card to log it on.
@@ -100,7 +108,8 @@ export function UnloggedWorkouts({
    * the user has already typed into keeps every number the user typed.
    */
   const mergeInto = (item, entry) => {
-    const opt = (plan?.dailyMenu || []).find(m => m.id === entry.data?.optId) || card
+    // optFor, not a raw find: a renamed card answers to its old id (AGENTS.md §6.2).
+    const opt = optFor(plan?.dailyMenu || [], entry.data?.optId) || card
     onMerge(entry, outWith(opt, entry.data?.out || {}, item))
     setMerging(null)
   }
@@ -145,146 +154,126 @@ export function UnloggedWorkouts({
   /*
    * With everything dismissed there is no headline to write.
    *
-   * The card used to render "0 workouts you have not logged / Recorded by ." in
-   * that state — a heading counting nothing and a sentence naming nobody —
-   * because the early return only checked that SOMETHING was on the card, and
-   * a dismissed-only card is something. The dismissed line stands on its own.
+   * The card used to render "0 workouts you have not logged" in that state — a
+   * heading counting nothing — because the early return only checked that
+   * SOMETHING was on the card, and a dismissed-only card is something. The
+   * dismissed line stands on its own.
    */
-  const heading = items.length === 1
-    ? 'A workout you have not logged'
-    : `${items.length} workouts you have not logged`
-  const sources = [...new Set(items.flatMap(i => (i.merged ? i.sources : [i.source])))]
+  const heading = items.length === 1 ? 'A workout not logged yet' : `${items.length} workouts not logged yet`
 
   return (
     <div className="card unlogged">
+      {items.length > 0 && <h2>{heading}</h2>}
+
       {items.length > 0 && (
-        <>
-          <h2><Icon name="HeartPulse" size={15} /> {heading}</h2>
-          <p className="sub">
-            Recorded by {sources.map(k => SOURCE[k]).join(' and ')}.
-            One tap logs it with the time and distance already filled in.
-            {items.some(i => i.climbing) && ' A climb asks which session it was first.'}
-          </p>
-        </>
-      )}
-
-      {items.map(item => {
-        const when = span(item.start, item.end)
-        return (
-        <div key={item.id} className={`unlogrow ${item.merged ? 'merged' : ''}`}>
-          <span className="unlogrow-ico"><Icon name={item.activity?.icon || 'Activity'} size={17} /></span>
-          <span className="unlogrow-name">
-            <strong>{item.activity?.name || item.label}</strong>
-            <span className="sub">
-              {item.merged
-                ? <>
-                    <span className="unlogrow-srcs">
-                      {item.sources.map(k => <span key={k} className={`srcpip ${k}`}>{SOURCE[k]}</span>)}
+        <div className="list">
+          {items.map(item => {
+            const when = span(item.start, item.end)
+            const open = openId === item.id
+            const targets = onMerge ? targetsFor(item) : []
+            return (
+              <div key={item.id} className={`unl ${item.merged ? 'merged' : ''} ${open ? 'open' : ''}`}>
+                <div className="list-row unl-row">
+                  <button type="button" className="unl-main" aria-expanded={open}
+                    onClick={() => { setOpenId(open ? null : item.id); setMerging(null) }}>
+                    <Icon name={item.activity?.icon || 'Activity'} size={20} />
+                    <span className="list-row-main">
+                      <span className="list-row-title">{item.activity?.name || item.label}</span>
+                      <span className="list-row-meta">
+                        {item.merged
+                          /* Say the claim out loud, with the evidence for it. The app is
+                             asserting that two measurements are one activity, and an
+                             assertion the user cannot see is one the user cannot correct. */
+                          ? <>{when && `${when} · `}{item.sources.map(k => SOURCE[k]).join(' + ')}, {item.overlap} min in common</>
+                          : <>{when && `${when} · `}{item.minutes ? `${item.minutes} min · ` : ''}{SOURCE[item.source]}</>}
+                      </span>
                     </span>
-                    {/* Say the claim out loud, with the evidence for it. The app is
-                        asserting that two measurements are one activity, and an
-                        assertion the user cannot see is one the user cannot correct. The clock
-                        leads, because that is what tells them which effort it was. */}
-                    <span className="unlogrow-why">
-                      {when && `${when} · `}{item.overlap} min in common — logged as one
-                    </span>
-                  </>
-                : <>
-                    {when && `${when} · `}
-                    {item.minutes ? `${item.minutes} min · ` : ''}{SOURCE[item.source]}
-                  </>}
-            </span>
-          </span>
-          <span className="unlogrow-acts">
-            {/* A climb goes to the climbing folders to pick its card, which asks the
-                hard-finger question. Never "just miles" or a warm-up: a climb that
-                skipped the finger budget is the thing this card must not make. */}
-            {item.climbing ? (
-              <button className="unlogrow-take" onClick={() => onClimb(item)}>Log it</button>
-            ) : (
-              <>
-                <button className="unlogrow-take" onClick={() => take(item)}>Log it</button>
-                <button className="unlogrow-miles" onClick={() => takeAsMiles(item)}
-                  title="Counts the miles and the streak — not as training">
-                  Just miles
-                </button>
-                <button className="unlogrow-miles" onClick={() => takeAsWarmup(item)}
-                  title="The front of another session — counts the minutes, not as a workout">
-                  Warm-up
-                </button>
-              </>
-            )}
-            {/*
-              * The route that did not exist until 2026-09-17. `pairUp` folds two
-              * measurements into one offer only while BOTH are unlogged; when
-              * Strava syncs first and the user logs the ride off it, WHOOP's copy
-              * arrives with nothing left to pair with. See `mergeTargets`.
-              */}
-            {onMerge && targetsFor(item).length > 0 && (
-              <button className="unlogrow-merge"
-                onClick={() => setMerging(merging === item.id ? null : item.id)}
-                aria-expanded={merging === item.id}>
-                {merging === item.id ? 'Never mind' : 'Same as…'}
-              </button>
-            )}
-            {item.merged && (
-              <button className="unlogrow-split" onClick={() => onSplit(item.id)}>
-                Not the same
-              </button>
-            )}
-          </span>
-          <button className="unlogrow-no" onClick={() => onDismiss(item.id)} aria-label="not this one">
-            <Icon name="X" size={15} />
-          </button>
+                  </button>
+                  {/* A climb goes to the climbing folders to pick its card, which asks the
+                      hard-finger question (AGENTS.md §6.1). */}
+                  <button type="button" className="btn secondary unl-take"
+                    onClick={() => (item.climbing ? onClimb(item) : take(item))}>Log it</button>
+                </div>
 
-          {merging === item.id && (
-            <div className="mergepick">
-              <p className="sub">
-                Which session on today is this the same activity as? Its heart rate, time
-                and distance get added to that one — nothing you have already typed is
-                overwritten.
-              </p>
-              {targetsFor(item).map(e => (
-                <button key={e.id} className="mergepick-row" onClick={() => mergeInto(item, e)}>
-                  <span className="mergepick-name">
-                    {e.data?.name || 'Session'}
-                    {!isDone(e) && <em> · not done yet</em>}
-                  </span>
-                  <span className="mergepick-meta">
-                    {e.data?.minutes ? `${e.data.minutes} min` : ''}
-                  </span>
-                  <Icon name="ChevronDown" size={14} style={{ transform: 'rotate(-90deg)' }} />
-                </button>
-              ))}
-            </div>
-          )}
+                {open && (
+                  <div className="unl-more">
+                    <div className="unl-acts">
+                      {/* Never "just miles" or a warm-up for a climb: a climb that
+                          skipped the finger question is the thing this card must not make. */}
+                      {!item.climbing && (
+                        <>
+                          <button type="button" className="chip" onClick={() => takeAsMiles(item)}>Just miles</button>
+                          <button type="button" className="chip" onClick={() => takeAsWarmup(item)}>Warm-up</button>
+                        </>
+                      )}
+                      {/*
+                        * The route that did not exist until 2026-09-17. `pairUp` folds two
+                        * measurements into one offer only while BOTH are unlogged; when
+                        * Strava syncs first and the user logs the ride off it, WHOOP's copy
+                        * arrives with nothing left to pair with. See `mergeTargets`.
+                        */}
+                      {targets.length > 0 && (
+                        <button type="button" className={`chip ${merging === item.id ? 'on' : ''}`}
+                          onClick={() => setMerging(merging === item.id ? null : item.id)}
+                          aria-expanded={merging === item.id}>
+                          Same as…
+                        </button>
+                      )}
+                      {item.merged && (
+                        <button type="button" className="chip" onClick={() => onSplit(item.id)}>Not the same</button>
+                      )}
+                      <button type="button" className="chip ghost" onClick={() => onDismiss(item.id)}>Dismiss</button>
+                    </div>
+
+                    {merging === item.id && (
+                      <div className="list unl-targets" aria-label="Add it to">
+                        {targets.map(e => (
+                          <button key={e.id} type="button" className="list-row" onClick={() => mergeInto(item, e)}>
+                            <span className="list-row-main">
+                              <span className="list-row-title">{e.data?.name || 'Session'}</span>
+                              <span className="list-row-meta">
+                                {[e.data?.minutes ? `${e.data.minutes} min` : '', !isDone(e) ? 'not done yet' : '']
+                                  .filter(Boolean).join(' · ') || 'Adds to it, nothing typed is replaced'}
+                              </span>
+                            </span>
+                            <Icon name="ChevronRight" size={16} className="list-row-chev" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
-        )
-      })}
+      )}
 
       {/* Waved off, not gone. A dismissal means "not now" — and the only way to
           undo one used to be hand-editing a skip entry, which is not a thing
           anybody does. */}
       {gone.length > 0 && (
-        <div className="unlogged-gone">
-          <button className="unlogged-goneline" onClick={() => setShowGone(v => !v)}>
-            <Icon name={showGone ? 'EyeOff' : 'Eye'} size={13} />
-            <span>{gone.length} dismissed today</span>
-            <Icon name="ChevronDown" size={13} className={showGone ? 'open' : ''} />
+        <div className="unl-gone">
+          <button type="button" className="btn quiet unl-goneline" onClick={() => setShowGone(v => !v)} aria-expanded={showGone}>
+            {gone.length} dismissed today
+            <Icon name="ChevronDown" size={14} className={showGone ? 'open' : ''} />
           </button>
-          {showGone && gone.map(item => (
-            <div key={item.id} className="unlogrow gone">
-              <span className="unlogrow-ico"><Icon name={item.activity?.icon || 'Activity'} size={16} /></span>
-              <span className="unlogrow-name">
-                <strong>{item.activity?.name || item.label}</strong>
-                <span className="sub">
-                  {[span(item.start, item.end), item.minutes ? `${item.minutes} min` : '']
-                    .filter(Boolean).join(' · ')}
-                </span>
-              </span>
-              <button className="unlogrow-split" onClick={() => onRestore(item.id)}>Bring it back</button>
+          {showGone && (
+            <div className="list">
+              {gone.map(item => (
+                <div key={item.id} className="list-row unl-row">
+                  <Icon name={item.activity?.icon || 'Activity'} size={20} />
+                  <span className="list-row-main">
+                    <span className="list-row-title">{item.activity?.name || item.label}</span>
+                    <span className="list-row-meta">
+                      {[span(item.start, item.end), item.minutes ? `${item.minutes} min` : ''].filter(Boolean).join(' · ')}
+                    </span>
+                  </span>
+                  <button type="button" className="btn quiet" onClick={() => onRestore(item.id)}>Bring it back</button>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>
