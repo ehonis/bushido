@@ -174,13 +174,17 @@ export function Chip({ label, icon, on, onPress, style, out, small }: {
   )
 }
 
-/** .seg: two to four mutually exclusive views; the selected one is raised. Scrolls when it cannot fit. */
-export function Segmented<V extends string>({ options, value, onChange, style, scroll }: {
+/**
+ * .seg: two to four mutually exclusive views; the selected one is raised. Scrolls when it cannot fit.
+ * `tap` is `.seg.tap`: segments a full 44pt tall.
+ */
+export function Segmented<V extends string>({ options, value, onChange, style, scroll, tap: tall }: {
   options: { value: V; label: string; icon?: string }[]
   value: V
   onChange: (v: V) => void
   style?: StyleProp<ViewStyle>
   scroll?: boolean
+  tap?: boolean
 }) {
   const body = options.map((o) => {
     const on = o.value === value
@@ -191,7 +195,7 @@ export function Segmented<V extends string>({ options, value, onChange, style, s
         onPress={() => onChange(o.value)}
         accessibilityRole="tab"
         accessibilityState={{ selected: on }}
-        style={[s.seg, !scroll && { flex: 1 }, on && s.segOn]}
+        style={[s.seg, tall && { minHeight: TAP }, !scroll && { flex: 1 }, on && s.segOn]}
       >
         {o.icon ? <Icon name={o.icon} size={15} color={on ? colors.ink : colors.inkDim} /> : null}
         <T size={font.small} weight={500} color={on ? colors.ink : colors.inkDim} numberOfLines={1}>{o.label}</T>

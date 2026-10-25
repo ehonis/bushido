@@ -100,18 +100,15 @@ const isBoulder = (v) => {
 
 export const METRICS = [
   /* ---------------------------------------------------------- universal */
-  {
-    key: 'load',
-    group: 'Volume',
-    kind: 'bar',
-    label: 'Training load per week',
-    help: 'RPE × minutes, summed. The one number that treats an easy hour and a savage one differently.',
-    applies: () => true,
-    series: (r, plan) => byWeek(r, plan, e => sRPE(e, plan)),
-  },
+  /*
+   * Titled in plain words since wave 2 (issue #43): "Time per week", "Effort per
+   * week". "Training load" and "RPE × minutes" are the sports-science names for
+   * the same numbers and mean nothing to someone who has not read the paper.
+   * How often and how long lead; effort, the derived one, follows.
+   */
   {
     key: 'sessions',
-    group: 'Volume',
+    group: 'Training',
     kind: 'bar',
     label: 'Workouts per week',
     applies: () => true,
@@ -119,14 +116,24 @@ export const METRICS = [
   },
   {
     key: 'minutes',
-    group: 'Volume',
+    group: 'Training',
     kind: 'bar',
-    label: 'Hours per week',
+    unit: ' h',
+    label: 'Time per week',
     applies: () => true,
     series: (r, plan) => byWeek(r, plan, (e) => {
       const opt = optFor(plan?.dailyMenu || [], e.data?.optId)
       return (pos(minutesFor(opt, e.data?.out || {})) || 0) / 60
     }),
+  },
+  {
+    key: 'load',
+    group: 'Training',
+    kind: 'bar',
+    label: 'Effort per week',
+    help: 'How hard it felt × minutes, added up',
+    applies: () => true,
+    series: (r, plan) => byWeek(r, plan, e => sRPE(e, plan)),
   },
 
   /* ----------------------------------------------------- distance sports */
@@ -134,6 +141,7 @@ export const METRICS = [
     key: 'miles',
     group: 'Distance',
     kind: 'bar',
+    unit: ' mi',
     label: 'Miles per week',
     applies: (r) => has(r.disciplines, 'bike', 'run') ||
       r.entries.some(e => pos(e.data?.out?.distance)),
@@ -144,8 +152,7 @@ export const METRICS = [
     group: 'Distance',
     kind: 'line',
     unit: ' mi',
-    label: 'Longest single effort',
-    help: 'The half iron is won by the long ones, not the average ones.',
+    label: 'Longest each week',
     applies: (r) => r.entries.filter(e => pos(e.data?.out?.distance)).length >= 2,
     series: (r) => {
       const weeks = new Map()
@@ -171,6 +178,7 @@ export const METRICS = [
     key: 'yards',
     group: 'Distance',
     kind: 'bar',
+    unit: ' yd',
     label: 'Yards swum per week',
     applies: (r) => r.entries.some(e => pos(e.data?.out?.poolDistance)),
     series: (r, plan) => byWeek(r, plan, e => pos(e.data?.out?.poolDistance) || 0),
@@ -183,7 +191,7 @@ export const METRICS = [
     kind: 'line',
     unit: ' lb',
     label: 'Top set',
-    help: 'The heaviest set you did of this movement, per session.',
+    help: 'The heaviest set of it, each time',
     applies: (r) => Boolean(r.exercise),
     series: (r) => perSession(r, e => {
       let top = null
@@ -202,7 +210,7 @@ export const METRICS = [
     group: 'Strength',
     kind: 'line',
     unit: ' lb',
-    label: 'Volume — load × reps',
+    label: 'Weight × reps',
     applies: (r) => Boolean(r.exercise),
     series: (r) => perSession(r, e => {
       let v = 0
@@ -235,7 +243,7 @@ export const METRICS = [
     group: 'Effort',
     kind: 'line',
     unit: '/10',
-    label: 'Session RPE',
+    label: 'How hard it felt',
     applies: (r) => r.entries.filter(e => pos(e.data?.out?.rpe)).length >= 2,
     series: (r) => perSession(r, e => pos(e.data?.out?.rpe)),
   },
@@ -251,7 +259,6 @@ export const METRICS = [
     group: 'Climbing',
     kind: 'bar',
     label: 'Hard finger days per week',
-    help: 'Days a session loaded the fingers hard, as logged.',
     applies: (r) => has(r.disciplines, 'climbing'),
     series: (r, plan) => byWeek(r, plan, e => (isHardEntry(e, plan?.dailyMenu || []) ? 1 : 0)),
   },
@@ -303,7 +310,7 @@ export const METRICS = [
     kind: 'line',
     unit: '/5',
     label: 'Fingers afterwards',
-    help: 'How the fingers read after a session: 4 is sore and 5 is something hurts.',
+    help: '4 is sore, 5 is something hurts',
     applies: (r) => r.entries.filter(e => pos(e.data?.out?.fingers)).length >= 2,
     series: (r) => perSession(r, e => pos(e.data?.out?.fingers)),
   },
@@ -393,6 +400,7 @@ export function totalsFor(plan, resolved) {
     sessions: resolved.entries.length,
     days: days.size,
     rests: resolved.rests.length,
+    minutes: Math.round(minutes),
     hours: Math.round(minutes / 60),
     miles: Math.round(miles * 10) / 10,
     yards: Math.round(yards),

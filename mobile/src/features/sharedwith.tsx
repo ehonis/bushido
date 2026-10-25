@@ -60,7 +60,7 @@ export function WithControl({ on = [], people = [], busy = null, error = null, o
       <SectionHeader title="With" right={busy || undefined} style={{ marginTop: space[4] }} />
       <View style={st.chips}>
         {on.map((p) => (
-          <View key={p.id} style={[kit.chip, st.personChip, { backgroundColor: toneSoft(p.tone ?? 1), borderColor: toneLine(p.tone ?? 1) }]}>
+          <View key={p.id} style={[kit.chip, st.personChip, st.onChip, { backgroundColor: toneSoft(p.tone ?? 1), borderColor: toneLine(p.tone ?? 1) }]}>
             <Avatar name={p.name} tone={p.tone ?? 1} size={22} />
             <T size={font.small} numberOfLines={1} style={{ flexShrink: 1 }}>{p.name}</T>
             <Press onPress={() => onRemove(p)} disabled={Boolean(busy)} style={st.x}
@@ -322,7 +322,9 @@ const st = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
   personChip: { paddingLeft: 5 },
   ghostChip: { borderStyle: 'dashed', backgroundColor: 'transparent' },
-  x: { width: 36, minHeight: 34, marginLeft: -4, marginRight: -space[3], alignItems: 'center', justifyContent: 'center' },
+  // The × takes someone off: a destructive tap, so a full 44pt target. The chip grows to hold it.
+  onChip: { minHeight: TAP },
+  x: { width: TAP, height: TAP, marginVertical: -1, marginLeft: -4, marginRight: -space[3] - 1, alignItems: 'center', justifyContent: 'center' },
   note: { flexDirection: 'row', alignItems: 'center', gap: space[1], marginBottom: space[3] },
   avatar: { alignItems: 'center', justifyContent: 'center' },
   rule: { height: 2, marginTop: space[2], borderRadius: 1 },

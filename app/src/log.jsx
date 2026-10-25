@@ -17,10 +17,12 @@
  * a different question, and sharing a tab with the feed meant one of them was
  * always the wrong thing to be looking at.
  *
- * THE FEED IS ONE CARD PER WORKOUT, not one per entry. A day with a ride, a lift
- * and a check-in is three rows of very different importance, and the check-in is
- * not a workout. Bodyweight, notes, tests and skips are all real entries and none
- * of them belongs in a list of things the user did.
+ * THE FEED IS WORKOUTS, not entries. Bodyweight, notes, tests and skips are all
+ * real entries and none of them belongs in a list of things the user did.
+ *
+ * Since wave 2 (issue #43) it is one card per DAY with each workout a row: name,
+ * one line of time and distance, a chevron. The row opens the sheet; gear, effort
+ * and WHOOP/Strava are read there, not repeated on every row.
  */
 
 import { restStats } from './lib/stats.js'
@@ -33,9 +35,7 @@ import { isDone, isTraining } from './lib/store.js'
 import { minutesFor } from './lib/minutes.js'
 import { fromIso, localIso } from './lib/dates.js'
 import { categoryOf, disciplineOf } from './lib/category.js'
-import { gearOn, gearUsage } from './lib/gear.js'
 import { loggedActivity } from './lib/activities.js'
-import { useStrava } from './lib/strava.jsx'
 import { titleFor, withCasualName } from './lib/naming.js'
 import { withLine } from './lib/shared.js'
 import { plannedLine } from './lib/trainer.js'
@@ -45,42 +45,53 @@ const todayIso = () => localIso()
 
 const fmt1 = (n) => Math.round(n * 10) / 10
 
-/** A human date that says "today" and "yesterday", because those are most of them. */
-function dayLabel(iso, today) {
+const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/**
+ * A day's header: "Today", "Yesterday", then "Fri 23 Oct" (with the year once it
+ * is not this one). Spelled out by hand rather than through toLocaleDateString so
+ * the server render, the phone and every browser write the same words.
+ */
+export function dayLabel(iso, today) {
   if (iso === today) return 'Today'
-  const d = fromIso(iso)
   const y = fromIso(today); y.setDate(y.getDate() - 1)
   if (iso === localIso(y)) return 'Yesterday'
-  const within = (Date.parse(today) - Date.parse(iso)) / 86400000
-  return d.toLocaleDateString([], within < 300
-    ? { weekday: 'short', month: 'short', day: 'numeric' }
-    : { month: 'short', day: 'numeric', year: 'numeric' })
+  const d = fromIso(iso)
+  const label = `${WEEKDAY[d.getDay()]} ${d.getDate()} ${MONTH[d.getMonth()]}`
+  return d.getFullYear() === fromIso(today).getFullYear() ? label : `${label} ${d.getFullYear()}`
 }
 
 /**
- * The numbers worth putting on a card, in the order they matter for THAT sport.
- *
- * Distance leads for a ride and a run because it is the thing the user'd say out loud;
- * for a lift it is the exercises, and for climbing it is how hard it went. A card
- * that led with duration for everything would be a card that told them nothing.
+ * The one line under a workout's name: how long, then how far. The same order
+ * as Today's rows, so a workout reads the same wherever it is listed. Effort is
+ * in the sheet; on a row it was a bare "RPE 5" nobody outside the app can read.
  */
-function statsOf(entry, opt, plan) {
+export function statsOf(entry, opt) {
   const out = entry.data?.out || {}
   const s = []
   const mins = minutesFor(opt, out)
 
+  if (mins > 0) s.push(`${Math.round(mins)} min`)
   if (Number(out.distance) > 0) s.push(`${fmt1(Number(out.distance))} mi`)
   if (Number(out.poolDistance) > 0) s.push(`${Math.round(Number(out.poolDistance))} yd`)
-  if (mins > 0) s.push(`${Math.round(mins)} min`)
-  if (Number(out.elevation) > 0) s.push(`${Math.round(Number(out.elevation))} ft`)
-  if (Number(out.speed) > 0) s.push(`${fmt1(Number(out.speed))} mph`)
   const lifts = Array.isArray(out.lifts) ? out.lifts.length : 0
   if (lifts) s.push(`${lifts} exercise${lifts === 1 ? '' : 's'}`)
-  if (Number(out.rpe) > 0) s.push(`RPE ${out.rpe}`)
   return s
 }
 
-export function LogTab({ plan, entries, upsertEntry, deleteEntry }) {
+/**
+ * What a workout is called on its row. The card's own name is the name of the
+ * button that made it ("Log a workout"), so a free-form workout with no activity
+ * picked yet is just a workout rather than an instruction.
+ */
+export function rowName(opt, entry) {
+  if (!opt) return entry.data?.name || 'Workout'
+  const name = titleFor(opt, entry.data?.out, entry.data?.plan)
+  return opt.categoryFrom === 'activity' && name === opt.name ? 'Workout' : name
+}
+
+export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }) {
   const today = todayIso()
   const [filter, setFilter] = useState('all')
   /*
@@ -98,13 +109,8 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry }) {
   const [openId, setOpenId] = useState(null)
   // The details layer, behind the pencil. See DetailsSheet in sessionlog.jsx.
   const [editing, setEditing] = useState(false)
-  const { cache: strava } = useStrava()
 
   const menu = plan?.dailyMenu || []
-  const gearById = useMemo(() => {
-    const rows = plan ? gearUsage({ plan, entries, strava }) : []
-    return new Map(rows.map(r => [r.id, r]))
-  }, [plan, entries, strava])
 
   /*
    * Workouts only, newest first. A logged REST day is kept — "I deliberately did
@@ -123,7 +129,7 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry }) {
       return {
         entry: e,
         opt,
-        name: opt ? titleFor(opt, e.data?.out, e.data?.plan) : (e.data?.name || 'Session'),
+        name: rowName(opt, e),
         icon: act?.icon || opt?.icon || 'Activity',
         category: categoryOf(e, menu),
         discipline: disciplineOf(e, menu),
@@ -147,6 +153,7 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry }) {
     const live = new Set(workouts.map(w => w.category).filter(Boolean))
     return (plan?.quotaCategories || []).filter(c => live.has(c.key))
   }, [workouts, plan])
+  const catName = (key) => cats.find(c => c.key === key)?.name || null
 
   const shown = filter === 'all' ? workouts : workouts.filter(w => w.category === filter)
 
@@ -165,74 +172,70 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry }) {
 
   return (
     <>
-      <div className="filters logfilters">
-        <button className={`chip ${filter === 'all' ? 'on' : ''}`} onClick={() => setFilter('all')}>
-          All <em>{workouts.length}</em>
-        </button>
-        {cats.map(c => (
-          <button key={c.key} className={`chip ${filter === c.key ? 'on' : ''}`}
-            onClick={() => setFilter(c.key)}>
-            {c.name} <em>{workouts.filter(w => w.category === c.key).length}</em>
-          </button>
-        ))}
-      </div>
-
-      {!workouts.length && (
-        <div className="card">
-          <h2>Nothing logged yet</h2>
-          <p className="sub" style={{ margin: 0 }}>
-            Everything you finish on the <strong>Today</strong> tab shows up here, newest
-            first, with what it was done on.
-          </p>
+      {/* "All" and the categories actually logged, wrapping rather than running
+          off the right edge. No counts: a number inside a chip read as part of
+          its name ("Bike 10"). Only shown when there is something to choose. */}
+      {cats.length > 1 && (
+        <div className="filters logfilters" role="group" aria-label="Show">
+          <button className={`chip ${filter === 'all' ? 'on' : ''}`} aria-pressed={filter === 'all'}
+            onClick={() => setFilter('all')}>All</button>
+          {cats.map(c => (
+            <button key={c.key} className={`chip ${filter === c.key ? 'on' : ''}`} aria-pressed={filter === c.key}
+              onClick={() => setFilter(c.key)}>{c.name}</button>
+          ))}
         </div>
       )}
 
-      {days.map(([date, list]) => (
-        <div className="logday" key={date}>
-          <h3 className="logday-head">
-            <span>{dayLabel(date, today)}</span>
-            <span className="logday-n">{list.length} workout{list.length === 1 ? '' : 's'}</span>
-          </h3>
-          {list.map(w => (
-            <button className={`card logcard ${w.rest ? 'rest' : ''} ${w.casual ? 'casual' : ''}`} key={w.entry.id}
-              onClick={() => w.opt && setOpenId(w.entry.id)}>
-              <span className="logcard-ico"><Icon name={w.icon} size={18} /></span>
-              <span className="logcard-body">
-                <span className="logcard-head">
-                  <strong>{w.name}</strong>
-                  {w.category && (
-                    <span className="logcard-cat">
-                      {plan.quotaCategories.find(c => c.key === w.category)?.name}
-                    </span>
-                  )}
-                  {w.casual && <span className="logcard-casual">just miles</span>}
-                </span>
-                {w.with && <span className="logcard-with"><Icon name="Users" size={12} /> {w.with}</span>}
-                {w.by && <span className="logcard-with"><Icon name="ClipboardCheck" size={12} /> {w.by}</span>}
-                <span className="logcard-stats">
-                  {(w.rest ? restStats(w.entry, w.opt) : statsOf(w.entry, w.opt, plan))
-                    .map((t, i) => <span key={i}>{t}</span>)}
-                </span>
-                {/* What it was done on — the point of attaching gear at all. */}
-                {gearOn(w.entry).length > 0 && (
-                  <span className="logcard-gear">
-                    <Icon name="ShoppingBag" size={12} />
-                    {gearOn(w.entry)
-                      .map(id => gearById.get(id)?.name || 'gear you deleted')
-                      .join(' · ')}
-                  </span>
-                )}
-                {(w.entry.data?.out?.whoop || w.entry.data?.out?.strava) && (
-                  <span className="logcard-srcs">
-                    {w.entry.data.out.whoop && <span className="srcpip whoop">WHOOP</span>}
-                    {w.entry.data.out.strava && <span className="srcpip strava">Strava</span>}
-                  </span>
-                )}
-              </span>
-              <Icon name="ChevronDown" size={16} className="logcard-chev" />
-            </button>
-          ))}
+      {!workouts.length && (
+        <div className="empty">
+          <Icon name="NotebookPen" size={24} />
+          <span>Nothing logged yet</span>
+          <span className="sub">Workouts you log show up here, newest first.</span>
+          {/* The one way to fill it, when the shell hands it over (App.jsx's openLog). */}
+          {onLog && <button type="button" className="btn" onClick={() => onLog()}>Log a workout</button>}
         </div>
+      )}
+
+      {/*
+        * One card per day, its workouts as rows (2026-10-25, wave 2). It was a
+        * card per workout under a capitalised date with a count, so a list of
+        * eight things was eight boxes, and each wore a down chevron as if it
+        * opened in place. A row opens the sheet, and the sheet is the one place
+        * a workout is read in full.
+        */}
+      {days.map(([date, list]) => (
+        <section className="logday" key={date} aria-label={dayLabel(date, today)}>
+          <div className="section-head"><h3>{dayLabel(date, today)}</h3></div>
+          <div className="card list logday-list">
+            {list.map(w => {
+              const stats = w.rest ? restStats(w.entry, w.opt) : statsOf(w.entry, w.opt)
+              // The category only where it says something the name does not:
+              // "Commute" is a ride, "Run" is already a run.
+              const cat = !w.rest && catName(w.category)
+              const meta = [
+                cat && cat.toLowerCase() !== w.name.toLowerCase() ? cat : null,
+                ...stats,
+                w.casual ? 'just miles' : null,
+              ].filter(Boolean)
+              const people = [w.with, w.by].filter(Boolean)
+              return (
+                <button key={w.entry.id} type="button"
+                  className={`list-row logrow ${w.rest ? 'rest' : ''} ${w.casual ? 'casual' : ''}`}
+                  disabled={!w.opt} onClick={() => setOpenId(w.entry.id)}>
+                  <Icon name={w.icon} size={20} />
+                  <span className="list-row-main">
+                    <span className="list-row-title">{w.name}</span>
+                    {meta.length > 0 && <span className="list-row-meta">{meta.join(' · ')}</span>}
+                    {/* A workout done together, or one the owner planned for this
+                        person: lib/shared.js, lib/trainer.js. */}
+                    {people.length > 0 && <span className="list-row-meta logrow-who">{people.join(' · ')}</span>}
+                  </span>
+                  <Icon name="ChevronRight" size={16} className="list-row-chev" />
+                </button>
+              )
+            })}
+          </div>
+        </section>
       ))}
 
       {open?.opt && (() => {

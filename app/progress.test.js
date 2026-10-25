@@ -183,7 +183,7 @@ check('THE POINT: a chart that means nothing here is not drawn', () => {
 check('the universal charts are universal', () => {
   for (const scope of [{}, { category: 'run' }, { category: 'fingers' }, { exercise: 'bench-press' }]) {
     const l = labels(res(scope))
-    ok(l.some(x => /Training load/.test(x)), `no load chart for ${JSON.stringify(scope)}`)
+    ok(l.some(x => /Effort per week/.test(x)), `no effort chart for ${JSON.stringify(scope)}`)
     ok(l.some(x => /Workouts per week/.test(x)), `no session count for ${JSON.stringify(scope)}`)
   }
 })
@@ -231,10 +231,10 @@ check('a bar chart of one week is still a fact', () => {
 
 check('climbing charts come after the general ones, never first', () => {
   // A workout log first (issue #31): with climbing in scope the Climbing group
-  // still draws, but after Volume, Distance, Strength and Effort.
+  // still draws, but after Training, Distance, Strength and Effort.
   const names = metricsFor(plan, res({})).map(g => g.name)
   ok(names.includes('Climbing'), `no Climbing group: ${names}`)
-  eq(names[0], 'Volume')
+  eq(names[0], 'Training')
   for (const g of ['Distance', 'Effort']) {
     if (names.includes(g)) ok(names.indexOf(g) < names.indexOf('Climbing'), `${g} after Climbing: ${names}`)
   }
@@ -324,9 +324,18 @@ check('hard finger days are counted on what he LOGGED', () => {
   eq(totalsFor(plan, res({ category: 'run' })).hardFingerDays, 0)
 })
 
+check('the headline time is kept in minutes, so a short week is not rounded to nothing', () => {
+  // Progress leads with workouts and time (issue #43). Rounded to whole hours,
+  // two 20-minute runs read as "0"; the page formats the minutes itself.
+  const short = (date) => did(date, 'log-workout', { activity: 'run', duration: 20 }, { minutes: 20 })
+  const t = totalsFor(plan, resolveScope({ plan, entries: [short('2026-09-14'), short('2026-09-15')], scope: ALL, today: TODAY }))
+  eq(t.minutes, 40)
+  eq(t.hours, 1)
+})
+
 check('an empty scope totals to zero rather than to NaN', () => {
   const t = totalsFor(plan, res({ category: 'swim' }))
-  eq(t, { sessions: 0, days: 0, rests: 1, hours: 0, miles: 0, yards: 0, load: 0, hardFingerDays: 0 })
+  eq(t, { sessions: 0, days: 0, rests: 1, minutes: 0, hours: 0, miles: 0, yards: 0, load: 0, hardFingerDays: 0 })
 })
 
 check('the week axis covers the window even where nothing was logged', () => {

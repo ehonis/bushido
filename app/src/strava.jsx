@@ -86,6 +86,14 @@ function Laps({ rows, label }) {
   )
 }
 
+/**
+ * Why an activity is marked Likely, in the order `rankForSession` (server/strava.js)
+ * weighs its evidence. A line on the row, not a tooltip a phone never shows.
+ */
+export const likelyWhy = (c) => (c.overlapMin > 0
+  ? `Overlaps this session by ${Math.round(c.overlapMin)} min`
+  : c.fit === true ? 'The sport you picked' : 'The only activity on Strava today')
+
 /* ------------------------------------------------------- attach to a session */
 
 export function StravaActivities({ session, entry, entries, onSave }) {
@@ -222,12 +230,9 @@ export function StravaActivities({ session, entry, entries, onSave }) {
                     <span className="list-row-title">
                       {a.name || a.sport}
                       {/* Marked, not applied: the tap is theirs (§8.2). */}
-                      {c.likely && (
-                        <span className="wh-tag" title={c.overlapMin
-                          ? `Overlaps this session by ${c.overlapMin} min`
-                          : c.fit === true ? 'The sport you picked' : 'The only activity on Strava this day'}>Likely</span>
-                      )}
+                      {c.likely && <span className="wh-tag">Likely</span>}
                     </span>
+                    {c.likely && <span className="list-row-meta wh-why">{likelyWhy(c)}</span>}
                     <span className="list-row-meta">{a.sport} · {span(a.start, a.end)}</span>
                     <Numbers a={a} className="list-row-meta wh-nums" />
                     {c.attachedTo && <span className="list-row-meta">Already on {c.attachedTo.name}</span>}

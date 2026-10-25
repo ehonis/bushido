@@ -288,7 +288,7 @@ function PersonDayRow({ person, tone, date, plan, seen, first, onOpen }: {
   useEffect(() => {
     let live = true
     setNames(null)
-    ;(peopleApi.getPersonDay as any)(person.id, date)
+    peopleApi.getPersonDay(person.id, date)
       .then((entries: any[]) => { if (live) setNames(dayOf(entries, date).map((e: any) => dayRow(e, plan?.dailyMenu || []).name)) })
       .catch(() => { /* offline or refused: the row is still the way in */ })
     return () => { live = false }
@@ -345,7 +345,9 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
         return (
           <View key={d} style={i ? { marginTop: space[5] } : null}>
             <SectionHeader title={dayWords(d)} style={{ marginTop: 0 }}
-              right={d === today ? <T size={font.small} weight={600} color={c}>Today</T> : rows.length ? undefined : 'Nothing'} />
+              right={d === today ? (
+                <Sub><T size={font.small} weight={600} color={c}>Today</T>{rows.length ? '' : ' · Nothing'}</Sub>
+              ) : rows.length ? undefined : 'Nothing'} />
             {rows.length ? (
               <Card style={[st.listCard, { marginBottom: 0 }]}>
                 {rows.map((r: any, j: number) => (
@@ -359,7 +361,7 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
                   </Press>
                 ))}
               </Card>
-            ) : d === today ? <Sub>Nothing on today.</Sub> : null}
+            ) : null}
           </View>
         )
       }) : null}

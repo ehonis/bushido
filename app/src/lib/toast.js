@@ -24,8 +24,9 @@ let seq = 0
 const emit = () => { for (const fn of listeners) fn() }
 
 /**
- * `kind` is 'error' | 'success' | 'info'. `action` is `{ label, onClick }` (Undo,
- * Retry); the toast goes once it is pressed. `duration: 0` keeps it until dismissed.
+ * `kind` is 'error' | 'success' | 'info'. `action` is `{ label, onClick, icon? }`
+ * (Undo, Retry); the toast goes once it is pressed. `icon` is a component, or null
+ * for none; absent is Retry's arrow. `duration: 0` keeps it until dismissed.
  */
 export function pushToast(message, kind = 'error', { duration, action } = {}) {
   const text = typeof message === 'string' ? message : (message && message.message) || String(message || '')

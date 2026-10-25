@@ -39,7 +39,8 @@ import { SidesWorkout, PeopleDays, usePersonLog } from './trainer.jsx'
 
 import { WhoopReadiness, WhoopSleep } from './whoop.jsx'
 import { ToastHost } from './toast.jsx'
-import { pushToast } from './lib/toast.js'
+import { pushToast, dismissToast } from './lib/toast.js'
+import { Undo2 } from 'lucide-react'
 
 const todayIso = () => localIso()
 /* Stable identity, so "nothing dismissed" is not a new array on every render. */
@@ -230,7 +231,7 @@ export function TodayTab({
     const name = opt ? titleFor(opt, entry.data?.out, entry.data?.plan) : entry.data?.name
     pushToast(name ? `Removed ${name}` : 'Removed', 'info', {
       duration: 6000,
-      action: { label: 'Undo', onClick: () => {
+      action: { label: 'Undo', icon: Undo2, onClick: () => {
         upsertEntry(live(entry))
         if (result) upsertEntry(live(result))
       } },
@@ -460,6 +461,24 @@ export { nameFor }
    it is tested as arithmetic rather than as part of a component. */
 export { minutesFor }
 
+/** A meta line's pieces: "1 exercise · 3 sets" counts as two, blanks as none. */
+const metaParts = (bits) => (bits || []).filter(Boolean).flatMap(b => String(b).split(' · '))
+
+/**
+ * "1 exercise · 3 sets · about 45 min · with Sam", which wraps only BETWEEN its
+ * pieces (each is `white-space: nowrap`, the dot ending the line it is on), so a
+ * long one reads as two tidy lines on a phone instead of breaking "45 / min".
+ */
+export function MetaLine({ bits }) {
+  const parts = metaParts(bits)
+  return parts.map((p, i) => (
+    <span key={i}>
+      <span className="meta-bit">{p}{i < parts.length - 1 ? ' ·' : ''}</span>
+      {i < parts.length - 1 ? ' ' : ''}
+    </span>
+  ))
+}
+
 /** What a row's leading icon says: done, in progress, or not (yet). */
 const ROW_STATE = {
   done: { icon: 'CircleCheck', label: 'Done' },
@@ -493,7 +512,7 @@ function DayList({ rows, onOpen, isFuture, viewIso, onLog = null, onRest = null,
               </span>
               <span className="list-row-main">
                 <span className="list-row-title">{r.name}</span>
-                {r.meta && <span className="list-row-meta">{r.meta}</span>}
+                {metaParts(r.meta).length > 0 && <span className="list-row-meta"><MetaLine bits={r.meta} /></span>}
               </span>
               <span className="list-row-chev">{chevron(-90)}</span>
             </button>
@@ -656,11 +675,15 @@ export function SessionSheet({
   const theirDone = Boolean(theirs.entry && isDone(theirs.entry))
 
   /* A write to their log that did not land says so, with the way to send it again
-     (the latest copy, as it stands: `update` re-sends it unchanged). */
+     (the latest copy, as it stands: `update` re-sends it unchanged). It stays
+     until dismissed, but only while it is true: the cleanup takes it down when the
+     error clears (a later write landed, or another side opened) and when the
+     sheet closes, so a stale Retry never outlives the failure it was about. */
   useEffect(() => {
-    if (!theirs.error || !/^Not saved/.test(theirs.error)) return
-    pushToast(theirs.error, 'error', { duration: 0,
+    if (!theirs.error || !/^Not saved/.test(theirs.error)) return undefined
+    const id = pushToast(theirs.error, 'error', { duration: 0,
       action: { label: 'Retry', onClick: () => theirs.update(cur => cur) } })
+    return () => dismissToast(id)
   }, [theirs.error])
 
   /*
@@ -671,10 +694,11 @@ export function SessionSheet({
    */
   const out = entry?.data?.out
   const timed = planned && minutesSourceOf(opt, out) !== 'estimate' ? `${minutesFor(opt, out)} min` : null
-  const sub = [
+  const subBits = [
     entry?.date ? dayWords(entry.date) : null,
     timed || (pres ? prescriptionLine(pres) : null),
-  ].filter(Boolean).join(' · ') || null
+  ]
+  const sub = metaParts(subBits).length ? <MetaLine bits={subBits} /> : null
 
   /*
    * The footer (docs/DESIGN.md, "Session sheet"). Every field saves as it is
@@ -978,7 +1002,7 @@ function DaySessions({
    */
   const metaFor = (entry, opt) => {
     const out = entry.data?.out || {}
-    if (isRunning(entry)) return [runLine(entry), withLine(entry, currentMe().people)].filter(Boolean).join(' · ')
+    if (isRunning(entry)) return [runLine(entry), withLine(entry, currentMe().people)]
     const bits = []
     if (!isDone(entry)) bits.push(viewIso > localIso() ? 'Planned' : 'Not done')
     if (opt.role === 'rest') bits.push(...restStats(entry, opt))
@@ -995,7 +1019,7 @@ function DaySessions({
     // Who else was on it ("with Sam", lib/shared.js), or who planned it for this
     // person ("planned by Alex", lib/trainer.js).
     bits.push(withLine(entry, currentMe().people), plannedLine(entry, currentMe()))
-    return bits.filter(Boolean).join(' · ')
+    return bits
   }
 
   const rowFor = (entry, opt) => ({
@@ -1012,7 +1036,7 @@ function DaySessions({
     ...(mainEntry?.data?.adjuncts || [])
       .map(id => adjuncts.find(a => a.id === id))
       .filter(Boolean)
-      .map(a => ({ key: `adj-${a.id}`, name: a.name, state: 'done', meta: 'Add-on' })),
+      .map(a => ({ key: `adj-${a.id}`, name: a.name, state: 'done', meta: ['Add-on'] })),
   ]
 
   /** Resolve a row key back to the session and entry it stands for. */

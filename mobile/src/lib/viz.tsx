@@ -8,20 +8,20 @@
  * app/validate_palette.js — the ordering is the CVD-safety mechanism, not taste.
  *
  * Every chart ships a scrubber and a table view, so identity and value are never
- * carried by colour alone. The web's hover layer is a touch scrubber here: tap a
+ * carried by colour alone. A chart's head is its title in plain words, at most
+ * one line under it, then the latest number; text wears ink, never the series colour. The web's hover layer is a touch scrubber here: tap a
  * point, or press and drag along the chart, and the readout follows the finger.
  */
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import {
   ScrollView, StyleSheet, View,
-  type GestureResponderEvent, type LayoutChangeEvent, type StyleProp, type ViewStyle,
+  type GestureResponderEvent, type LayoutChangeEvent,
 } from 'react-native'
 import Svg, { Circle, G, Line, Path, Rect, Text as SvgText } from 'react-native-svg'
-import { colors, cssColor, mix, radius, SERIES as THEME_SERIES } from '../theme'
+import { colors, cssColor, font, radius, space, SERIES as THEME_SERIES } from '../theme'
 import { T } from '../ui/Text'
 import { Empty, Press } from '../ui/kit'
 import { tap } from '../ui/haptics'
-import { Icon } from './icons'
 import { localIso } from './dates.js'
 
 /** The categorical series, as real colours (the web names them var(--series-n)). */
@@ -38,7 +38,7 @@ function useWidth(): [(e: LayoutChangeEvent) => void, number] {
 }
 
 /** Axis ticks that land on round numbers rather than raw data extremes. */
-function niceScale(min: number, max: number, count = 4) {
+function niceScale(min: number, max: number, count = 4, integer = false) {
   if (!isFinite(min) || !isFinite(max)) return { lo: 0, hi: 1, ticks: [0, 1] }
   if (min === max) {
     const pad = Math.abs(min) * 0.1 || 1
@@ -47,7 +47,8 @@ function niceScale(min: number, max: number, count = 4) {
   const raw = (max - min) / count
   const mag = Math.pow(10, Math.floor(Math.log10(raw)))
   const norm = raw / mag
-  const step = (norm >= 5 ? 10 : norm >= 2 ? 5 : norm >= 1 ? 2 : 1) * mag
+  // A count has no half: a week holds 1 hard day or 2, never 0.5.
+  const step = Math.max((norm >= 5 ? 10 : norm >= 2 ? 5 : norm >= 1 ? 2 : 1) * mag, integer ? 1 : 0)
   const lo = Math.floor(min / step) * step
   const hi = Math.ceil(max / step) * step
   const ticks: number[] = []
@@ -55,8 +56,28 @@ function niceScale(min: number, max: number, count = 4) {
   return { lo, hi, ticks }
 }
 
-const fmtDate = (iso: string) =>
-  new Date(`${iso}T12:00:00`).toLocaleDateString([], { month: 'short', day: 'numeric' })
+/**
+ * The left gutter, sized from the widest tick label rather than fixed: a fixed
+ * 30px cut the first digit off "3000" once the ticks were on --fs-micro.
+ * ~6.6px per character at 11px, plus the 8px gap to the plot.
+ */
+const padFor = (labels: (string | number)[], min = 30) =>
+  Math.max(min, Math.ceil(Math.max(0, ...labels.map(l => String(l).length)) * 6.6) + 12)
+
+const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const ISO = /^\d{4}-\d{2}-\d{2}$/
+
+/** "Oct 19". By hand, so the phone and the web agree. */
+export const fmtDate = (iso: string) => {
+  const [, m, d] = String(iso).split('-').map(Number)
+  return `${MONTH[m - 1]} ${d}`
+}
+
+/** A bar's x: a week's Monday reads as "Oct 19"; anything else as it is. */
+const fmtX = (x: any) => (ISO.test(String(x)) ? fmtDate(String(x)) : String(x))
+
+/** Which x labels fit: as many as fit at ~48pt apiece, counted back from the newest. */
+const labelEvery = (n: number, innerW: number) => Math.max(1, Math.ceil(n / Math.max(2, Math.floor(innerW / 48))))
 
 /*
  * The scrubber. The chart's SVG sits under a View that owns the touch, so
@@ -81,15 +102,26 @@ function scrubProps(boxW: number, W: number, pick: (x: number) => number | null,
 }
 
 /** .viz-tick, .viz-tip, .viz-tip-sm: axis and tooltip text wear ink tokens, never a series colour. */
-const TICK = { fill: colors.vizMuted, fontSize: 10 } as const
-const TIP = { fill: colors.ink, fontSize: 13, fontWeight: '600' } as const
-const TIP_SM = { fill: colors.inkDim, fontSize: 10 } as const
+const TICK = { fill: colors.vizMuted, fontSize: font.micro } as const
+const TIP = { fill: colors.ink, fontSize: font.small, fontWeight: '600' } as const
+const TIP_SM = { fill: colors.inkDim, fontSize: font.micro } as const
 
-function Toggle({ on, onPress }: { on: boolean; onPress: () => void }) {
+/** The head every chart shares: its title, one line of help, the latest number, the table switch. */
+function VizHead({ label, help, hero, showTable, onTable }: {
+  label: string; help?: string | null; hero: React.ReactNode; showTable: boolean; onTable: () => void
+}) {
   return (
-    <Press haptic onPress={onPress} style={st.toggle} accessibilityRole="button" accessibilityState={{ selected: on }} hitSlop={8}>
-      <T size={12} dim>{on ? 'chart' : 'table'}</T>
-    </Press>
+    <View style={st.head}>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <T size={font.body} weight={600} lineHeight={19} accessibilityRole="header">{label}</T>
+        {help ? <T size={font.small} dim style={{ marginTop: 2 }}>{help}</T> : null}
+        <View style={st.hero}>{hero}</View>
+      </View>
+      <Press haptic onPress={onTable} style={[st.toggle, showTable && st.toggleOn]} accessibilityRole="button"
+        accessibilityState={{ selected: showTable }}>
+        <T size={font.small} color={showTable ? colors.ink : colors.inkDim}>{showTable ? 'Chart' : 'Table'}</T>
+      </Press>
+    </View>
   )
 }
 
@@ -125,9 +157,10 @@ function Table({ head, rows }: { head: [string, string]; rows: { key: string; a:
  * formatter may return '' for a value that is not a real step on its scale; that
  * tick keeps its gridline and loses its label.
  */
-export function LineChart({ points, label, unit = '', height = 190, color = SERIES[0], goal, goalLabel = 'goal', noisePct, fmtY }: {
+export function LineChart({ points, label, help, unit = '', height = 190, color = SERIES[0], goal, goalLabel = 'goal', noisePct, fmtY }: {
   points: any[]
   label: string
+  help?: string | null
   unit?: string
   height?: number
   color?: string
@@ -153,9 +186,8 @@ export function LineChart({ points, label, unit = '', height = 190, color = SERI
   const fmt = fmtY || ((v: number) => `${v}${unit}`)
   const fmtTick = fmtY || ((v: number) => String(v))
 
-  const padL = 42, padR = 16, padT = 14, padB = 26
+  const padR = 16, padT = 14, padB = 26
   const W = Math.max(w, 240)
-  const innerW = Math.max(W - padL - padR, 10)
   const innerH = height - padT - padB
 
   const ys = data.map((d) => d.y)
@@ -165,6 +197,8 @@ export function LineChart({ points, label, unit = '', height = 190, color = SERI
   const band = noisePct ? { lo: base * (1 - noisePct / 100), hi: base * (1 + noisePct / 100) } : null
   const domain = [...ys, ...(goal != null ? [goal] : []), ...(band ? [band.lo, band.hi] : [])]
   const { lo, hi, ticks } = niceScale(Math.min(...domain), Math.max(...domain))
+  const padL = padFor(ticks.map(fmtTick), 42)
+  const innerW = Math.max(W - padL - padR, 10)
 
   const xAt = (i: number) => padL + (data.length === 1 ? innerW / 2 : (i / (data.length - 1)) * innerW)
   const yAt = (v: number) => padT + innerH - ((v - lo) / (hi - lo || 1)) * innerH
@@ -185,7 +219,7 @@ export function LineChart({ points, label, unit = '', height = 190, color = SERI
     const real = !noisePct || Math.abs(delta) > (first.y * noisePct) / 100
     const tone = real ? (delta > 0 ? st.up : st.down) : st.noise
     deltaEl = (
-      <T size={12} weight={real ? 500 : 400} style={tone}>
+      <T size={font.small} weight={real ? 500 : 400} style={tone}>
         {delta > 0 ? '▲' : '▼'}{' '}
         {fmtY
           ? `${fmt(first.y)} → ${fmt(last.y)} since ${fmtDate(first.x)}`
@@ -199,22 +233,16 @@ export function LineChart({ points, label, unit = '', height = 190, color = SERI
 
   return (
     <View onLayout={onLayout} style={st.viz}>
-      <View style={st.head}>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <T size={12} dim style={st.title}>{label}</T>
-          <View style={st.hero}>
-            <T size={26} weight={600} lineHeight={31}>{fmtY ? fmt(last.y) : String(last.y)}</T>
-            {!fmtY && unit ? <T size={12} faint>{unit}</T> : null}
-            {deltaEl}
-          </View>
-        </View>
-        <Toggle on={showTable} onPress={() => setShowTable((t) => !t)} />
-      </View>
+      <VizHead label={label} help={help} showTable={showTable} onTable={() => setShowTable((t) => !t)} hero={<>
+        <T size={font.heading} weight={600} lineHeight={28} tabular>{fmtY ? fmt(last.y) : String(last.y)}</T>
+        {!fmtY && unit ? <T size={font.small} dim>{unit.trim()}</T> : null}
+        {deltaEl}
+      </>} />
 
       {showTable ? (
         <Table
           head={['Date', label]}
-          rows={[...data].reverse().map((d) => ({ key: d.x, a: d.x, b: fmt(d.y), aNum: true }))}
+          rows={[...data].reverse().map((d) => ({ key: d.x, a: fmtDate(d.x), b: fmt(d.y), aNum: true }))}
         />
       ) : (
         <View
@@ -322,16 +350,16 @@ export function LoadCalendar({ days, start, end }: { days: Map<string, any>; sta
     <View style={st.viz}>
       <View style={st.head}>
         <View>
-          <T size={12} dim style={st.title}>Daily habit</T>
+          <T size={font.body} weight={600} lineHeight={19}>Daily habit</T>
           <View style={st.hero}>
-            <T size={26} weight={600} lineHeight={31}>{String(counted)}</T>
-            <T size={12} faint>days on</T>
+            <T size={font.heading} weight={600} lineHeight={28} tabular>{String(counted)}</T>
+            <T size={font.small} dim>days on</T>
           </View>
         </View>
         <View style={st.legend} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
-          <T size={10} color={colors.vizMuted}>less</T>
+          <T size={font.micro} color={colors.vizMuted}>less</T>
           {LOAD_STEPS.map((c, i) => <View key={i} style={[st.swatch, { backgroundColor: c }]} />)}
-          <T size={10} color={colors.vizMuted}>more</T>
+          <T size={font.micro} color={colors.vizMuted}>more</T>
         </View>
       </View>
 
@@ -359,7 +387,7 @@ export function LoadCalendar({ days, start, end }: { days: Map<string, any>; sta
         </Svg>
       </ScrollView>
 
-      <T size={12} faint tabular style={st.tipline}>
+      <T size={font.caption} dim tabular style={st.tipline}>
         {hover
           ? `${hover.iso} — ${hover.rec ? (hover.rec.label || LOAD_NAMES[hover.rec.level]) : 'nothing logged'}`
           : 'Tap a day for detail.'}
@@ -368,65 +396,19 @@ export function LoadCalendar({ days, start, end }: { days: Map<string, any>; sta
   )
 }
 
-/* ------------------------------------------------------------------ tiles */
-
-const asText = (v: React.ReactNode, el: (s: string) => React.ReactElement) =>
-  typeof v === 'string' || typeof v === 'number' ? el(String(v)) : v
-
-export function StatTile({ label, value, unit, sub, tone, icon, style }: {
-  label: React.ReactNode
-  value: React.ReactNode
-  unit?: React.ReactNode
-  sub?: React.ReactNode
-  tone?: string | null
-  icon?: string | null
-  style?: StyleProp<ViewStyle>
-}) {
-  const border = tone === 'warn' ? st.tileWarn : tone === 'good' ? st.tileGood : null
-  return (
-    <View style={[st.tile, border, style]}>
-      <View style={st.tileLabel}>
-        {icon ? <Icon name={icon} size={12} color={colors.inkFaint} /> : null}
-        <T size={11} faint caps style={{ flexShrink: 1 }}>{label as any}</T>
-      </View>
-      <View style={st.tileValue}>
-        {asText(value, (s) => <T size={23} weight={600} lineHeight={27}>{s}</T>)}
-        {unit != null && unit !== '' ? asText(unit, (s) => <T size={12} faint>{s}</T>) : null}
-      </View>
-      {sub ? asText(sub, (s) => <T size={12} dim style={{ marginTop: 4 }}>{s}</T>) : null}
-    </View>
-  )
-}
-
-/** Countdown to the trip — the number that makes the block feel real. */
-export function useDaysUntil(dateIso: string | null | undefined) {
-  const [n, setN] = useState(() => diffDays(dateIso))
-  useEffect(() => {
-    setN(diffDays(dateIso))
-    const iv = setInterval(() => setN(diffDays(dateIso)), 60000)
-    return () => clearInterval(iv)
-  }, [dateIso])
-  return n
-}
-
-function diffDays(dateIso: string | null | undefined) {
-  if (!dateIso) return null
-  const target = new Date(`${dateIso}T12:00:00`)
-  const now = new Date()
-  return Math.ceil((target.getTime() - now.getTime()) / 86400000)
-}
-
 /* ------------------------------------------------------------- bar charts */
 
 /**
  * bars: [{ x: label, y: number, tone?: 'ok'|'over'|'under' }]
  * Rounded data-ends anchored to the baseline, 2px surface gap between adjacent
- * bars. `refLine` draws the rule the data is being judged against — e.g. the
- * hard-finger-days-per-week cap.
+ * bars. `refLine` draws the rule the data is being judged against. An x that is
+ * a week's Monday is shown as "Oct 19", and the headline says which week its
+ * number is ("week of Oct 19").
  */
-export function BarChart({ bars, label, unit = '', height = 170, refLine, refLabel, color = SERIES[0] }: {
+export function BarChart({ bars, label, help, unit = '', height = 170, refLine, refLabel, color = SERIES[0] }: {
   bars: any[]
   label: string
+  help?: string | null
   unit?: string
   height?: number
   refLine?: number | null
@@ -441,39 +423,38 @@ export function BarChart({ bars, label, unit = '', height = 170, refLine, refLab
   const data = (bars || []).filter((b) => Number.isFinite(b.y))
   if (!data.length) return <Empty>{`Nothing logged for ${label.toLowerCase()} yet.`}</Empty>
 
-  const padL = 30, padR = 12, padT = 12, padB = 24
+  const padR = 12, padT = 12, padB = 24
   const W = Math.max(w, 240)
-  const innerW = Math.max(W - padL - padR, 10)
   const innerH = height - padT - padB
 
   const maxY = Math.max(...data.map((d) => d.y), refLine ?? 0)
-  const { lo, hi, ticks } = niceScale(0, maxY || 1, 3)
+  const { lo, hi, ticks } = niceScale(0, maxY || 1, 3, data.every((d) => Number.isInteger(d.y)))
+  const padL = padFor(ticks)
+  const innerW = Math.max(W - padL - padR, 10)
 
   const slot = innerW / data.length
   const bw = Math.max(Math.min(slot - 2, 34), 4) // 2px surface gap between bars
   const yAt = (v: number) => padT + innerH - ((v - lo) / (hi - lo || 1)) * innerH
   const slotAt = (x: number) => Math.min(Math.max(Math.floor((x - padL) / slot), 0), data.length - 1)
+  const every = labelEvery(data.length, innerW)
+  const last = data[data.length - 1]
+  const weekly = ISO.test(String(last.x))
 
   return (
     <View onLayout={onLayout} style={st.viz}>
-      <View style={st.head}>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <T size={12} dim style={st.title}>{label}</T>
-          <View style={st.hero}>
-            <T size={26} weight={600} lineHeight={31}>{String(data[data.length - 1].y)}</T>
-            {unit ? <T size={12} faint>{unit}</T> : null}
-          </View>
-        </View>
-        <Toggle on={showTable} onPress={() => setShowTable((t) => !t)} />
-      </View>
+      <VizHead label={label} help={help} showTable={showTable} onTable={() => setShowTable((t) => !t)} hero={<>
+        <T size={font.heading} weight={600} lineHeight={28} tabular>{String(last.y)}</T>
+        {unit ? <T size={font.small} dim>{unit.trim()}</T> : null}
+        {weekly ? <T size={font.small} dim>{`week of ${fmtDate(String(last.x))}`}</T> : null}
+      </>} />
 
       {showTable ? (
         <Table
-          head={['Week', label]}
-          rows={[...data].reverse().map((d, i) => ({ key: `${d.x}${i}`, a: String(d.x), b: `${d.y}${unit}` }))}
+          head={[weekly ? 'Week of' : '', label]}
+          rows={[...data].reverse().map((d, i) => ({ key: `${d.x}${i}`, a: fmtX(d.x), b: `${d.y}${unit}`, aNum: true }))}
         />
       ) : (
-        <View {...scrubProps(w, W, slotAt, setHover)} accessible accessibilityRole="image" accessibilityLabel={`${label} by week`}>
+        <View {...scrubProps(w, W, slotAt, setHover)} accessible accessibilityRole="image" accessibilityLabel={`${label}, latest ${last.y}${unit}`}>
           <View pointerEvents="none">
             <Svg width="100%" height={height} viewBox={`0 0 ${W} ${height}`}>
               {ticks.map((t) => (
@@ -502,135 +483,43 @@ export function BarChart({ bars, label, unit = '', height = 170, refLine, refLab
               })}
 
               {data.map((d, i) => (
-                (data.length <= 12 || i % 2 === 0) ? (
+                (data.length - 1 - i) % every === 0 ? (
                   <SvgText key={`l${i}`} x={padL + i * slot + slot / 2} y={height - 7}
-                    textAnchor="middle" {...TICK}>{String(d.x)}</SvgText>
+                    textAnchor="middle" {...TICK}>{fmtX(d.x)}</SvgText>
                 ) : null
               ))}
             </Svg>
           </View>
         </View>
       )}
-      <T size={12} faint tabular style={st.tipline}>
-        {hover != null && data[hover] ? `${data[hover].x} — ${data[hover].y}${unit}` : (refLabel || ' ')}
-      </T>
-    </View>
-  )
-}
-
-/**
- * Session mix per week. Stacked, with a 2px surface gap between segments so the
- * boundaries read without relying on colour contrast alone.
- */
-export function StackedBar({ weeks, keys, colors: segColors, labels, height = 170 }: {
-  weeks: any[]
-  keys: string[]
-  colors: string[]
-  labels: string[]
-  height?: number
-}) {
-  const [onLayout, w] = useWidth()
-  const [hover, setHover] = useState<number | null>(null)
-  const fills = (segColors || []).map((c) => cssColor(c))
-
-  const data = weeks || []
-  if (!data.length) return <Empty>No sessions logged yet.</Empty>
-
-  const padL = 26, padR = 12, padT = 12, padB = 24
-  const W = Math.max(w, 240)
-  const innerW = Math.max(W - padL - padR, 10)
-  const innerH = height - padT - padB
-  const maxY = Math.max(...data.map((d) => keys.reduce((s, k) => s + (d[k] || 0), 0)), 1)
-  const { lo, hi, ticks } = niceScale(0, maxY, 3)
-  const slot = innerW / data.length
-  const bw = Math.max(Math.min(slot - 2, 34), 4)
-  const yAt = (v: number) => padT + innerH - ((v - lo) / (hi - lo || 1)) * innerH
-  const slotAt = (x: number) => Math.min(Math.max(Math.floor((x - padL) / slot), 0), data.length - 1)
-
-  return (
-    <View onLayout={onLayout} style={st.viz}>
-      <View style={st.head}>
-        <T size={12} dim style={st.title}>Session mix by week</T>
-        <View style={[st.legend, { flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 1 }]}>
-          {keys.map((k, i) => (
-            <View key={k} style={st.lg}>
-              <View style={[st.swatch, { backgroundColor: fills[i] }]} />
-              <T size={10} color={colors.vizMuted}>{labels[i]}</T>
-            </View>
-          ))}
-        </View>
-      </View>
-
-      <View {...scrubProps(w, W, slotAt, setHover)} accessible accessibilityRole="image" accessibilityLabel="Session mix by week">
-        <View pointerEvents="none">
-          <Svg width="100%" height={height} viewBox={`0 0 ${W} ${height}`}>
-            {ticks.map((t) => (
-              <G key={t}>
-                <Line x1={padL} x2={W - padR} y1={yAt(t)} y2={yAt(t)} stroke={colors.vizGrid} strokeWidth={1} />
-                <SvgText x={padL - 7} y={yAt(t) + 4} textAnchor="end" {...TICK}>{String(t)}</SvgText>
-              </G>
-            ))}
-
-            {data.map((d, i) => {
-              const x = padL + i * slot + (slot - bw) / 2
-              let acc = 0
-              return (
-                <G key={d.label + i} opacity={hover == null || hover === i ? 1 : 0.55}>
-                  {keys.map((k, ki) => {
-                    const v = d[k] || 0
-                    if (!v) return null
-                    const y0 = yAt(acc), y1 = yAt(acc + v)
-                    acc += v
-                    const h = Math.max(y0 - y1 - 2, 1) // 2px surface gap between segments
-                    return <Rect key={k} x={x} y={y1} width={bw} height={h} rx={Math.min(3, bw / 2)} fill={fills[ki]} />
-                  })}
-                </G>
-              )
-            })}
-
-            {data.map((d, i) => (
-              (data.length <= 12 || i % 2 === 0) ? (
-                <SvgText key={`l${i}`} x={padL + i * slot + slot / 2} y={height - 7}
-                  textAnchor="middle" {...TICK}>{String(d.label)}</SvgText>
-              ) : null
-            ))}
-          </Svg>
-        </View>
-      </View>
-
-      <T size={12} faint tabular style={st.tipline}>
+      <T size={font.caption} dim tabular style={st.tipline}>
         {hover != null && data[hover]
-          ? `${data[hover].label} — ` + keys.map((k, i) => `${labels[i]} ${data[hover][k] || 0}`).join(' · ')
-          : 'Hard days are capped at 2 per week.'}
+          ? `${weekly ? `Week of ${fmtX(data[hover].x)}` : fmtX(data[hover].x)}: ${data[hover].y}${unit}`
+          : (refLabel || ' ')}
       </T>
     </View>
   )
 }
 
 const st = StyleSheet.create({
-  viz: { marginTop: 4, marginBottom: 2 },
-  head: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 8 },
-  title: { letterSpacing: 0.24 },
-  hero: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', columnGap: 7 },
+  viz: { marginTop: space[1] },
+  head: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: space[3], marginBottom: space[2] },
+  hero: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', columnGap: space[2], marginTop: space[1] },
   up: { color: colors.vizGood },
   down: { color: colors.vizWarn },
-  noise: { color: colors.inkFaint },
-  toggle: { borderWidth: 1, borderColor: colors.line, borderRadius: 6, paddingVertical: 5, paddingHorizontal: 9 },
-  table: { marginTop: 4 },
+  noise: { color: colors.inkDim },
+  // Chart / Table: a word, bordered like a ghost button at chip height.
+  toggle: {
+    minHeight: 36, paddingHorizontal: space[3], justifyContent: 'center',
+    borderWidth: 1, borderColor: colors.lineStrong, borderRadius: radius.control,
+  },
+  toggleOn: { backgroundColor: colors.panel3 },
+  table: { marginTop: space[1] },
   tr: { flexDirection: 'row' },
   trBody: { borderTopWidth: 1, borderTopColor: colors.line },
-  th: { flex: 1, paddingVertical: 6, paddingHorizontal: 8 },
-  td: { flex: 1, paddingVertical: 9, paddingHorizontal: 8 },
-  legend: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  lg: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 8 },
+  th: { flex: 1, paddingVertical: 6, paddingHorizontal: space[2] },
+  td: { flex: 1, paddingVertical: 9, paddingHorizontal: space[2] },
+  legend: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
   swatch: { width: 11, height: 11, borderRadius: 3 },
-  tipline: { marginTop: 8, minHeight: 18 },
-  tile: {
-    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.md,
-    paddingVertical: 13, paddingHorizontal: 14,
-  },
-  tileWarn: { borderColor: mix(colors.vizWarn, 40, colors.line) },
-  tileGood: { borderColor: mix(colors.vizGood, 35, colors.line) },
-  tileLabel: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 5 },
-  tileValue: { flexDirection: 'row', alignItems: 'baseline', gap: 5 },
+  tipline: { marginTop: space[2], minHeight: 18 },
 })

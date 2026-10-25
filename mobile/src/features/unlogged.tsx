@@ -173,7 +173,7 @@ export function UnloggedWorkouts({
               </Press>
               {/* A climb goes to the climbing folders to pick its card, which asks
                   the hard-finger question (AGENTS.md §6.1). */}
-              <Btn kind="secondary" small title="Log it"
+              <Btn kind="secondary" title="Log it"
                 onPress={() => (item.climbing ? onClimb?.(item) : take(item))} />
             </View>
 
@@ -244,7 +244,7 @@ export function UnloggedWorkouts({
                     .filter(Boolean).join(' · ')}
                 </T>
               </View>
-              <Btn kind="quiet" small title="Bring it back" onPress={() => onRestore(item.id)} />
+              <Btn kind="quiet" title="Bring it back" onPress={() => onRestore(item.id)} />
             </View>
           )) : null}
         </View>

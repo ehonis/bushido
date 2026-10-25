@@ -216,7 +216,7 @@ function render() {
   // People
   const pp = view.people, ax = pp.access
   h += '<div class="card" id="c-people"><h2>People</h2>' +
-    '<p class="sub">Everyone here has their own training log. Behind Cloudflare Access, the email Access signed someone in with says who they are; add the same address to the Access application\'s policy too, or Cloudflare will not let them reach this page. You can log for anyone from Profile → Settings in the app.</p>' +
+    '<p class="sub">Each person has their own log; Cloudflare Access says who is who.</p>' +
     '<p>' + pill(ax.enabled, 'Access identifies people', 'Access not set up: everyone is you') + '</p>' +
     field('access', 'team', 'Cloudflare Access team domain', { readonly: true, value: ax.team, source: ax.teamSource }) +
     field('access', 'aud', 'Access application AUD tag', { readonly: true, value: ax.aud, source: ax.audSource })
@@ -224,13 +224,14 @@ function render() {
     h += '<div class="person" data-id="' + esc(u.id) + '">' +
       '<label>' + (u.owner ? 'You (owner)' : 'Name') + '</label><input type="text" class="p-name" value="' + esc(u.owner ? (view.settings.athlete.name || '') : u.name) + '"' + (u.owner ? ' disabled placeholder="set under About you"' : '') + '>' +
       '<label>Emails they sign in to Access with</label><input type="text" class="p-emails" value="' + esc(u.emails.join(', ')) + '" placeholder="name@example.com" autocomplete="off">' +
+      (u.owner ? '' : '<div class="src">Add the same address to the Access application\'s policy, or Cloudflare will not let them in.</div>') +
       (u.owner ? '' : '<div class="src">Their log: <code>data/users/' + esc(u.id) + '/</code>. Removing them keeps it on disk.</div>') +
       '<div class="row"><button class="p-save">Save</button>' + (u.owner ? '' : '<button class="p-del bad">Remove</button>') + '<span class="msg"></span></div></div>'
   }
   h += '<div class="add"><h2>Add someone</h2>' +
     '<label for="np-name">Name</label><input id="np-name" type="text" autocomplete="off">' +
     '<label for="np-emails">Email they sign in to Access with</label><input id="np-emails" type="text" autocomplete="off" placeholder="name@example.com">' +
-    '<div class="row"><button class="primary" id="np-add">Add</button><span class="msg"></span></div></div>'
+    '<div class="row"><button id="np-add">Add</button><span class="msg"></span></div></div>'
   h += '</div>'
 
   // AI
@@ -241,13 +242,15 @@ function render() {
     field('ai', 'bin', 'Path to the claude binary', { readonly: true, value: e.ai.bin, source: e.ai.binSource }) +
     field('ai', 'apiKey', 'Anthropic API key (optional)', { secret: true, source: e.ai.apiKeySource, note: 'Passed to the CLI as ANTHROPIC_API_KEY. Leave empty to use the CLI\'s own sign-in (run claude once and log in).' }) +
     field('ai', 'model', 'Model', { placeholder: e.ai.defaultModel, note: 'Default ' + e.ai.defaultModel + '. BUSHIDO_PLANNER_MODEL overrides it.' }) +
+    // The page's one primary: the welcome card names AI as the next step, and every other
+    // card's Save is an ordinary button (one accent per screen, docs/DESIGN.md).
     '<div class="row"><button class="primary save">Save</button><button id="ai-test">Test</button><span class="msg"></span></div><pre id="ai-out" hidden></pre></div>'
 
   // Athlete
   h += '<div class="card" id="c-you"><h2>About you</h2><p class="sub">Given to the workout planner with every request. Goals, history, injuries, equipment: whatever you want it to take into account.</p>' +
     field('athlete', 'name', 'Name') +
     field('athlete', 'notes', 'Notes for the planner', { textarea: true, placeholder: 'Training for a first marathon in May. Bad left knee. Dumbbells up to 50 lb at home.' }) +
-    '<div class="row"><button class="primary save">Save</button><span class="msg"></span></div></div>'
+    '<div class="row"><button class="save">Save</button><span class="msg"></span></div></div>'
 
   // Plan
   h += '<div class="card" id="c-plan"><h2>Training plan' + (pp.planFor ? ' for ' + esc(pp.planFor) : '') + '</h2>' +
@@ -273,7 +276,7 @@ function render() {
     field('totem', 'envFile', 'Or read BRIDGE_SECRET from this .env file', { readonly: true, source: t.envFileSource }) +
     field('totem', 'habit', 'Habit id to mark when you train', { placeholder: 'move-every-day' }) +
     check('totem', 'habitSync', 'Mark the daily habit when a session is logged') +
-    '<div class="row"><button class="primary save">Save</button><span class="msg"></span></div></div>'
+    '<div class="row"><button class="save">Save</button><span class="msg"></span></div></div>'
 
   // Strava, everyone's own
   const sa = e.strava
@@ -283,7 +286,7 @@ function render() {
     field('strava', 'clientId', 'Client ID', { source: sa.clientIdSource }) +
     field('strava', 'clientSecret', 'Client secret', { secret: true, source: sa.secretSource }) +
     field('strava', 'redirectUri', 'Redirect URI (optional)', { source: sa.redirectUriSource, placeholder: (sa.publicUrl || 'https://bushido.example.com') + '/strava/callback', note: 'Leave empty to use the address the person opened the app on.' }) +
-    '<div class="row"><button class="primary save">Save</button><span class="msg"></span></div></div>'
+    '<div class="row"><button class="save">Save</button><span class="msg"></span></div></div>'
 
   // WHOOP, the owner's
   const wa = e.whoop
@@ -293,7 +296,7 @@ function render() {
     field('whoop', 'clientId', 'Client ID', { source: wa.clientIdSource }) +
     field('whoop', 'clientSecret', 'Client secret', { secret: true, source: wa.secretSource }) +
     field('whoop', 'redirectUri', 'Redirect URI (optional)', { source: wa.redirectUriSource, placeholder: (wa.publicUrl || 'https://bushido.example.com') + '/whoop/callback', note: 'Leave empty to use the address you opened the app on. WHOOP needs the exact URL listed in its app.' }) +
-    '<div class="row"><button class="primary save">Save</button><span class="msg"></span></div></div>'
+    '<div class="row"><button class="save">Save</button><span class="msg"></span></div></div>'
 
   // Links
   const l = e.links
@@ -302,7 +305,7 @@ function render() {
     field('links', 'notifyCore', 'Push notification core (directory)', { readonly: true, value: l.notifyCore, source: l.notifyCoreSource }) +
     field('links', 'brainFile', 'Athlete profile file (Markdown) the AI may read', { readonly: true, value: l.brainFile, source: l.brainFileSource }) +
     field('notifications', 'tz', 'Timezone for scheduled notifications', { placeholder: e.tz }) +
-    '<div class="row"><button class="primary save">Save</button><span class="msg"></span></div></div>'
+    '<div class="row"><button class="save">Save</button><span class="msg"></span></div></div>'
 
   h += '<p class="faint">Environment variables always win over these fields. See <code>.env.example</code>.</p>'
   $('#root').innerHTML = h

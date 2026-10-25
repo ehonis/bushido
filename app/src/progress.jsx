@@ -19,46 +19,49 @@
  * half iron" really does exclude every finger session rather than merely looking
  * like it does on the day you tried it.
  *
- * Climbing charts come LAST (2026-10-25, issue #31): this is a workout log first,
- * so the headline tiles are workouts, hours, miles and load, and the Climbing
- * group sits after Strength and Effort. They still draw whenever climbing is in
- * scope, because the history is still the user's.
+ * Climbing charts come LAST (2026-10-25, issue #31): this is a workout log first.
+ *
+ * Wave 2 (issue #43) turned the page round: it used to open on a filter card
+ * (Category, Just one thing, Since) before a single number, then five tiles in a
+ * 2-up grid with one left over. Now it LEADS with the answer, workouts and time
+ * for the period, in one card with the period under them; categories are chips
+ * only when there is more than one to pick; "Just one thing" is a row that opens
+ * a list. The paragraph explaining why these charts and not others went: the
+ * charts that apply are simply the ones on the page.
  */
 
 import { useMemo, useState } from 'react'
-import { LineChart, BarChart, StatTile, SERIES } from './lib/viz.jsx'
+import { LineChart, BarChart, SERIES } from './lib/viz.jsx'
 import { Icon } from './lib/icons.jsx'
-import { Blurb } from './blurb.jsx'
 import { localIso } from './lib/dates.js'
-import { EMPTY_SCOPE, resolveScope, scopeOptions, describeScope } from './lib/scope.js'
+import { EMPTY_SCOPE, resolveScope, scopeOptions } from './lib/scope.js'
 import { metricsFor, totalsFor } from './lib/metrics.js'
 
-const RANGES = [
+export const RANGES = [
   { weeks: 4, label: '4 wk' },
   { weeks: 8, label: '8 wk' },
   { weeks: 26, label: '6 mo' },
   { weeks: null, label: 'All' },
 ]
 
-const GROUP_ICON = {
-  Volume: 'Layers',
-  Distance: 'Route',
-  Climbing: 'Mountain',
-  Strength: 'Dumbbell',
-  Effort: 'HeartPulse',
-  'This session': 'FlaskConical',
+/** Minutes as the headline says them: "45 min", "4.5 h", "28 h". */
+export function timeLabel(minutes) {
+  const m = Math.round(Number(minutes) || 0)
+  if (m < 60) return { value: String(m), unit: 'min' }
+  const h = m / 60
+  return { value: String(h < 10 ? Math.round(h * 10) / 10 : Math.round(h)), unit: 'h' }
 }
 
-export function ProgressView({ plan, entries }) {
+export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }) {
   const today = localIso()
-  const [scope, setScope] = useState(EMPTY_SCOPE)
+  const [scope, setScope] = useState(initialScope)
 
   /*
    * The options come from the WHOLE log, not from the current window.
    *
    * Otherwise narrowing the range empties the filter bar of the thing you are
    * currently filtering by, and the control you just used disappears under your
-   * finger. The counts shown are all-time for the same reason.
+   * finger.
    */
   const options = useMemo(
     () => scopeOptions({ plan, entries, today, weeks: null }),
@@ -73,6 +76,17 @@ export function ProgressView({ plan, entries }) {
 
   const set = (patch) => setScope(s => ({ ...s, ...patch }))
   const narrowed = Boolean(scope.category || scope.session || scope.exercise)
+  const clear = () => setScope(s => ({ ...EMPTY_SCOPE, weeks: s.weeks }))
+  // What the numbers are OF, in words, whenever it is not everything: "Bike ·
+  // Mountain bike". Said in the headline, beside the way back, so a page narrowed
+  // from a row further down never passes for the whole log.
+  const named = (list, v) => (list || []).find(o => o.value === v)?.label || v
+  const narrowedTo = [
+    scope.category && named(options.categories, scope.category),
+    scope.session && named(options.sessions, scope.session),
+    scope.exercise && named(options.exercises, scope.exercise),
+  ].filter(Boolean).join(' · ')
+  const loggedAny = options.sessions.length > 0
 
   // Bodyweight is not a workout, so it is not in the scope — but it is the one
   // series worth seeing next to the volume, and it belongs to no filter.
@@ -81,142 +95,135 @@ export function ProgressView({ plan, entries }) {
     .map(e => ({ x: e.date, y: Number(e.data.lb) }))
     .sort((a, b) => String(a.x).localeCompare(String(b.x))), [entries])
 
+  if (!loggedAny) {
+    return (
+      <div className="empty">
+        <Icon name="Gauge" size={24} />
+        <span>Nothing logged yet</span>
+        <span className="sub">Log a workout and your weeks show up here.</span>
+      </div>
+    )
+  }
+
+  const time = timeLabel(totals.minutes)
+  const extra = [
+    `${totals.days} day${totals.days === 1 ? '' : 's'}`,
+    totals.miles > 0 ? `${totals.miles} mi` : null,
+    totals.yards > 0 ? `${totals.yards.toLocaleString()} yd swum` : null,
+  ].filter(Boolean)
+
   return (
     <>
-      <div className="card scopebar">
-        <div className="scopebar-head">
-          <h2>{describeScope({ plan, scope, options })}</h2>
-          {narrowed && (
-            <button className="scope-clear" onClick={() => setScope(s => ({ ...EMPTY_SCOPE, weeks: s.weeks }))}>
-              <Icon name="X" size={13} /> Clear
+      <div className="card proghead">
+        {narrowed && (
+          <div className="proghead-scope">
+            <span className="proghead-scope-what">{narrowedTo}</span>
+            <button type="button" className="btn quiet proghead-clear" onClick={clear}>
+              <Icon name="X" size={16} /> Clear
             </button>
-          )}
+          </div>
+        )}
+        <div className="proghead-nums">
+          <div className="proghead-num">
+            <span className="proghead-value">{totals.sessions}</span>
+            <span className="proghead-label">{totals.sessions === 1 ? 'Workout' : 'Workouts'}</span>
+          </div>
+          <div className="proghead-num">
+            <span className="proghead-value">{time.value}<span className="proghead-unit">{time.unit}</span></span>
+            <span className="proghead-label">Time</span>
+          </div>
         </div>
+        {totals.sessions > 0 && <div className="sub proghead-sub">{extra.join(' · ')}</div>}
+        <div className="seg proghead-seg" role="group" aria-label="Period">
+          {RANGES.map(r => (
+            <button key={r.label} type="button" className={scope.weeks === r.weeks ? 'on' : ''}
+              aria-pressed={scope.weeks === r.weeks} onClick={() => set({ weeks: r.weeks })}>{r.label}</button>
+          ))}
+        </div>
+      </div>
 
-        <ScopeRow label="Category" options={options.categories} value={scope.category}
-          onPick={v => set({ category: v, session: null, exercise: null })} />
+      {options.categories.length > 1 && (
+        <div className="filters progcats" role="group" aria-label="Category">
+          {/* "All" is lit only when nothing is narrowed: with one workout picked
+              below, the page is not showing all of anything. */}
+          <button type="button" className={`chip ${!narrowed ? 'on' : ''}`} aria-pressed={!narrowed}
+            onClick={clear}>All</button>
+          {options.categories.map(o => (
+            <button key={o.value} type="button" className={`chip ${scope.category === o.value ? 'on' : ''}`}
+              aria-pressed={scope.category === o.value}
+              onClick={() => set({ category: scope.category === o.value ? null : o.value, session: null, exercise: null })}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
 
+      <div className="card list progpick">
         <ScopePick label="Just one thing" options={options.sessions} value={scope.session}
           onPick={v => set({ session: v, exercise: null })} all="Any workout" />
-
         {options.exercises.length > 0 && (
           <ScopePick label="One lift" options={options.exercises} value={scope.exercise}
             onPick={v => set({ exercise: v })} all="Any exercise" />
         )}
-
-        <div className="scoperow">
-          <span className="scoperow-label">Since</span>
-          <div className="scoperow-opts">
-            {RANGES.map(r => (
-              <button key={r.label} className={`chip ${scope.weeks === r.weeks ? 'on' : ''}`}
-                onClick={() => set({ weeks: r.weeks })}>{r.label}</button>
-            ))}
-          </div>
-        </div>
       </div>
 
       {resolved.isEmpty ? (
-        <div className="card">
-          <h2>Nothing here</h2>
-          <p className="sub" style={{ margin: 0 }}>
-            No workouts match that. {scope.weeks
-              ? <>Try <strong>All</strong> for the range, or clear a filter.</>
-              : <>Clear a filter to widen it.</>}
-          </p>
+        <div className="empty">
+          <span>{narrowed ? 'Nothing logged for that' : 'Nothing logged in these weeks'}</span>
+          {narrowed
+            ? <button type="button" className="btn secondary" onClick={clear}>Show everything</button>
+            : <button type="button" className="btn secondary"
+                onClick={() => set({ weeks: null })}>Show all time</button>}
         </div>
       ) : (
-        <>
-          <div className="tiles">
-            <StatTile icon="Flame" label="Workouts" value={totals.sessions}
-              sub={`${totals.days} day${totals.days === 1 ? '' : 's'}`} />
-            <StatTile icon="Timer" label="Hours" value={totals.hours} />
-            {totals.miles > 0 && <StatTile icon="Route" label="Miles" value={totals.miles} />}
-            {totals.yards > 0 && <StatTile icon="Waves" label="Yards swum" value={totals.yards} />}
-            <StatTile icon="Gauge" label="Load" value={totals.load.toLocaleString()}
-              sub="RPE × minutes" />
+        groups.map(g => (
+          <div className="card progcard" key={g.name}>
+            <h2>{g.name}</h2>
+            {g.metrics.map(m => (
+              <div className="metric" key={m.key}>
+                {/* Every chart is one series, so every chart wears the first
+                    series colour: a colour that changed from chart to chart
+                    would claim a difference that is not there. */}
+                {m.kind === 'bar'
+                  ? <BarChart bars={m.points} label={m.label} help={m.help} unit={m.unit || ''}
+                      refLine={m.ref} refLabel={m.refLabel} color={SERIES[0]} />
+                  : <LineChart points={m.points} label={m.label} help={m.help} unit={m.unit || ''}
+                      fmtY={m.fmtY} noisePct={m.noisePct} color={SERIES[0]} />}
+              </div>
+            ))}
           </div>
-
-          {groups.map(g => (
-            <div className="card" key={g.name}>
-              <h2><Icon name={GROUP_ICON[g.name] || 'Gauge'} size={16} /> {g.name}</h2>
-              {g.metrics.map((m, i) => (
-                <div className="metric" key={m.key}>
-                  {m.help && <p className="sub metric-help">{m.help}</p>}
-                  {m.kind === 'bar'
-                    ? <BarChart bars={m.points} label={m.label} unit={m.unit || ''}
-                        refLine={m.ref} refLabel={m.refLabel}
-                        color={SERIES[i % SERIES.length]} />
-                    : <LineChart points={m.points} label={m.label} unit={m.unit || ''}
-                        fmtY={m.fmtY} noisePct={m.noisePct}
-                        color={SERIES[i % SERIES.length]} />}
-                </div>
-              ))}
-            </div>
-          ))}
-        </>
+        ))
       )}
 
       {bw.length > 1 && !narrowed && (
-        <div className="card">
-          <h2><Icon name="PersonStanding" size={16} /> Bodyweight</h2>
-          <p className="sub metric-help">
-            Not a workout, so no filter touches it — but it is what half the other
-            numbers get divided by.
-          </p>
-          <LineChart points={bw} label="Bodyweight" unit=" lb" color={SERIES[2]} />
+        <div className="card progcard">
+          <h2>Body</h2>
+          <LineChart points={bw} label="Bodyweight" unit=" lb" color={SERIES[0]} />
         </div>
       )}
-
-      <Blurb id="progress-how" title="Why these charts and not others" tone="card">
-        <p className="sub" style={{ margin: 0 }}>
-          Each chart declares when it means anything, and the page draws the ones that do —
-          so filtering to running drops every climbing chart, and filtering to one lift
-          brings up its top set. A line needs two points before it is a trend rather than a
-          dot with an axis. The very specific climbing numbers — critical force, 4×4 rest,
-          straddle reach — are declared by the sessions themselves in <code>plan.json</code>,
-          and show up under <strong>This session</strong> when that session is in scope.
-        </p>
-      </Blurb>
     </>
   )
 }
 
-/** A row of chips where one can be on, or none. */
-function ScopeRow({ label, options, value, onPick }) {
-  if (!options?.length) return null
-  return (
-    <div className="scoperow">
-      <span className="scoperow-label">{label}</span>
-      <div className="scoperow-opts">
-        {options.map(o => (
-          <button key={o.value} className={`chip ${value === o.value ? 'on' : ''}`}
-            onClick={() => onPick(value === o.value ? null : o.value)}>
-            {o.icon && <Icon name={o.icon} size={13} />}
-            {o.label} <em>{o.n}</em>
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 /**
- * A select, for the lists that are too long to be chips.
- *
- * Twenty-four things the user has logged and two hundred exercises do not fit on a
- * phone as buttons, and a scrolling chip rail hides most of its own options.
+ * "Just one thing" and "One lift": a row that says what is picked and opens the
+ * list. The list is the platform's own (a native select on the web, an action
+ * sheet on the phone), because twenty-four logged activities and two hundred
+ * exercises are not chips on a phone.
  */
 function ScopePick({ label, options, value, onPick, all }) {
   if (!options?.length) return null
+  const cur = options.find(o => o.value === value)
   return (
-    <div className="scoperow">
-      <span className="scoperow-label">{label}</span>
-      <select className="scopesel" value={value || ''} onChange={e => onPick(e.target.value || null)}>
+    <label className="list-row progpick-row">
+      <span className="list-row-main"><span className="list-row-title">{label}</span></span>
+      <span className={`progpick-value ${cur ? 'on' : ''}`}>{cur ? cur.label : all}</span>
+      <Icon name="ChevronRight" size={16} className="list-row-chev" />
+      <select className="progpick-sel" aria-label={label} value={value || ''}
+        onChange={e => onPick(e.target.value || null)}>
         <option value="">{all}</option>
-        {options.map(o => (
-          <option key={o.value} value={o.value}>{o.label} ({o.n})</option>
-        ))}
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
-    </div>
+    </label>
   )
 }

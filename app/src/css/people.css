@@ -42,8 +42,12 @@
 .personchip.ghost { padding-left: var(--sp-3); }
 .personchip.on { color: var(--ink); background: var(--who-soft); border-color: var(--who-line); }
 .personchip-name { overflow: hidden; text-overflow: ellipsis; }
+/* The × takes someone off: a destructive tap, so a full 44px target. The chip
+   grows to 44 to hold it, and the margins cover the chip's own 1px border. */
+.withrow .personchip.on { min-height: var(--tap); }
 .personchip-x {
-  display: inline-grid; place-items: center; width: 36px; height: 34px; margin: 0 calc(-1 * var(--sp-3)) 0 -4px;
+  display: inline-grid; place-items: center; width: var(--tap); height: var(--tap);
+  margin: -1px calc(-1 * var(--sp-3) - 1px) -1px -4px;
   background: none; border: 0; border-radius: var(--r-pill); color: var(--ink-dim); cursor: pointer;
 }
 .personchip-x:hover { color: var(--ink); }
@@ -145,7 +149,6 @@
 .pday + .pday { margin-top: var(--sp-5); }
 .pday-today { color: var(--who, var(--accent)); font-weight: 600; }
 .pday-list { padding-block: var(--sp-1); margin-bottom: 0; }
-.pday-none { margin: 0; }
 .pday-about { margin: var(--sp-6) 0 0; }
 .pday-about > summary { cursor: pointer; min-height: var(--tap); display: flex; align-items: center; color: var(--ink-dim); }
 .pday-plan { margin: 0 0 var(--sp-3); }

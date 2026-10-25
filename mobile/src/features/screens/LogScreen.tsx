@@ -5,10 +5,11 @@ import { LogTab } from '../log'
 
 // The one tab that renders without a plan (App.jsx: needsPlan = tab !== 'log').
 export default function LogScreen() {
-  const { store, plan } = useApp()
+  const { store, plan, openLog } = useApp()
   return (
     <Screen>
-      <LogTab plan={plan} entries={store.entries} upsertEntry={store.upsertEntry} deleteEntry={store.deleteEntry} />
+      <LogTab plan={plan} entries={store.entries} upsertEntry={store.upsertEntry} deleteEntry={store.deleteEntry}
+        onLog={plan ? () => openLog(null) : undefined} />
     </Screen>
   )
 }

@@ -167,7 +167,7 @@ export function RestPrompt({ opt, date: initialDate, entryFor, onSave, onClose }
         <DaySwitcher value={date} today={today} max={today} onChange={setDate} />
       </div>
       {field && (
-        <div className="out-field">
+        <div className="out-field rest-why">
           <div className="out-label"><span>{field.label}</span></div>
           <div className="out-choices">
             {field.options.map(o => {

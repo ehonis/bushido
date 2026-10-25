@@ -139,7 +139,10 @@ export function GradeLaps({ count, values, onChange, what = 'rep', where = '' }:
  * band. Drag or tap. A tap always answers, even one that lands where the thumb
  * already sits, because dead centre ("spot on") is where an untouched slider sits.
  */
-export function RangeSlider({ min, max, step = 1, value, onChange, label, style }: {
+export function RangeSlider({ min, max, step = 1, value, onChange, label, style, unset = false }: {
+  /** Unanswered (AGENTS.md §6.4): the thumb sits on the default as a placeholder
+      does, so nothing is lit — an empty track and a hollow thumb. A tap answers it. */
+  unset?: boolean
   min: number
   max: number
   step?: number
@@ -193,9 +196,9 @@ export function RangeSlider({ min, max, step = 1, value, onChange, label, style 
         onAccessibilityAction={(e) => bump(e.nativeEvent.actionName === 'increment' ? 1 : -1)}
       >
         <View style={[st.track, { left: THUMB / 2, right: THUMB / 2 }]}>
-          <View style={[st.fill, { width: span * pct }]} />
+          {unset ? null : <View style={[st.fill, { width: span * pct }]} />}
         </View>
-        <View style={[st.thumb, { left: span * pct }]} />
+        <View style={[st.thumb, unset && st.thumbUnset, { left: span * pct }]} />
       </View>
     </GestureDetector>
   )
@@ -266,7 +269,7 @@ export function ClimbLog({ count, values, spec, onChange, onMore, what = 'climb'
             </View>
             {hasGrade && (
               <View style={st.felt}>
-                <RangeSlider min={FELT_MIN} max={FELT_MAX} step={1} value={felt ?? 0}
+                <RangeSlider min={FELT_MIN} max={FELT_MAX} step={1} value={felt ?? 0} unset={felt == null}
                   label={`${tag} felt for the grade`}
                   onChange={(v) => at(i, { felt: v })} style={{ flexGrow: 0, flexShrink: 1, flexBasis: 200 }} />
                 <T size={11} faint numberOfLines={1}>{felt == null ? 'for the grade: —' : feltLabel(felt)}</T>
@@ -568,6 +571,7 @@ const st = StyleSheet.create({
     borderWidth: 3, borderColor: colors.bg,
     shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 3, shadowOffset: { width: 0, height: 1 },
   },
+  thumbUnset: { backgroundColor: colors.panel3, borderWidth: 2, borderColor: colors.inkFaint, shadowOpacity: 0 },
   foot: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6 },
   add: {
     borderWidth: 1, borderStyle: 'dashed', borderColor: colors.line, borderRadius: 7,

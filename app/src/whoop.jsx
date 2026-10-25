@@ -149,6 +149,16 @@ function SplitEditor({ snap, onChange, onClear }) {
   )
 }
 
+/**
+ * Why a workout is marked Likely, in the order `rankForSession` (server/whoop.js)
+ * tests its three reasons. Shown as a line on the row, not a tooltip: a phone has
+ * no hover, and a claim the user cannot read is one they cannot argue with.
+ */
+export const likelyWhy = (c) => (c.overlapPct >= 50 && c.overlapMin
+  ? `Overlaps this session by ${c.overlapMin} min`
+  : c.sportFit === true ? 'The only workout of this sport today'
+    : 'The only workout WHOOP recorded today')
+
 /* ------------------------------------------------------- attach to a session */
 
 /**
@@ -363,12 +373,9 @@ export function WhoopWorkouts({ session, entry, entries, onSave }) {
                     <span className="list-row-title">
                       {c.workout.sport}
                       {/* The suggestion is marked, not applied: it still takes the tap (§8.2). */}
-                      {c.likely && (
-                        <span className="wh-tag" title={c.overlapMin
-                          ? `Overlaps this session by ${c.overlapMin} min`
-                          : 'The only workout WHOOP recorded on this day'}>Likely</span>
-                      )}
+                      {c.likely && <span className="wh-tag">Likely</span>}
                     </span>
+                    {c.likely && <span className="list-row-meta wh-why">{likelyWhy(c)}</span>}
                     <span className="list-row-meta">{span(c.workout.start, c.workout.end)}</span>
                     <Numbers w={w} className="list-row-meta wh-nums" />
                     {/* Shown rather than hidden: a workout on the wrong session is
@@ -664,7 +671,7 @@ export function WhoopSleep({ date }) {
     <div className="card wh-card sleep-card" ref={ref}>
       <div className="sleep-head">
         <h2>Sleep</h2>
-        <div className="seg sleep-range" role="group" aria-label="Range">
+        <div className="seg tap sleep-range" role="group" aria-label="Range">
           {SLEEP_RANGES.map(r => (
             <button key={r.days} className={days === r.days ? 'on' : ''} aria-pressed={days === r.days}
               onClick={() => { setDays(r.days); setHover(null) }}>{r.label}</button>

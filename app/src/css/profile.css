@@ -163,7 +163,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .wh-head h3 { display: flex; align-items: center; gap: var(--sp-2); }
 .wh-head h3 svg { color: var(--series-2); }
 .wh-head h3 svg.sv-ico { color: var(--series-2); }
-.wh-pull { min-height: 36px; margin-right: calc(-1 * var(--sp-3)); }
+.wh-pull { margin-right: calc(-1 * var(--sp-3)); }
 .wh .list { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 
 /* An attached one: a row that opens onto its numbers, its split and its detach. */
@@ -182,6 +182,8 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .wh-offer .list-row-meta { white-space: normal; }
 .wh-offer.taken .list-row-title { color: var(--ink-dim); }
 .wh-attach { flex: none; }
+/* Why it is marked: the evidence, said on the row (§8.2). */
+.wh-offer .wh-why { color: var(--ink); }
 /* The suggestion is marked, not selected: it still takes a tap (AGENTS.md §8.2). */
 .wh-tag {
   font-size: var(--fs-caption); font-weight: 500; color: var(--ink);
@@ -242,7 +244,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .sleep-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
 .sleep-head h2 { margin: 0; }
 .sleep-range { margin: 0; flex: 0 0 auto; }
-.sleep-range button { flex: 0 0 auto; min-width: 48px; min-height: 36px; padding: 0 var(--sp-3); }
+.sleep-range button { flex: 0 0 auto; min-width: 48px; padding: 0 var(--sp-3); }
 .sleep-stats { display: flex; align-items: flex-end; gap: var(--sp-4); flex-wrap: wrap; margin: var(--sp-3) 0 6px; font-variant-numeric: tabular-nums; }
 .sleep-stats > span { display: flex; flex-direction: column; line-height: var(--lh-tight); }
 .sleep-stats b { font-size: var(--fs-body); font-weight: 600; }

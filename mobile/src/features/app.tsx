@@ -146,7 +146,7 @@ export function RestPrompt({ opt, date: initialDate, entryFor, onSave, onClose }
         <DayStepper value={date} max={today} onChange={setDate} />
       </Field>
       {field ? (
-        <View style={{ gap: 7, marginBottom: 12 }}>
+        <View style={{ gap: 7, marginBottom: space[4] }}>
           <T size={13} dim>{field.label}</T>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 1 }}>
             {field.options.map((o: any) => {

@@ -299,6 +299,25 @@ function PersonDayRow({ person, tone, date, plan, seen, onOpen }) {
 }
 
 /**
+ * One day's heading in someone's week. An empty day says "Nothing" on the right,
+ * today included ("Today · Nothing"), so no day reads differently for being empty.
+ */
+export function DayHead({ date, today = false, empty = false }) {
+  return (
+    <div className="section-head">
+      <h3>{dayWords(date)}</h3>
+      {(today || empty) && (
+        <span className="sub">
+          {today && <span className="pday-today">Today</span>}
+          {today && empty && ' · '}
+          {empty && 'Nothing'}
+        </span>
+      )}
+    </div>
+  )
+}
+
+/**
  * Someone's week, read-only: each day's sessions, done or not and who planned
  * them, and a tap opens one. Read from their log on the server every time it
  * opens; edits go through that one entry.
@@ -336,10 +355,7 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
           const rows = dayOf(log.entries, d).map(e => dayRow(e, menu, me))
           return (
             <section key={d} className={d === today ? 'pday today' : 'pday'}>
-              <div className="section-head">
-                <h3>{dayWords(d)}</h3>
-                {d === today ? <span className="sub pday-today">Today</span> : !rows.length && <span className="sub">Nothing</span>}
-              </div>
+              <DayHead date={d} today={d === today} empty={!rows.length} />
               {rows.length > 0 && (
                 <div className="card pday-list">
                   <div className="list">
@@ -358,7 +374,6 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
                   </div>
                 </div>
               )}
-              {!rows.length && d === today && <p className="sub pday-none">Nothing on today.</p>}
             </section>
           )
         })}
