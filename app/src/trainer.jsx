@@ -20,7 +20,7 @@ import { FullScreen, Modal } from './modal.jsx'
 import { WorkoutRunner } from './runner.jsx'
 import { WorkoutMode } from './workout.jsx'
 import { SessionLog } from './sessionlog.jsx'
-import { usePersonCopy } from './sharedwith.jsx'
+import { usePersonCopy, Avatar } from './sharedwith.jsx'
 import * as peopleApi from './lib/peopleapi.js'
 import { optFor } from './lib/menu.js'
 import { applyRun, applyOut, applyDone, canStart, dayOf, dayRow, runKind, plannedLine, toneFor } from './lib/trainer.js'
@@ -121,7 +121,7 @@ export function SideSwitch({ sides = [], side = null, onSide, status = {} }) {
         return (
           <button key={s.id || 'you'} type="button" role="tab" aria-selected={on} className={on ? 'on' : ''}
             data-tone={s.tone} onClick={() => onSide(s.id || null)}>
-            <span className="side-dot" data-tone={s.tone} />
+            <Avatar name={s.name} tone={s.tone} />
             <span className="side-name">{s.name}</span>
             {st && <span className="side-status">{st}</span>}
           </button>

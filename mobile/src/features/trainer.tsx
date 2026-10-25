@@ -27,7 +27,7 @@ import { Icon } from '../lib/icons'
 import { WorkoutRunner } from './runner'
 import { WorkoutMode } from './workout'
 import { SessionLog } from './sessionlog'
-import { usePersonCopy } from './sharedwith'
+import { usePersonCopy, Avatar } from './sharedwith'
 import * as peopleApi from '../lib/peopleapi.js'
 import { optFor } from '../lib/menu.js'
 import * as trainerLib from '../lib/trainer.js'
@@ -143,7 +143,7 @@ export function SideSwitch({ sides = [], side = null, onSide, status = {} }: {
         return (
           <Press key={s.id || 'you'} onPress={() => onSide(s.id || null)} accessibilityRole="tab" accessibilityState={{ selected: on }}
             style={[st.segBtn, { minHeight: TAP, flexDirection: 'row', gap: 6 }, on && { backgroundColor: colors.panel2, borderBottomColor: toneColor(s.tone) }]}>
-            <Dot tone={s.tone} />
+            <Avatar name={s.name} tone={s.tone} size={24} />
             <T size={13} weight={600} color={on ? colors.ink : colors.inkFaint} numberOfLines={1}>{s.name}</T>
             {stt ? <T size={11} faint tabular>{stt}</T> : null}
           </Press>
@@ -161,7 +161,7 @@ export function SideSwitch({ sides = [], side = null, onSide, status = {} }: {
  */
 export function SidesWorkout({
   kind, session, sides = [], ownerEntry = null, entries = [],
-  onOwnerRun = null, onOwnerSave = null, onOwnerDone = null, onExit, initialSide = null,
+  onOwnerRun = null, onOwnerSave = null, onOwnerDone = null, onExit, onSwitch = null, initialSide = null,
 }: {
   kind: 'runner' | 'mode'
   session: any
@@ -172,6 +172,7 @@ export function SidesWorkout({
   onOwnerSave?: ((out: any) => void) | null
   onOwnerDone?: ((v: boolean) => void) | null
   onExit: () => void
+  onSwitch?: ((id: string | null) => void) | null
   initialSide?: string | null
 }) {
   const insets = useSafeAreaInsets()
@@ -196,6 +197,7 @@ export function SidesWorkout({
     // Native: a firm tap on the switch, so a glance is not needed to know it took.
     impact()
     setSide(id)
+    onSwitch?.(id)
   }
   const finishSide = (id: string | null) => () => {
     const over = [...finished, id || '']

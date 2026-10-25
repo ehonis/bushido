@@ -286,31 +286,83 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
   is for, never the owner's.
 - **Only the owner is an admin**: Settings, People and acting-as are refused to anyone
   else. The `bushido_as` cookie is honoured only when the real requester is the owner.
-- **Shared workouts** (`lib/shared.js`, `sharedwith.jsx`, `peopleRoute` in `server.js`):
-  the owner adds someone to one workout from the sheet ("With …") without acting as
-  them. Their copy is an ordinary entry in THEIR log (same derivable id unless they
-  logged something of their own there, then an `extraEntryId` extra), `done: false` (done
-  from its day on by §4, never their own tick, which is what `hasOwnMarks` reads),
-  carrying the workout's shared facts (`SHARED_OUT_KEYS`) and the owner's EXERCISES,
-  never the owner's numbers: reps, weights, effort, feel, notes, gear and WHOOP/Strava
-  show only as placeholders on their side. The exercises are copied when they are added,
-  and again only when the owner taps **Copy my exercises to …** under their side
-  (`copyExercises` in `lib/shared.js`): the plan's items and set counts (matched by name,
-  ids renumbered and their run re-keyed), or on a session with no plan the logged lifts as
-  blank rows. A copy only adds: a new exercise arrives with no weight, a new set copies
-  their own previous one, and nothing of theirs is changed or taken out. Nothing follows
-  the owner automatically; that was tried and dropped, because the owner wants to decide
-  when their side changes. Their side of a planned session shows their plan in the same
-  editor, and "Start the workout" opens the sides runner on their side. The owner's entry names them in
-  `data.sharedWith: [{ id, entryId }]`; the copy carries `data.sharedFrom: { id, name }`,
-  stamped by the server. The owner's sheet reads and writes the copy through
-  `/api/people/:id/entry`, never through the owner's store or cache, so logs still never
-  mix on a device. The server refuses non-owners, acting-as, the owner's own log, and any
-  live entry without `sharedFrom` (`not-shared`); those writes fire no habit sync and no
-  push. Taking someone off tombstones their copy only if they have marked nothing
-  (`hasOwnMarks`; copied lifts with nothing marked on them are not marks), otherwise it asks. WHOOP/Strava stay off on their side. Pinned by the
-  shared-workout cases in `server/http.test.js`, `app/shared.test.js` and the
-  `SessionSheet(… "With …" …)`/`TheirSide` smoke cases.
+- **Shared workouts** (`lib/shared.js`, `sharedwith.jsx`, `server/sharedsync.js`,
+  `peopleRoute` in `server.js`): the owner adds someone to one workout from the sheet
+  ("With …") without acting as them. Their copy is an ordinary entry in THEIR log (same
+  derivable id unless they logged something of their own there, then an `extraEntryId`
+  extra), `done: false` (done from its day on by §4, never their own tick, which is what
+  `hasOwnMarks` reads), carrying the workout's shared facts (`SHARED_OUT_KEYS`) and the
+  owner's EXERCISES, never the owner's numbers: reps, weights, effort, feel, notes, gear and
+  WHOOP/Strava show only as placeholders on their side. The owner's entry names them in
+  `data.sharedWith: [{ id, entryId, sync }]`; the copy carries `data.sharedFrom: { id, name }`,
+  stamped by the server.
+  - **Sync** ("Sync exercises with Sam", one switch per person, `sync: true` on the link,
+    on when someone is added). While on, the workout's STRUCTURE is one thing seen from two
+    logs: exercises and blocks added, removed, renamed or reordered, and set counts, on
+    EITHER side reach the other. Numbers never cross: reps, weights, times, the run
+    (`data.run`), `out`, `done`/`undone`/`doneAt` (§4) and WHOOP/Strava stay in the log
+    they were written in; the sync only ever writes `plan`, `out.lifts`, the run's set keys
+    and `syncBase` on the receiving entry. A set
+    or exercise that arrives is blank (an interval keeps its own last set's shape); the
+    implement is each person's own. A removal never takes an exercise (or a set) the other
+    side has logged on. Off, each side stays as it is, and **Copy my exercises to …**
+    (`copyExercises`, add-only) is the way to bring the owner's over; it is hidden while
+    sync is on. A link without the flag (shared before sync existed) is off; turning sync
+    on aligns the two by name once and adds what their side lacks.
+  - **The merge runs on the server**, because only it sees every write (the owner's
+    devices, the other person's own phone, and the owner writing their side through
+    `/api/people/:id/entry`) and only it can write both logs (`commitSynced` in
+    `server.js`). Identity is a `uid` on every block and plan item, minted by the server
+    the first time it sees one and never changed; plan ids (`b0i1`) are positional and are
+    never matched on. A model revision is asked for each uid back (the planner's reply
+    schema allows it, the revise prompt says to copy it) and `normalizePrescription` keeps
+    it, so a renamed exercise stays the same one. An item that still arrives without a uid
+    takes the uid of the same-named item it replaced.
+  - **The rule** (`intentOf`, stated at the top of `server/sharedsync.js`). Each synced
+    entry carries `data.syncBase` (`{ of: <entry id>, rev, plan | lifts }`, its structure as
+    the server last wrote it, a new `rev` on every change), and a device sends back the base
+    it was given. A **matching or older base of this entry** is structural intent, applied
+    as a three-way change: (that base → what it sent) onto what is stored, so whatever
+    reached the entry since stays, and only that change is carried. **No base, a foreign
+    one or a future one** (another entry's, not a base, a rev this entry never had, a
+    different structure under the same rev, or a stored entry not stamped yet) is numbers
+    only: its numbers, run, notes and done land on the stored structure; it never removes,
+    reorders or adds structure, and nothing it does is carried. A list of exercises that
+    merely arrived is not a decision to delete what it lacks. **Logged data is never removed
+    by anyone else's write**: a carry keeps what the receiving side has logged on, and a
+    write keeps an exercise its own device logged on even when the merge lacks it (on that
+    side, uncarried), whatever base it sent. So a stale device, a pre-sync copy and an old
+    app can neither resurrect an unlogged exercise nor delete a logged one. The cost: a
+    write with no base (in practice only a copy pulled before sync existed) silently drops
+    the structural edits it made to exercises it has not logged on. Last-write-wins still
+    holds per entry for everything else.
+  - A write the sync makes is stamped one millisecond past the RECEIVING entry's own
+    `updatedAt`, never the sender's time or the server's clock: a later or skewed sender
+    stamp would beat the receiver's own write saved earlier but arriving later (offline
+    sets) and LWW would drop their numbers, while the structure survives that write
+    through its base. The first version (`server/mirror.js`, removed in #15) followed the
+    owner one way and matched exercises by NAME, and was dropped because the owner had no
+    say over when their side changed; the switch and uids are what answer that. Do not
+    move the merge into a client.
+  - **Their side** of the sheet: the You / Sam bar (each person's initial and name in their
+    colour) is pinned to the top while the sheet scrolls (`position: sticky` on the web,
+    the sheet header on the phone), and the sheet reopens on the side last viewed on this
+    device (`bushido:shared-side`, per entry id; also set from a running workout). Every
+    exercise's "last time" and the session history come from THEIR log
+    (`/api/people/:id/state`), labelled with their name. Their copy is re-read every few
+    seconds while open, so the other phone's changes appear. Their side of a planned
+    session shows their plan in the same editor, and "Start the workout" opens the sides
+    runner on their side.
+  - The owner's sheet reads and writes the copy through `/api/people/:id/entry`, never
+    through the owner's store or cache, so logs still never mix on a device. The server
+    refuses non-owners, acting-as, the owner's own log, and any live entry without
+    `sharedFrom` (`not-shared`); a sync never writes into an entry they logged themselves.
+    Those writes fire no habit sync and no push. Taking someone off tombstones their copy
+    only if they have marked nothing (`hasOwnMarks`; copied lifts with nothing marked on
+    them are not marks), otherwise it asks. WHOOP/Strava stay off on their side.
+  - Pinned by `server/sharedsync.test.js`, the `shared workouts:` and `sync:` steps in
+    `server/http.test.js`, `app/shared.test.js`, and the `SessionSheet(… "With …" …)`,
+    person bar, sync switch and `TheirSide` smoke cases.
 - **The owner as trainer** (`lib/trainer.js`, `trainer.jsx`, the same `peopleRoute`):
   without acting as anyone, the owner plans for someone else, sees their week and runs a
   workout from their side. All of it is owner-only, needs someone else on the install and

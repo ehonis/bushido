@@ -64,6 +64,7 @@ const { ISOLATION } = require('./agentflags.js')
 const { createAuth, clientAddress, isLoopback, isHttps } = require('./auth.js')
 const { createUsers, createAccessVerifier, identify, actAsCookie, OWNER } = require('./users.js')
 const { mergeDaily } = require('./whoop.js')
+const sharedSync = require('./sharedsync.js')
 const pages = require('./pages.js')
 
 const ROOT = path.resolve(__dirname, '..')
@@ -372,6 +373,8 @@ function commit(space, mutate) {
     ensureDirs(space) // someone else's folder appears on their first save
     const current = readStateSync(space)
     const merged = mutate(current.state)
+    // A mutator with nothing to change hands back what it was given: no new version, no backup.
+    if (merged === current.state) return current
     const doc = {
       version: current.version + 1,
       updatedAt: new Date().toISOString(),
@@ -1377,6 +1380,87 @@ function proxySettingsRefusal(mode, req, p) {
  *     looks like their own tick (`hasOwnMarks` in lib/shared.js). `isDone` still
  *     reads it as done from its day on, like any planned session (AGENTS.md §4).
  */
+/*
+ * SYNC (server/sharedsync.js). A shared workout with sync on is one structure
+ * in two logs, so every write that lands on either side goes through here:
+ * the owner's own saves (`/api/state`, `/api/entry`), the other person's own
+ * saves, and the owner writing their side through `/api/people/:id/entry`.
+ * The write is rebased on what is stored (a stale device cannot undo the
+ * other side's changes), then its structural change is carried to the other
+ * log. The carry is best effort: a failure is logged and never fails the
+ * save, like habit sync. Writes made BY the carry go straight to `commit` and
+ * are not carried again.
+ */
+
+/** What an entry being written is synced with: see sharedSync.onWrite. */
+function syncLinksFor(space) {
+  if (space.owner) {
+    return (e, was) => {
+      const links = sharedSync.syncedLinks(e)
+      if (!links.length) return null
+      const prev = sharedSync.syncedLinks(was)
+      return {
+        wasSynced: prev.length > 0,
+        to: links.map(l => ({ personId: l.id, entryId: l.entryId, align: !prev.some(p => p.id === l.id && p.entryId === l.entryId) })),
+      }
+    }
+  }
+  let ownerLog = null
+  return (e) => {
+    if (!e.data?.sharedFrom) return null
+    ownerLog = ownerLog || readStateSync(OWNER_SPACE).state.entries || {}
+    const owner = ownerEntryLinking(ownerLog, space.id, e)
+    return owner ? { wasSynced: true, ref: owner.data, to: [{ ownerEntryId: owner.id }] } : null
+  }
+}
+
+/** The owner's entry that links this copy with sync on, or null. */
+function ownerEntryLinking(ownerLog, personId, copy) {
+  for (const e of Object.values(ownerLog)) {
+    if (e?.kind !== 'daily' || e.date !== copy.date) continue
+    if (sharedSync.syncedLinks(e).some(l => l.id === personId && l.entryId === copy.id)) return e
+  }
+  return null
+}
+
+/**
+ * `commit` for a write that may touch a shared workout. `merge(base)` is the
+ * write's own merge; `ids` the entries it carried. Resolves `{ doc, before }`
+ * once the other side has been written too.
+ */
+async function commitSynced(space, ids, merge) {
+  let before = null
+  let carries = []
+  const doc = await commit(space, base => {
+    before = base
+    const next = merge(base)
+    const r = sharedSync.onWrite(base, next, ids, syncLinksFor(space))
+    carries = r.carries
+    return r.state
+  })
+  for (const c of carries) {
+    try { await carryShared(space, c) } catch (err) { console.error('[bushido] shared workout sync failed:', err.message) }
+  }
+  return { doc, before }
+}
+
+const isCopy = (e) => Boolean(e.data?.sharedFrom)
+
+async function carryShared(from, c) {
+  if (from.owner) {
+    const person = users.get(c.personId)
+    if (person) await commit(spaceFor(person), st => sharedSync.receive(st, c.entryId, c, isCopy))
+    return
+  }
+  // From someone's copy to the owner's entry, then on to anyone else on it.
+  const stillLinked = (e) => sharedSync.syncedLinks(e).some(l => l.id === from.id)
+  const doc = await commit(OWNER_SPACE, st => sharedSync.receive(st, c.ownerEntryId, c, stillLinked))
+  for (const l of sharedSync.syncedLinks(doc.state.entries[c.ownerEntryId])) {
+    const person = l.id !== from.id && users.get(l.id)
+    if (person) await commit(spaceFor(person), st => sharedSync.receive(st, l.entryId, c, isCopy))
+  }
+}
+
 const DAILY_ID_RE = /^daily-(\d{4}-\d{2}-\d{2})(?:-[\w.-]{1,80})?$/
 const fromOwner = (data) => Boolean(data && (data.sharedFrom || data.plannedBy))
 
@@ -1450,7 +1534,7 @@ async function peopleRoute(req, res, url, ctx) {
     const NOT_SHARED = 'not-shared'
     let doc
     try {
-      doc = await commit(space, base => {
+      ;({ doc } = await commitSynced(space, [entry.id], base => {
         const cur = base.entries?.[entry.id]
         const live = cur && !cur.deleted
         // Thrown, not returned: a refusal must not write a new version or a backup.
@@ -1462,7 +1546,7 @@ async function peopleRoute(req, res, url, ctx) {
         if (!live && !entry.deleted) data.done = false
         const stamped = { ...entry, data, updatedAt: entry.updatedAt || new Date().toISOString() }
         return mergeState(base, { entries: { [entry.id]: stamped } })
-      })
+      }))
     } catch (err) {
       if (err.message !== NOT_SHARED) throw err
       return send(res, 409, {
@@ -2177,8 +2261,7 @@ const server = http.createServer(async (req, res) => {
       }
       // `commit` hands the mutator the state as it was on disk, under the write
       // lock. That snapshot is what makes a full-log push quiet.
-      let before = null
-      const doc = await commit(space, base => { before = base; return mergeState(base, body.state) })
+      const { doc, before } = await commitSynced(space, Object.keys(body.state.entries || {}), base => mergeState(base, body.state))
       // The habit and the "nice session" push are the owner's, about the owner's log.
       if (space.owner) syncDailyEntries(body.state, doc.state, before)
       return send(res, 200, doc)
@@ -2189,11 +2272,7 @@ const server = http.createServer(async (req, res) => {
       const entry = body && body.entry
       if (!entry || !entry.id) return send(res, 400, { error: 'expected { entry: { id, ... } }' })
       const stamped = { ...entry, updatedAt: entry.updatedAt || new Date().toISOString() }
-      let before = null
-      const doc = await commit(space, base => {
-        before = base
-        return mergeState(base, { entries: { [entry.id]: stamped } })
-      })
+      const { doc, before } = await commitSynced(space, [entry.id], base => mergeState(base, { entries: { [entry.id]: stamped } }))
       if (space.owner) syncDailyEntries({ entries: { [entry.id]: stamped } }, doc.state, before)
       return send(res, 200, doc)
     }

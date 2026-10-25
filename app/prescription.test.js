@@ -61,6 +61,26 @@ t('a lift item resolves against the catalog and keeps its own labels', () => {
   assert.equal(item.sets.length, 2)
 })
 
+t('a revision keeps each block\'s and item\'s uid, so a rename stays a rename for a shared workout', () => {
+  const p = normalizePrescription({
+    title: 'Legs', minutes: 45, why: 'because',
+    blocks: [{ uid: 'blk-1', name: 'Main', items: [
+      { uid: 'it-1', kind: 'interval', name: 'Renamed row', sets: [{ seconds: 600 }] },
+      { kind: 'interval', name: 'New piece', sets: [{ seconds: 60 }] },
+      { uid: { evil: 1 }, kind: 'interval', name: 'Junk uid', sets: [{ seconds: 60 }] },
+      { uid: '../../x y', kind: 'interval', name: 'Bad uid', sets: [{ seconds: 60 }] },
+    ] }],
+  }, { liftField })
+  const [renamed, fresh, junk, bad] = p.blocks[0].items
+  assert.equal(p.blocks[0].uid, 'blk-1')
+  assert.equal(renamed.uid, 'it-1', 'the revision lost the item\'s uid')
+  assert.equal(renamed.name, 'Renamed row')
+  // A new item has no uid at all (the server mints one), and anything not a plain token is dropped.
+  assert.equal('uid' in fresh, false)
+  assert.equal('uid' in junk, false)
+  assert.equal('uid' in bad, false)
+})
+
 t('an invented exercise key keeps the row but loses its catalog identity', () => {
   const p = normalizePrescription({
     title: 'x', minutes: 20, why: '',

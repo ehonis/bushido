@@ -2672,6 +2672,7 @@ const cases = [
       data: { slot: 'main', optId: opt.id, level: 2, name: 'Ride', minutes: 45, done: false,
         out: { activity: 'bike', distance: 21, rpe: 7 } } }
     const sharedEntry = { ...entry, data: { ...entry.data, sharedWith: [{ id: 'sam', entryId: entry.id }] } }
+    const syncedEntry = { ...entry, data: { ...entry.data, sharedWith: [{ id: 'sam', entryId: entry.id, sync: true }] } }
     const sheet = (me, e = entry) => renderToString(
       <SessionSheet opt={opt} entry={e} tone="rec" entries={rich} isFuture={false} me={me}
         onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop} onSaveEntry={noop} />)
@@ -2687,14 +2688,55 @@ const cases = [
         if (/aria-label="Add Alex to this workout"/.test(html)) throw new Error('the owner was offered as someone to add')
       }],
       ['SessionSheet(the person switcher only on a shared entry)', null, () => {
-        if (/personswitch/.test(sheet(ownerMe))) throw new Error('a switcher on a workout nobody shares')
+        if (/personbar/.test(sheet(ownerMe))) throw new Error('a switcher on a workout nobody shares')
         const html = sheet(ownerMe, sharedEntry)
-        if (!/personswitch/.test(html)) throw new Error('no switcher on a shared workout')
+        if (!/personbar/.test(html)) throw new Error('no switcher on a shared workout')
         const t = text(html)
         if (!/You/.test(t) || !/Sam/.test(t)) throw new Error('the switcher does not name both logs')
         if (!/aria-label="Take Sam off this workout"/.test(html)) throw new Error('no way to take Sam off')
         // And never for anyone else, even on an entry that names someone.
-        if (/personswitch/.test(sheet({ ...ownerMe, id: 'sam', acting: true }, sharedEntry))) throw new Error('a switcher while acting as someone')
+        if (/personbar/.test(sheet({ ...ownerMe, id: 'sam', acting: true }, sharedEntry))) throw new Error('a switcher while acting as someone')
+      }],
+      ['SessionSheet(whose side it is stays pinned at the top: each person\'s initial and name, first thing in the sheet)', null, () => {
+        const html = sheet(ownerMe, syncedEntry)
+        const bar = html.indexOf('class="personbar"')
+        if (bar < 0) throw new Error('no person bar')
+        const first = ['withrow', 'synctoggle', 'sess', 'logform'].map(c => html.indexOf(`class="${c}`)).filter(i => i >= 0)
+        if (first.some(i => i < bar)) throw new Error('something sits above the person bar')
+        const btns = [...html.matchAll(/class="personbar-btn( on)?"[^>]*><span class="avatar"[^>]*>(.)<\/span><span class="personbar-name">([^<]*)</g)]
+          .map(m => [Boolean(m[1]), m[2], m[3]])
+        if (JSON.stringify(btns) !== JSON.stringify([[true, 'Y', 'You'], [false, 'S', 'Sam']])) throw new Error(`the bar reads ${JSON.stringify(btns)}`)
+        // Pinned by CSS: the sheet body scrolls, and the bar sticks to its top.
+        const css = readFileSync(new URL('./src/styles.css', import.meta.url), 'utf8')
+        const rule = (css.match(/\.personbar \{[^}]*\}/) || [''])[0]
+        if (!/position: sticky/.test(rule) || !/top: -16px/.test(rule)) throw new Error(`the person bar is not pinned: ${rule}`)
+      }],
+      ['SessionSheet(reopens on the side last viewed on this device, while that person is still on it)', null, () => {
+        const saved = {}
+        const prev = globalThis.localStorage
+        globalThis.localStorage = { getItem: (k) => saved[k] ?? null, setItem: (k, v) => { saved[k] = v } }
+        try {
+          const onSide = (html) => (html.match(/class="personbar-btn on"[^>]*>.*?<span class="personbar-name">([^<]*)</) || [])[1]
+          if (onSide(sheet(ownerMe, syncedEntry)) !== 'You') throw new Error('a sheet never opened before is not on your side')
+          saved['bushido:shared-side'] = JSON.stringify({ [entry.id]: 'sam' })
+          const html = sheet(ownerMe, syncedEntry)
+          if (onSide(html) !== 'Sam') throw new Error('did not reopen on Sam\'s side')
+          const words = text(html).replace(/<[^>]+>/g, ' ')
+          if (!/Opening Sam.s log/.test(words) || /not in Sam/.test(words)) throw new Error(`reopened on Sam's tab but showed your form: ${words.slice(0, 400)}`)
+          saved['bushido:shared-side'] = JSON.stringify({ [entry.id]: 'robin' })
+          if (onSide(sheet(ownerMe, syncedEntry)) !== 'You') throw new Error('reopened on someone no longer on the workout')
+        } finally { globalThis.localStorage = prev }
+      }],
+      ['SessionSheet(one plain switch: "Sync exercises with Sam", on when added, off on an older share)', null, () => {
+        const on = sheet(ownerMe, syncedEntry)
+        const toggles = [...on.matchAll(/class="synctoggle"/g)].length
+        if (toggles !== 1) throw new Error(`${toggles} sync switches`)
+        if (!/Sync exercises with Sam/.test(text(on))) throw new Error('the switch does not say what it does')
+        if (!/Exercises and sets stay the same on both sides; your numbers stay yours/.test(text(on))) throw new Error('the switch does not say that numbers stay each person\'s own')
+        if (!/role="switch"[^>]*checked=""/.test(on)) throw new Error('sync is off on a workout someone was just added to')
+        if (/role="switch"[^>]*checked=""/.test(sheet(ownerMe, sharedEntry))) throw new Error('an older share reads as synced')
+        if (/synctoggle/.test(sheet(ownerMe))) throw new Error('a sync switch on a workout nobody shares')
+        if (/synctoggle/.test(sheet({ ...ownerMe, id: 'sam', acting: true }, syncedEntry))) throw new Error('a sync switch while acting as someone')
       }],
       ['SessionSheet(a shared copy in someone else\'s own log says who it was with)', null, () => {
         const hers = { ...entry, data: { ...entry.data, sharedFrom: { id: 'owner', name: 'Alex' } } }
@@ -2709,7 +2751,7 @@ const cases = [
         if (!/placeholder="21"/.test(html)) throw new Error('the owner\'s distance is not the placeholder')
         if (/value="21"/.test(html)) throw new Error('the owner\'s distance was copied in as a value')
         if (!/you: 7/.test(text(html))) throw new Error('the owner\'s effort is not shown beside Sam\'s')
-        if (!/Filling in.*Sam/.test(text(html))) throw new Error('nothing says whose log this is')
+        if (!/goes in Sam.s log/.test(text(html))) throw new Error('nothing says whose log this is')
       }],
       ['TheirSide(a planned workout shows their plan: the owner\'s exercises, their own weights)', null, () => {
         const plannedOpt = plan.dailyMenu.find(m => m.id === 'planned')
@@ -2735,6 +2777,36 @@ const cases = [
         const done = draw({ onCopyMine: null, ownerHasExercises: true })
         if (/Copy my exercises/.test(done) || !/Sam has all your exercises/.test(done)) throw new Error('nothing to copy still offers a copy')
         if (/your exercises/i.test(draw({ onCopyMine: null, ownerHasExercises: false }))) throw new Error('a workout with no exercises talks about copying them')
+      }],
+      ['TheirSide(no "Copy my exercises" while synced: the exercises are already the same)', null, () => {
+        const draw = (props) => text(renderToString(<PlanProvider plan={plan}>
+          <TheirSide session={plan.dailyMenu.find(m => m.id === 'planned')} copy={sharedCopy(entry, { owner: { id: 'owner', name: 'Alex' } })}
+            person={people[1]} ownerOut={{}} onSave={noop} onCopyMine={noop} ownerHasExercises {...props} />
+        </PlanProvider>))
+        if (/Copy my exercises|has all your exercises/.test(draw({ synced: true }))) throw new Error('a copy button while sync is on')
+        if (!/Copy my exercises to Sam/.test(draw({ synced: false }))) throw new Error('no copy button with sync off')
+      }],
+      ['TheirSide(each exercise shows THEIR last time, from their log, never yours)', null, () => {
+        const lf = liftFieldOf(plan)
+        const ex = lf.exercises[0]
+        const plannedOpt = plan.dailyMenu.find(m => m.id === 'planned')
+        const pres = { title: 'Legs', blocks: [{ id: 'b0', name: 'Main', items: [{ id: 'b0i0', uid: 'x1', kind: 'lift', name: ex.name, exercise: ex.key,
+          sets: [{ id: 'b0i0s0', reps: 10, weight: 55 }] }] }] }
+        const mine = { ...entry, data: { ...entry.data, optId: 'planned', plan: pres, out: {} } }
+        const copy = sharedCopy(mine, { session: plannedOpt, owner: { id: 'owner', name: 'Alex' } })
+        const lifted = (date, weight) => ({ id: `daily-${date}`, kind: 'daily', date, data: { optId: 'planned', done: true,
+          out: { lifts: [{ uid: `${ex.key}-1`, key: ex.key, name: ex.name, sets: [{ reps: '8', weight: String(weight) }] }] } } })
+        const theirs = [lifted('2026-01-02', 40)]
+        const yours = [lifted('2026-01-05', 100)]
+        const draw = (log) => text(renderToString(<PlanProvider plan={plan}>
+          <TheirSide session={plannedOpt} copy={copy} person={people[1]} ownerOut={{}} onSave={noop} entries={log}
+            plan={<PrescriptionEditor pres={copy.data.plan} liftField={lf} entries={log} entryId={copy.id} onChange={noop} compact />} />
+        </PlanProvider>))
+        const t = draw(theirs).replace(/<[^>]+>/g, '')
+        if (!/last time \(2026-01-02\): 1 × 8 @ 40 lb/.test(t)) throw new Error(`no last time from Sam's log: ${t.slice(0, 300)}`)
+        if (/@ 100 lb/.test(t)) throw new Error('your weight shown as Sam\'s last time')
+        if (!/Sam’s last 1 session/.test(t) || /Your last/.test(t)) throw new Error('the session history is not labelled as Sam\'s')
+        if (/last time \(/.test(draw([]).replace(/<[^>]+>/g, ''))) throw new Error('a last time with no history')
       }],
       ['TodayTab(a shared workout says who it was with, small, on the row)', null, () => {
         _setMe(ownerMe)
