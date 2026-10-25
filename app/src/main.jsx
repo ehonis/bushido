@@ -2,6 +2,14 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
 import './styles.css'
+// Each area's rules, after the tokens, base components and shell they use and
+// before timer.css, which is where they sat when they were all in styles.css
+// (docs/DESIGN.md, "Wave 2: who owns which file").
+import './css/today.css'
+import './css/logging.css'
+import './css/feed.css'
+import './css/profile.css'
+import './css/people.css'
 import './timer.css'
 import { reportOpen } from './lib/push.js'
 import { CHANNEL, clearSignedOut, signOutDevice } from './lib/signout.js'

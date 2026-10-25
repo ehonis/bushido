@@ -22,7 +22,7 @@ import { confirm, showMenu } from '../ui/menu'
 import { success } from '../ui/haptics'
 import { Icon } from '../lib/icons'
 import { localIso } from '../lib/dates.js'
-import { DayStepper } from './app'
+import { DayStepper } from '../ui/DayStepper'
 import {
   gearUsage, gearKinds, kindOf, headlineFor, buildGearEntry, newGearId,
 } from '../lib/gear.js'

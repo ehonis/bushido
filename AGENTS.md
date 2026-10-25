@@ -109,6 +109,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Body diagram | `app/src/lib/bodymap.jsx`, `app/muscles.build.mjs` | `react-body-highlighter` + `free-exercise-db`; nothing hand-drawn. |
 | How-to figures | `app/src/howto.jsx`, `app/src/lib/figures.jsx` | Registry of SVG figures named by content. |
 | Palette | `app/src/styles.css` `:root`, `app/validate_palette.js` | `npm run palette`; a real gate (§6.10). |
+| Styles | `app/src/styles.css` (tokens, base components, shell), `app/src/css/<area>.css` (each screen area's rules, one owner each), `app/src/timer.css` | A new rule goes in its area's file. See `docs/DESIGN.md`, "Visual system". |
 | Notifications client | `app/src/lib/push.js`, `app/src/notifications.jsx` | |
 | Device screen probe | `app/src/screeninfo.jsx` | Measures the iOS safe-area bug on the device (§10.5). |
 | Whose log this is | `app/src/lib/whoami.js` | Decided before the store mounts; per-person cache key; `X-Bushido-User` on every API call (§3). |

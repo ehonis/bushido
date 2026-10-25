@@ -1,0 +1,960 @@
+/*
+ * Today and the session sheet (docs/DESIGN.md batch A): the day list, the session sheet and
+ * its log form, set and lift logs, how-to, the rest day.
+ *
+ * Moved out of styles.css rule for rule and in the same order (2026-10-25). Tokens, base
+ * components and the shell stay there; this file only uses them.
+ */
+/* --------------------------------------------------------- daily habit opts */
+
+.opts { display: grid; gap: 8px; }
+.opt {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; text-align: left;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px 14px; color: inherit; font: inherit; cursor: pointer;
+}
+.opt:hover { border-color: var(--ink-faint); }
+.opt.on { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 9%, var(--panel-2)); }
+.opt-name { font-weight: 600; font-size: 14px; }
+.opt-meta { font-size: 12px; color: var(--ink-faint); text-align: right; }
+.opt-dose { grid-column: 1 / -1; font-size: 13px; color: var(--ink-dim); }
+
+/* --------------------------------------------------- recommended session */
+
+.card.rec { border-color: color-mix(in oklab, var(--accent) 38%, var(--line)); }
+.card.rec.done { border-color: color-mix(in oklab, var(--viz-good) 40%, var(--line)); }
+
+.rec-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--accent); margin-bottom: 10px;
+}
+.card.rec.done .rec-tag { color: var(--viz-good); }
+
+.rec-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+
+.rec-icon {
+  flex: 0 0 auto; width: 42px; height: 42px; border-radius: 10px;
+  display: grid; place-items: center;
+  background: color-mix(in oklab, var(--accent) 14%, var(--panel-2));
+  color: var(--accent);
+}
+.card.rec.done .rec-icon { background: color-mix(in oklab, var(--viz-good) 14%, var(--panel-2)); color: var(--viz-good); }
+
+.rec-name { font-size: 17px; font-weight: 600; line-height: 1.25; }
+.rec-meta { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-faint); margin-top: 2px; }
+.rec-check { color: var(--viz-good); flex: 0 0 auto; }
+
+.rec-dose { margin: 0; font-size: 14px; color: var(--ink-dim); }
+.rec-why {
+  margin: 10px 0 0; font-size: 13px; color: var(--ink-faint);
+  border-left: 2px solid var(--line); padding-left: 10px;
+}
+
+/* ------------------------------------------- why this is today's pick */
+
+.recwhy-head {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  background: transparent; border: 0; color: var(--ink); font: inherit; font-size: 14px;
+  cursor: pointer; padding: 0; min-height: 44px; text-align: left;
+}
+/* The same header with nothing to expand — the day's own note, while the day is
+   still three questions and there is no per-session scoring to open. */
+.recwhy-head.static { cursor: default; min-height: 0; padding-bottom: 2px; }
+.recwhy-ico { color: var(--accent); display: inline-flex; flex: 0 0 auto; }
+.recwhy-title { flex: 1 1 auto; color: var(--ink-dim); }
+.recwhy-title strong { color: var(--ink); font-weight: 600; }
+
+.recwhy-lead {
+  margin: 2px 0 0; font-size: 13px; color: var(--ink-dim);
+  border-left: 2px solid color-mix(in oklab, var(--accent) 45%, var(--line)); padding-left: 10px;
+}
+.recwhy-note { margin: 10px 0 0; font-size: 13px; color: var(--ink-faint); }
+.recwhy-block {
+  margin: 10px 0 0; font-size: 13px; color: var(--ink-faint);
+  border-left: 2px solid color-mix(in oklab, var(--viz-crit) 40%, var(--line)); padding-left: 10px;
+}
+.recwhy-block svg { vertical-align: -2px; color: var(--viz-crit); }
+.recwhy-block strong { color: var(--ink-dim); }
+
+.recwhy-list { list-style: none; margin: 12px 0 0; padding: 0; }
+.recwhy-list li {
+  display: flex; gap: 9px; font-size: 13px; color: var(--ink-faint);
+  padding: 5px 0; border-top: 1px solid var(--line);
+}
+.recwhy-pts {
+  flex: 0 0 34px; text-align: right; font-variant-numeric: tabular-nums;
+  color: var(--viz-good); font-size: 12px; line-height: 1.5;
+}
+.recwhy-list.against .recwhy-pts { color: var(--viz-warn); }
+.recwhy-budget { margin-top: 12px; }
+
+/* ------------------------------------------------------------ alternatives */
+
+.alt-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; background: transparent; border: 0; color: var(--ink);
+  font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  padding: 0; min-height: 32px; text-align: left;
+}
+.alt-chev { color: var(--ink-faint); display: inline-flex; transition: transform 0.15s ease; }
+.alt-chev.open { transform: rotate(180deg); }
+
+.opt-name { display: inline-flex; align-items: center; gap: 7px; }
+.opt-when {
+  grid-column: 1 / -1; font-size: 12px; color: var(--ink-faint);
+  margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line);
+}
+
+.ev-badge { display: inline-flex; align-items: center; gap: 4px; }
+.tile-icon { color: var(--ink-faint); }
+
+/* ------------------------------------------------------ session instructions */
+
+.sess { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px; }
+.sess-dur { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-faint); margin-bottom: 14px; }
+
+.sess-sec { margin-bottom: 18px; }
+.sess-sec:last-child { margin-bottom: 0; }
+.sess-sec h4 {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--ink-faint); margin: 0 0 8px;
+}
+.sess-sec.block { background: var(--panel-2); border-radius: 8px; padding: 13px; }
+.sess-sec.block h4 { color: var(--accent); }
+.sess-sec.stop h4 { color: var(--viz-warn); }
+
+.sess-list { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.5; }
+.sess-list li { margin-bottom: 7px; }
+.sess-list li:last-child { margin-bottom: 0; }
+.sess-list.num { padding-left: 20px; }
+.sess-sec.stop .sess-list { color: var(--ink-dim); }
+.sess-log { margin: 0; font-size: 13px; color: var(--ink-dim); }
+
+/* -------------------------------------------------------------- load block */
+
+.load {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 11px 12px; margin-bottom: 12px;
+}
+.load-main { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.load-pct { font-size: 12px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.load-target { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.load-how {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 13px; color: var(--ink-dim); margin-top: 6px;
+}
+.load-how strong { color: var(--accent); font-variant-numeric: tabular-nums; }
+.load-src { font-size: 11px; color: var(--ink-faint); }
+.load-unknown { display: flex; align-items: flex-start; gap: 7px; font-size: 13px; color: var(--ink-dim); }
+
+/* --------------------------------------------------------- alt option card */
+
+.opt-wrap { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.opt-wrap.on { border-color: var(--accent); }
+.opt-wrap .opt { background: transparent; border: 0; border-radius: 0; width: 100%; }
+.opt-detail { padding: 0 14px 14px; }
+.opt-detail .sess { margin-top: 0; border-top: 0; padding-top: 0; }
+
+/* ------------------------------------------------------------ session outputs */
+
+.outlog { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 13px; }
+.outlog.done .alt-head { color: var(--viz-good); }
+.out-body { margin-top: 14px; display: grid; gap: 16px; }
+
+.out-field { display: grid; gap: 7px; }
+.out-label { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--ink-dim); }
+.out-value {
+  font-size: 17px; font-weight: 600; color: var(--ink);
+  font-variant-numeric: tabular-nums; min-width: 24px; text-align: right;
+}
+.out-scale { display: flex; justify-content: space-between; font-size: 10px; color: var(--ink-faint); gap: 6px; }
+.out-scale span:not(:first-child):not(:last-child) { display: none; }
+@media (min-width: 480px) { .out-scale span { display: inline !important; } }
+
+/* Chunky enough to drag with a chalky thumb. */
+.slider {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 34px;
+  background: transparent; padding: 0; border: 0; min-height: 34px;
+}
+.slider::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 3px;
+  background: linear-gradient(to right, var(--accent) var(--pct), var(--panel-2) var(--pct));
+}
+.slider::-moz-range-track { height: 6px; border-radius: 3px; background: var(--panel-2); }
+.slider::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--accent); }
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--ink); border: 3px solid var(--bg); margin-top: -10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.5); cursor: pointer;
+}
+.slider::-moz-range-thumb {
+  width: 22px; height: 22px; border-radius: 50%; background: var(--ink);
+  border: 3px solid var(--bg); cursor: pointer;
+}
+.slider:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 6px; }
+
+.out-toggle { display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer; min-height: 40px; }
+.out-toggle input { width: 20px; height: 20px; min-height: 20px; flex: 0 0 auto; accent-color: var(--accent); }
+.out-num { flex: 1 1 100%; }
+
+/* ---------------------------------------------------------- time spent */
+
+.out-spent .spent-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.out-spent .spent-row input {
+  width: 92px; flex: 0 0 auto; min-height: 44px; padding: 8px 10px;
+  font-size: 16px; text-align: center; font-variant-numeric: tabular-nums;
+}
+.spent-use {
+  font: inherit; font-size: 12px; color: var(--ink-dim); background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 999px; padding: 0 12px;
+  min-height: 40px; cursor: pointer; white-space: nowrap;
+}
+.spent-use:hover { color: var(--ink); border-color: var(--ink-faint); }
+.spent-hint { margin: 7px 0 0; font-size: 12px; color: var(--ink-faint); }
+
+/* ------------------------------------------------- per-session evidence note */
+
+.ev-note { margin: 0 0 14px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; background: var(--panel-2); }
+.ev-note summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none;
+  font-size: 12px; color: var(--ink-faint); min-height: 26px; }
+.ev-note summary::-webkit-details-marker { display: none; }
+.ev-note p { margin: 8px 0 0; font-size: 13px; color: var(--ink-dim); }
+.ev-note .ev-src { font-size: 11px; color: var(--ink-faint); }
+
+.grade { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 2px 6px; border-radius: 4px; border: 1px solid currentColor; white-space: nowrap; }
+.g-rct, .g-controlled-trial { color: var(--viz-good); }
+.g-observational, .g-expert-consensus { color: var(--viz-warn); }
+.g-coach-convention, .g-unsupported { color: var(--ink-faint); }
+
+/* Desktop, from styles.css's DESKTOP block: this area's part of it. */
+@media (min-width: 1024px) {
+  .sess-list { font-size: 15px; }
+}
+
+
+/* --------------------------------------------------------------- day nav */
+
+.daynav {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 6px; margin-bottom: 14px;
+}
+.daynav.future { border-style: dashed; border-color: var(--ink-faint); }
+
+.daynav-arrow {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px; border-radius: 8px;
+  background: transparent; border: 0; color: var(--ink-dim); cursor: pointer;
+}
+.daynav-arrow:hover { background: var(--panel-2); color: var(--ink); }
+
+.daynav-mid { flex: 1; min-width: 0; text-align: center; }
+.daynav-label { font-size: 14px; font-weight: 600; line-height: 1.2; }
+.daynav.future .daynav-label { color: var(--ink-dim); }
+.daynav-date { font-size: 12px; color: var(--ink-faint); }
+
+.daynav-today {
+  flex: 0 0 auto; font: inherit; font-size: 12px; color: var(--ink-dim);
+  background: transparent; border: 1px solid var(--line); border-radius: 999px;
+  padding: 5px 10px; cursor: pointer; min-height: 32px;
+}
+.daynav-today:hover { color: var(--ink); border-color: var(--ink-faint); }
+
+/* ------------------------------------------------------- tiered alternatives */
+
+.swapgroup { margin-bottom: 18px; }
+.swapgroup:last-child { margin-bottom: 0; }
+
+.swapgroup-head {
+  display: flex; align-items: center; gap: 7px; margin-bottom: 9px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-faint);
+}
+.swapgroup-n {
+  margin-left: auto; font-size: 11px; letter-spacing: 0;
+  background: var(--panel-2); border-radius: 999px; padding: 1px 7px;
+}
+.swapgroup.swap .swapgroup-head { color: var(--viz-good); }
+.swapgroup.ok .swapgroup-head { color: var(--viz-warn); }
+.swapgroup.avoid .swapgroup-head { color: var(--viz-crit); }
+
+.opt-why-tier {
+  grid-column: 1 / -1; font-size: 12px; margin-top: 7px;
+  padding-top: 7px; border-top: 1px solid var(--line); color: var(--ink-dim);
+}
+.t-avoid { opacity: 0.62; }
+.t-avoid .opt-why-tier { color: var(--viz-crit); }
+.t-swap { border-color: color-mix(in oklab, var(--viz-good) 28%, var(--line)); }
+.t-avoid { border-color: color-mix(in oklab, var(--viz-crit) 24%, var(--line)); }
+
+/* ------------------------------------------------------------ per-set log */
+
+.setlog { display: grid; gap: 18px; }
+.setlog-note { margin: 0; font-size: 12px; color: var(--ink-faint); }
+
+.exlog-head { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
+.exlog-name { font-size: 13px; font-weight: 600; flex: 1; min-width: 0; }
+
+.signtog {
+  font: inherit; font-size: 11px; white-space: nowrap;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+  color: var(--ink-dim); padding: 4px 9px; cursor: pointer; min-height: 30px;
+}
+.signtog.neg { color: var(--series-1); border-color: color-mix(in oklab, var(--series-1) 40%, var(--line)); }
+
+.exlog-table { width: auto; font-size: 13px; }
+.exlog-table th {
+  padding: 0 6px 4px; font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--ink-faint); font-weight: 500;
+}
+.exlog-table td { padding: 3px 6px; border: 0; }
+.exlog-table .c-set { color: var(--ink-faint); font-variant-numeric: tabular-nums; width: 22px; text-align: center; }
+.exlog-table input {
+  min-height: 38px; padding: 6px 8px; font-size: 16px;
+  text-align: center; font-variant-numeric: tabular-nums;
+}
+
+.exlog-x {
+  background: transparent; border: 0; color: var(--ink-faint); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 6px;
+}
+.exlog-x:hover { color: var(--viz-crit); background: var(--panel); }
+
+/* A per-rep row spans the table, so the table has to take the card's width or a
+   third lap pushes it wider than the phone instead of wrapping inside it. */
+.exlog-table.perrep { width: 100%; }
+.exlog-table.perrep td:last-child, .exlog-table.perrep th:last-child { width: 34px; }
+
+/* One grade per rep, on its own line under the set. 16px so iOS does not zoom,
+   44px so it is a real target mid-session. */
+.gradelaps { display: flex; flex-wrap: wrap; gap: 8px 12px; padding: 2px 0 6px; }
+.gradelap { display: inline-flex; align-items: center; gap: 6px; }
+.gradelap-n {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--ink-faint); white-space: nowrap;
+}
+.gradesel {
+  font: inherit; font-size: 16px; min-height: 44px; padding: 6px 8px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.out-grade .gradesel { margin-top: 8px; }
+
+/* The fun days' optional per-climb detail: one line of pickers per climb, and a
+   felt-for-the-grade slider that only appears once the climb has a grade. Same
+   16px/44px rules as the grade pickers — this is filled in with chalky hands. */
+.signtog.on { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 40%, var(--line)); }
+.climblog { display: flex; flex-direction: column; gap: 10px; padding: 4px 0 6px; }
+.climb { display: flex; flex-direction: column; gap: 2px; }
+.climb-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* The up/down picker sits with the style one and reads as a statement about the
+   climb rather than a filter: its default option is the ordinary case. */
+.climb-down { color: var(--ink-dim); }
+.climb-style {
+  font: inherit; font-size: 16px; min-height: 44px; padding: 6px 8px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  color: var(--ink);
+}
+.climb-fell { font-size: 12px; min-height: 44px; }
+.climb-fell.on svg { color: var(--viz-crit); }
+.climb-felt { display: flex; align-items: center; gap: 10px; padding-left: 2px; }
+.climb-felt .slider { flex: 0 1 200px; }
+.climb-feltword { font-size: 11px; color: var(--ink-faint); white-space: nowrap; }
+.climblog > .exlog-add { align-self: flex-start; }
+
+/* While the detail is on, the count is stepped, never typed — typing passes
+   through states that truncate the climb list. 44px: pressed mid-session. */
+.repstep { display: inline-flex; align-items: center; gap: 5px; }
+.repstep input { text-align: center; color: var(--ink-dim); }
+.repstep-b {
+  font: inherit; font-size: 19px; line-height: 1; color: var(--ink-dim);
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  min-height: 44px; min-width: 44px; cursor: pointer; padding: 0;
+}
+.repstep-b:hover { color: var(--ink); border-color: var(--ink-faint); }
+
+.exlog-foot { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
+.exlog-add {
+  font: inherit; font-size: 12px; color: var(--ink-dim); background: transparent;
+  border: 1px dashed var(--line); border-radius: 7px; padding: 6px 11px;
+  cursor: pointer; min-height: 34px;
+}
+.exlog-add:hover { color: var(--ink); border-color: var(--ink-faint); }
+.exlog-total { font-size: 12px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------- lift log */
+
+/* Exercises chosen at log time, each with its own implement and sets. Reuses the
+   per-set table wholesale — a set is a set — and adds the two things a lift needs
+   that a hangboard set does not: what it was loaded with, and a search box for
+   picking the movement out of a couple of hundred. */
+
+/*
+ * The lift log renders through `exercises.jsx` now — the SAME card, list, picker
+ * and reorder mode the planner uses, because planning a workout and logging one
+ * should look exactly the same. So `.lift-*` and `.liftpick-*` are gone
+ * and the rules that style it are `.presc-*` and `.expick-*` further down.
+ * `.exlog-*` stays: the CLIMBING set log still uses it, and that is a different
+ * form — per-lap grades, falls, the per-climb detail — not a list of movements.
+ */
+.liftlog { gap: 14px; }
+.liftlog .presc-block { margin-bottom: 0; }
+
+/* A number the app answered for the user, and one it worked out. Both are labelled
+   rather than silent: a value the user did not type must never look like one they did. */
+.out-from {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--accent); margin-left: 6px;
+}
+.out-derived { font-size: 11px; color: var(--ink-faint); }
+
+.extra-another { color: var(--ink-dim); display: inline-flex; align-items: center; gap: 5px; }
+
+/* "Log another workout", under the day. A second one of a card that can be
+   logged twice — the run and the lift — reachable in one tap from the day
+   itself, because the swap list above hides whatever is already your main. */
+.dl-again { color: var(--accent); border-style: solid; }
+.dl-again-n {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ink-faint); margin-left: 4px;
+}
+
+/* --------------------------------------------------------------- add-ons */
+
+.adj { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 13px; }
+.adj-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-faint); margin-bottom: 8px; }
+.adj-pills { display: flex; flex-wrap: wrap; gap: 7px; }
+
+.adj-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px;
+  color: var(--ink-dim); font: inherit; font-size: 13px;
+  padding: 7px 13px; cursor: pointer; min-height: 38px;
+}
+.adj-pill:hover { border-color: var(--ink-faint); color: var(--ink); }
+.adj-pill.on {
+  background: color-mix(in oklab, var(--viz-good) 14%, var(--panel-2));
+  border-color: color-mix(in oklab, var(--viz-good) 50%, var(--line));
+  color: var(--ink);
+}
+.adj-min { font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+
+.adj-info { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.adj-more {
+  font: inherit; font-size: 11px; color: var(--ink-faint); background: transparent;
+  border: 0; padding: 2px 0; cursor: pointer; text-decoration: underline;
+  text-decoration-color: var(--line); text-underline-offset: 3px;
+}
+.adj-more:hover { color: var(--ink-dim); }
+.adj-detail { margin-top: 10px; background: var(--panel-2); border-radius: 8px; padding: 12px 14px; }
+.adj-detail .sess { margin-top: 0; border-top: 0; padding-top: 0; }
+
+/* -------------------------------------------------------------- history */
+
+.hday { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
+.hday.open { border-color: var(--ink-faint); }
+
+.hday-head {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  background: transparent; border: 0; color: inherit; font: inherit;
+  padding: 12px 14px; cursor: pointer; text-align: left; min-height: var(--tap);
+}
+.hday-head:hover { background: var(--panel-2); }
+.hday-date { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--ink-dim); flex: 0 0 auto; min-width: 92px; }
+.hday-name { flex: 1; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hday-n { font-size: 11px; color: var(--ink-faint); background: var(--panel-2); border-radius: 999px; padding: 2px 8px; }
+
+.hday-body { padding: 0 14px 12px; }
+
+.hrow { border-top: 1px solid var(--line); }
+.hrow:first-child { border-top: 0; }
+
+.hrow-head {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  background: transparent; border: 0; color: inherit; font: inherit;
+  padding: 11px 0; cursor: pointer; text-align: left; min-height: 46px;
+}
+.hrow-ico { color: var(--ink-faint); flex: 0 0 auto; display: inline-flex; }
+.hrow-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.hrow-title { font-size: 14px; font-weight: 500; }
+.hrow-sum { font-size: 12px; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hrow-body { padding: 0 0 14px; }
+.hrow-adj { margin: 10px 0 0; font-size: 12px; color: var(--ink-dim); }
+
+/* Minutes trained, per session. Half of the training-load figure, and the half
+   most often wrong when a session was run outside workout mode. */
+.hmins { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.hmins label.field { flex: 0 1 132px; }
+.hmins .btn { flex: 0 0 auto; }
+.hmins-src { flex: 1 1 100%; margin: 2px 0 0; font-size: 12px; color: var(--ink-faint); }
+/* The day's total, which is the sum of the sessions under it. */
+.hday-mins {
+  font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums;
+  flex: 0 0 auto; white-space: nowrap;
+}
+.hrow-body .btn.ghost { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ------------------------------------------------------------- rest day */
+
+/* Deliberately not styled like a session card — resting is a different kind
+   of thing, and the UI should stop presenting it as one more workout. */
+.card.restday {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  background: linear-gradient(160deg,
+    color-mix(in oklab, var(--series-1) 10%, var(--panel)),
+    var(--panel) 65%);
+  border-color: color-mix(in oklab, var(--series-1) 28%, var(--line));
+}
+
+.restday-ico {
+  flex: 0 0 auto; width: 54px; height: 54px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: color-mix(in oklab, var(--series-1) 16%, var(--panel-2));
+  color: var(--load-3);
+}
+.restday-mid { flex: 1; min-width: 180px; }
+.restday-title { font-size: 18px; font-weight: 600; line-height: 1.2; }
+.restday-sub { margin: 5px 0 0; font-size: 13px; color: var(--ink-dim); max-width: 62ch; }
+
+.restbtn {
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  width: 100%; margin-bottom: 14px;
+  background: transparent; border: 1px dashed var(--line); border-radius: var(--radius);
+  color: var(--ink-faint); font: inherit; font-size: 14px;
+  padding: 14px; cursor: pointer; min-height: var(--tap);
+}
+.restbtn:hover {
+  color: var(--load-3);
+  border-color: color-mix(in oklab, var(--series-1) 40%, var(--line));
+  border-style: solid;
+}
+
+/* ------------------------------------------------------------- swap dialog */
+
+/* Compact by design: the alternatives list is a list of names, and the reading
+   happens in the dialog. Fifteen expanded protocols is not a menu, it's a wall. */
+.swaprow {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 11px 13px; min-height: var(--tap);
+  color: inherit; font: inherit; cursor: pointer;
+}
+.swaprow:hover { border-color: var(--ink-faint); }
+.swaprow-ico { flex: 0 0 auto; color: var(--ink-faint); display: inline-flex; }
+.swaprow-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; }
+.swaprow-min { font-size: 12px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.swaprow-chev { color: var(--ink-faint); display: inline-flex; }
+.swaprow.t-swap .swaprow-ico { color: var(--viz-good); }
+.swaprow.t-ok .swaprow-ico { color: var(--viz-warn); }
+.swaprow.t-avoid { opacity: 0.66; }
+.swaprow.t-avoid .swaprow-ico { color: var(--viz-crit); }
+
+.swapverdict {
+  display: flex; gap: 9px; align-items: flex-start;
+  border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px; margin-bottom: 14px;
+}
+.swapverdict strong { font-size: 13px; }
+.swapverdict p { margin: 3px 0 0; font-size: 13px; color: var(--ink-dim); }
+.swapverdict.t-swap { border-color: color-mix(in oklab, var(--viz-good) 34%, var(--line)); color: var(--viz-good); }
+.swapverdict.t-ok { border-color: color-mix(in oklab, var(--viz-warn) 34%, var(--line)); color: var(--viz-warn); }
+.swapverdict.t-avoid { border-color: color-mix(in oklab, var(--viz-crit) 34%, var(--line)); color: var(--viz-crit); }
+
+.swapwhen {
+  margin: 10px 0 0; font-size: 13px; color: var(--ink-faint);
+  border-left: 2px solid var(--line); padding-left: 11px;
+}
+
+/* Logged-and-green outranks swapped-and-blue: done is the more useful signal. */
+.card.rec.swapped:not(.done) { border-color: color-mix(in oklab, var(--series-1) 40%, var(--line)); }
+.card.rec.swapped:not(.done) .rec-tag { color: var(--load-3); }
+
+.linkbtn {
+  background: transparent; border: 0; padding: 0; cursor: pointer;
+  font: inherit; color: var(--accent); text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---------------------------------------------------------- extra sessions */
+
+.card.rec.extra { border-color: color-mix(in oklab, var(--accent) 32%, var(--line)); }
+.card.rec.extra .rec-tag { color: var(--accent); }
+.card.rec.extra .rec-icon { background: color-mix(in oklab, var(--accent) 14%, var(--panel-2)); color: var(--accent); }
+.extra-rm { display: block; margin: 14px 0 0; font-size: 13px; color: var(--ink-faint); }
+.extra-rm:hover { color: var(--viz-crit); }
+
+.swaprow-added {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--accent); background: color-mix(in oklab, var(--accent) 14%, transparent);
+  border-radius: 999px; padding: 2px 7px;
+}
+.swaprow.added { border-color: color-mix(in oklab, var(--accent) 32%, var(--line)); }
+
+/* ------------------------------------------------------------- the day list */
+
+/* First card on the screen: every session you're doing today, as names only.
+   The protocols live in the sheet — a dashboard showing three full protocols
+   at once is a dashboard you scroll past instead of reading. */
+.daylist h2 { margin-bottom: 10px; }
+.dl-rows { display: grid; gap: 8px; }
+
+/* One child now that suggestions (and their dismiss target) are gone. Kept as a
+   wrapper because the row is a button and nesting one inside another is not a
+   thing you can do — if a second control ever returns here, this is where. */
+.dl-rowwrap { display: flex; align-items: stretch; gap: 6px; }
+.dl-rowwrap > .dl-row { flex: 1; min-width: 0; }
+
+
+.dl-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: 8px; padding: 11px 12px; min-height: var(--tap);
+  color: inherit; font: inherit; cursor: pointer;
+}
+.dl-row:hover { background: color-mix(in oklab, var(--ink) 4%, var(--panel-2)); }
+.dl-ico { flex: 0 0 auto; display: inline-flex; }
+.dl-main { flex: 1; min-width: 0; }
+.dl-name { display: block; font-size: 14px; font-weight: 600; line-height: 1.3; }
+.dl-stats {
+  display: block; font-size: 12px; color: var(--ink-faint);
+  margin-top: 2px; font-variant-numeric: tabular-nums;
+}
+.dl-tag {
+  flex: 0 0 auto; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ink-faint); background: var(--panel); border-radius: 999px; padding: 2px 8px;
+  white-space: nowrap;
+}
+.dl-check { flex: 0 0 auto; color: var(--viz-good); display: inline-flex; }
+.dl-chev { flex: 0 0 auto; color: var(--ink-faint); display: inline-flex; }
+
+/* The outline is the session's identity, and it is the same colour on the row,
+   on the sheet and on the fullscreen page. */
+.t-rec { border-left-color: var(--accent); }
+.t-rec .dl-ico, .t-rec .dl-tag { color: var(--accent); }
+.t-extra { border-left-color: var(--series-3); }
+.t-extra .dl-ico, .t-extra .dl-tag { color: var(--series-3); }
+.t-rest { border-left-color: var(--series-1); }
+.t-rest .dl-ico, .t-rest .dl-tag { color: var(--load-3); }
+.dl-row.t-adj { border-left-color: var(--line); opacity: 0.8; }
+.dl-row.t-adj .dl-name { font-weight: 500; font-size: 13px; }
+
+
+.dl-add {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; margin-top: 10px; min-height: var(--tap);
+  background: transparent; border: 1px dashed var(--line); border-radius: 8px;
+  color: var(--ink-faint); font: inherit; font-size: 13px; cursor: pointer;
+}
+.dl-add:hover { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 45%, var(--line)); border-style: solid; }
+
+/* ------------------------------------------------------------- how-to */
+
+/* The picture, and the four lines that say what the movement is. This exists
+   because the protocol prose — accurate, sourced, and several paragraphs long —
+   was not landing: two sessions got read repeatedly and done wrong anyway. So
+   the drawing goes first, the sentence goes second, and the paragraphs stay one
+   tap away instead of first in the queue. */
+
+.fig { display: block; width: 100%; height: 100%; color: var(--ink-dim); }
+
+/* Two poses crossfading. Neither ever goes fully transparent — a figure that
+   blinks out reads as a glitch, where one that fades to a ghost reads as "and
+   this is where it ends up". */
+.fig-move .fig-p1 { animation: fig-a 3s ease-in-out infinite; }
+.fig-move .fig-p2 { animation: fig-b 3s ease-in-out infinite; }
+@keyframes fig-a { 0%, 40% { opacity: 1 } 52%, 92% { opacity: 0.15 } 100% { opacity: 1 } }
+@keyframes fig-b { 0%, 40% { opacity: 0.15 } 52%, 92% { opacity: 1 } 100% { opacity: 0.15 } }
+
+@media (prefers-reduced-motion: reduce) {
+  .fig-move .fig-p1, .fig-move .fig-p2 { animation: none; }
+  .fig-move .fig-p2 { opacity: 0.28; }
+}
+
+/* --- the list ---------------------------------------------------------- */
+
+.how-list { display: grid; gap: 8px; }
+
+.how-row {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden;
+}
+.how-row.on { border-color: color-mix(in oklab, var(--accent) 45%, var(--line)); }
+
+.how-head {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  min-height: 62px; padding: 10px 12px;
+  background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.how-thumb {
+  flex: 0 0 auto; width: 50px; height: 42px;
+  display: grid; place-items: center; color: var(--ink-dim);
+}
+.how-row.on .how-thumb { color: var(--accent); }
+.how-heads { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.how-name { font-size: 15px; font-weight: 600; }
+.how-sub {
+  font-size: 12.5px; line-height: 1.4; color: var(--ink-dim);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.how-row.on .how-sub { -webkit-line-clamp: 3; }
+.how-dose {
+  flex: 0 0 auto; font-size: 12px; color: var(--ink-faint);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.how-chev { flex: 0 0 auto; color: var(--ink-faint); display: grid; place-items: center; }
+.how-row.on .how-chev { transform: rotate(180deg); color: var(--accent); }
+
+.how-none { margin: 0; padding: 0 14px 14px; font-size: 13px; color: var(--ink-faint); }
+
+/* --- the card ---------------------------------------------------------- */
+
+.how-body { padding: 0 14px 14px; }
+.how-sheetbody .how-body { padding: 0; }
+
+.how-fig {
+  height: 132px; margin-bottom: 14px; padding: 10px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px;
+  color: var(--ink);
+}
+.how-gist {
+  margin: 0 0 12px; font-size: 15px; line-height: 1.5; font-weight: 500; color: var(--ink);
+}
+
+.how-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.how-steps li { display: flex; gap: 11px; align-items: flex-start; font-size: 14px; line-height: 1.5; }
+.how-n {
+  flex: 0 0 auto; width: 21px; height: 21px; margin-top: 1px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: color-mix(in oklab, var(--accent) 18%, var(--panel));
+  color: var(--accent); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+
+.how-note {
+  display: flex; gap: 9px; align-items: flex-start;
+  margin: 12px 0 0; padding: 10px 11px; border-radius: 8px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  font-size: 13px; line-height: 1.5; color: var(--ink-dim);
+}
+.how-note > svg { flex: 0 0 auto; margin-top: 2px; color: var(--ink-faint); }
+.how-note strong {
+  display: block; color: var(--ink); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px;
+}
+.how-note.warn { border-color: color-mix(in oklab, var(--viz-warn) 35%, var(--line)); }
+.how-note.warn > svg, .how-note.warn strong { color: var(--viz-warn); }
+
+/* --- the full-screen version ------------------------------------------- */
+
+/* Above workout mode, which is z-index 80. Opened mid-set, so it is a bottom
+   sheet with a full-width dismiss bar: the only guaranteed-reachable target on
+   a phone held in one chalky hand. */
+.how-scrim {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(0, 0, 0, 0.62);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.how-sheet {
+  width: 100%; max-height: 92vh; display: flex; flex-direction: column;
+  background: var(--panel); border-top: 1px solid var(--line);
+  border-radius: 16px 16px 0 0;
+  padding: 6px 16px calc(16px + env(safe-area-inset-bottom));
+}
+.how-sheethead { display: flex; align-items: center; gap: 10px; padding: 8px 0 14px; }
+.how-sheetname { flex: 1; min-width: 0; font-size: 17px; font-weight: 600; }
+.how-sheetbody { flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; }
+button.btn.how-got {
+  flex: 0 0 auto; width: 100%; margin-top: 16px; min-height: 52px; font-size: 16px;
+}
+
+@media (min-width: 720px) {
+  .how-scrim { align-items: center; padding: 24px; }
+  .how-sheet { max-width: 520px; border-radius: 16px; border: 1px solid var(--line); }
+}
+
+/* ------------------------------------------------------- protocol sections */
+
+/* One section at a time. A twelve-step block as a single wall of text is the
+   thing people stop reading, and a session you skim is a session you do wrong. */
+.sect-nav {
+  display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
+  margin: 0 -2px 14px; padding: 2px;
+}
+.sect-nav::-webkit-scrollbar { display: none; }
+
+.sect-chip {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px;
+  color: var(--ink-faint); font: inherit; font-size: 12px; font-weight: 500;
+  padding: 7px 12px; cursor: pointer; flex: 0 0 auto;
+}
+.sect-chip:hover { color: var(--ink-dim); }
+.sect-chip.on { color: var(--ink); border-color: var(--accent); background: color-mix(in oklab, var(--accent) 12%, var(--panel-2)); }
+.sect-chip.stop.on { border-color: var(--viz-crit); background: color-mix(in oklab, var(--viz-crit) 12%, var(--panel-2)); }
+
+.sect-title {
+  display: flex; align-items: center; gap: 7px; margin: 0 0 11px;
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint);
+}
+.sect.stop .sect-title { color: var(--viz-crit); }
+
+.steps-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.step {
+  display: flex; gap: 11px; align-items: flex-start;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px;
+}
+.step-n {
+  flex: 0 0 auto; width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center;
+  background: color-mix(in oklab, var(--accent) 16%, var(--panel)); color: var(--accent);
+  font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.step-body { flex: 1; min-width: 0; font-size: 14px; line-height: 1.55; }
+.step-lead {
+  display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--accent); margin-bottom: 3px;
+}
+.sect.stop .step-lead { color: var(--viz-crit); }
+
+.bullets-list { margin: 0; padding-left: 18px; display: grid; gap: 8px; font-size: 14px; line-height: 1.55; }
+.bullets-list li { color: var(--ink-dim); }
+.bullets-list .step-lead { color: var(--ink); }
+.sect.stop .bullets-list li { color: var(--ink-dim); }
+.sect.stop .bullets-list { padding-left: 18px; }
+
+.sect-step { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
+.sect-step .btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+.sect-count { font-size: 12px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------------ notes */
+
+/* Two questions at the end of every session: how it felt, and what to change.
+   The numbers say what happened; these say why. */
+.notes { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
+.notes-head {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 11px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-faint);
+}
+
+.notefield { display: block; margin-bottom: 12px; }
+.notefield-label { display: block; font-size: 12px; color: var(--ink-dim); margin-bottom: 5px; }
+.notefield textarea {
+  min-height: 76px; resize: vertical; line-height: 1.5;
+  font-family: inherit;
+}
+
+/* The previous time you did this session, shown BEFORE you do it again —
+   "what to improve" is only worth writing if you see it while you can act. */
+.prior {
+  background: color-mix(in oklab, var(--series-1) 7%, var(--panel-2));
+  border: 1px solid color-mix(in oklab, var(--series-1) 26%, var(--line));
+  border-radius: 8px; padding: 12px 13px; margin: 14px 0;
+}
+/* What the session WAS, not only what the user wrote about it. A repeaters night with
+   no note is still a night with three sets and a load on it. */
+.prior-work { margin: 3px 0 0; font-size: 12.5px; color: var(--ink-dim); }
+.prior-head {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 9px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--load-3);
+}
+.prior-item + .prior-item { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+.prior-when {
+  font-size: 11px; color: var(--ink-faint); margin-bottom: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.prior-felt { margin: 0; font-size: 13px; color: var(--ink-dim); line-height: 1.5; }
+.prior-improve { margin: 6px 0 0; font-size: 13px; color: var(--ink); line-height: 1.5; }
+.prior-improve strong { color: var(--load-3); }
+.notes .prior { margin-bottom: 0; }
+
+/* -------------------------------------------------------------- completion */
+
+/* Putting a session on the day and doing it are different things. The row shows
+   which: a hollow ring until you say you did it. */
+.dl-check { color: var(--ink-faint); }
+.dl-check.on { color: var(--viz-good); }
+.dl-row.done { border-left-width: 3px; }
+.dl-row:not(.done) .dl-name { color: var(--ink-dim); }
+
+button.btn.done-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+}
+button.btn.done-btn.on { color: var(--viz-good); border-color: color-mix(in oklab, var(--viz-good) 40%, var(--line)); }
+.fs-done { margin-bottom: 16px; }
+.fs-done .btn { width: 100%; }
+
+/* ------------------------------------------------------------------ trip */
+
+/* Four days the whole block was built for. On those dates the Today tab stops
+   being a slot in the week template and becomes this. */
+.tripnow { border-top: 3px solid var(--series-3); }
+.tripnow-head { display: flex; align-items: center; gap: 12px; }
+.tripnow-ico {
+  flex: 0 0 auto; width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center;
+  background: color-mix(in oklab, var(--series-3) 15%, var(--panel-2)); color: var(--series-3);
+}
+.tripnow-day { font-size: 16px; font-weight: 600; }
+.tripnow-area { font-size: 12px; color: var(--ink-faint); margin-top: 2px; }
+.tripnow-tally {
+  margin-left: auto; flex: 0 0 auto; font-size: 12px; color: var(--ink-dim);
+  border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; white-space: nowrap;
+}
+.tripnow-plan { font-size: 14px; line-height: 1.55; margin: 12px 0 0; color: var(--ink-dim); }
+
+.tripsess.done { border-color: color-mix(in oklab, var(--viz-good) 35%, var(--line)); }
+.tripsess .done-btn { width: 100%; margin-bottom: 12px; }
+.ci-field .out-label { font-size: 12px; }
+.pattern-delta.up { color: var(--good); }
+.pattern-delta.down { color: var(--bad); }
+
+/* -------------------------------------------------------------- day list */
+
+.dl-empty { padding: 6px 0 2px; }
+.dl-empty-lead { margin: 0 0 6px; font-size: 14px; color: var(--ink-dim); }
+.dl-empty-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.dl-empty-acts .btn { display: inline-flex; align-items: center; gap: 7px; }
+
+/* A session somebody wrote down in advance. Says so on the row, because "does
+   this one have sets in it" is the difference between opening the sheet and
+   opening the runner. */
+.plannedchip {
+  margin-left: 7px; padding: 1px 7px; border-radius: 999px;
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
+  color: var(--accent); background: color-mix(in oklab, var(--accent) 14%, transparent);
+  vertical-align: 1px;
+}
+
+/* ----------------------------------------------------- naming one workout
+
+   A rename is mostly a TAP (2026-09-21): the box is for the specific case and
+   the chips are for everything else. The box is empty and the name the session
+   already has is its placeholder, so clearing it is how you get the default
+   back — the same rule "time spent" follows. Chips reuse `.out-chip`, at the
+   app's 44px tap size, and the overflow is a `<details>` so every name declared
+   in `quickNames` is in the page and one tap away. */
+.out-name-box {
+  width: 100%; min-height: var(--tap); margin-top: 8px;
+  padding: 0 12px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius);
+  color: var(--ink); font: inherit; font-size: 16px;   /* 16px or iOS zooms */
+}
+.out-name-box:focus { outline: none; border-color: color-mix(in oklab, var(--accent) 55%, var(--line)); }
+.out-name-box::placeholder { color: var(--ink-faint); }
+.out-name-reset {
+  background: none; border: none; padding: 0;
+  color: var(--ink-faint); font: inherit; font-size: 11px;
+  text-decoration: underline; cursor: pointer;
+}
+.out-name-reset:hover { color: var(--ink-dim); }
+/* Folded, with the +/− the split editor already uses — a summary laid out with
+   flex loses its own marker in Chrome, so "8 more" read as inert text. */
+.out-name-more { margin-top: 2px; }
+.out-name-more > summary {
+  min-height: 38px; display: flex; align-items: center;
+  color: var(--ink-faint); font-size: 12px; cursor: pointer; list-style: none;
+}
+.out-name-more > summary::-webkit-details-marker { display: none; }
+.out-name-more > summary::before { content: '+ '; color: var(--ink-faint); margin-right: 5px; }
+.out-name-more[open] > summary::before { content: '\2212 '; }
+.out-name-more > summary:hover { color: var(--ink-dim); }

@@ -334,7 +334,7 @@ Every file below has exactly one owner. Shell-resident pieces are named explicit
 a shell file stays with the shell owner (#29), and a batch that needs a change there asks for it
 in its PR description rather than making it.
 
-**Before wave 2 starts, one pure-move PR (#29's follow-up, no visual or behaviour change):**
+**Before wave 2 starts, one pure-move PR (#29's follow-up, no visual or behaviour change). Done (#39); what it did is noted under each item:**
 
 - Split `styles.css`: it keeps the tokens, the base components and the shell (header, dock,
   `.fabs`, `.fabmenu`, `.acting`, `.modal`/`.fs`/`.pop`, `.confirm`). Everything else moves,
@@ -342,14 +342,30 @@ in its PR description rather than making it.
   after `styles.css` (the way #36 imports `timer.css`): `today.css` (A), `logging.css` (B,
   including #33's `.plandraft*`), `feed.css` (C), `profile.css` (D), `people.css` (E). The
   palette check keeps reading the first `:root` in `styles.css`.
+  - Done, with three refinements. Area files load between `styles.css` and `timer.css` (where
+    their rules used to sit). The desktop `@media (min-width: 1024px)` block is split by area,
+    so each area's overrides load after the rules they override. `.card.note`, `.filters` and
+    `.blurb-head h2` stay in `styles.css`, because shell rules later in it override them.
+  - The rules for the screens #38 removed (coach, check-in, week planner, quota bars, journal,
+    achievements, goals) were deleted rather than moved: 269 rules that nothing renders. A few
+    live rules sat in those sections (the planner's `.thinking`/`.coachdots` and their
+    `@keyframes coachpulse`, `.md`, `.qbtn`, the notification rows, `.sub.warn`) and moved to
+    their area. Older Today layouts nothing renders any more (the recommender's cards, the swap
+    dialog, history, trip) were kept, rule for rule, in `today.css` for batch A to delete.
+  - Checked by comparing main's build with the split: every rule but the deleted ones is
+    unchanged, and every element's computed style is identical on 23 screens at 390, 720 and
+    1280px.
+  - **Every new rule goes in its area's file**; `styles.css` takes only tokens, base components
+    and shell.
 - Move `TestingTab` and `WhyTab` out of `tabs.jsx` into `app/src/testing.jsx` (and
   `features/tabs.tsx` into `features/testing.tsx`), so the climbing pages belong to D and Today to A.
 - Move `DayStepper` from `features/app.tsx` to `mobile/src/ui/DayStepper.tsx`: it is the day
   switcher pattern, used by Today, the rest day and gear.
 - Split `app/smoke.jsx` into delimited sections, `// ===== batch A: Today and the session sheet
-  =====` and so on, one per batch plus `// ===== shell =====`. Each batch appends its cases only
-  inside its own section; a case that has to change in someone else's section is called out in
-  the PR.
+  =====` and so on, one per batch plus `// ===== shell =====` and the timer's (#36). Each batch
+  adds and edits cases only inside its own section; a case that has to change in someone else's
+  section is called out in the PR. Done: every existing case is in its owner's section, unchanged
+  and in its old relative order (the smoke run lists the same cases, rendering the same sizes).
 
 | Batch | Screens | Web (each file one owner) | iPhone twin | Waits for |
 |---|---|---|---|---|

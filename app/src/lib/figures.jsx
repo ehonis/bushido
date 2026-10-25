@@ -20,7 +20,7 @@
  *
  * `props` is scenery — the rail, the floor, the wall — drawn faint, so the body
  * is what your eye lands on. Under prefers-reduced-motion the crossfade stops
- * and pose B stays ghosted behind pose A; see .fig in styles.css.
+ * and pose B stays ghosted behind pose A; see .fig in css/today.css.
  *
  * Coordinates are a 120x100 box. Keep figures legible at 64px, which is the size
  * they render at mid-set, at arm's length, on a phone.

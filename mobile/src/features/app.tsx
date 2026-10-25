@@ -8,8 +8,9 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { colors, elevation, font, radius, space } from '../theme'
 import { T } from '../ui/Text'
-import { Btn, Chip, Field, Input, NoteField, Press } from '../ui/kit'
+import { Btn, Chip, Field, NoteField, Press } from '../ui/kit'
 import { Modal } from '../ui/Sheet'
+import { DayStepper } from '../ui/DayStepper'
 import { Icon } from '../lib/icons'
 import { localIso } from '../lib/dates.js'
 import { actAs } from '../lib/whoami.js'
@@ -160,25 +161,6 @@ export function RestPrompt({ opt, date: initialDate, entryFor, onSave, onClose }
   )
 }
 
-/** The web's <input type="date" max={today}> as a day stepper: back a day, forward up to today. */
-export function DayStepper({ value, max, onChange }: { value: string; max?: string; onChange: (iso: string) => void }) {
-  const shift = (n: number) => {
-    const d = new Date(`${value}T12:00:00`)
-    d.setDate(d.getDate() + n)
-    const iso = localIso(d)
-    if (max && iso > max) return
-    onChange(iso)
-  }
-  const label = new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-      <Press haptic onPress={() => shift(-1)} style={st.dayBtn} accessibilityLabel="The day before"><Icon name="ChevronLeft" size={18} color={colors.inkDim} /></Press>
-      <Input value={label} editable={false} style={{ flex: 1, textAlign: 'center' }} />
-      <Press haptic onPress={() => shift(1)} disabled={Boolean(max && value >= max)} style={st.dayBtn} accessibilityLabel="The day after"><Icon name="ChevronRight" size={18} color={colors.inkDim} /></Press>
-    </View>
-  )
-}
-
 const st = StyleSheet.create({
   // The visual system's acting banner and + menu (styles.css .acting, .fabmenu).
   acting: {
@@ -198,5 +180,4 @@ const st = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: 64, paddingVertical: space[2], paddingHorizontal: space[3], borderRadius: radius.card },
   rowIco: { width: 44, height: 44, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center' },
   cancel: { minHeight: 44, marginTop: space[1], alignItems: 'center', justifyContent: 'center', borderRadius: radius.card, backgroundColor: colors.panel2 },
-  dayBtn: { width: 44, height: 44, borderRadius: 8, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
 })

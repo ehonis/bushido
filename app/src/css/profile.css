@@ -1,0 +1,442 @@
+/*
+ * Profile and connections (batch D): profile sections, Testing and Why, gear,
+ * notifications, WHOOP, Strava, unlogged workouts.
+ *
+ * Moved out of styles.css rule for rule and in the same order (2026-10-25). Tokens, base
+ * components and the shell stay there; this file only uses them.
+ */
+/* ------------------------------------------------------- plan / tab chrome */
+
+.deflist { display: grid; grid-template-columns: minmax(96px, auto) 1fr; gap: 8px 14px; margin: 0; font-size: 14px; }
+.deflist dt { color: var(--ink-faint); font-size: 12px; padding-top: 2px; }
+.deflist dd { margin: 0; }
+
+.phase { border-left: 2px solid var(--line); padding: 0 0 12px 14px; margin-left: 4px; }
+.phase-head { display: flex; align-items: baseline; gap: 10px; }
+.phase-name { font-weight: 600; font-size: 14px; }
+.phase-weeks { font-size: 12px; color: var(--ink-faint); }
+.phase-goal { margin: 3px 0 0; font-size: 13px; color: var(--ink-dim); }
+
+.wk { padding: 0; overflow: hidden; }
+.wk.now { border-color: color-mix(in oklab, var(--accent) 45%, var(--line)); }
+.wk-head {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  background: transparent; border: 0; color: inherit; font: inherit; padding: 14px 16px;
+  cursor: pointer; min-height: var(--tap);
+}
+.wk-n { font-weight: 600; font-size: 13px; color: var(--ink-dim); flex: 0 0 30px; }
+.wk-info { display: flex; flex-direction: column; flex: 1; }
+.wk-phase { font-size: 14px; }
+.wk-dates { font-size: 12px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.wk-badge { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--accent); border: 1px solid currentColor; border-radius: 4px; padding: 2px 5px; }
+.wk-chev { color: var(--ink-faint); font-size: 17px; }
+.wk .deflist { padding: 0 16px 16px; }
+
+.rules { margin: 0; padding-left: 18px; font-size: 14px; }
+.rules li { margin-bottom: 8px; }
+.rules strong { color: var(--ink); }
+
+/* ------------------------------------------------------------- test runner */
+
+.runner { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px; }
+.runner-sec { margin-bottom: 18px; }
+.runner-sec h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint); margin: 0 0 7px; }
+.runner-sec p { margin: 0; font-size: 14px; }
+.runner-sec.caution ul { margin: 0; padding-left: 18px; font-size: 14px; color: var(--ink-dim); }
+.steps { margin: 0; padding-left: 20px; font-size: 14px; }
+.steps li { margin-bottom: 7px; }
+
+/* -------------------------------------------------------------------- gear */
+
+.gear { padding: 11px 0; border-top: 1px solid var(--line); }
+.gear:first-of-type { border-top: 0; padding-top: 0; }
+.gear.skip { opacity: 0.6; }
+.gear-row { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 14px; }
+.gear-name { flex: 1; font-weight: 500; }
+.gear-price { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.gear-why { margin: 5px 0 0; font-size: 13px; color: var(--ink-dim); }
+.gear-link { font-size: 12px; color: var(--series-1); text-decoration: none; }
+/* Chip: a filter or a short answer, pill-shaped. 36px tall in a filter row
+   (the row's gap keeps a miss from landing on a neighbour); an answer to a
+   question is `.out-chip`, the same pill at 44px. Selected is the accent tint,
+   never colour alone: the border and fill change too. */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font: inherit; font-size: var(--fs-small); color: var(--ink-dim); background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: var(--r-pill); padding: 0 var(--sp-3);
+  cursor: pointer; min-height: 36px; white-space: nowrap;
+}
+.chip:hover { color: var(--ink); }
+.chip.on { color: var(--ink); border-color: var(--accent-line); background: var(--accent-soft); }
+.chip.ghost { border-style: dashed; background: transparent; }
+
+.ev-head { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 7px; }
+.ev-claim { font-weight: 600; font-size: 14px; flex: 1; }
+.ev-badge {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 7px;
+  border-radius: 4px; flex: 0 0 auto; border: 1px solid currentColor;
+}
+.ev-badge.supported { color: var(--viz-good); }
+.ev-badge.mixed { color: var(--viz-warn); }
+.ev-badge.refuted { color: var(--viz-crit); }
+.ev-body { margin: 0; font-size: 14px; color: var(--ink-dim); }
+.ev-do { margin: 9px 0 0; font-size: 14px; }
+.ev-src { margin: 9px 0 0; font-size: 12px; color: var(--ink-faint); }
+
+code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+
+.tripday { padding: 11px 0; border-top: 1px solid var(--line); }
+.tripday:first-of-type { border-top: 0; padding-top: 0; }
+.tripday-h { font-weight: 600; font-size: 14px; margin-bottom: 3px; }
+.tripday-b { margin: 0; font-size: 13px; color: var(--ink-dim); }
+
+.disagree { border-top: 1px solid var(--line); padding-top: 10px; }
+.disagree summary { font-size: 13px; color: var(--ink-dim); cursor: pointer; list-style: none; min-height: 32px; display: flex; align-items: center; }
+.disagree summary::before { content: '▸ '; margin-right: 5px; color: var(--ink-faint); }
+.disagree[open] summary::before { content: '▾ '; }
+.disagree p { margin: 6px 0 0; font-size: 13px; color: var(--ink-dim); }
+
+/* --------------------------------------------------------------- whoop */
+
+.wh { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 13px; }
+.wh-head {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-faint);
+}
+.wh-head svg { color: var(--series-2); }
+.wh-pull {
+  margin-left: auto; font: inherit; font-size: 11px; text-transform: none; letter-spacing: 0;
+  color: var(--ink-dim); background: transparent; border: 1px solid var(--line);
+  border-radius: 999px; padding: 0 11px; min-height: 30px; cursor: pointer;
+}
+.wh-pull:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-faint); }
+.wh-pull:disabled { opacity: 0.55; cursor: default; }
+
+.wh-list { display: grid; gap: 9px; margin-top: 9px; }
+.wh-item {
+  border: 1px solid var(--line); border-radius: 9px; padding: 10px 11px; background: var(--panel-2);
+}
+/* The suggestion is marked, not selected — it still takes a tap. */
+.wh-item.likely { border-color: color-mix(in oklab, var(--accent) 45%, var(--line)); }
+.wh-item.attached { border-color: color-mix(in oklab, var(--viz-good) 40%, var(--line)); }
+.wh-item.taken { opacity: 0.72; }
+
+.wh-item-top { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.wh-sport { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; }
+.wh-sport svg { color: var(--viz-good); }
+.wh-when { font-size: 12px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.wh-tag {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent);
+  border: 1px solid color-mix(in oklab, var(--accent) 50%, var(--line));
+  border-radius: 4px; padding: 2px 6px;
+}
+.wh-nums { margin-top: 5px; font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.wh-partial { color: var(--viz-warn); }
+.wh-note { margin: 7px 0 0; font-size: 12px; color: var(--ink-faint); }
+/* The list of what is still attachable, under what already is. */
+.wh-more { margin: 12px 0 6px; font-size: 12px; color: var(--ink-faint); }
+.wh-total {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line);
+}
+.wh-empty { margin: 9px 0 0; font-size: 12px; color: var(--ink-faint); }
+.wh-err { margin: 9px 0 0; font-size: 12px; color: var(--viz-warn); }
+
+.wh-btn {
+  margin-top: 8px; font: inherit; font-size: 13px;
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  color: var(--ink); padding: 0 13px; min-height: 44px; cursor: pointer;
+}
+.wh-btn:hover { border-color: var(--ink-faint); }
+.wh-btn.ghost { min-height: 32px; padding: 0 10px; font-size: 12px; color: var(--ink-dim); margin-top: 0; }
+
+/* --- one workout, two sessions --- */
+
+/* Folded away by default: on the ordinary night when one workout is one session,
+   this is a line of text the user never opens. */
+.wh-splitwrap { margin-top: 9px; }
+.wh-splitwrap > summary {
+  font-size: 12px; color: var(--ink-dim); cursor: pointer; list-style: none;
+  min-height: 32px; display: flex; align-items: center;
+}
+.wh-splitwrap > summary::-webkit-details-marker { display: none; }
+.wh-splitwrap > summary::before { content: '+ '; color: var(--ink-faint); margin-right: 5px; }
+.wh-splitwrap[open] > summary::before { content: '− '; }
+.wh-splitwrap > summary:hover { color: var(--ink); }
+
+.wh-split { padding: 4px 0 2px; }
+.wh-splitrow { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.wh-splitrow label { display: flex; flex-direction: column; gap: 4px; }
+.wh-splitrow label > span {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-faint);
+}
+/* Big enough to hit with one thumb, in a gym, still chalky. */
+.wh-splitrow input { font-size: 16px; min-height: 44px; padding: 0 10px; }
+.wh-splitmin { font-size: 15px; font-weight: 600; padding-bottom: 12px; font-variant-numeric: tabular-nums; }
+.wh-splitbtns { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* --- the readiness card --- */
+
+.wh-card h2 { display: flex; align-items: center; gap: 8px; }
+.wh-card h2 svg { color: var(--series-2); }
+.wh-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)); gap: 10px; margin-top: 4px; }
+.wh-stat {
+  border: 1px solid var(--line); border-left-width: 3px; border-radius: 8px;
+  padding: 9px 10px; background: var(--panel-2); display: flex; flex-direction: column; gap: 2px;
+}
+.wh-stat.good { border-left-color: var(--viz-good); }
+.wh-stat.flat { border-left-color: var(--viz-muted); }
+.wh-stat.warn { border-left-color: var(--viz-warn); }
+.wh-stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint); }
+.wh-stat-value { font-size: 21px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.wh-stat-unit { font-size: 12px; font-weight: 400; color: var(--ink-faint); }
+.wh-stat-sub { font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.wh-card-note { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 0 0; }
+
+/* --- last night (WhoopSleep) --- */
+.sleep-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.sleep-head h2 { margin: 0; }
+.sleep-range { margin: 0; flex: 0 0 auto; }
+.sleep-range button { flex: 0 0 auto; min-width: 48px; min-height: 36px; padding: 6px 10px; }
+.sleep-stats { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin: 12px 0 6px; font-variant-numeric: tabular-nums; }
+.sleep-stats > span { display: flex; flex-direction: column; line-height: 1.15; }
+.sleep-stats b { font-size: 15px; font-weight: 600; }
+.sleep-stats .lead b { font-size: 22px; }
+.sleep-stats small { font-size: 11px; color: var(--ink-faint); }
+.sleep-stats .up b { color: var(--good); }
+.sleep-stats .down b { color: var(--bad); }
+.sleep-stats .faint b { color: var(--ink-dim); }
+.sleep-stats .viz-toggle { margin-left: auto; }
+.sleep-svg { display: block; touch-action: pan-y; }
+/* The viewed day's night on the sleep chart (--sleep-today, in :root). */
+.sleep-today-tick, .sleep-readout strong.sleep-today-tick { fill: var(--sleep-today); color: var(--sleep-today); font-weight: 600; }
+.sleep-len { font-size: 9.5px; }
+.sleep-readout { display: flex; flex-wrap: wrap; gap: 4px 12px; min-height: 22px; margin-top: 6px; font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.sleep-readout strong { color: var(--ink); font-weight: 600; }
+.sleep-readout i, .sleep-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+.sleep-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; font-size: 11px; color: var(--ink-faint); }
+.sleep-legend i.line { width: 12px; height: 2px; vertical-align: middle; border-radius: 1px; }
+.sleep-legend i.sleep-rec-key { background: linear-gradient(90deg, var(--bad) 33%, var(--warn) 33% 66%, var(--good) 66%); }
+
+/* Strava shares the WHOOP block's bones; only the accents differ. */
+.wh-head svg.sv-ico { color: #fc4c02; }
+.sv-name { font-weight: 600; }
+.sv-desc { font-style: italic; }
+.wh-note a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.sv-laps table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.sv-laps th { text-align: right; font-weight: 500; color: var(--ink-faint); padding: 2px 6px; border-bottom: 1px solid var(--line); }
+.sv-laps td { text-align: right; padding: 3px 6px; color: var(--ink-dim); }
+.sv-laps th:first-child, .sv-laps td:first-child { text-align: left; }
+
+/* ------------------------------------------------------ critical force ceiling */
+
+/* The number the test exists to produce. Sits under the critical-force chart
+   because "what do I set the gauge to" is the only question that matters after
+   running it. */
+.ceiling {
+  margin-top: 14px; padding: 14px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px;
+  border-left: 3px solid var(--series-3);
+}
+.ceiling-head {
+  display: flex; align-items: center; gap: 7px; margin-bottom: 12px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-faint);
+}
+.ceiling-date { margin-left: auto; text-transform: none; letter-spacing: 0; }
+.ceiling-nums { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 14px; }
+.ceiling-big { display: flex; flex-direction: column; gap: 2px; }
+.ceiling-big strong {
+  font-size: 30px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
+}
+.ceiling-big.accent strong { color: var(--accent); }
+.ceiling-big span { font-size: 11px; color: var(--ink-faint); }
+.ceiling .deflist { font-size: 13px; }
+.ci-msg.you .ci-msg-text {
+  color: var(--ink); background: var(--panel-2); border-radius: 9px; padding: 8px 11px;
+}
+
+.quotafoot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+  margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line);
+}
+.quotafoot .sub { margin: 0; }
+
+/* ------------------------------ workouts the watch knows and the log does not */
+
+.unlogged h2 { display: flex; align-items: center; gap: 7px; }
+.unlogrow {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto auto;
+  align-items: center; gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.unlogrow-ico { color: var(--accent); }
+.unlogrow-name { display: grid; gap: 1px; min-width: 0; }
+.unlogrow-name strong { font-size: 14px; }
+.unlogrow-name .sub { margin: 0; font-size: 11px; }
+.unlogrow-take {
+  min-height: var(--tap); padding: 0 12px;
+  background: var(--panel-2); border: 1px solid var(--accent); border-radius: var(--radius);
+  color: var(--accent); font-size: 13px; cursor: pointer;
+}
+.unlogrow-no {
+  width: var(--tap); height: var(--tap);
+  display: grid; place-items: center;
+  background: none; border: none; color: var(--ink-faint); cursor: pointer;
+}
+
+/* One activity, two instruments. The badges are the app SHOWING its claim: it has
+   decided a WHOOP workout and a Strava activity are the same ride, and a claim the user
+   cannot see is one the user cannot correct — hence "Not the same" beside it. */
+.unlogrow.merged { border-left: 2px solid var(--series-3); padding-left: 8px; }
+.unlogrow-srcs { display: flex; gap: 4px; margin-top: 2px; }
+.srcpip {
+  padding: 1px 5px; border-radius: 4px; font-size: 10px; letter-spacing: 0.02em;
+  border: 1px solid var(--line); color: var(--ink-dim);
+}
+.srcpip.whoop { border-color: color-mix(in oklab, var(--series-1) 45%, var(--line)); }
+.srcpip.strava { border-color: color-mix(in oklab, var(--series-2) 45%, var(--line)); }
+.unlogrow-why { display: block; color: var(--series-3); font-size: 10.5px; margin-top: 2px; }
+.unlogrow-acts { display: grid; gap: 4px; justify-items: stretch; }
+.unlogrow-split {
+  min-height: 28px; padding: 0 8px;
+  background: none; border: none; color: var(--ink-faint);
+  font-size: 11px; text-decoration: underline; cursor: pointer; white-space: nowrap;
+}
+
+/* ------------------------------------------------------ the facts form */
+
+.factgrid { display: grid; gap: 12px; }
+.fact-label { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.fact-label em { color: var(--ink-faint); font-style: normal; }
+.fact-hint { font-size: 11px; color: var(--ink-faint); margin-top: 3px; }
+.setrow { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+@media (min-width: 620px) { .factgrid { grid-template-columns: 1fr 1fr; } }
+
+/* -------------------------------------------------------------- gear */
+
+.gearrow {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center; gap: 10px;
+  padding: 11px 0; border-top: 1px solid var(--line);
+}
+.gearrow.retired { opacity: 0.55; }
+.gearrow-name { display: grid; gap: 3px; min-width: 0; }
+.gearrow-name strong { font-size: 14.5px; }
+.gearrow-name .sub {
+  margin: 0; font-size: 11px;
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+}
+.gearpip {
+  padding: 1px 5px; border-radius: 4px; font-size: 10px;
+  border: 1px solid var(--line); color: var(--ink-faint);
+}
+/* The mileage gap, said out loud — see GearRow. */
+.gearrow-gap { font-size: 10.5px; color: var(--warn); }
+.gearrow-num { display: grid; justify-items: end; gap: 1px; text-align: right; }
+.gearrow-num strong { font-size: 19px; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.gearrow-num em { font-style: normal; font-size: 11px; color: var(--ink-faint); }
+.gearrow-num .sub { margin: 0; font-size: 10.5px; }
+.gearrow-acts { display: flex; gap: 2px; }
+.gearrow-acts button {
+  width: var(--tap); height: var(--tap); display: grid; place-items: center;
+  background: none; border: none; color: var(--ink-faint); cursor: pointer;
+}
+.gearrow-acts button:hover { color: var(--ink); }
+.gearform { border-color: color-mix(in oklab, var(--accent) 35%, var(--line)); }
+
+/* Which gear a workout was done on. */
+.gearpick { display: flex; flex-wrap: wrap; gap: 6px; }
+.gearchip {
+  display: flex; align-items: center; gap: 7px;
+  min-height: var(--tap); padding: 0 12px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius);
+  color: var(--ink-dim); font-size: 13px; cursor: pointer;
+}
+.gearchip.on { border-color: var(--accent); color: var(--accent); }
+.journal-foot .restbtn { flex: 1; margin: 0; }
+
+/* Notification rows in the profile panel. Same idea as the setrow above, but the
+   copy wraps to two or three lines and the reason chips open inline underneath,
+   so it needs its own alignment rather than a shared baseline. */
+.notifrow {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 0; border-top: 1px solid var(--line);
+}
+.notifrow:first-of-type { border-top: 0; }
+.notifcopy { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.notifcopy strong { font-size: 14px; line-height: 1.35; }
+.notifcopy .sub { margin: 0; }
+.notifcopy .sub.dim { opacity: .65; font-size: 12px; }
+.notifchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.notifvote { display: flex; gap: 2px; flex: none; }
+/* The base .iconbtn and .chip are the system's (top of this file); these
+   were once second, global definitions here that shrank every chip in the app
+   and coloured them with a variable that did not exist. */
+.notifvote .iconbtn.on { color: var(--good); }
+.notifvote .iconbtn.on.down { color: var(--bad); }
+.sub.warn { color: var(--warn, #e6b800); }
+
+/* ------------------------------------ merging a measurement into a session */
+
+.unlogrow-merge {
+  background: transparent; border: 1px solid var(--line); border-radius: 8px;
+  color: var(--ink-dim); font: inherit; font-size: 12px; cursor: pointer;
+  min-height: 32px; padding: 0 10px;
+}
+.unlogrow-merge:hover { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 45%, var(--line)); }
+
+.mergepick {
+  grid-column: 1 / -1; margin-top: 10px; padding: 10px 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+}
+.mergepick .sub { margin: 0 0 9px; font-size: 12px; color: var(--ink-dim); line-height: 1.5; }
+.mergepick-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  margin-bottom: 6px; padding: 0 11px; min-height: var(--tap);
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.mergepick-row:last-child { margin-bottom: 0; }
+.mergepick-row:hover { border-color: color-mix(in oklab, var(--accent) 45%, var(--line)); }
+.mergepick-name { flex: 1; min-width: 0; font-size: 13.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mergepick-name em { font-style: normal; color: var(--ink-faint); font-size: 12px; }
+.mergepick-meta { flex: 0 0 auto; font-size: 12px; color: var(--ink-faint);
+  font-variant-numeric: tabular-nums; }
+
+/*
+ * Planned, not done — the dotted continuation of a quota bar.
+ *
+ * A planned workout fills its share of the progress bar with a dotted segment,
+ * showing that it is planned but not yet done.
+ *
+ * A repeating gradient rather than a border-style, because this is a filled
+ * segment and `dashed` only draws edges. Dimmed to about a third of the accent so
+ * it cannot be mistaken for the solid fill at arm's length — a week of plans must
+ * not read as a week of training.
+ */
+.qb-soon {
+  display: block; height: 100%; border-radius: 999px;
+  background: repeating-linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--accent) 40%, transparent) 0 5px,
+    transparent 5px 10px);
+  transition: width 240ms ease;
+}
+.qb-track { display: flex; }
+.qb-fill, .qb-soon { flex: 0 0 auto; }
+
+/* ------------------------------------------------------- the screen readout */
+
+.screen-grid {
+  display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 10px 0;
+  font-size: 13px; font-variant-numeric: tabular-nums;
+}
+.screen-grid dt { color: var(--ink-faint); }
+.screen-grid dd { margin: 0; color: var(--ink); }
+.screen-verdict { margin: 0; display: flex; gap: 6px; align-items: flex-start; line-height: 1.45; }
+.screen-verdict svg { flex: 0 0 auto; margin-top: 3px; }

@@ -4,7 +4,8 @@
  */
 import { renderToString } from 'react-dom/server'
 import { readFileSync } from 'node:fs'
-import { TodayTab, TestingTab, WhyTab, SessionSheet } from './src/tabs.jsx'
+import { TodayTab, SessionSheet } from './src/tabs.jsx'
+import { TestingTab, WhyTab } from './src/testing.jsx'
 import {
   PlanFlow, PrescriptionEditor, KeptStep, PlanTalk, BuildStep, groupedKinds, liftFieldOf,
   DraftList, Working,
@@ -307,6 +308,37 @@ const LEGACY = [
 const LEGACY_WORDS = /quota|This week|no gym tonight|crimp crawls\.|Sauna|Run a 50k|Achievement|Journal|Check in/i
 
 const cases = [
+  /*
+   * One section per owner (docs/DESIGN.md, "Wave 2: who owns which file"). A batch adds
+   * and edits cases only in its own section, so parallel PRs do not touch the same
+   * lines; a PR that has to change a case in another section says so. Within a section
+   * the cases keep the order they had.
+   */
+
+  // ===== shell: header, dock, + menu frame, acting banner (#29) =====
+
+  /*
+   * More than one person (lib/whoami.js). Everyone gets the same three tabs;
+   * someone the AI is not set up for gets only "Build it myself". Pinned from
+   * both sides, so a regression in either direction is a failure rather than a
+   * quiet change.
+   */
+  ['tabsFor(three tabs, for everyone: Today, Log, Progress)', null, () => {
+    for (const [features, owner] of [[{ ai: true }, true], [{ ai: false }, false], [{ ai: true }, false]]) {
+      const ids = tabsFor(features, owner).map(t => t.id).join()
+      if (ids !== 'today,log,progress') throw new Error(`tabs ${ids} for ${JSON.stringify(features)}, owner ${owner}`)
+    }
+  }],
+  ['ActingBanner(says whose log is open, with the way back)', null, () => {
+    const acting = { id: 'sam', name: 'Sam', acting: true, real: { id: 'owner', name: 'Alex', admin: true } }
+    const t = text(renderToString(<ActingBanner me={acting} />))
+    if (!/Logging for.*Sam/.test(t)) throw new Error('the banner does not name whose log this is')
+    if (!/Back to Alex/.test(t)) throw new Error('no way back')
+    if (renderToString(<ActingBanner me={{ ...acting, acting: false }} />) !== '') throw new Error('a banner on your own log')
+  }],
+
+  // ===== batch A: Today and the session sheet =====
+
   ['TodayTab', <TodayTab plan={plan} entries={entries} upsertEntry={noop} deleteEntry={noop} />,
     (html) => {
       const t = text(html)
@@ -318,52 +350,6 @@ const cases = [
       if (/Journal/.test(t)) throw new Error('the journal is back on Today')
       if (/class="tiles"/.test(html)) throw new Error('the stat tile row came back')
     }],
-  ['TestingTab', <TestingTab plan={plan} entries={entries} upsertEntry={noop} deleteEntry={noop} />],
-  ['GearSection(empty)', <GearSection plan={plan} entries={[]} strava={null} upsertEntry={noop} deleteEntry={noop} />],
-  ['GearSection(strava bikes and shoes)', <GearSection plan={plan} entries={[]}
-    strava={STRAVA_CACHE} upsertEntry={noop} deleteEntry={noop} />,
-    (html) => {
-      if (!/Strava/.test(text(html))) throw new Error('synced gear is not labelled as synced')
-    }],
-  ['GearSection(local gear with use on it)', <GearSection plan={plan}
-    strava={STRAVA_CACHE}
-    entries={[
-      { id: 'gear-rope', kind: 'gear', data: { name: 'Mammut 9.5', kind: 'rope', primary: true, acquired: '2025-03-01' } },
-      { id: 'gear-plates', kind: 'gear', data: { name: 'Cast iron', kind: 'weights' } },
-      { id: `daily-${TODAY}-board`, kind: 'daily', date: TODAY, updatedAt: 'z',
-        data: { optId: 'board', level: 4, done: true, minutes: 120, out: { gear: ['gear-rope'] } } },
-    ]}
-    upsertEntry={noop} deleteEntry={noop} />,
-    (html) => {
-      const t = text(html)
-      if (!/Mammut/.test(t)) throw new Error('local gear is missing')
-      // Two units on one page, which is the point: the metric belongs to the KIND,
-      // so a bike reads in miles and a rope reads in hours without either
-      // item having to declare it.
-      if (!/\bhr\b/.test(t)) throw new Error('a rope should read in hours')
-      if (!/\bmi\b/.test(t)) throw new Error('a bike should still read in miles')
-    }],
-  ['GearSection(retired gear keeps its hours)', <GearSection plan={plan} strava={null}
-    entries={[{ id: 'g1', kind: 'gear', data: { name: 'Worn rope', kind: 'rope', retired: true, priorMinutes: 12000 } }]}
-    upsertEntry={noop} deleteEntry={noop} />,
-    (html) => {
-      if (!/200/.test(text(html))) throw new Error('the hours on a retired rope are why you retired it')
-    }],
-  ['ProfileMenu(with a picture)', <StravaProvider initial={{ cache: STRAVA_CACHE, status: 'ok' }}>
-    <ProfileMenu plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} status="synced" />
-  </StravaProvider>,
-    (html) => {
-      if (!/Sam/.test(text(html))) throw new Error('the header does not say who the athlete is')
-      // Closed by default: the panel is a menu, not a page, and mounting it open
-      // would put a gear editor over the app on every load.
-      if (/Your gear/.test(text(html))) throw new Error('the menu should start closed')
-    }],
-  ['ProfileMenu(no strava at all)', <ProfileMenu plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} status="offline" />,
-    (html) => {
-      if (!/You/.test(text(html))) throw new Error('a header saying null is worse than one saying nothing')
-    }],
-  ['WhyTab', <WhyTab plan={plan} />],
-  ['LogTab', <LogTab plan={plan} entries={entries} upsertEntry={noop} deleteEntry={noop} />],
   // Empty state: a brand-new install must not crash before anything is logged.
   ['TodayTab(empty)', <TodayTab plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
   /* An old log with quotas, a check-in, a journal day and an achievement in it:
@@ -375,33 +361,6 @@ const cases = [
       if (!/Nothing on today yet/.test(t)) throw new Error('a legacy entry shows up as something on the day')
       if (LEGACY_WORDS.test(t)) throw new Error(`a removed feature's data is on screen: ${t.match(LEGACY_WORDS)}`)
     }],
-  ['TestingTab(empty)', <TestingTab plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
-  ['LogTab(empty)', <LogTab plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
-  /* The feed reads the rename too — it computes each row's name live rather than
-     trusting `data.name`, which is what makes a rename land on every surface at
-     once. A commute also wears its "just miles" tag here. */
-  ['LogTab(a renamed commute)', <LogTab plan={plan} upsertEntry={noop} deleteEntry={noop} entries={[
-    { id: 'lc1', kind: 'daily', date: TODAY, updatedAt: 'z',
-      data: { optId: 'log-workout', level: 1, name: 'Bike', minutes: 22, done: true,
-        training: false, out: { activity: 'bike', duration: 22, title: 'Commute', titleFrom: 'casual' } } },
-  ]} />,
-    html => {
-      const t = text(html)
-      if (!/Commute/.test(t)) throw new Error('the feed row ignored the rename')
-      if (!/just miles/.test(t)) throw new Error('a commute should still say what it is')
-    }],
-  // The split gym night, which is the shape per-session minutes exist for: two
-  // workouts on one date, each with its own time, adding up to the day.
-  //
-  // so going through it would have exercised the charts and none of this.
-  ['LogTab(two sessions, one day)', <LogTab plan={plan} entries={[
-    { id: 'g1', kind: 'daily', date: '2026-08-13', updatedAt: 'z',
-      data: { slot: 'main', optId: 'board', level: 4, name: 'Gym: board', done: true,
-        minutes: 105, minutesSource: 'typed', out: { rpe: 8, fingers: 3 } } },
-    { id: 'g2', kind: 'daily', date: '2026-08-13', updatedAt: 'z',
-      data: { slot: 'main', optId: 'lead-laps', level: 3, name: 'Doubled lead laps', done: true,
-        minutes: 25, minutesSource: 'typed', out: { rpe: 6, fingers: 2 } } },
-  ]} upsertEntry={noop} deleteEntry={noop} />],
   // Day navigator: the future-preview path hides logging and must still render.
   ['TodayTab(rich, nav)', <TodayTab plan={plan} entries={rich} upsertEntry={noop} deleteEntry={noop} />],
   // over-budget week: hard options must classify as "Not today"
@@ -955,17 +914,6 @@ const cases = [
       // plan side uses, rather than a search box always taking up the page.
       if (!/Add an exercise/.test(t)) throw new Error('no way to add an exercise')
     }],
-  /*
-   * The picker itself, which the log used to own and now shares. Its group chips
-   * had to survive the merge: tapping one SEARCHES for the group, so browsing and
-   * searching are one mechanism, and the planner's version never had them.
-   */
-  ['ExercisePicker(search, and groups to browse without typing)',
-    <ExercisePicker field={LIFT_FIELD} onPick={noop} onClose={noop} />,
-    html => {
-      if (!/aria-label="Search for an exercise"/.test(html)) throw new Error('no exercise search')
-      if (!/Forearms & grip|Forearms &amp; grip/.test(html)) throw new Error('no group to browse by')
-    }],
   /* A number a service measured says so. Attaching is the whole point — time
    * should not need entering when WHOOP already measured it — and a value the
    * user did not type must never look like one they did. */
@@ -1081,6 +1029,284 @@ const cases = [
     <SessionSheet opt={plan.dailyMenu.find(m => m.id === 'lead-laps')} entry={null} tone="also"
       entries={rich} isFuture={false} recWhy="Not done yet this week."
       onLog={noop} onSave={noop} onDismiss={noop} onClose={noop} />],
+  // The unilateral block resolves its dose from the ceiling — with a test...
+  ['Sheet(unilateral, dose resolved)', <SessionSheet opt={plan.dailyMenu.find(m => m.id === 'unilateral')}
+    entry={{ id: 'u1', kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { slot: 'main', optId: 'unilateral', level: 2, minutes: 12, out: {} } }}
+    tone="rec" entries={cfEntries} isFuture={false}
+    onLog={noop} onSave={noop} onClose={noop} />],
+  // ...and without one, where it must say so rather than invent a number.
+  ['Sheet(unilateral, never tested)', <SessionSheet opt={plan.dailyMenu.find(m => m.id === 'unilateral')}
+    entry={{ id: 'u2', kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { slot: 'main', optId: 'unilateral', level: 2, minutes: 12, out: {} } }}
+    tone="rec" entries={[]} isFuture={false}
+    onLog={noop} onSave={noop} onClose={noop} />],
+  // The dose line itself. The sheet opens on the setup section, so this is the
+  // only place the resolved kilograms actually render.
+  ['SectionBody(dose from Aug 8)',
+    <SectionBody section={uniWork} max={null} ceiling={resolveCeiling(augOnly)} />,
+    html => {
+      // CF 18.2 -> ceiling 12.2 -> target 10.2, the fixture's first result.
+      if (!text(html).includes('10.2 kg on the gauge')) throw new Error('the resolved target is missing')
+      if (!text(html).includes('12.2 kg')) throw new Error('the ceiling is missing')
+    }],
+  ['SectionBody(newest test wins)',
+    <SectionBody section={uniWork} max={null} ceiling={resolveCeiling(cfEntries)} />,
+    html => {
+      // The September retest supersedes August: CF 20.4, CFmin 19.1 -> 14.4 -> 12.4.
+      if (!text(html).includes('12.4 kg on the gauge')) throw new Error('did not use the newest test')
+    }],
+  ['SectionBody(never tested)',
+    <SectionBody section={uniWork} max={null} ceiling={null} />,
+    html => {
+      if (!/run the 4-min all-out test/i.test(html)) throw new Error('no prompt to test')
+      if (/\d+(\.\d+)? kg on the gauge/.test(text(html))) throw new Error('invented a number with no test')
+    }],
+  ['SectionBody(CFmin binds)',
+    <SectionBody section={uniWork} max={null}
+      ceiling={resolveCeiling([{ id: 'x', kind: 'test', date: '2026-08-08', updatedAt: 'z',
+        data: { testId: 'critical-force', cfKg: 18.2, cfMinKg: 11.5, mvcKg: 48.6 } }])} />,
+    html => {
+      if (!text(html).includes('9.5 kg on the gauge')) throw new Error('CFmin did not bind (expected 11.5 - 2)')
+      if (!/CFmin from/.test(text(html))) throw new Error('did not say which rule bound')
+    }],
+  /* The how-to layer. A figure name that plan.json can write but the app cannot
+   * draw renders as an empty box, which on a phone in a basement is worse than
+   * no picture at all — it reads as "this is broken" mid-set. */
+  ['every figure the plan names exists', null, () => {
+    const missing = []
+    for (const m of plan.dailyMenu) {
+      for (const ex of m.logSpec?.exercises || []) {
+        if (ex.how && !hasFigure(ex.how.figure)) missing.push(`${m.id}/${ex.key} → ${ex.how.figure}`)
+      }
+    }
+    if (missing.length) throw new Error(`no such figure: ${missing.join(', ')}`)
+  }],
+  ['no figure is drawn that nothing uses', null, () => {
+    const used = new Set(plan.dailyMenu.flatMap(m => (m.logSpec?.exercises || []).map(e => e.how?.figure)))
+    const spare = Object.keys(FIGURES).filter(k => !used.has(k))
+    if (spare.length) throw new Error(`unused figures: ${spare.join(', ')}`)
+  }],
+  // Every figure has to survive being drawn, including the ones a rarely-picked
+  // session owns. They are hand-written SVG; a stray undefined renders blank.
+  ...Object.keys(FIGURES).map(name => [`Figure(${name})`,
+    <HowRow exercise={{ name, how: { figure: name, gist: 'x' } }} open onToggle={noop} />,
+    html => { if (!html.includes('<svg')) throw new Error('drew nothing') }]),
+  // The moves list on every session that has one, and the mid-set sheet.
+  ...plan.dailyMenu.filter(m => m.logSpec?.exercises?.length)
+    .map(m => [`Moves(${m.id})`, <MovesList session={m} />]),
+  ['HowSheet(eccentrics)', <HowSheet
+    exercise={plan.dailyMenu.find(m => m.id === 'eccentrics').logSpec.exercises[0]}
+    onClose={noop} />,
+    html => {
+      // The specific confusion this whole layer was built for: the free hand
+      // lifts, the working hand only lowers. If that sentence stops reaching
+      // the screen, the card is decoration.
+      if (!/free hand/i.test(text(html))) throw new Error('lost the free-hand instruction')
+    }],
+  // An exercise with no how-to written yet must degrade, not crash.
+  ['HowRow(no card)', <HowRow exercise={{ key: 'x', name: 'Something new' }} open onToggle={noop} />],
+  ['HowSheet(nothing to show)',
+    <div className="probe"><HowSheet exercise={{ name: 'x' }} onClose={noop} /></div>,
+    html => { if (html.includes('how-sheet')) throw new Error('opened a sheet with nothing in it') }],
+  /* The Monday split and the sessions added on 2026-08-10, with the logs their
+   * charts actually read from. */
+  ['TodayTab(the Monday pair)', <TodayTab plan={plan} entries={[
+    { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { slot: 'main', optId: 'max-hangs', level: 4, name: 'Max hangs', minutes: 15, done: true,
+        out: { maxLoad: 219, rpe: 7, fingers: 2, skin: 2,
+          sets: { maxhang: [{ reps: 1, seconds: 7, weight: 45 }, { reps: 1, seconds: 7, weight: 45 }] },
+          signs: { maxhang: '+' } } } },
+    { id: `daily-${TODAY}-repeaters`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { slot: 'extra', optId: 'repeaters', level: 4, name: 'Repeaters', minutes: 20, done: false,
+        out: { repLoad: 20, sets: { repeaters: [{ reps: 12, weight: 20 }] }, signs: { repeaters: '-' } } } },
+  ]} upsertEntry={noop} deleteEntry={noop} />],
+  ['TodayTab(crimp crawls logged)', <TodayTab plan={plan} entries={[
+    { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { slot: 'main', optId: 'crawls', level: 3, name: 'Crimp crawls', minutes: 22, done: true,
+        out: { stair: 2, pump: 4, rpe: 6, fingers: 2, skin: 3, draws: true,
+          sets: { crawl: [{ seconds: 180, stair: 2 }, { seconds: 180, stair: 2 }], allout: [{ seconds: 145 }] },
+          notes: 'All-out set fell apart at 2:25 — fumbled the second clip.' } } },
+  ]} upsertEntry={noop} deleteEntry={noop} />],
+  ['TodayTab(peak force test day)', <TodayTab plan={plan} entries={[
+    { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { slot: 'main', optId: 'mvc-test', level: 4, name: 'Peak force test', minutes: 20, done: true,
+        out: { leftKg: 50.4, rightKg: 48.6, rpe: 7, fingers: 2,
+          sets: { pullLeft: [{ seconds: 5, weight: 50.4 }], pullRight: [{ seconds: 5, weight: 48.6 }] } } } },
+  ]} upsertEntry={noop} deleteEntry={noop} />],
+  // The retired pre-split card: nothing may offer it, and a day logged against
+  // it years of entries ago must still render its name and its sets.
+  ['TodayTab(retired session in history)', <TodayTab plan={plan} entries={[
+    { id: 'old', kind: 'daily', date: back(120), updatedAt: 'z',
+      data: { slot: 'main', optId: 'hard-home', level: 4, name: 'Max hangs + repeaters', minutes: 25, done: true,
+        out: { maxLoad: 219, rpe: 7, fingers: 2 } } },
+  ]} upsertEntry={noop} deleteEntry={noop} />],
+  /* The planned session, read from the day rather than run: the sheet shows the
+   * prescription instead of the card's protocol, because the card has none. */
+  ['Sheet(a planned session)',
+    <SessionSheet opt={PLANNED_CARD} entry={PLANNED_ENTRY} tone="rec" entries={rich} isFuture={false}
+      onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={noop}
+      onClose={noop} />,
+    (html) => {
+      const t = text(html)
+      if (!t.includes(PRESCRIPTION.title)) throw new Error('the sheet is not titled by the plan')
+      // This one has a bike piece in it, so there is a clock to run.
+      if (!/Start the workout/.test(t)) throw new Error('no way into the runner from the sheet')
+      // The reasoning is one tap away rather than on screen — see PlanTalk above.
+      if (!/Why this session/.test(t)) throw new Error('no way to reach the reasoning')
+      // Every exercise open at once is four screens of steppers before the one the user
+      // is about to do. Only the first opens.
+      if ((html.match(/class="presc-sets"/g) || []).length > 1) {
+        throw new Error('more than one exercise opened')
+      }
+    }],
+  /*
+   * A LIFT-ONLY session gets no runner: workout mode makes no sense for lifting,
+   * which has no timed parts. Once rest came off a lift set there is nothing for a
+   * clock to run, so the sheet is the whole screen — and it must not grow a start
+   * button back, which is the only thing a render test can say about it.
+   */
+  ['Sheet(a lift-only session offers no clock)', null, () => {
+    const pres = normalizePrescription({
+      title: 'Push day', category: 'lift', minutes: 45, why: 'w',
+      blocks: [{ name: 'Main', category: 'lift', items: [{
+        kind: 'lift', name: 'squat', exercise: SQUAT.key, implement: 'barbell',
+        sets: [{ reps: 8, weight: 135 }, { reps: 8, weight: 135 }],
+      }] }],
+    }, { liftField: LIFT_FIELD })
+    const entry = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { slot: 'main', optId: 'planned', name: pres.title, minutes: 45, level: 2,
+        done: false, plan: pres, out: {} } }
+    const t = text(renderToString(
+      <PlanProvider plan={plan}>
+        <SessionSheet opt={PLANNED_CARD} entry={entry} tone="rec" entries={rich} isFuture={false}
+          onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={noop}
+          onClose={noop} />
+      </PlanProvider>))
+    if (/Start the workout/.test(t)) throw new Error('a lift session is offering a clock again')
+    if (!/Mark undone/.test(t)) throw new Error('with no runner, the sheet has to say it is done and offer to undo it')
+    // And no rest box anywhere in the editor.
+    if (/rest sec/.test(t)) throw new Error('lifting grew a rest interval back')
+  }],
+  /*
+   * DONE BY DEFAULT (AGENTS.md §4). A session on today is done the moment it
+   * lands, so the sheet's control says so and offers "Mark undone"; one marked
+   * undone offers "Mark done"; a later day has no control at all, only the
+   * preview line. The old "tap to undo" toggle is pinned absent, and "Start"
+   * survives a session being done, because today's always is.
+   */
+  ['SessionSheet(Mark undone on today, Mark done once undone, nothing on a later day)', null, () => {
+    const sheet = (entry, isFuture = false) => text(renderToString(
+      <PlanProvider plan={plan}>
+        <SessionSheet opt={PLANNED_CARD} entry={entry} tone="rec" entries={rich} isFuture={isFuture}
+          onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={noop}
+          onClose={noop} />
+      </PlanProvider>))
+    const today = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false } })
+    if (!/Done · Mark undone/.test(today)) throw new Error('a session planned for today does not read as done with a way to undo it')
+    if (/tap to undo|Mark as done/.test(today)) throw new Error('the old done toggle is back')
+    if (!/Start the workout/.test(today)) throw new Error('a done-by-default session lost its Start')
+    const undone = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false, undone: true } })
+    if (!/Mark done/.test(undone) || /Mark undone/.test(undone)) throw new Error('a session marked undone does not offer "Mark done"')
+    const finished = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: true, run: { startedAt: 1, endedAt: 2 } } })
+    if (/Start the workout/.test(finished)) throw new Error('a finished run offers Start again')
+    const later = sheet({ ...PLANNED_ENTRY, date: '2999-01-01', data: { ...PLANNED_ENTRY.data, done: false } }, true)
+    if (/Mark (un)?done/.test(later)) throw new Error('a session on a later day offers a done control')
+    if (!/Preview only/.test(later)) throw new Error('a later day lost its preview line')
+  }],
+  ['TodayTab(a planned session on the day)', <TodayTab plan={plan} entries={[PLANNED_ENTRY]}
+    upsertEntry={noop} deleteEntry={noop} onPlan={noop} onLog={noop} />,
+    (html) => {
+      const t = text(html)
+      if (!t.includes(PRESCRIPTION.title)) throw new Error('the day names it "Planned workout" instead of its title')
+      if (!/planned/.test(t)) throw new Error('nothing marks it as a session with sets in it')
+      // Its "and another one" button appears once one is on the day.
+      if (!/Plan another workout/.test(t)) throw new Error('no way to plan a second one from the day')
+    }],
+  ['SessionSheet(an ordinary workout opens the interval timer)', null, () => {
+    const opt = plan.dailyMenu.find(m => m.id === 'log-workout')
+    if (hasWorkout(opt)) throw new Error('the test card is supposed to have no timer of its own')
+    const entry = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      // Done, as today's entries are by default since #34: the timer must not hang off `!done`.
+      data: { slot: 'main', optId: opt.id, level: 2, name: 'Run', minutes: 30, done: true, out: { activity: 'run' } } }
+    const sheet = text(renderToString(
+      <SessionSheet opt={opt} entry={entry} tone="rec" entries={[]} isFuture={false}
+        onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop} onStartWorkout={noop} />))
+    if (!sheet.includes('Interval timer')) throw new Error('no timer on an ordinary workout\'s sheet')
+    // What the button asks for, answered by the host the app mounts.
+    const req = timerRequestFor(opt, entry)
+    if (req.title !== 'Run') throw new Error(`the timer is titled ${req.title}`)
+    if (req.presets.some(Boolean)) throw new Error('an ordinary card invented a plan timer')
+    openTimer(req)
+    try {
+      const html = renderToString(<TimerHost entries={[]} upsertEntry={noop} deleteEntry={noop} />)
+      const t = text(html)
+      for (const w of ['Interval timer', 'Run', 'Start', 'Work', 'Rest', 'Rounds', BUILT_INS[0].name]) {
+        if (!t.includes(w)) throw new Error(`the timer opened without "${w}"`)
+      }
+    } finally { closeTimer() }
+    if (renderToString(<TimerHost entries={[]} upsertEntry={noop} deleteEntry={noop} />) !== '') {
+      throw new Error('the host shows a timer nobody asked for')
+    }
+  }],
+  ['SessionSheet(no interval timer on a rest day)', null, () => {
+    const opt = plan.dailyMenu.find(m => m.role === 'rest')
+    const entry = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { slot: 'main', optId: opt.id, level: 1, name: 'Rest day', minutes: 0, done: true, out: {} } }
+    const t = text(renderToString(
+      <SessionSheet opt={opt} entry={entry} tone="rest" entries={[]} isFuture={false}
+        onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop} />))
+    if (t.includes('Interval timer')) throw new Error('a timer for resting')
+  }],
+  // It asks WHY before it logs — the reasons are the rest card's own output, so
+  // they must render here and the answer must be the same field the sheet edits.
+  ['RestPrompt(asks why before logging)',
+    <RestPrompt opt={plan.dailyMenu.find(m => m.role === 'rest')} onSave={noop} onClose={noop} />,
+    (html) => {
+      const t = text(html)
+      for (const w of ['Why rest today?', 'Sick', 'Travelling', 'Planned recovery', 'Log the rest day']) {
+        if (!t.includes(w)) throw new Error(`no "${w}"`)
+      }
+      if (!/<textarea/.test(html)) throw new Error('no box for his own words')
+      // A forgotten rest day is logged after the fact, so the day is choosable.
+      if (!/type="date"/.test(html)) throw new Error('a rest day can only be logged for today')
+    }],
+  ['RestPrompt(opens on the day it was asked from)',
+    <RestPrompt opt={plan.dailyMenu.find(m => m.role === 'rest')} date="2026-09-20"
+      entryFor={() => null} onSave={noop} onClose={noop} />,
+    (html) => {
+      if (!/value="2026-09-20"/.test(html)) throw new Error('the prompt ignored the day it was opened on')
+    }],
+  // What the user said about a rest day shows ON the rest day, in Your day and in the
+  // log — not only inside the sheet (2026-09-25).
+  ['TodayTab(a rest day says why)', <TodayTab plan={plan} entries={[
+    { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { slot: 'main', optId: 'off', level: 1, name: 'Rest day', minutes: 0, done: true,
+        out: { why: 'sick', notes: 'Head cold, stayed in bed' } } }]}
+    upsertEntry={noop} deleteEntry={noop} />,
+    (html) => {
+      const t = text(html)
+      if (!t.includes('Sick')) throw new Error('the reason is not on the row')
+      if (!t.includes('Head cold, stayed in bed')) throw new Error('the note is not on the row')
+    }],
+  // A FRESH INSTALL. content/starter.json is the first thing a stranger's
+  // install renders: no climbing cards, the catalogs only.
+  ['starter: TodayTab', <TodayTab plan={starter} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
+  ['example: TodayTab', <TodayTab plan={example} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
+
+  // ===== batch B: logging and planning =====
+
+  /*
+   * The picker itself, which the log used to own and now shares. Its group chips
+   * had to survive the merge: tapping one SEARCHES for the group, so browsing and
+   * searching are one mechanism, and the planner's version never had them.
+   */
+  ['ExercisePicker(search, and groups to browse without typing)',
+    <ExercisePicker field={LIFT_FIELD} onPick={noop} onClose={noop} />,
+    html => {
+      if (!/aria-label="Search for an exercise"/.test(html)) throw new Error('no exercise search')
+      if (!/Forearms & grip|Forearms &amp; grip/.test(html)) throw new Error('no group to browse by')
+    }],
   // Workout mode, in every state it can be left in. It owns the whole screen
   // and runs with chalky hands mid-set, so a bad property access here is the
   // worst possible time to find one.
@@ -1283,135 +1509,687 @@ const cases = [
     entry={{ id: 'w3', kind: 'daily', date: TODAY, updatedAt: 'z',
       data: { slot: 'main', optId: 'off', level: 1, minutes: 0, out: {} } }}
     onSave={noop} onSetDone={noop} onExit={noop} />],
+  /* ------------------------------------------- every session is REACHABLE
+   *
+   * The regression this exists for, in full: taking the swap list off Today on
+   * 2026-09-17 left twenty-one climbing cards in plan.json — max hangs, the
+   * board, the 4×4s, the load-cell tests — with their protocols, their timers
+   * and the logged history all intact, and NOWHERE TO PRESS to put one on a day.
+   * Every test passed. The app rendered. It was found within the hour of use.
+   *
+   * So the contract is not "the picker renders", it is "every startable card in
+   * the plan appears in it". A card added to plan.json that this cannot reach is
+   * a card that does not exist, and that is a thing a rendering test will never
+   * notice on its own.
+   */
+  ['ActivityChooser(every startable card is in a folder)', null, () => {
+    const startable = plan.dailyMenu.filter(m =>
+      m.role !== 'adjunct' && m.role !== 'rest' && !m.retired)
+    const listed = new Set(climbingFolders(plan)
+      .flatMap(f => f.groups.flatMap(g => g.items.map(m => m.id))))
+    // The two containers have their own doors (this screen IS the workout card's;
+    // the planned card is Plan a workout's), so they are not in a folder.
+    const missing = startable
+      .filter(m => !listed.has(m.id) && !['plan', 'log'].includes(m.sched?.repeatVia))
+      .map(m => m.id)
+    if (missing.length) throw new Error(`unreachable: ${missing.join(', ')}`)
 
-  // Trip mode: the four days the whole block points at.
+    // And nothing that should not be startable leaked in. An adjunct is ticked
+    // inside the session it rides with; a retired card is kept only so the days
+    // logged against it still resolve.
+    const wrong = [...listed].filter(id => {
+      const m = plan.dailyMenu.find(x => x.id === id)
+      return !m || m.role === 'adjunct' || m.role === 'rest' || m.retired || m.sched?.repeatVia
+    })
+    if (wrong.length) throw new Error(`should not be startable: ${wrong.join(', ')}`)
 
-  // Critical force: the ceiling readout, the charts, and the resolved dose on
-  // the session it drives, from the calibration-day fixture above.
-  ['TestingTab(critical force)', <TestingTab plan={plan} entries={cfEntries} upsertEntry={noop} />],
-  ['TestingTab(CF, no max logged)', <TestingTab plan={plan} upsertEntry={noop}
-    entries={[{ id: 'cf1', kind: 'test', date: '2026-08-08', updatedAt: 'z',
-      data: { testId: 'critical-force', cfKg: 18.2 } }]} />],
-  ['TestingTab(CF, CFmin binds)', <TestingTab plan={plan} upsertEntry={noop}
-    entries={[{ id: 'cf2', kind: 'test', date: '2026-08-08', updatedAt: 'z',
-      data: { testId: 'critical-force', cfKg: 18.2, cfMinKg: 11.5, mvcKg: 48.6 } }]} />],
-  ['ProgressView(critical force)', <ProgressView plan={plan} entries={[...rich, ...cfEntries]} />],
-  // The unilateral block resolves its dose from the ceiling — with a test...
-  ['Sheet(unilateral, dose resolved)', <SessionSheet opt={plan.dailyMenu.find(m => m.id === 'unilateral')}
-    entry={{ id: 'u1', kind: 'daily', date: TODAY, updatedAt: 'z',
-      data: { slot: 'main', optId: 'unilateral', level: 2, minutes: 12, out: {} } }}
-    tone="rec" entries={cfEntries} isFuture={false}
-    onLog={noop} onSave={noop} onClose={noop} />],
-  // ...and without one, where it must say so rather than invent a number.
-  ['Sheet(unilateral, never tested)', <SessionSheet opt={plan.dailyMenu.find(m => m.id === 'unilateral')}
-    entry={{ id: 'u2', kind: 'daily', date: TODAY, updatedAt: 'z',
-      data: { slot: 'main', optId: 'unilateral', level: 2, minutes: 12, out: {} } }}
-    tone="rec" entries={[]} isFuture={false}
-    onLog={noop} onSave={noop} onClose={noop} />],
+    // Two folders on this plan, as asked: every card says which, so nothing falls
+    // through to the catch-all.
+    const keys = climbingFolders(plan).map(f => f.key)
+    if (keys.join() !== 'bouldering,rock-climbing') throw new Error(`folders are ${keys.join(', ')}`)
+    // A card that declares nothing still lands somewhere.
+    const untagged = { ...plan, dailyMenu: [{ id: 'z', name: 'Zorbing', role: 'session', sched: {} }] }
+    if (!climbingFolders(untagged).some(f => f.key === 'plan')) throw new Error('an untagged card vanished')
+  }],
+  /* The same screen, over the sports catalog: picking a session and logging a
+   * workout are the same flow over two different catalogs. */
+  ['ActivityChooser(every activity is reachable)', null, () => {
+    const field = activityFieldOf(plan)
+    if (!field) throw new Error('plan.json has no activity field')
+    const listed = activityGroups(field, plan).flatMap(g => g.items.map(i => i.key))
+    const missing = field.activities.filter(a => !listed.includes(a.key)).map(a => a.key)
+    if (missing.length) throw new Error(`unreachable activities: ${missing.join(', ')}`)
 
-  // The dose line itself. The sheet opens on the setup section, so this is the
-  // only place the resolved kilograms actually render.
-  ['SectionBody(dose from Aug 8)',
-    <SectionBody section={uniWork} max={null} ceiling={resolveCeiling(augOnly)} />,
-    html => {
-      // CF 18.2 -> ceiling 12.2 -> target 10.2, the fixture's first result.
-      if (!text(html).includes('10.2 kg on the gauge')) throw new Error('the resolved target is missing')
-      if (!text(html).includes('12.2 kg')) throw new Error('the ceiling is missing')
+    // An activity whose group the catalog no longer lists still has to land
+    // somewhere. Same orphan rule as the sessions, same reason.
+    const orphaned = activityGroups(
+      { ...field, activities: [{ key: 'z', name: 'Zorbing', group: 'No Such Group' }], groups: field.groups },
+      plan)
+    if (!orphaned.flatMap(g => g.items).some(i => i.key === 'z')) {
+      throw new Error('an activity with an unknown group vanished')
+    }
+  }],
+  ['ActivityChooser(renders, pinned first)',
+    <ActivityChooser plan={plan} field={activityFieldOf(plan)} onPick={noop} onPickCard={noop} onClose={noop} />,
+    (html) => {
+      const t = text(html)
+      // The general ways to log lead; the plan's climbing cards follow as two
+      // folders under Climbing (issue #31: a workout log first).
+      for (const f of ['Bouldering', 'Rock climbing']) {
+        if (!t.includes(f)) throw new Error(`no ${f} folder`)
+      }
+      if (t.indexOf('Your usual') > t.indexOf('Bouldering')) throw new Error('the climbing folders lead the general sports')
+      if (t.lastIndexOf('Climbing') < t.indexOf('Your usual')) throw new Error('the Climbing group is not after the activities')
+      for (const name of ['Mountain bike', 'Swim', 'Run', 'Lift']) {
+        if (!t.includes(name)) throw new Error(`${name} is not in the activity list`)
+      }
+      if (!/Your usual/.test(t)) throw new Error('his six pinned sports are not led with')
+      // The right-hand column says which category it files under, which the
+      // group heading above the row cannot.
+      if (!/Anything else|Bike|Run/.test(t)) throw new Error('no category on the rows')
+      // Same screen as the session picker, literally — if this diverges, one of
+      // them has grown a second implementation.
+      if (!/class="spick-row"/.test(html)) throw new Error('the two pickers are not the same screen')
     }],
-  ['SectionBody(newest test wins)',
-    <SectionBody section={uniWork} max={null} ceiling={resolveCeiling(cfEntries)} />,
-    html => {
-      // The September retest supersedes August: CF 20.4, CFmin 19.1 -> 14.4 -> 12.4.
-      if (!text(html).includes('12.4 kg on the gauge')) throw new Error('did not use the newest test')
+  // The ones the user actually asked after, each in the folder it belongs in.
+  // Named rather than counted, because "21 rows rendered" would have passed
+  // while showing the wrong 21.
+  ...[
+    ['bouldering', ['Gym: board', 'Bouldering 4×4s', 'Limit bouldering', 'Bouldering with friends'],
+      ['Max hangs', 'ARC laps']],
+    ['rock-climbing', ['Max hangs', 'Repeaters', 'Sub-threshold hangs', 'ARC laps', 'Peak force test', 'Crag day'],
+      ['Gym: board', 'Mountain bike']],
+  ].map(([key, has, hasNot]) => [`ActivityChooser(the ${key} folder, by name)`,
+    <ActivityChooser plan={plan} field={activityFieldOf(plan)} onPick={noop} onPickCard={noop}
+      onClose={noop} initialFolder={key} />,
+    (html) => {
+      const t = text(html)
+      for (const name of has) if (!t.includes(name)) throw new Error(`${name} is not in ${key}`)
+      for (const name of hasNot) if (t.includes(name)) throw new Error(`${name} is in ${key}`)
+      // It is a list, not the swap list that came out of this app.
+      if (/Good swap|Not today|Works, with a caveat/.test(t)) {
+        throw new Error('the picker is ranking sessions again')
+      }
+    }]),
+  // A WHOOP climb is logged on a climbing card, never the catalog: the route from
+  // the unlogged card shows the folders and no sport.
+  ['ActivityChooser(a climb offers only the climbing cards)',
+    <ActivityChooser plan={plan} field={activityFieldOf(plan)} onPick={noop} onPickCard={noop}
+      onClose={noop} climbingOnly dayLabel="for Mon, Oct 12" />,
+    (html) => {
+      const t = text(html)
+      if (!/Log the climb/.test(t) || !/Bouldering/.test(t)) throw new Error('no climbing folders')
+      if (/Your usual|Mountain bike/.test(t)) throw new Error('a climb can be logged as a generic workout')
+      if (!/for Mon, Oct 12/.test(t)) throw new Error('the day it lands on is not said')
     }],
-  ['SectionBody(never tested)',
-    <SectionBody section={uniWork} max={null} ceiling={null} />,
-    html => {
-      if (!/run the 4-min all-out test/i.test(html)) throw new Error('no prompt to test')
-      if (/\d+(\.\d+)? kg on the gauge/.test(text(html))) throw new Error('invented a number with no test')
+  /* ============================================ plan a workout, and run it
+   *
+   * The whole route the + button opens, rendered at every step. These are the
+   * screens with the least test surface anywhere else in the app: the model is
+   * covered as arithmetic in `prescription.test.js`, but nothing there would
+   * catch a runner that renders a set with no number on it.
+   */
+  ['PlanFlow(pick what)', <PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />,
+    (html) => {
+      const t = text(html)
+      // The kinds are CONTENT — adding "Shoulders" must be an edit to plan.json
+      // and not a rebuild, so the screen has to be rendering that list.
+      // `&` comes back as `&amp;` out of the serialiser — "Core & hips" is one
+      // of the kinds, so the comparison has to read through the escaping.
+      const plain = t.replace(/&amp;/g, '&')
+      for (const k of plan.plannerKinds.kinds) {
+        if (!plain.includes(k.label)) throw new Error(`${k.label} is not on the picker`)
+      }
+      // The dividers, and the reason for them: "Power" and "Endurance" are
+      // climbing categories in this app and ordinary words everywhere else, so
+      // ungrouped they were a coin flip. Hence a heading per group.
+      for (const g of plan.plannerKinds.groups) {
+        if (!plain.includes(g.name)) throw new Error(`the "${g.name}" divider is missing`)
+      }
+      if (!/Something else/.test(t)) throw new Error('no way to ask for something not on the list')
     }],
-  ['SectionBody(CFmin binds)',
-    <SectionBody section={uniWork} max={null}
-      ceiling={resolveCeiling([{ id: 'x', kind: 'test', date: '2026-08-08', updatedAt: 'z',
-        data: { testId: 'critical-force', cfKg: 18.2, cfMinKg: 11.5, mvcKg: 48.6 } }])} />,
-    html => {
-      if (!text(html).includes('9.5 kg on the gauge')) throw new Error('CFmin did not bind (expected 11.5 - 2)')
-      if (!/CFmin from/.test(text(html))) throw new Error('did not say which rule bound')
-    }],
+  // The discipline travels onto the ask screen too — "Power endurance" alone is
+  // the same ambiguity one step later, on the screen the user presses go from.
+  ['PlanFlow(the discipline follows the kind)', null, () => {
+    const pe = plan.plannerKinds.kinds.find(k => k.key === 'pe')
+    const group = plan.plannerKinds.groups.find(g => g.key === pe.group)
+    if (!group) throw new Error('the power-endurance kind names no group')
+    if (group.name !== 'Climbing') throw new Error(`power endurance is grouped under ${group.name}`)
+  }],
+  // Same reachability rule as the session picker: a kind in plan.json that no
+  // group claims must still land on screen, not vanish into a gap.
+  ['PlanFlow(every kind is in a group)', null, () => {
+    const listed = groupedKinds(plan).flatMap(g => g.items.map(k => k.key))
+    const missing = plan.plannerKinds.kinds.filter(k => !listed.includes(k.key)).map(k => k.key)
+    if (missing.length) throw new Error(`ungrouped and unreachable: ${missing.join(', ')}`)
+    if (listed.length !== new Set(listed).size) throw new Error('a kind is listed in two groups')
 
-  /* The how-to layer. A figure name that plan.json can write but the app cannot
-   * draw renders as an empty box, which on a phone in a basement is worse than
-   * no picture at all — it reads as "this is broken" mid-set. */
-  ['every figure the plan names exists', null, () => {
-    const missing = []
-    for (const m of plan.dailyMenu) {
-      for (const ex of m.logSpec?.exercises || []) {
-        if (ex.how && !hasFigure(ex.how.figure)) missing.push(`${m.id}/${ex.key} → ${ex.how.figure}`)
+    // And an orphan really does fall through rather than disappear.
+    const orphaned = groupedKinds({ plannerKinds: {
+      groups: plan.plannerKinds.groups,
+      kinds: [{ key: 'weird', label: 'Weird', group: 'no-such-group' }],
+    } })
+    if (!orphaned.flatMap(g => g.items).some(k => k.key === 'weird')) {
+      throw new Error('a kind with an unknown group vanished')
+    }
+  }],
+  /* Keeping a workout and starting it are two decisions: after keeping one, the
+   * user chooses between going back to the main menu, planning another workout,
+   * or starting it. The screen that asks is `KeptStep`. */
+  /* Multi-select, and the conversation that follows a plan: several workouts can
+   * be selected to plan a full day at the gym, and a created plan can be followed
+   * up on with the AI rather than being a dead end. */
+  ['PlanFlow(more than one kind at a time)', <PlanFlow plan={plan} entries={[]} iso={TODAY}
+    onKeep={noop} onStart={noop} onClose={noop} />,
+    (html) => {
+      const t = text(html)
+      if (!/as many as you like/i.test(t)) throw new Error('nothing says you can pick several')
+      // Every card is a toggle, and Next is what commits — a card that navigates
+      // on tap cannot be the second of three.
+      if (!/aria-pressed="false"/.test(html)) throw new Error('the kind cards are not toggles')
+      // What commits a selection is the FORK, since 2026-09-22 — either button
+      // takes the picks on, one to the model and one to the editor.
+      if (!/Write it for me|Write me \d+ in one/.test(t)) throw new Error('no way to commit a selection')
+    }],
+  /*
+   * TWO ROUTES, and the choice is on the screen the user is already looking at.
+   *
+   * A workout can be planned by hand from picked exercises, or written by the AI.
+   * A fork whose halves are
+   * not both visible is not a fork, so this asserts both buttons and the sentence
+   * that says what the difference costs — the model's route is a minute of
+   * waiting and the user's own is none.
+   */
+  ['PlanFlow(his own route, or the model\'s)', <PlanFlow plan={plan} entries={[]} iso={TODAY}
+    onKeep={noop} onStart={noop} onClose={noop} />,
+    (html) => {
+      const t = text(html)
+      if (!/Build it myself/.test(t)) throw new Error('no way to plan it himself')
+      if (!/Write it for me/.test(t)) throw new Error('no way to ask the model')
+      if (!/build it yourself/i.test(t)) throw new Error('the lead does not say there are two ways')
+      if (!/sends nothing anywhere/i.test(t)) throw new Error('nothing says what the two routes cost')
+      // Both are real buttons of the same size — one of them being a text link
+      // would be the app having an opinion it was asked not to have.
+      const buttons = html.match(/class="btn big[^"]*"/g) || []
+      if (buttons.length < 2) throw new Error('the two routes are not the same kind of control')
+    }],
+  /*
+   * The hand-built route, opened empty.
+   *
+   * The thing this has to pin is that it is the SAME editor: one block per kind
+   * the user picked, each carrying its own quota, and a way in to both catalogues —
+   * the two hundred lifts and the pieces that are not lifts. A builder that
+   * could only add lifts would dead-end every swim, ride and 4x4 session, which
+   * is most of the kinds on the screen before it.
+   */
+  ['BuildStep(his own, block by block)',
+    <PlanProvider plan={plan}>
+      <BuildStep
+        pres={blankPrescription({
+          title: 'Legs + Ride',
+          blocks: [
+            { name: 'Legs', category: 'lift', activity: 'lift' },
+            { name: 'Ride', category: 'bike', activity: 'bike' },
+          ],
+        })}
+        setPres={noop} liftField={LIFT_FIELD} entries={[]}
+        categories={plan.quotaCategories} onKeep={noop} />
+    </PlanProvider>,
+    (html) => {
+      const t = text(html)
+      for (const name of ['Legs', 'Ride']) {
+        if (!t.includes(name)) throw new Error(`the ${name} block is not on the screen`)
+      }
+      if (!/Add an exercise here/.test(t)) throw new Error('no way into the exercise catalogue')
+      if (!/Add a piece/.test(t)) throw new Error('no way to add work that is not a lift')
+      if (!/its own workout|part of the workout beside it/.test(t)) throw new Error('a block does not say whether it is its own workout')
+      if (!/Put it on today/.test(t)) throw new Error('no way to keep it')
+      // Nothing in it yet is not a workout, and the button says so by being off.
+      if (!/<button class="btn big" disabled=""/.test(html)) {
+        throw new Error('an empty session can be kept')
+      }
+      // No model wrote this, so nothing on the screen may claim one did.
+      if (/Why this session/.test(t)) throw new Error('a hand-built session offers reasoning nobody wrote')
+    }],
+  /* A pool length is 25 of something and a mile is not. Stepping a 3 mi run by
+     25 walks it to 78 in three presses, which is what every distance box did
+     before the hand-built route started writing rides by hand. */
+  ['Stepper(the distance step follows the unit)', null, () => {
+    if (STEP.distance({ unit: 'yd' }, { unit: 'yd' }).step !== 25) throw new Error('a pool set no longer steps by a length')
+    // And a clock steps by what the clock is for: five seconds on a hang, half a
+    // minute on a ride, because 45 minutes is 540 presses at five.
+    if (STEP.seconds({}, { seconds: 45 }).step !== 5) throw new Error('a short interval no longer steps by five')
+    if (STEP.seconds({}, { seconds: 2700 }).step !== 30) throw new Error('a long piece steps five seconds at a time')
+    for (const u of ['mi', 'km']) {
+      const s = STEP.distance({ unit: u }, { unit: u })
+      if (s.step !== 0.5) throw new Error(`${u} steps by ${s.step}`)
+      if (s.label !== u) throw new Error('the box does not say what it is measuring')
+    }
+  }],
+  /* And with something in it, the same card the log form and the review step
+     render — one open, steppers, the body map, and the keep button live. */
+  ['BuildStep(one exercise in, and it is the same card)',
+    <PlanProvider plan={plan}>
+      <BuildStep
+        pres={appendLift(
+          blankPrescription({ title: 'Legs', blocks: [{ name: 'Legs', category: 'lift' }] }),
+          LIFT_FIELD, SQUAT.key, { blockId: 'b0' })}
+        setPres={noop} liftField={LIFT_FIELD} entries={[]}
+        categories={plan.quotaCategories} onKeep={noop} />
+    </PlanProvider>,
+    (html) => {
+      const t = text(html)
+      if (!t.includes(SQUAT.name)) throw new Error('the exercise he added is not there')
+      if (!/stepper/.test(html)) throw new Error('the numbers are not steppers')
+      if (/<select/.test(html)) throw new Error('a native select is back on the plan side')
+      if (/<button class="btn big" disabled=""/.test(html)) {
+        throw new Error('a session with an exercise in it cannot be kept')
+      }
+    }],
+  /*
+   * COLLAPSED BY DEFAULT: the AI reasoning at the top of a planned session is a
+   * collapsible section that starts collapsed. It used to open
+   * with the reasoning showing, on the argument that a section you have to open
+   * first shows you nothing; what that missed is that it sat between the user and
+   * the first set of the session they were standing there to do.
+   *
+   * What the fold must NOT do is hide that there is something to read, which is
+   * why the header keeps the turn count. A revision the user cannot see is the problem
+   * the old coach's silent plan edits had.
+   */
+  ['PlanTalk(folded, and says so)',
+    <PlanTalk pres={PRESCRIPTION} onChange={noop} />,
+    (html) => {
+      const t = text(html)
+      if (!/Why this session/.test(t)) throw new Error('nothing says there is reasoning to read')
+      if (!/aria-expanded="false"/.test(html)) throw new Error('it is not collapsed')
+      if (t.includes(PRESCRIPTION.why.slice(0, 40))) throw new Error('the paragraph is still on screen')
+      if (/Make it shorter/.test(t)) throw new Error('the prompt row is still on screen')
+    }],
+  ['PlanTalk(a revised plan carries its count on the fold)',
+    <PlanTalk onChange={noop} pres={{ ...PRESCRIPTION, thread: [
+      { role: 'you', text: 'Make it shorter', at: 'z' },
+      { role: 'coach', text: 'Dropped the third squat set and the calf work — 32 minutes now.', at: 'z' },
+    ] }} />,
+    (html) => {
+      if (!/class="plantalk-n"/.test(html)) throw new Error('nothing marks that it has been revised')
+      if (!/aria-expanded="false"/.test(html)) throw new Error('a revised plan should still open folded')
+    }],
+  /*
+   * AI WORKOUT DRAFTS (#28). "Write it for me" is a draft the server keeps, and
+   * the run is the draft's, not the screen's. What SSR can pin: the list says
+   * what each draft is doing and offers a retry only where there is something to
+   * retry; the wait no longer says leaving cancels it; a revision being written
+   * when the page was left is still shown as being written; and each draft
+   * reopens at the step it is on.
+   */
+  ['DraftList(being written, ready and failed, each says which)',
+    <DraftList now={Date.parse('2026-10-25T12:01:00Z')} onOpen={noop} onRetry={noop} onDiscard={noop} drafts={[
+      { id: 'da', status: 'working', ask: { label: 'Legs', minutes: 45 }, run: { kind: 'write', startedAt: '2026-10-25T12:00:20Z' }, createdAt: '3' },
+      { id: 'db', status: 'ready', ask: { label: 'Swim', minutes: 30 }, pres: { title: '2,000 yd threshold', minutes: 30 }, updatedAt: '2026-10-25T11:00:00Z', createdAt: '2', for: { id: 'sam', name: 'Sam' } },
+      { id: 'dc', status: 'failed', error: 'the planner took too long', ask: { label: 'Core', minutes: 20 }, pres: null, createdAt: '1' },
+    ]} />,
+    (html) => {
+      const t = text(html)
+      for (const want of ['Drafts — not on your day yet', 'Legs', 'Being written… 40s', '2,000 yd threshold',
+        'For Sam · Ready · 30 min · 1 h ago', 'Core', 'Did not finish: the planner took too long']) {
+        if (!t.includes(want)) throw new Error(`no "${want}"`)
+      }
+      if ((t.match(/Try again/g) || []).length !== 1) throw new Error('a retry is offered on a draft that did not fail, or not on the one that did')
+      if ((html.match(/aria-label="Discard /g) || []).length !== 3) throw new Error('not every draft can be thrown away')
+    }],
+  ['DraftList(no drafts, no list)', <DraftList drafts={[]} onOpen={noop} onRetry={noop} onDiscard={noop} />,
+    (html) => { if (html) throw new Error('an empty list rendered something') }],
+  ['PlanFlow(no draft list until there is a draft)', <PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />,
+    (html) => { if (/Drafts — not on your day/.test(text(html))) throw new Error('a draft list with nothing in it') }],
+  ['Working(leaving the wait cancels nothing, and it says so)',
+    <Working label="Legs" minutes={45} since={null} onDiscard={noop} />,
+    (html) => {
+      const t = text(html)
+      if (/cancels it/.test(t)) throw new Error('the wait still says leaving cancels the run')
+      if (!/You can leave/.test(t)) throw new Error('the wait does not say the draft carries on')
+      if (!/Stop and throw it away/.test(t)) throw new Error('no way to stop a draft from the wait')
+    }],
+  ['PlanTalk(a draft\'s revision still being written is open and says so)',
+    <PlanTalk pres={{ ...PRESCRIPTION, thread: [{ role: 'you', text: 'Make it shorter', at: 'z' }] }} onChange={noop}
+      draft={{ busy: true, error: null, onAsk: noop }} />,
+    (html) => {
+      const t = text(html)
+      if (!/aria-expanded="true"/.test(html)) throw new Error('a revision in progress is folded away')
+      if (!/Rewriting it…/.test(t)) throw new Error('it does not say it is rewriting')
+      if (!t.includes('Make it shorter')) throw new Error('the message is not on the thread')
+    }],
+  ['PlanTalk(a draft\'s failed revision shows its error)',
+    <PlanTalk pres={PRESCRIPTION} onChange={noop} draft={{ busy: false, error: 'box busy', failedMessage: 'More volume', onAsk: noop }} />,
+    (html) => {
+      if (!/box busy — your session is unchanged/.test(text(html))) throw new Error('the failure is not shown')
+    }],
+  ['drafts(each reopens at the step it is on)', null, () => {
+    const pres = { title: 'Legs', minutes: 40, blocks: PRESCRIPTION.blocks, thread: [{ role: 'you', text: 'x' }], ask: { kinds: ['Legs'] } }
+    const table = [
+      [{ status: 'working', run: { kind: 'write' }, pres: null }, 'working'],
+      [{ status: 'working', run: { kind: 'revise' }, pres }, 'review'],
+      [{ status: 'ready', pres }, 'review'],
+      [{ status: 'failed', run: { kind: 'write' }, pres: null }, 'failed'],
+      [{ status: 'failed', run: { kind: 'revise' }, pres }, 'review'],
+      [null, 'kind'],
+    ]
+    for (const [d, want] of table) {
+      if (draftStep(d) !== want) throw new Error(`${JSON.stringify(d?.status)}/${d?.run?.kind} reopened at ${draftStep(d)}, not ${want}`)
+    }
+    const shown = draftPres({ pres }, liftFieldOf(plan))
+    if (!shown || shown.thread.length !== 1 || shown.ask?.kinds?.[0] !== 'Legs') throw new Error('the thread or the ask was lost on the way to the editor')
+    if (!/Rewriting it/.test(draftLine({ status: 'working', run: { kind: 'revise', startedAt: new Date().toISOString() } }))) {
+      throw new Error('a revision in progress reads as a new draft')
+    }
+  }],
+  ['KeptStep(three doors, and nothing started)',
+    <KeptStep pres={PRESCRIPTION} onStart={noop} onAnother={noop} onDone={noop} />,
+    (html) => {
+      const t = text(html)
+      for (const door of ['Start it now', 'Plan another workout', 'Back to today']) {
+        if (!t.includes(door)) throw new Error(`no "${door}" door`)
+      }
+      if (!t.includes(PRESCRIPTION.title)) throw new Error('it does not say what landed')
+      // The promise this screen makes. If the flow ever auto-starts again, this
+      // sentence becomes a lie and the test is the only thing that would say so.
+      if (!/Nothing has started/.test(t)) throw new Error('it does not say the clock is not running')
+    }],
+  ['KeptStep(kept, but nothing to start)',
+    <KeptStep pres={PRESCRIPTION} onStart={null} onAnother={noop} onDone={noop} />,
+    (html) => {
+      const t = text(html)
+      // A write that did not come back with an id still has to leave two doors
+      // rather than a dead end.
+      if (/Start it now/.test(t)) throw new Error('offering to start something it cannot open')
+      if (!/Back to today/.test(t)) throw new Error('no way out')
+    }],
+  ['PrescriptionEditor(a lift day)',
+    <PrescriptionEditor pres={PRESCRIPTION} liftField={LIFT_FIELD} onChange={noop} />,
+    (html) => {
+      const t = text(html)
+      if (!t.includes(PRESCRIPTION.blocks[1].items[0].name)) throw new Error('the movement is not named')
+      // Every set is a row of steppers, because editing everything, as the log
+      // already allows, is the thing this screen exists for.
+      const steppers = (html.match(/class="stepper/g) || []).length
+      if (steppers < 6) throw new Error(`only ${steppers} editable numbers on a four-set workout`)
+      if (!/lb on the bar/.test(t)) throw new Error('the weight column does not say what it means')
+    }],
+  /* ===================================== 2026-09-17, the last three asks ===
+   *
+   * A body diagram against every lifting movement, what the user lifted last time while
+   * the user is still choosing the weight, and a quota per BLOCK rather than per
+   * session. All three land on the same screen, so they are checked on one.
+   */
+  ['PrescriptionEditor(body map, last time, and a category per block)',
+    <PrescriptionEditor pres={TRIP} liftField={LIFT_FIELD} entries={PRIOR_LIFTS}
+      categories={plan.quotaCategories} onChange={noop} />,
+    (html) => {
+      const t = text(html)
+
+      // 1. The body. Two views per movement — a press lights the front and a row
+      //    the back, so one view would render half the catalog as an empty body.
+      const bodies = (html.match(/class="bodymap"/g) || []).length
+      if (!bodies) throw new Error('no body diagram against the movement')
+      if (!/muscle|<svg/.test(html)) throw new Error('the body did not render as SVG')
+
+      // 2. What the user did last time, on the screen where the weight is CHOSEN.
+      if (!/last time \(2026-09-10\)/.test(t)) throw new Error('no previous session on the planning screen')
+      if (!/175/.test(t)) throw new Error('the previous weight is not shown')
+
+      // 3. A category per block, not per session: where the session splits into
+      //    workouts. Said in plain words; the quotas it used to fill are gone.
+      if (!/its own workout/i.test(t)) throw new Error('no per-block split control')
+      if (!/Lift/.test(t) || !/Run/.test(t)) throw new Error('the two blocks do not name their own categories')
+      // The warm-up is not a workout in its own right.
+      if (!/part of the workout beside it/.test(t)) throw new Error('the warm-up claims to be a workout')
+      if (/counts toward|quota/i.test(html.replace(/<[^>]*>/g, ' '))) throw new Error('quota language is back on the planner')
+    }],
+  ['BodyMap(a movement the catalog has no muscles for renders nothing)', null, () => {
+    const html = renderToString(
+      <PrescriptionEditor liftField={LIFT_FIELD} categories={[]} onChange={noop}
+        pres={normalizePrescription({
+          title: 'x', minutes: 10, why: '',
+          blocks: [{ name: 'M', items: [{ kind: 'interval', name: 'Row 500m', sets: [{ distance: 500 }] }] }],
+        }, { liftField: LIFT_FIELD })} />)
+    // An interval is not a catalog movement, so there is nothing honest to draw.
+    if (/class="bodymap"/.test(html)) throw new Error('drew a body for something with no muscle data')
+  }],
+  ['plan.json(every exercise knows what it works)', null, () => {
+    const missing = LIFT_FIELD.exercises.filter(e => !e.muscles?.primary?.length).map(e => e.key)
+    if (missing.length) throw new Error(`${missing.length} exercises have no muscles: ${missing.slice(0, 5).join(', ')}`)
+    // And every muscle named is one the drawing actually has a region for.
+    const KNOWN = new Set(['trapezius', 'upper-back', 'lower-back', 'chest', 'biceps', 'triceps',
+      'forearm', 'back-deltoids', 'front-deltoids', 'abs', 'obliques', 'adductor', 'abductors',
+      'hamstring', 'quadriceps', 'calves', 'gluteal', 'head', 'neck', 'knees'])
+    const bad = new Set()
+    for (const e of LIFT_FIELD.exercises) {
+      for (const m of [...(e.muscles.primary || []), ...(e.muscles.secondary || [])]) {
+        if (!KNOWN.has(m)) bad.add(`${e.key}:${m}`)
       }
     }
-    if (missing.length) throw new Error(`no such figure: ${missing.join(', ')}`)
+    if (bad.size) throw new Error(`muscles the body cannot draw: ${[...bad].slice(0, 5).join(', ')}`)
   }],
-  ['no figure is drawn that nothing uses', null, () => {
-    const used = new Set(plan.dailyMenu.flatMap(m => (m.logSpec?.exercises || []).map(e => e.how?.figure)))
-    const spare = Object.keys(FIGURES).filter(k => !used.has(k))
-    if (spare.length) throw new Error(`unused figures: ${spare.join(', ')}`)
-  }],
-  // Every figure has to survive being drawn, including the ones a rarely-picked
-  // session owns. They are hand-written SVG; a stray undefined renders blank.
-  ...Object.keys(FIGURES).map(name => [`Figure(${name})`,
-    <HowRow exercise={{ name, how: { figure: name, gist: 'x' } }} open onToggle={noop} />,
-    html => { if (!html.includes('<svg')) throw new Error('drew nothing') }]),
-  // The moves list on every session that has one, and the mid-set sheet.
-  ...plan.dailyMenu.filter(m => m.logSpec?.exercises?.length)
-    .map(m => [`Moves(${m.id})`, <MovesList session={m} />]),
-  ['HowSheet(eccentrics)', <HowSheet
-    exercise={plan.dailyMenu.find(m => m.id === 'eccentrics').logSpec.exercises[0]}
-    onClose={noop} />,
-    html => {
-      // The specific confusion this whole layer was built for: the free hand
-      // lifts, the working hand only lowers. If that sentence stops reaching
-      // the screen, the card is decoration.
-      if (!/free hand/i.test(text(html))) throw new Error('lost the free-hand instruction')
+  ['WorkoutRunner(first set)', <WorkoutRunner session={PLANNED_CARD} entry={PLANNED_ENTRY}
+    entries={rich} onRun={noop} onExit={noop} />,
+    (html) => {
+      const t = text(html)
+      if (!/Mark set 1/.test(t)) throw new Error('no way to mark the set he is on')
+      if (!/planned/.test(t)) throw new Error('the target is not on screen')
+      // The two things that make it usable one-handed.
+      if (!/class="bigstep-in"/.test(html)) throw new Error('the numbers are not thumb-sized')
+      if (!/class="run-done"/.test(html)) throw new Error('the mark button is not the big one')
+      // "If you add another set, you have to type in the weight every single time."
+      // The runner has to offer one more set of this, and the box has to take a
+      // decimal — a number input would eat the dot in "37.5".
+      if (!/One more set of/.test(html)) throw new Error('no way to add a set from the runner')
+      if (!/class="bigstep-in"[^>]*type="text"|type="text"[^>]*class="bigstep-in"/.test(html)) {
+        throw new Error('the weight box is not a text box, so a decimal point will not survive typing')
+      }
     }],
-  // An exercise with no how-to written yet must degrade, not crash.
-  ['HowRow(no card)', <HowRow exercise={{ key: 'x', name: 'Something new' }} open onToggle={noop} />],
-  ['HowSheet(nothing to show)',
-    <div className="probe"><HowSheet exercise={{ name: 'x' }} onClose={noop} /></div>,
-    html => { if (html.includes('how-sheet')) throw new Error('opened a sheet with nothing in it') }],
+  ['WorkoutRunner(resting)', <WorkoutRunner session={PLANNED_CARD}
+    entry={{ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, run: RESTING_RUN } }}
+    entries={rich} onRun={noop} onExit={noop} />,
+    (html) => {
+      const t = text(html)
+      if (!/rest/i.test(t)) throw new Error('a rest does not say it is one')
+      if (!/next:/.test(t)) throw new Error('the rest screen does not say what is coming')
+    }],
+  ['WorkoutRunner(no plan on the entry)', <WorkoutRunner session={PLANNED_CARD}
+    entry={{ id: 'x', kind: 'daily', date: TODAY, data: { optId: 'planned', out: {} } }}
+    entries={[]} onRun={noop} onExit={noop} />,
+    (html) => {
+      if (!/no plan on it/.test(text(html))) throw new Error('an empty runner should say so, not crash')
+    }],
+  /*
+   * "And another one" for a CONTAINER card goes to the screen that asks the
+   * question, not to a blank entry of that card.
+   *
+   * The "Plan another workout" button has to do what the other plan button does.
+   * It did not — it minted an empty planned
+   * session with no prescription and opened the sheet on it. The contract is a
+   * declaration in plan.json, so this checks the declaration rather than trying
+   * to simulate a click: a container that loses it silently goes back to minting
+   * blanks.
+   */
+  ['plan.json(container cards route their repeat to a screen)', null, () => {
+    for (const [id, via] of [['planned', 'plan'], ['log-workout', 'log']]) {
+      const card = plan.dailyMenu.find(m => m.id === id)
+      if (!card) throw new Error(`no ${id} card`)
+      if (!card.sched?.repeatable) throw new Error(`${id} is not repeatable any more`)
+      if (card.sched.repeatVia !== via) {
+        throw new Error(`${id} should repeat via "${via}", got "${card.sched.repeatVia}"`)
+      }
+    }
+    // And nothing that IS a session in its own right claims to need a screen —
+    // a second hip block really is a second entry of the hip block.
+    const wrong = plan.dailyMenu
+      .filter(m => m.sched?.repeatVia && !['planned', 'log-workout'].includes(m.id))
+      .map(m => m.id)
+    if (wrong.length) throw new Error(`not container cards: ${wrong.join(', ')}`)
+  }],
+  /* ============================================================= endurance
+   *
+   * Instead of one bike/swim/run section, endurance is a set of workout kinds —
+   * speed, power, endurance and so on — that the app selects workouts from, with
+   * zone-two and low-intensity volume as the default emphasis.
+   */
+  ['PlanFlow(the endurance kinds let the planner pick the sport)', null, () => {
+    const kinds = plan.plannerKinds.kinds
+    const endurance = kinds.filter(k => k.group === 'endurance')
+    if (endurance.length < 6) throw new Error(`only ${endurance.length} endurance kinds — he asked for a lot`)
+    if (!endurance.some(k => /zone 2/i.test(k.label))) throw new Error('zone 2 is not a kind, and it is the bread and butter')
+    if (!/zone 2/i.test(endurance[0].label)) throw new Error('zone 2 does not lead the endurance group')
+    for (const k of endurance) {
+      // Naming no sport is what tells the planner to choose one from the week.
+      if (k.category || k.activity) throw new Error(`${k.key} names a sport; the endurance group is for kinds that let the planner pick`)
+      if (!/swim|bike|run|sport/i.test(k.prompt)) throw new Error(`${k.key}'s prompt does not tell the planner to pick a sport`)
+    }
+    // The three sport catalogs: each has a catch-all, and every kind in it is
+    // that sport's category.
+    for (const g of ['swim', 'bike', 'run']) {
+      const items = kinds.filter(k => k.group === g)
+      if (items.length < 5) throw new Error(`only ${items.length} ${g} kinds`)
+      if (!items.some(k => k.key === g)) throw new Error(`no catch-all "${g}" kind`)
+      for (const k of items) if (k.category !== g) throw new Error(`${k.key} in the ${g} group fills ${k.category}`)
+    }
+    // Every sport and category a kind names is real. A typo here is a form of the
+    // wrong shape and a category nothing files under.
+    const acts = new Set(activityFieldOf(plan).activities.map(a => a.key))
+    const cats = new Set(plan.quotaCategories.map(c => c.key))
+    for (const k of kinds) {
+      if (k.activity && !acts.has(k.activity)) throw new Error(`${k.key}: activity "${k.activity}" is not in the catalog`)
+      if (k.category && !cats.has(k.category)) throw new Error(`${k.key}: category "${k.category}" is not a category`)
+    }
+    // The bread and butter is not folded away; the catalogs are.
+    const groups = plan.plannerKinds.groups
+    if (groups.find(g => g.key === 'endurance')?.collapsed) throw new Error('the endurance group is folded')
+    for (const g of ['swim', 'bike', 'run']) {
+      if (!groups.find(x => x.key === g)?.collapsed) throw new Error(`the ${g} catalog is not folded, and thirty cards bury the climbing section`)
+    }
+  }],
+  ['PlanFlow(every icon the content names is registered)', null, () => {
+    // An unknown name renders as a dot, which looks like a bug the user caused.
+    for (const k of plan.plannerKinds.kinds) if (!hasIcon(k.icon)) throw new Error(`${k.key}: icon "${k.icon}" is not registered`)
+    for (const g of plan.plannerKinds.groups) if (!hasIcon(g.icon)) throw new Error(`group ${g.key}: icon "${g.icon}" is not registered`)
+    for (const c of plan.quotaCategories) if (!hasIcon(c.icon)) throw new Error(`category ${c.key}: icon "${c.icon}" is not registered`)
+  }],
+  ['PlanFlow(folded catalogs are still in the page)', <PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />,
+    (html) => {
+      if (!/<details class="kindgroup folded"/.test(html)) throw new Error('nothing folds')
+      const t = text(html).replace(/&amp;/g, '&')
+      // Folded is not gone: every ride variant is rendered, one tap away.
+      for (const k of plan.plannerKinds.kinds.filter(k => k.group === 'bike')) {
+        if (!t.includes(k.label)) throw new Error(`${k.label} is not in the page`)
+      }
+      if (!/\d+ kinds/.test(t)) throw new Error('a folded group does not say how many are in it')
+      if (!/pick swim, bike or run/i.test(t)) throw new Error('nothing says the sportless kinds choose the sport')
+    }],
+  /* The planner picks a sport from what was LOGGED lately, not from a quota (issue #31). */
+  ['plannerContext(hands over the last week\'s workouts, not quotas)', null, () => {
+    const s = plannerContext({
+      iso: '2026-09-19', plan,
+      entries: [
+        { id: 'q', kind: 'quota', date: '2026-09-14', updatedAt: 'z', data: { counts: { bike: 3, pe: 2 } } },
+        { id: 'r1', kind: 'daily', date: '2026-09-15', updatedAt: 'z',
+          data: { optId: 'log-workout', name: 'Mountain bike', level: 2, done: true, out: { activity: 'mtb' } } },
+        { id: 'r2', kind: 'daily', date: '2026-09-16', updatedAt: 'z',
+          data: { optId: 'log-workout', name: 'Run', level: 2, done: false, undone: true, out: { activity: 'run' } } },
+        { id: 'r3', kind: 'daily', date: '2026-09-01', updatedAt: 'z',
+          data: { optId: 'log-workout', name: 'Swim', level: 2, done: true, out: { activity: 'swim' } } },
+      ],
+    })
+    if (!/2026-09-15: Mountain bike/.test(s)) throw new Error(`the recent ride is missing: ${s}`)
+    if (/2026-09-16|2026-09-01/.test(s)) throw new Error(`an unfinished or old workout leaked in: ${s}`)
+    if (/quota|owe|0\/2/i.test(s)) throw new Error(`quota language reached the planner: ${s}`)
+    if (!/Nothing logged/.test(plannerContext({ iso: '2026-09-19', plan, entries: [] }))) {
+      throw new Error('an empty week does not say so')
+    }
+  }],
+  ['PlanFlow(no AI: building it yourself is the only route)', null, () => {
+    _setMe({ id: 'sam', owner: false, features: { ai: false, goals: false, whoop: false, strava: false, notifications: false } })
+    try {
+      const t = text(renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />))
+      if (!/Build it myself/.test(t)) throw new Error('no way to build a workout without the AI')
+      if (/Write it for me|Write me \d/.test(t)) throw new Error('the model is offered to someone it is not set up for')
+    } finally { _setMe({}) }
+    const owner = text(renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />))
+    if (!/Write it for me/.test(owner)) throw new Error('the owner lost "Write it for me"')
+  }],
+  // The rest day is a door of its own: as a footer link under the old session
+  // picker it was technically reachable and the user could not find it. "Pick a
+  // session" went on 2026-10-14: its cards are folders inside Log a workout.
+  // "Plan the week" went with the quotas on 2026-10-25 (issue #31).
+  ['FabMenu(four doors: log, rest, plan, the timer last; no week planner, no session picker)',
+    <FabMenu onClose={noop} onPlan={noop} onLog={noop} onPlanWeek={noop} onRest={noop} onTimer={noop} />,
+    (html) => {
+      const t = text(html)
+      const doors = ['Log a workout', 'Log a rest day', 'Plan a workout', 'Interval timer']
+      for (const door of doors) {
+        if (!t.includes(door)) throw new Error(`no "${door}" door`)
+      }
+      // Logging doors, then planning, then tools (docs/DESIGN.md, "The + menu, final shape").
+      const at = doors.map(d => t.indexOf(d))
+      if (at.some((x, i) => i && x < at[i - 1])) throw new Error(`the doors are out of order: ${doors.join(' < ')}`)
+      if (/Plan the week/.test(t)) throw new Error('the week planner is back on the +')
+      if (/Pick a session/.test(t)) throw new Error('the separate session door is back')
+      // The common case leads (docs/DESIGN.md D7).
+      if (t.indexOf('Log a workout') > t.indexOf('Plan a workout')) throw new Error('Log a workout is not the first door')
+      if (/quota|Move Every Day/i.test(t)) throw new Error('the + still talks about quotas or a habit name')
+    }],
+  /*
+   * The interval timer (timer.jsx, issue #32). It used to exist only inside
+   * workout mode, which only the climbing cards with a declared timer reach.
+   * Now any workout's sheet has the door, and the + menu has one of its own.
+   */
+  ['FabMenu(an interval timer door)', null, () => {
+    const t = text(renderToString(<FabMenu onClose={noop} onPlan={noop} onLog={noop} onRest={noop} onPlanWeek={noop} onTimer={noop} />))
+    if (!t.includes('Interval timer')) throw new Error('no timer in the + menu')
+    if (text(renderToString(<FabMenu onClose={noop} onPlan={noop} onLog={noop} />)).includes('Interval timer')) {
+      throw new Error('a timer door with nothing behind it')
+    }
+  }],
+  ['starter: ActivityChooser', <ActivityChooser plan={starter} field={activityFieldOf(starter)} onPick={noop} onClose={noop} />,
+    (html) => { if (!/Run/.test(text(html))) throw new Error('the activity catalog is missing from the starter') }],
+  // The example has no climbing, so its cards sit in "From the plan", not under a sport they are not.
+  ['example: ActivityChooser, From the plan', <ActivityChooser plan={example} field={activityFieldOf(example)}
+    onPick={noop} onPickCard={noop} onClose={noop} initialFolder="plan" />,
+    (html) => { if (!text(html).includes('Long run')) throw new Error('the example sessions are not offered') }],
+  ['example: no climbing folders', null, () => {
+    const keys = climbingFolders(example).map(f => f.key)
+    if (keys.join() !== 'plan') throw new Error(`the example is foldered as ${keys.join(', ')}`)
+  }],
 
-  /* The Monday split and the sessions added on 2026-08-10, with the logs their
-   * charts actually read from. */
-  ['TodayTab(the Monday pair)', <TodayTab plan={plan} entries={[
-    { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
-      data: { slot: 'main', optId: 'max-hangs', level: 4, name: 'Max hangs', minutes: 15, done: true,
-        out: { maxLoad: 219, rpe: 7, fingers: 2, skin: 2,
-          sets: { maxhang: [{ reps: 1, seconds: 7, weight: 45 }, { reps: 1, seconds: 7, weight: 45 }] },
-          signs: { maxhang: '+' } } } },
-    { id: `daily-${TODAY}-repeaters`, kind: 'daily', date: TODAY, updatedAt: 'z',
-      data: { slot: 'extra', optId: 'repeaters', level: 4, name: 'Repeaters', minutes: 20, done: false,
-        out: { repLoad: 20, sets: { repeaters: [{ reps: 12, weight: 20 }] }, signs: { repeaters: '-' } } } },
-  ]} upsertEntry={noop} deleteEntry={noop} />],
-  ['TodayTab(crimp crawls logged)', <TodayTab plan={plan} entries={[
-    { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
-      data: { slot: 'main', optId: 'crawls', level: 3, name: 'Crimp crawls', minutes: 22, done: true,
-        out: { stair: 2, pump: 4, rpe: 6, fingers: 2, skin: 3, draws: true,
-          sets: { crawl: [{ seconds: 180, stair: 2 }, { seconds: 180, stair: 2 }], allout: [{ seconds: 145 }] },
-          notes: 'All-out set fell apart at 2:25 — fumbled the second clip.' } } },
-  ]} upsertEntry={noop} deleteEntry={noop} />],
-  ['TodayTab(peak force test day)', <TodayTab plan={plan} entries={[
-    { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
-      data: { slot: 'main', optId: 'mvc-test', level: 4, name: 'Peak force test', minutes: 20, done: true,
-        out: { leftKg: 50.4, rightKg: 48.6, rpe: 7, fingers: 2,
-          sets: { pullLeft: [{ seconds: 5, weight: 50.4 }], pullRight: [{ seconds: 5, weight: 48.6 }] } } } },
-  ]} upsertEntry={noop} deleteEntry={noop} />],
-  // The retired pre-split card: nothing may offer it, and a day logged against
-  // it years of entries ago must still render its name and its sets.
-  ['TodayTab(retired session in history)', <TodayTab plan={plan} entries={[
-    { id: 'old', kind: 'daily', date: back(120), updatedAt: 'z',
-      data: { slot: 'main', optId: 'hard-home', level: 4, name: 'Max hangs + repeaters', minutes: 25, done: true,
-        out: { maxLoad: 219, rpe: 7, fingers: 2 } } },
-  ]} upsertEntry={noop} deleteEntry={noop} />],
+  // ===== batch C: Log and Progress =====
 
+  ['LogTab', <LogTab plan={plan} entries={entries} upsertEntry={noop} deleteEntry={noop} />],
+  ['LogTab(empty)', <LogTab plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
+  /* The feed reads the rename too — it computes each row's name live rather than
+     trusting `data.name`, which is what makes a rename land on every surface at
+     once. A commute also wears its "just miles" tag here. */
+  ['LogTab(a renamed commute)', <LogTab plan={plan} upsertEntry={noop} deleteEntry={noop} entries={[
+    { id: 'lc1', kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { optId: 'log-workout', level: 1, name: 'Bike', minutes: 22, done: true,
+        training: false, out: { activity: 'bike', duration: 22, title: 'Commute', titleFrom: 'casual' } } },
+  ]} />,
+    html => {
+      const t = text(html)
+      if (!/Commute/.test(t)) throw new Error('the feed row ignored the rename')
+      if (!/just miles/.test(t)) throw new Error('a commute should still say what it is')
+    }],
+  // The split gym night, which is the shape per-session minutes exist for: two
+  // workouts on one date, each with its own time, adding up to the day.
+  //
+  // so going through it would have exercised the charts and none of this.
+  ['LogTab(two sessions, one day)', <LogTab plan={plan} entries={[
+    { id: 'g1', kind: 'daily', date: '2026-08-13', updatedAt: 'z',
+      data: { slot: 'main', optId: 'board', level: 4, name: 'Gym: board', done: true,
+        minutes: 105, minutesSource: 'typed', out: { rpe: 8, fingers: 3 } } },
+    { id: 'g2', kind: 'daily', date: '2026-08-13', updatedAt: 'z',
+      data: { slot: 'main', optId: 'lead-laps', level: 3, name: 'Doubled lead laps', done: true,
+        minutes: 25, minutesSource: 'typed', out: { rpe: 6, fingers: 2 } } },
+  ]} upsertEntry={noop} deleteEntry={noop} />],
+  ['ProgressView(critical force)', <ProgressView plan={plan} entries={[...rich, ...cfEntries]} />],
   // An old log's check-ins, journal days, quotas and achievements are history the
   // app no longer reads (issue #31): the Log renders, and none of them is a workout.
   ['LogTab(legacy entries are not workouts)', <LogTab plan={plan} entries={[...LEGACY, ...entries]}
@@ -1426,8 +2204,118 @@ const cases = [
       if (!/Nothing here/.test(t)) throw new Error('a legacy entry was counted as a workout')
       if (/Achievement/.test(t)) throw new Error('the achievement filter is back')
     }],
+  ['ProgressView(rich)', <ProgressView plan={plan} entries={rich} />,
+    html => {
+      const t = text(html)
+      /*
+       * The three per-session grade charts — lead laps, fun bouldering, fun sport
+       * — became TWO charts on 2026-09-15: hardest route and hardest boulder,
+       * across whatever is in scope. Three charts of the same measurement split by
+       * which card recorded it is precisely the "so specific" problem the rebuild
+       * was for.
+       *
+       * What survives unchanged is the property those assertions were really
+       * protecting: a grade chart reads its axis off the LADDER, not off the
+       * stored decimal. A hero that says "10.2" is a chart asking them to decode
+       * their own log.
+       */
+      if (!/Hardest route/.test(t)) throw new Error('the route-grade chart is missing')
+      const hero = t.match(/Hardest route<\/div><div class="viz-hero">([^<]*)/)
+      if (!/^5\.\d/.test(hero?.[1] || '')) {
+        throw new Error(`the route headline read "${hero?.[1]}", not a rung`)
+      }
+      if (!/Hardest boulder/.test(t)) throw new Error('the boulder-grade chart is missing')
+      const vHero = t.match(/Hardest boulder<\/div><div class="viz-hero">([^<]*)/)
+      if (!/^V\d/.test(vHero?.[1] || '')) {
+        throw new Error(`the boulder headline read "${vHero?.[1]}", not a V grade`)
+      }
+      // And the filter bar itself, which is the whole point of the rebuild.
+      if (!/Everything/.test(t)) throw new Error('the scope bar does not say what it is showing')
+    }],
+  // The max hang series has to survive the split: two entries under the old id,
+  // one under the new, and one continuous line.
+  ['ProgressView(across the split)', <ProgressView plan={plan} entries={[
+    ...rich,
+    { id: 'sp1', kind: 'daily', date: '2026-08-17', updatedAt: 'z',
+      data: { optId: 'max-hangs', level: 4, name: 'Max hangs', minutes: 15, done: true,
+        out: { rpe: 7, fingers: 2, sets: { maxhang: [{ reps: 1, seconds: 7, weight: 47 }] }, signs: { maxhang: '+' } } } },
+    { id: 'sp2', kind: 'daily', date: '2026-08-17', updatedAt: 'z',
+      data: { slot: 'extra', optId: 'repeaters', level: 4, name: 'Repeaters', minutes: 20, done: true,
+        out: { rpe: 7, fingers: 3, sets: { repeaters: [{ reps: 12, weight: 18 }] }, signs: { repeaters: '-' } } } },
+  ]} />],
+  ['ProgressView(empty)', <ProgressView plan={plan} entries={[]} />],
+  ['ProgressView(one point)', <ProgressView plan={plan} entries={rich.slice(0, 3)} />],
+  ['LogTab(a rest day says why)', <LogTab plan={plan} upsertEntry={noop} deleteEntry={noop} entries={[
+    { id: 'daily-2026-09-20', kind: 'daily', date: '2026-09-20', updatedAt: 'z',
+      data: { slot: 'main', optId: 'off', level: 1, name: 'Rest day', minutes: 0, done: true,
+        out: { why: 'travel', notes: 'Flight to Denver' } } }]} />,
+    (html) => {
+      const t = text(html)
+      if (!t.includes('Travelling')) throw new Error('the reason is not on the log card')
+      if (!t.includes('Flight to Denver')) throw new Error('the note is not on the log card')
+    }],
+  ['starter: LogTab', <LogTab plan={starter} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
+  ['starter: ProgressView', <ProgressView plan={starter} entries={[]} />],
 
+  // ===== batch D: profile and connections =====
 
+  ['TestingTab', <TestingTab plan={plan} entries={entries} upsertEntry={noop} deleteEntry={noop} />],
+  ['GearSection(empty)', <GearSection plan={plan} entries={[]} strava={null} upsertEntry={noop} deleteEntry={noop} />],
+  ['GearSection(strava bikes and shoes)', <GearSection plan={plan} entries={[]}
+    strava={STRAVA_CACHE} upsertEntry={noop} deleteEntry={noop} />,
+    (html) => {
+      if (!/Strava/.test(text(html))) throw new Error('synced gear is not labelled as synced')
+    }],
+  ['GearSection(local gear with use on it)', <GearSection plan={plan}
+    strava={STRAVA_CACHE}
+    entries={[
+      { id: 'gear-rope', kind: 'gear', data: { name: 'Mammut 9.5', kind: 'rope', primary: true, acquired: '2025-03-01' } },
+      { id: 'gear-plates', kind: 'gear', data: { name: 'Cast iron', kind: 'weights' } },
+      { id: `daily-${TODAY}-board`, kind: 'daily', date: TODAY, updatedAt: 'z',
+        data: { optId: 'board', level: 4, done: true, minutes: 120, out: { gear: ['gear-rope'] } } },
+    ]}
+    upsertEntry={noop} deleteEntry={noop} />,
+    (html) => {
+      const t = text(html)
+      if (!/Mammut/.test(t)) throw new Error('local gear is missing')
+      // Two units on one page, which is the point: the metric belongs to the KIND,
+      // so a bike reads in miles and a rope reads in hours without either
+      // item having to declare it.
+      if (!/\bhr\b/.test(t)) throw new Error('a rope should read in hours')
+      if (!/\bmi\b/.test(t)) throw new Error('a bike should still read in miles')
+    }],
+  ['GearSection(retired gear keeps its hours)', <GearSection plan={plan} strava={null}
+    entries={[{ id: 'g1', kind: 'gear', data: { name: 'Worn rope', kind: 'rope', retired: true, priorMinutes: 12000 } }]}
+    upsertEntry={noop} deleteEntry={noop} />,
+    (html) => {
+      if (!/200/.test(text(html))) throw new Error('the hours on a retired rope are why you retired it')
+    }],
+  ['ProfileMenu(with a picture)', <StravaProvider initial={{ cache: STRAVA_CACHE, status: 'ok' }}>
+    <ProfileMenu plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} status="synced" />
+  </StravaProvider>,
+    (html) => {
+      if (!/Sam/.test(text(html))) throw new Error('the header does not say who the athlete is')
+      // Closed by default: the panel is a menu, not a page, and mounting it open
+      // would put a gear editor over the app on every load.
+      if (/Your gear/.test(text(html))) throw new Error('the menu should start closed')
+    }],
+  ['ProfileMenu(no strava at all)', <ProfileMenu plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} status="offline" />,
+    (html) => {
+      if (!/You/.test(text(html))) throw new Error('a header saying null is worse than one saying nothing')
+    }],
+  ['WhyTab', <WhyTab plan={plan} />],
+  ['TestingTab(empty)', <TestingTab plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
+  // Trip mode: the four days the whole block points at.
+
+  // Critical force: the ceiling readout, the charts, and the resolved dose on
+  // the session it drives, from the calibration-day fixture above.
+  ['TestingTab(critical force)', <TestingTab plan={plan} entries={cfEntries} upsertEntry={noop} />],
+  ['TestingTab(CF, no max logged)', <TestingTab plan={plan} upsertEntry={noop}
+    entries={[{ id: 'cf1', kind: 'test', date: '2026-08-08', updatedAt: 'z',
+      data: { testId: 'critical-force', cfKg: 18.2 } }]} />],
+  ['TestingTab(CF, CFmin binds)', <TestingTab plan={plan} upsertEntry={noop}
+    entries={[{ id: 'cf2', kind: 'test', date: '2026-08-08', updatedAt: 'z',
+      data: { testId: 'critical-force', cfKg: 18.2, cfMinKg: 11.5, mvcKg: 48.6 } }]} />],
   /* WHOOP.
    *
    * The state that matters most is the EMPTY one: with no band, no grant or no
@@ -1867,651 +2755,6 @@ const cases = [
         }],
     ]
   })(),
-
-  ['ProgressView(rich)', <ProgressView plan={plan} entries={rich} />,
-    html => {
-      const t = text(html)
-      /*
-       * The three per-session grade charts — lead laps, fun bouldering, fun sport
-       * — became TWO charts on 2026-09-15: hardest route and hardest boulder,
-       * across whatever is in scope. Three charts of the same measurement split by
-       * which card recorded it is precisely the "so specific" problem the rebuild
-       * was for.
-       *
-       * What survives unchanged is the property those assertions were really
-       * protecting: a grade chart reads its axis off the LADDER, not off the
-       * stored decimal. A hero that says "10.2" is a chart asking them to decode
-       * their own log.
-       */
-      if (!/Hardest route/.test(t)) throw new Error('the route-grade chart is missing')
-      const hero = t.match(/Hardest route<\/div><div class="viz-hero">([^<]*)/)
-      if (!/^5\.\d/.test(hero?.[1] || '')) {
-        throw new Error(`the route headline read "${hero?.[1]}", not a rung`)
-      }
-      if (!/Hardest boulder/.test(t)) throw new Error('the boulder-grade chart is missing')
-      const vHero = t.match(/Hardest boulder<\/div><div class="viz-hero">([^<]*)/)
-      if (!/^V\d/.test(vHero?.[1] || '')) {
-        throw new Error(`the boulder headline read "${vHero?.[1]}", not a V grade`)
-      }
-      // And the filter bar itself, which is the whole point of the rebuild.
-      if (!/Everything/.test(t)) throw new Error('the scope bar does not say what it is showing')
-    }],
-  // The max hang series has to survive the split: two entries under the old id,
-  // one under the new, and one continuous line.
-  ['ProgressView(across the split)', <ProgressView plan={plan} entries={[
-    ...rich,
-    { id: 'sp1', kind: 'daily', date: '2026-08-17', updatedAt: 'z',
-      data: { optId: 'max-hangs', level: 4, name: 'Max hangs', minutes: 15, done: true,
-        out: { rpe: 7, fingers: 2, sets: { maxhang: [{ reps: 1, seconds: 7, weight: 47 }] }, signs: { maxhang: '+' } } } },
-    { id: 'sp2', kind: 'daily', date: '2026-08-17', updatedAt: 'z',
-      data: { slot: 'extra', optId: 'repeaters', level: 4, name: 'Repeaters', minutes: 20, done: true,
-        out: { rpe: 7, fingers: 3, sets: { repeaters: [{ reps: 12, weight: 18 }] }, signs: { repeaters: '-' } } } },
-  ]} />],
-  ['ProgressView(empty)', <ProgressView plan={plan} entries={[]} />],
-  ['ProgressView(one point)', <ProgressView plan={plan} entries={rich.slice(0, 3)} />],
-  /* ------------------------------------------- every session is REACHABLE
-   *
-   * The regression this exists for, in full: taking the swap list off Today on
-   * 2026-09-17 left twenty-one climbing cards in plan.json — max hangs, the
-   * board, the 4×4s, the load-cell tests — with their protocols, their timers
-   * and the logged history all intact, and NOWHERE TO PRESS to put one on a day.
-   * Every test passed. The app rendered. It was found within the hour of use.
-   *
-   * So the contract is not "the picker renders", it is "every startable card in
-   * the plan appears in it". A card added to plan.json that this cannot reach is
-   * a card that does not exist, and that is a thing a rendering test will never
-   * notice on its own.
-   */
-  ['ActivityChooser(every startable card is in a folder)', null, () => {
-    const startable = plan.dailyMenu.filter(m =>
-      m.role !== 'adjunct' && m.role !== 'rest' && !m.retired)
-    const listed = new Set(climbingFolders(plan)
-      .flatMap(f => f.groups.flatMap(g => g.items.map(m => m.id))))
-    // The two containers have their own doors (this screen IS the workout card's;
-    // the planned card is Plan a workout's), so they are not in a folder.
-    const missing = startable
-      .filter(m => !listed.has(m.id) && !['plan', 'log'].includes(m.sched?.repeatVia))
-      .map(m => m.id)
-    if (missing.length) throw new Error(`unreachable: ${missing.join(', ')}`)
-
-    // And nothing that should not be startable leaked in. An adjunct is ticked
-    // inside the session it rides with; a retired card is kept only so the days
-    // logged against it still resolve.
-    const wrong = [...listed].filter(id => {
-      const m = plan.dailyMenu.find(x => x.id === id)
-      return !m || m.role === 'adjunct' || m.role === 'rest' || m.retired || m.sched?.repeatVia
-    })
-    if (wrong.length) throw new Error(`should not be startable: ${wrong.join(', ')}`)
-
-    // Two folders on this plan, as asked: every card says which, so nothing falls
-    // through to the catch-all.
-    const keys = climbingFolders(plan).map(f => f.key)
-    if (keys.join() !== 'bouldering,rock-climbing') throw new Error(`folders are ${keys.join(', ')}`)
-    // A card that declares nothing still lands somewhere.
-    const untagged = { ...plan, dailyMenu: [{ id: 'z', name: 'Zorbing', role: 'session', sched: {} }] }
-    if (!climbingFolders(untagged).some(f => f.key === 'plan')) throw new Error('an untagged card vanished')
-  }],
-  /* The same screen, over the sports catalog: picking a session and logging a
-   * workout are the same flow over two different catalogs. */
-  ['ActivityChooser(every activity is reachable)', null, () => {
-    const field = activityFieldOf(plan)
-    if (!field) throw new Error('plan.json has no activity field')
-    const listed = activityGroups(field, plan).flatMap(g => g.items.map(i => i.key))
-    const missing = field.activities.filter(a => !listed.includes(a.key)).map(a => a.key)
-    if (missing.length) throw new Error(`unreachable activities: ${missing.join(', ')}`)
-
-    // An activity whose group the catalog no longer lists still has to land
-    // somewhere. Same orphan rule as the sessions, same reason.
-    const orphaned = activityGroups(
-      { ...field, activities: [{ key: 'z', name: 'Zorbing', group: 'No Such Group' }], groups: field.groups },
-      plan)
-    if (!orphaned.flatMap(g => g.items).some(i => i.key === 'z')) {
-      throw new Error('an activity with an unknown group vanished')
-    }
-  }],
-  ['ActivityChooser(renders, pinned first)',
-    <ActivityChooser plan={plan} field={activityFieldOf(plan)} onPick={noop} onPickCard={noop} onClose={noop} />,
-    (html) => {
-      const t = text(html)
-      // The general ways to log lead; the plan's climbing cards follow as two
-      // folders under Climbing (issue #31: a workout log first).
-      for (const f of ['Bouldering', 'Rock climbing']) {
-        if (!t.includes(f)) throw new Error(`no ${f} folder`)
-      }
-      if (t.indexOf('Your usual') > t.indexOf('Bouldering')) throw new Error('the climbing folders lead the general sports')
-      if (t.lastIndexOf('Climbing') < t.indexOf('Your usual')) throw new Error('the Climbing group is not after the activities')
-      for (const name of ['Mountain bike', 'Swim', 'Run', 'Lift']) {
-        if (!t.includes(name)) throw new Error(`${name} is not in the activity list`)
-      }
-      if (!/Your usual/.test(t)) throw new Error('his six pinned sports are not led with')
-      // The right-hand column says which category it files under, which the
-      // group heading above the row cannot.
-      if (!/Anything else|Bike|Run/.test(t)) throw new Error('no category on the rows')
-      // Same screen as the session picker, literally — if this diverges, one of
-      // them has grown a second implementation.
-      if (!/class="spick-row"/.test(html)) throw new Error('the two pickers are not the same screen')
-    }],
-  // The ones the user actually asked after, each in the folder it belongs in.
-  // Named rather than counted, because "21 rows rendered" would have passed
-  // while showing the wrong 21.
-  ...[
-    ['bouldering', ['Gym: board', 'Bouldering 4×4s', 'Limit bouldering', 'Bouldering with friends'],
-      ['Max hangs', 'ARC laps']],
-    ['rock-climbing', ['Max hangs', 'Repeaters', 'Sub-threshold hangs', 'ARC laps', 'Peak force test', 'Crag day'],
-      ['Gym: board', 'Mountain bike']],
-  ].map(([key, has, hasNot]) => [`ActivityChooser(the ${key} folder, by name)`,
-    <ActivityChooser plan={plan} field={activityFieldOf(plan)} onPick={noop} onPickCard={noop}
-      onClose={noop} initialFolder={key} />,
-    (html) => {
-      const t = text(html)
-      for (const name of has) if (!t.includes(name)) throw new Error(`${name} is not in ${key}`)
-      for (const name of hasNot) if (t.includes(name)) throw new Error(`${name} is in ${key}`)
-      // It is a list, not the swap list that came out of this app.
-      if (/Good swap|Not today|Works, with a caveat/.test(t)) {
-        throw new Error('the picker is ranking sessions again')
-      }
-    }]),
-  // A WHOOP climb is logged on a climbing card, never the catalog: the route from
-  // the unlogged card shows the folders and no sport.
-  ['ActivityChooser(a climb offers only the climbing cards)',
-    <ActivityChooser plan={plan} field={activityFieldOf(plan)} onPick={noop} onPickCard={noop}
-      onClose={noop} climbingOnly dayLabel="for Mon, Oct 12" />,
-    (html) => {
-      const t = text(html)
-      if (!/Log the climb/.test(t) || !/Bouldering/.test(t)) throw new Error('no climbing folders')
-      if (/Your usual|Mountain bike/.test(t)) throw new Error('a climb can be logged as a generic workout')
-      if (!/for Mon, Oct 12/.test(t)) throw new Error('the day it lands on is not said')
-    }],
-
-  /* ============================================ plan a workout, and run it
-   *
-   * The whole route the + button opens, rendered at every step. These are the
-   * screens with the least test surface anywhere else in the app: the model is
-   * covered as arithmetic in `prescription.test.js`, but nothing there would
-   * catch a runner that renders a set with no number on it.
-   */
-  ['PlanFlow(pick what)', <PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />,
-    (html) => {
-      const t = text(html)
-      // The kinds are CONTENT — adding "Shoulders" must be an edit to plan.json
-      // and not a rebuild, so the screen has to be rendering that list.
-      // `&` comes back as `&amp;` out of the serialiser — "Core & hips" is one
-      // of the kinds, so the comparison has to read through the escaping.
-      const plain = t.replace(/&amp;/g, '&')
-      for (const k of plan.plannerKinds.kinds) {
-        if (!plain.includes(k.label)) throw new Error(`${k.label} is not on the picker`)
-      }
-      // The dividers, and the reason for them: "Power" and "Endurance" are
-      // climbing categories in this app and ordinary words everywhere else, so
-      // ungrouped they were a coin flip. Hence a heading per group.
-      for (const g of plan.plannerKinds.groups) {
-        if (!plain.includes(g.name)) throw new Error(`the "${g.name}" divider is missing`)
-      }
-      if (!/Something else/.test(t)) throw new Error('no way to ask for something not on the list')
-    }],
-  // The discipline travels onto the ask screen too — "Power endurance" alone is
-  // the same ambiguity one step later, on the screen the user presses go from.
-  ['PlanFlow(the discipline follows the kind)', null, () => {
-    const pe = plan.plannerKinds.kinds.find(k => k.key === 'pe')
-    const group = plan.plannerKinds.groups.find(g => g.key === pe.group)
-    if (!group) throw new Error('the power-endurance kind names no group')
-    if (group.name !== 'Climbing') throw new Error(`power endurance is grouped under ${group.name}`)
-  }],
-  // Same reachability rule as the session picker: a kind in plan.json that no
-  // group claims must still land on screen, not vanish into a gap.
-  ['PlanFlow(every kind is in a group)', null, () => {
-    const listed = groupedKinds(plan).flatMap(g => g.items.map(k => k.key))
-    const missing = plan.plannerKinds.kinds.filter(k => !listed.includes(k.key)).map(k => k.key)
-    if (missing.length) throw new Error(`ungrouped and unreachable: ${missing.join(', ')}`)
-    if (listed.length !== new Set(listed).size) throw new Error('a kind is listed in two groups')
-
-    // And an orphan really does fall through rather than disappear.
-    const orphaned = groupedKinds({ plannerKinds: {
-      groups: plan.plannerKinds.groups,
-      kinds: [{ key: 'weird', label: 'Weird', group: 'no-such-group' }],
-    } })
-    if (!orphaned.flatMap(g => g.items).some(k => k.key === 'weird')) {
-      throw new Error('a kind with an unknown group vanished')
-    }
-  }],
-  /* Keeping a workout and starting it are two decisions: after keeping one, the
-   * user chooses between going back to the main menu, planning another workout,
-   * or starting it. The screen that asks is `KeptStep`. */
-  /* Multi-select, and the conversation that follows a plan: several workouts can
-   * be selected to plan a full day at the gym, and a created plan can be followed
-   * up on with the AI rather than being a dead end. */
-  ['PlanFlow(more than one kind at a time)', <PlanFlow plan={plan} entries={[]} iso={TODAY}
-    onKeep={noop} onStart={noop} onClose={noop} />,
-    (html) => {
-      const t = text(html)
-      if (!/as many as you like/i.test(t)) throw new Error('nothing says you can pick several')
-      // Every card is a toggle, and Next is what commits — a card that navigates
-      // on tap cannot be the second of three.
-      if (!/aria-pressed="false"/.test(html)) throw new Error('the kind cards are not toggles')
-      // What commits a selection is the FORK, since 2026-09-22 — either button
-      // takes the picks on, one to the model and one to the editor.
-      if (!/Write it for me|Write me \d+ in one/.test(t)) throw new Error('no way to commit a selection')
-    }],
-  /*
-   * TWO ROUTES, and the choice is on the screen the user is already looking at.
-   *
-   * A workout can be planned by hand from picked exercises, or written by the AI.
-   * A fork whose halves are
-   * not both visible is not a fork, so this asserts both buttons and the sentence
-   * that says what the difference costs — the model's route is a minute of
-   * waiting and the user's own is none.
-   */
-  ['PlanFlow(his own route, or the model\'s)', <PlanFlow plan={plan} entries={[]} iso={TODAY}
-    onKeep={noop} onStart={noop} onClose={noop} />,
-    (html) => {
-      const t = text(html)
-      if (!/Build it myself/.test(t)) throw new Error('no way to plan it himself')
-      if (!/Write it for me/.test(t)) throw new Error('no way to ask the model')
-      if (!/build it yourself/i.test(t)) throw new Error('the lead does not say there are two ways')
-      if (!/sends nothing anywhere/i.test(t)) throw new Error('nothing says what the two routes cost')
-      // Both are real buttons of the same size — one of them being a text link
-      // would be the app having an opinion it was asked not to have.
-      const buttons = html.match(/class="btn big[^"]*"/g) || []
-      if (buttons.length < 2) throw new Error('the two routes are not the same kind of control')
-    }],
-  /*
-   * The hand-built route, opened empty.
-   *
-   * The thing this has to pin is that it is the SAME editor: one block per kind
-   * the user picked, each carrying its own quota, and a way in to both catalogues —
-   * the two hundred lifts and the pieces that are not lifts. A builder that
-   * could only add lifts would dead-end every swim, ride and 4x4 session, which
-   * is most of the kinds on the screen before it.
-   */
-  ['BuildStep(his own, block by block)',
-    <PlanProvider plan={plan}>
-      <BuildStep
-        pres={blankPrescription({
-          title: 'Legs + Ride',
-          blocks: [
-            { name: 'Legs', category: 'lift', activity: 'lift' },
-            { name: 'Ride', category: 'bike', activity: 'bike' },
-          ],
-        })}
-        setPres={noop} liftField={LIFT_FIELD} entries={[]}
-        categories={plan.quotaCategories} onKeep={noop} />
-    </PlanProvider>,
-    (html) => {
-      const t = text(html)
-      for (const name of ['Legs', 'Ride']) {
-        if (!t.includes(name)) throw new Error(`the ${name} block is not on the screen`)
-      }
-      if (!/Add an exercise here/.test(t)) throw new Error('no way into the exercise catalogue')
-      if (!/Add a piece/.test(t)) throw new Error('no way to add work that is not a lift')
-      if (!/its own workout|part of the workout beside it/.test(t)) throw new Error('a block does not say whether it is its own workout')
-      if (!/Put it on today/.test(t)) throw new Error('no way to keep it')
-      // Nothing in it yet is not a workout, and the button says so by being off.
-      if (!/<button class="btn big" disabled=""/.test(html)) {
-        throw new Error('an empty session can be kept')
-      }
-      // No model wrote this, so nothing on the screen may claim one did.
-      if (/Why this session/.test(t)) throw new Error('a hand-built session offers reasoning nobody wrote')
-    }],
-  /* A pool length is 25 of something and a mile is not. Stepping a 3 mi run by
-     25 walks it to 78 in three presses, which is what every distance box did
-     before the hand-built route started writing rides by hand. */
-  ['Stepper(the distance step follows the unit)', null, () => {
-    if (STEP.distance({ unit: 'yd' }, { unit: 'yd' }).step !== 25) throw new Error('a pool set no longer steps by a length')
-    // And a clock steps by what the clock is for: five seconds on a hang, half a
-    // minute on a ride, because 45 minutes is 540 presses at five.
-    if (STEP.seconds({}, { seconds: 45 }).step !== 5) throw new Error('a short interval no longer steps by five')
-    if (STEP.seconds({}, { seconds: 2700 }).step !== 30) throw new Error('a long piece steps five seconds at a time')
-    for (const u of ['mi', 'km']) {
-      const s = STEP.distance({ unit: u }, { unit: u })
-      if (s.step !== 0.5) throw new Error(`${u} steps by ${s.step}`)
-      if (s.label !== u) throw new Error('the box does not say what it is measuring')
-    }
-  }],
-  /* And with something in it, the same card the log form and the review step
-     render — one open, steppers, the body map, and the keep button live. */
-  ['BuildStep(one exercise in, and it is the same card)',
-    <PlanProvider plan={plan}>
-      <BuildStep
-        pres={appendLift(
-          blankPrescription({ title: 'Legs', blocks: [{ name: 'Legs', category: 'lift' }] }),
-          LIFT_FIELD, SQUAT.key, { blockId: 'b0' })}
-        setPres={noop} liftField={LIFT_FIELD} entries={[]}
-        categories={plan.quotaCategories} onKeep={noop} />
-    </PlanProvider>,
-    (html) => {
-      const t = text(html)
-      if (!t.includes(SQUAT.name)) throw new Error('the exercise he added is not there')
-      if (!/stepper/.test(html)) throw new Error('the numbers are not steppers')
-      if (/<select/.test(html)) throw new Error('a native select is back on the plan side')
-      if (/<button class="btn big" disabled=""/.test(html)) {
-        throw new Error('a session with an exercise in it cannot be kept')
-      }
-    }],
-  /*
-   * COLLAPSED BY DEFAULT: the AI reasoning at the top of a planned session is a
-   * collapsible section that starts collapsed. It used to open
-   * with the reasoning showing, on the argument that a section you have to open
-   * first shows you nothing; what that missed is that it sat between the user and
-   * the first set of the session they were standing there to do.
-   *
-   * What the fold must NOT do is hide that there is something to read, which is
-   * why the header keeps the turn count. A revision the user cannot see is the problem
-   * the old coach's silent plan edits had.
-   */
-  ['PlanTalk(folded, and says so)',
-    <PlanTalk pres={PRESCRIPTION} onChange={noop} />,
-    (html) => {
-      const t = text(html)
-      if (!/Why this session/.test(t)) throw new Error('nothing says there is reasoning to read')
-      if (!/aria-expanded="false"/.test(html)) throw new Error('it is not collapsed')
-      if (t.includes(PRESCRIPTION.why.slice(0, 40))) throw new Error('the paragraph is still on screen')
-      if (/Make it shorter/.test(t)) throw new Error('the prompt row is still on screen')
-    }],
-  ['PlanTalk(a revised plan carries its count on the fold)',
-    <PlanTalk onChange={noop} pres={{ ...PRESCRIPTION, thread: [
-      { role: 'you', text: 'Make it shorter', at: 'z' },
-      { role: 'coach', text: 'Dropped the third squat set and the calf work — 32 minutes now.', at: 'z' },
-    ] }} />,
-    (html) => {
-      if (!/class="plantalk-n"/.test(html)) throw new Error('nothing marks that it has been revised')
-      if (!/aria-expanded="false"/.test(html)) throw new Error('a revised plan should still open folded')
-    }],
-  /*
-   * AI WORKOUT DRAFTS (#28). "Write it for me" is a draft the server keeps, and
-   * the run is the draft's, not the screen's. What SSR can pin: the list says
-   * what each draft is doing and offers a retry only where there is something to
-   * retry; the wait no longer says leaving cancels it; a revision being written
-   * when the page was left is still shown as being written; and each draft
-   * reopens at the step it is on.
-   */
-  ['DraftList(being written, ready and failed, each says which)',
-    <DraftList now={Date.parse('2026-10-25T12:01:00Z')} onOpen={noop} onRetry={noop} onDiscard={noop} drafts={[
-      { id: 'da', status: 'working', ask: { label: 'Legs', minutes: 45 }, run: { kind: 'write', startedAt: '2026-10-25T12:00:20Z' }, createdAt: '3' },
-      { id: 'db', status: 'ready', ask: { label: 'Swim', minutes: 30 }, pres: { title: '2,000 yd threshold', minutes: 30 }, updatedAt: '2026-10-25T11:00:00Z', createdAt: '2', for: { id: 'sam', name: 'Sam' } },
-      { id: 'dc', status: 'failed', error: 'the planner took too long', ask: { label: 'Core', minutes: 20 }, pres: null, createdAt: '1' },
-    ]} />,
-    (html) => {
-      const t = text(html)
-      for (const want of ['Drafts — not on your day yet', 'Legs', 'Being written… 40s', '2,000 yd threshold',
-        'For Sam · Ready · 30 min · 1 h ago', 'Core', 'Did not finish: the planner took too long']) {
-        if (!t.includes(want)) throw new Error(`no "${want}"`)
-      }
-      if ((t.match(/Try again/g) || []).length !== 1) throw new Error('a retry is offered on a draft that did not fail, or not on the one that did')
-      if ((html.match(/aria-label="Discard /g) || []).length !== 3) throw new Error('not every draft can be thrown away')
-    }],
-  ['DraftList(no drafts, no list)', <DraftList drafts={[]} onOpen={noop} onRetry={noop} onDiscard={noop} />,
-    (html) => { if (html) throw new Error('an empty list rendered something') }],
-  ['PlanFlow(no draft list until there is a draft)', <PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />,
-    (html) => { if (/Drafts — not on your day/.test(text(html))) throw new Error('a draft list with nothing in it') }],
-  ['Working(leaving the wait cancels nothing, and it says so)',
-    <Working label="Legs" minutes={45} since={null} onDiscard={noop} />,
-    (html) => {
-      const t = text(html)
-      if (/cancels it/.test(t)) throw new Error('the wait still says leaving cancels the run')
-      if (!/You can leave/.test(t)) throw new Error('the wait does not say the draft carries on')
-      if (!/Stop and throw it away/.test(t)) throw new Error('no way to stop a draft from the wait')
-    }],
-  ['PlanTalk(a draft\'s revision still being written is open and says so)',
-    <PlanTalk pres={{ ...PRESCRIPTION, thread: [{ role: 'you', text: 'Make it shorter', at: 'z' }] }} onChange={noop}
-      draft={{ busy: true, error: null, onAsk: noop }} />,
-    (html) => {
-      const t = text(html)
-      if (!/aria-expanded="true"/.test(html)) throw new Error('a revision in progress is folded away')
-      if (!/Rewriting it…/.test(t)) throw new Error('it does not say it is rewriting')
-      if (!t.includes('Make it shorter')) throw new Error('the message is not on the thread')
-    }],
-  ['PlanTalk(a draft\'s failed revision shows its error)',
-    <PlanTalk pres={PRESCRIPTION} onChange={noop} draft={{ busy: false, error: 'box busy', failedMessage: 'More volume', onAsk: noop }} />,
-    (html) => {
-      if (!/box busy — your session is unchanged/.test(text(html))) throw new Error('the failure is not shown')
-    }],
-  ['drafts(each reopens at the step it is on)', null, () => {
-    const pres = { title: 'Legs', minutes: 40, blocks: PRESCRIPTION.blocks, thread: [{ role: 'you', text: 'x' }], ask: { kinds: ['Legs'] } }
-    const table = [
-      [{ status: 'working', run: { kind: 'write' }, pres: null }, 'working'],
-      [{ status: 'working', run: { kind: 'revise' }, pres }, 'review'],
-      [{ status: 'ready', pres }, 'review'],
-      [{ status: 'failed', run: { kind: 'write' }, pres: null }, 'failed'],
-      [{ status: 'failed', run: { kind: 'revise' }, pres }, 'review'],
-      [null, 'kind'],
-    ]
-    for (const [d, want] of table) {
-      if (draftStep(d) !== want) throw new Error(`${JSON.stringify(d?.status)}/${d?.run?.kind} reopened at ${draftStep(d)}, not ${want}`)
-    }
-    const shown = draftPres({ pres }, liftFieldOf(plan))
-    if (!shown || shown.thread.length !== 1 || shown.ask?.kinds?.[0] !== 'Legs') throw new Error('the thread or the ask was lost on the way to the editor')
-    if (!/Rewriting it/.test(draftLine({ status: 'working', run: { kind: 'revise', startedAt: new Date().toISOString() } }))) {
-      throw new Error('a revision in progress reads as a new draft')
-    }
-  }],
-  ['KeptStep(three doors, and nothing started)',
-    <KeptStep pres={PRESCRIPTION} onStart={noop} onAnother={noop} onDone={noop} />,
-    (html) => {
-      const t = text(html)
-      for (const door of ['Start it now', 'Plan another workout', 'Back to today']) {
-        if (!t.includes(door)) throw new Error(`no "${door}" door`)
-      }
-      if (!t.includes(PRESCRIPTION.title)) throw new Error('it does not say what landed')
-      // The promise this screen makes. If the flow ever auto-starts again, this
-      // sentence becomes a lie and the test is the only thing that would say so.
-      if (!/Nothing has started/.test(t)) throw new Error('it does not say the clock is not running')
-    }],
-  ['KeptStep(kept, but nothing to start)',
-    <KeptStep pres={PRESCRIPTION} onStart={null} onAnother={noop} onDone={noop} />,
-    (html) => {
-      const t = text(html)
-      // A write that did not come back with an id still has to leave two doors
-      // rather than a dead end.
-      if (/Start it now/.test(t)) throw new Error('offering to start something it cannot open')
-      if (!/Back to today/.test(t)) throw new Error('no way out')
-    }],
-  ['PrescriptionEditor(a lift day)',
-    <PrescriptionEditor pres={PRESCRIPTION} liftField={LIFT_FIELD} onChange={noop} />,
-    (html) => {
-      const t = text(html)
-      if (!t.includes(PRESCRIPTION.blocks[1].items[0].name)) throw new Error('the movement is not named')
-      // Every set is a row of steppers, because editing everything, as the log
-      // already allows, is the thing this screen exists for.
-      const steppers = (html.match(/class="stepper/g) || []).length
-      if (steppers < 6) throw new Error(`only ${steppers} editable numbers on a four-set workout`)
-      if (!/lb on the bar/.test(t)) throw new Error('the weight column does not say what it means')
-    }],
-  /* ===================================== 2026-09-17, the last three asks ===
-   *
-   * A body diagram against every lifting movement, what the user lifted last time while
-   * the user is still choosing the weight, and a quota per BLOCK rather than per
-   * session. All three land on the same screen, so they are checked on one.
-   */
-  ['PrescriptionEditor(body map, last time, and a category per block)',
-    <PrescriptionEditor pres={TRIP} liftField={LIFT_FIELD} entries={PRIOR_LIFTS}
-      categories={plan.quotaCategories} onChange={noop} />,
-    (html) => {
-      const t = text(html)
-
-      // 1. The body. Two views per movement — a press lights the front and a row
-      //    the back, so one view would render half the catalog as an empty body.
-      const bodies = (html.match(/class="bodymap"/g) || []).length
-      if (!bodies) throw new Error('no body diagram against the movement')
-      if (!/muscle|<svg/.test(html)) throw new Error('the body did not render as SVG')
-
-      // 2. What the user did last time, on the screen where the weight is CHOSEN.
-      if (!/last time \(2026-09-10\)/.test(t)) throw new Error('no previous session on the planning screen')
-      if (!/175/.test(t)) throw new Error('the previous weight is not shown')
-
-      // 3. A category per block, not per session: where the session splits into
-      //    workouts. Said in plain words; the quotas it used to fill are gone.
-      if (!/its own workout/i.test(t)) throw new Error('no per-block split control')
-      if (!/Lift/.test(t) || !/Run/.test(t)) throw new Error('the two blocks do not name their own categories')
-      // The warm-up is not a workout in its own right.
-      if (!/part of the workout beside it/.test(t)) throw new Error('the warm-up claims to be a workout')
-      if (/counts toward|quota/i.test(html.replace(/<[^>]*>/g, ' '))) throw new Error('quota language is back on the planner')
-    }],
-  ['BodyMap(a movement the catalog has no muscles for renders nothing)', null, () => {
-    const html = renderToString(
-      <PrescriptionEditor liftField={LIFT_FIELD} categories={[]} onChange={noop}
-        pres={normalizePrescription({
-          title: 'x', minutes: 10, why: '',
-          blocks: [{ name: 'M', items: [{ kind: 'interval', name: 'Row 500m', sets: [{ distance: 500 }] }] }],
-        }, { liftField: LIFT_FIELD })} />)
-    // An interval is not a catalog movement, so there is nothing honest to draw.
-    if (/class="bodymap"/.test(html)) throw new Error('drew a body for something with no muscle data')
-  }],
-  ['plan.json(every exercise knows what it works)', null, () => {
-    const missing = LIFT_FIELD.exercises.filter(e => !e.muscles?.primary?.length).map(e => e.key)
-    if (missing.length) throw new Error(`${missing.length} exercises have no muscles: ${missing.slice(0, 5).join(', ')}`)
-    // And every muscle named is one the drawing actually has a region for.
-    const KNOWN = new Set(['trapezius', 'upper-back', 'lower-back', 'chest', 'biceps', 'triceps',
-      'forearm', 'back-deltoids', 'front-deltoids', 'abs', 'obliques', 'adductor', 'abductors',
-      'hamstring', 'quadriceps', 'calves', 'gluteal', 'head', 'neck', 'knees'])
-    const bad = new Set()
-    for (const e of LIFT_FIELD.exercises) {
-      for (const m of [...(e.muscles.primary || []), ...(e.muscles.secondary || [])]) {
-        if (!KNOWN.has(m)) bad.add(`${e.key}:${m}`)
-      }
-    }
-    if (bad.size) throw new Error(`muscles the body cannot draw: ${[...bad].slice(0, 5).join(', ')}`)
-  }],
-  ['WorkoutRunner(first set)', <WorkoutRunner session={PLANNED_CARD} entry={PLANNED_ENTRY}
-    entries={rich} onRun={noop} onExit={noop} />,
-    (html) => {
-      const t = text(html)
-      if (!/Mark set 1/.test(t)) throw new Error('no way to mark the set he is on')
-      if (!/planned/.test(t)) throw new Error('the target is not on screen')
-      // The two things that make it usable one-handed.
-      if (!/class="bigstep-in"/.test(html)) throw new Error('the numbers are not thumb-sized')
-      if (!/class="run-done"/.test(html)) throw new Error('the mark button is not the big one')
-      // "If you add another set, you have to type in the weight every single time."
-      // The runner has to offer one more set of this, and the box has to take a
-      // decimal — a number input would eat the dot in "37.5".
-      if (!/One more set of/.test(html)) throw new Error('no way to add a set from the runner')
-      if (!/class="bigstep-in"[^>]*type="text"|type="text"[^>]*class="bigstep-in"/.test(html)) {
-        throw new Error('the weight box is not a text box, so a decimal point will not survive typing')
-      }
-    }],
-  ['WorkoutRunner(resting)', <WorkoutRunner session={PLANNED_CARD}
-    entry={{ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, run: RESTING_RUN } }}
-    entries={rich} onRun={noop} onExit={noop} />,
-    (html) => {
-      const t = text(html)
-      if (!/rest/i.test(t)) throw new Error('a rest does not say it is one')
-      if (!/next:/.test(t)) throw new Error('the rest screen does not say what is coming')
-    }],
-  ['WorkoutRunner(no plan on the entry)', <WorkoutRunner session={PLANNED_CARD}
-    entry={{ id: 'x', kind: 'daily', date: TODAY, data: { optId: 'planned', out: {} } }}
-    entries={[]} onRun={noop} onExit={noop} />,
-    (html) => {
-      if (!/no plan on it/.test(text(html))) throw new Error('an empty runner should say so, not crash')
-    }],
-  /* The planned session, read from the day rather than run: the sheet shows the
-   * prescription instead of the card's protocol, because the card has none. */
-  ['Sheet(a planned session)',
-    <SessionSheet opt={PLANNED_CARD} entry={PLANNED_ENTRY} tone="rec" entries={rich} isFuture={false}
-      onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={noop}
-      onClose={noop} />,
-    (html) => {
-      const t = text(html)
-      if (!t.includes(PRESCRIPTION.title)) throw new Error('the sheet is not titled by the plan')
-      // This one has a bike piece in it, so there is a clock to run.
-      if (!/Start the workout/.test(t)) throw new Error('no way into the runner from the sheet')
-      // The reasoning is one tap away rather than on screen — see PlanTalk above.
-      if (!/Why this session/.test(t)) throw new Error('no way to reach the reasoning')
-      // Every exercise open at once is four screens of steppers before the one the user
-      // is about to do. Only the first opens.
-      if ((html.match(/class="presc-sets"/g) || []).length > 1) {
-        throw new Error('more than one exercise opened')
-      }
-    }],
-  /*
-   * A LIFT-ONLY session gets no runner: workout mode makes no sense for lifting,
-   * which has no timed parts. Once rest came off a lift set there is nothing for a
-   * clock to run, so the sheet is the whole screen — and it must not grow a start
-   * button back, which is the only thing a render test can say about it.
-   */
-  ['Sheet(a lift-only session offers no clock)', null, () => {
-    const pres = normalizePrescription({
-      title: 'Push day', category: 'lift', minutes: 45, why: 'w',
-      blocks: [{ name: 'Main', category: 'lift', items: [{
-        kind: 'lift', name: 'squat', exercise: SQUAT.key, implement: 'barbell',
-        sets: [{ reps: 8, weight: 135 }, { reps: 8, weight: 135 }],
-      }] }],
-    }, { liftField: LIFT_FIELD })
-    const entry = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
-      data: { slot: 'main', optId: 'planned', name: pres.title, minutes: 45, level: 2,
-        done: false, plan: pres, out: {} } }
-    const t = text(renderToString(
-      <PlanProvider plan={plan}>
-        <SessionSheet opt={PLANNED_CARD} entry={entry} tone="rec" entries={rich} isFuture={false}
-          onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={noop}
-          onClose={noop} />
-      </PlanProvider>))
-    if (/Start the workout/.test(t)) throw new Error('a lift session is offering a clock again')
-    if (!/Mark undone/.test(t)) throw new Error('with no runner, the sheet has to say it is done and offer to undo it')
-    // And no rest box anywhere in the editor.
-    if (/rest sec/.test(t)) throw new Error('lifting grew a rest interval back')
-  }],
-  /*
-   * DONE BY DEFAULT (AGENTS.md §4). A session on today is done the moment it
-   * lands, so the sheet's control says so and offers "Mark undone"; one marked
-   * undone offers "Mark done"; a later day has no control at all, only the
-   * preview line. The old "tap to undo" toggle is pinned absent, and "Start"
-   * survives a session being done, because today's always is.
-   */
-  ['SessionSheet(Mark undone on today, Mark done once undone, nothing on a later day)', null, () => {
-    const sheet = (entry, isFuture = false) => text(renderToString(
-      <PlanProvider plan={plan}>
-        <SessionSheet opt={PLANNED_CARD} entry={entry} tone="rec" entries={rich} isFuture={isFuture}
-          onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={noop}
-          onClose={noop} />
-      </PlanProvider>))
-    const today = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false } })
-    if (!/Done · Mark undone/.test(today)) throw new Error('a session planned for today does not read as done with a way to undo it')
-    if (/tap to undo|Mark as done/.test(today)) throw new Error('the old done toggle is back')
-    if (!/Start the workout/.test(today)) throw new Error('a done-by-default session lost its Start')
-    const undone = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false, undone: true } })
-    if (!/Mark done/.test(undone) || /Mark undone/.test(undone)) throw new Error('a session marked undone does not offer "Mark done"')
-    const finished = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: true, run: { startedAt: 1, endedAt: 2 } } })
-    if (/Start the workout/.test(finished)) throw new Error('a finished run offers Start again')
-    const later = sheet({ ...PLANNED_ENTRY, date: '2999-01-01', data: { ...PLANNED_ENTRY.data, done: false } }, true)
-    if (/Mark (un)?done/.test(later)) throw new Error('a session on a later day offers a done control')
-    if (!/Preview only/.test(later)) throw new Error('a later day lost its preview line')
-  }],
-  ['TodayTab(a planned session on the day)', <TodayTab plan={plan} entries={[PLANNED_ENTRY]}
-    upsertEntry={noop} deleteEntry={noop} onPlan={noop} onLog={noop} />,
-    (html) => {
-      const t = text(html)
-      if (!t.includes(PRESCRIPTION.title)) throw new Error('the day names it "Planned workout" instead of its title')
-      if (!/planned/.test(t)) throw new Error('nothing marks it as a session with sets in it')
-      // Its "and another one" button appears once one is on the day.
-      if (!/Plan another workout/.test(t)) throw new Error('no way to plan a second one from the day')
-    }],
-  /*
-   * "And another one" for a CONTAINER card goes to the screen that asks the
-   * question, not to a blank entry of that card.
-   *
-   * The "Plan another workout" button has to do what the other plan button does.
-   * It did not — it minted an empty planned
-   * session with no prescription and opened the sheet on it. The contract is a
-   * declaration in plan.json, so this checks the declaration rather than trying
-   * to simulate a click: a container that loses it silently goes back to minting
-   * blanks.
-   */
-  ['plan.json(container cards route their repeat to a screen)', null, () => {
-    for (const [id, via] of [['planned', 'plan'], ['log-workout', 'log']]) {
-      const card = plan.dailyMenu.find(m => m.id === id)
-      if (!card) throw new Error(`no ${id} card`)
-      if (!card.sched?.repeatable) throw new Error(`${id} is not repeatable any more`)
-      if (card.sched.repeatVia !== via) {
-        throw new Error(`${id} should repeat via "${via}", got "${card.sched.repeatVia}"`)
-      }
-    }
-    // And nothing that IS a session in its own right claims to need a screen —
-    // a second hip block really is a second entry of the hip block.
-    const wrong = plan.dailyMenu
-      .filter(m => m.sched?.repeatVia && !['planned', 'log-workout'].includes(m.id))
-      .map(m => m.id)
-    if (wrong.length) throw new Error(`not container cards: ${wrong.join(', ')}`)
-  }],
-
   // Blurbs collapsed: the stub path must render everywhere the full card does.
   ['TestingTab(blurbs hidden)',
     <PrefsProvider settings={{ blurbs: { allHidden: true, hidden: {}, shown: {} } }} saveSettings={noop}>
@@ -2525,84 +2768,6 @@ const cases = [
     <PrefsProvider settings={{ blurbs: { allHidden: true, hidden: {}, shown: {} } }} saveSettings={noop}>
       <WhyTab plan={plan} />
     </PrefsProvider>],
-  /* ============================================================= endurance
-   *
-   * Instead of one bike/swim/run section, endurance is a set of workout kinds —
-   * speed, power, endurance and so on — that the app selects workouts from, with
-   * zone-two and low-intensity volume as the default emphasis.
-   */
-  ['PlanFlow(the endurance kinds let the planner pick the sport)', null, () => {
-    const kinds = plan.plannerKinds.kinds
-    const endurance = kinds.filter(k => k.group === 'endurance')
-    if (endurance.length < 6) throw new Error(`only ${endurance.length} endurance kinds — he asked for a lot`)
-    if (!endurance.some(k => /zone 2/i.test(k.label))) throw new Error('zone 2 is not a kind, and it is the bread and butter')
-    if (!/zone 2/i.test(endurance[0].label)) throw new Error('zone 2 does not lead the endurance group')
-    for (const k of endurance) {
-      // Naming no sport is what tells the planner to choose one from the week.
-      if (k.category || k.activity) throw new Error(`${k.key} names a sport; the endurance group is for kinds that let the planner pick`)
-      if (!/swim|bike|run|sport/i.test(k.prompt)) throw new Error(`${k.key}'s prompt does not tell the planner to pick a sport`)
-    }
-    // The three sport catalogs: each has a catch-all, and every kind in it is
-    // that sport's category.
-    for (const g of ['swim', 'bike', 'run']) {
-      const items = kinds.filter(k => k.group === g)
-      if (items.length < 5) throw new Error(`only ${items.length} ${g} kinds`)
-      if (!items.some(k => k.key === g)) throw new Error(`no catch-all "${g}" kind`)
-      for (const k of items) if (k.category !== g) throw new Error(`${k.key} in the ${g} group fills ${k.category}`)
-    }
-    // Every sport and category a kind names is real. A typo here is a form of the
-    // wrong shape and a category nothing files under.
-    const acts = new Set(activityFieldOf(plan).activities.map(a => a.key))
-    const cats = new Set(plan.quotaCategories.map(c => c.key))
-    for (const k of kinds) {
-      if (k.activity && !acts.has(k.activity)) throw new Error(`${k.key}: activity "${k.activity}" is not in the catalog`)
-      if (k.category && !cats.has(k.category)) throw new Error(`${k.key}: category "${k.category}" is not a category`)
-    }
-    // The bread and butter is not folded away; the catalogs are.
-    const groups = plan.plannerKinds.groups
-    if (groups.find(g => g.key === 'endurance')?.collapsed) throw new Error('the endurance group is folded')
-    for (const g of ['swim', 'bike', 'run']) {
-      if (!groups.find(x => x.key === g)?.collapsed) throw new Error(`the ${g} catalog is not folded, and thirty cards bury the climbing section`)
-    }
-  }],
-  ['PlanFlow(every icon the content names is registered)', null, () => {
-    // An unknown name renders as a dot, which looks like a bug the user caused.
-    for (const k of plan.plannerKinds.kinds) if (!hasIcon(k.icon)) throw new Error(`${k.key}: icon "${k.icon}" is not registered`)
-    for (const g of plan.plannerKinds.groups) if (!hasIcon(g.icon)) throw new Error(`group ${g.key}: icon "${g.icon}" is not registered`)
-    for (const c of plan.quotaCategories) if (!hasIcon(c.icon)) throw new Error(`category ${c.key}: icon "${c.icon}" is not registered`)
-  }],
-  ['PlanFlow(folded catalogs are still in the page)', <PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />,
-    (html) => {
-      if (!/<details class="kindgroup folded"/.test(html)) throw new Error('nothing folds')
-      const t = text(html).replace(/&amp;/g, '&')
-      // Folded is not gone: every ride variant is rendered, one tap away.
-      for (const k of plan.plannerKinds.kinds.filter(k => k.group === 'bike')) {
-        if (!t.includes(k.label)) throw new Error(`${k.label} is not in the page`)
-      }
-      if (!/\d+ kinds/.test(t)) throw new Error('a folded group does not say how many are in it')
-      if (!/pick swim, bike or run/i.test(t)) throw new Error('nothing says the sportless kinds choose the sport')
-    }],
-  /* The planner picks a sport from what was LOGGED lately, not from a quota (issue #31). */
-  ['plannerContext(hands over the last week\'s workouts, not quotas)', null, () => {
-    const s = plannerContext({
-      iso: '2026-09-19', plan,
-      entries: [
-        { id: 'q', kind: 'quota', date: '2026-09-14', updatedAt: 'z', data: { counts: { bike: 3, pe: 2 } } },
-        { id: 'r1', kind: 'daily', date: '2026-09-15', updatedAt: 'z',
-          data: { optId: 'log-workout', name: 'Mountain bike', level: 2, done: true, out: { activity: 'mtb' } } },
-        { id: 'r2', kind: 'daily', date: '2026-09-16', updatedAt: 'z',
-          data: { optId: 'log-workout', name: 'Run', level: 2, done: false, undone: true, out: { activity: 'run' } } },
-        { id: 'r3', kind: 'daily', date: '2026-09-01', updatedAt: 'z',
-          data: { optId: 'log-workout', name: 'Swim', level: 2, done: true, out: { activity: 'swim' } } },
-      ],
-    })
-    if (!/2026-09-15: Mountain bike/.test(s)) throw new Error(`the recent ride is missing: ${s}`)
-    if (/2026-09-16|2026-09-01/.test(s)) throw new Error(`an unfinished or old workout leaked in: ${s}`)
-    if (/quota|owe|0\/2/i.test(s)) throw new Error(`quota language reached the planner: ${s}`)
-    if (!/Nothing logged/.test(plannerContext({ iso: '2026-09-19', plan, entries: [] }))) {
-      throw new Error('an empty week does not say so')
-    }
-  }],
   ['ScreenCard(renders before it can measure)', <ScreenCard />,
     (html) => { if (!/Measuring/.test(text(html))) throw new Error('no placeholder before measurement') }],
   ['describeScreen(names the iOS 26 short viewport)', null, () => {
@@ -2618,35 +2783,6 @@ const cases = [
       insets: { top: 0, bottom: 0 }, ua: '' })
     if (!/Home Screen/.test(tab)) throw new Error('a browser tab is not told to install')
   }],
-  /*
-   * More than one person (lib/whoami.js). Everyone gets the same three tabs;
-   * someone the AI is not set up for gets only "Build it myself". Pinned from
-   * both sides, so a regression in either direction is a failure rather than a
-   * quiet change.
-   */
-  ['tabsFor(three tabs, for everyone: Today, Log, Progress)', null, () => {
-    for (const [features, owner] of [[{ ai: true }, true], [{ ai: false }, false], [{ ai: true }, false]]) {
-      const ids = tabsFor(features, owner).map(t => t.id).join()
-      if (ids !== 'today,log,progress') throw new Error(`tabs ${ids} for ${JSON.stringify(features)}, owner ${owner}`)
-    }
-  }],
-  ['PlanFlow(no AI: building it yourself is the only route)', null, () => {
-    _setMe({ id: 'sam', owner: false, features: { ai: false, goals: false, whoop: false, strava: false, notifications: false } })
-    try {
-      const t = text(renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />))
-      if (!/Build it myself/.test(t)) throw new Error('no way to build a workout without the AI')
-      if (/Write it for me|Write me \d/.test(t)) throw new Error('the model is offered to someone it is not set up for')
-    } finally { _setMe({}) }
-    const owner = text(renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />))
-    if (!/Write it for me/.test(owner)) throw new Error('the owner lost "Write it for me"')
-  }],
-  ['ActingBanner(says whose log is open, with the way back)', null, () => {
-    const acting = { id: 'sam', name: 'Sam', acting: true, real: { id: 'owner', name: 'Alex', admin: true } }
-    const t = text(renderToString(<ActingBanner me={acting} />))
-    if (!/Logging for.*Sam/.test(t)) throw new Error('the banner does not name whose log this is')
-    if (!/Back to Alex/.test(t)) throw new Error('no way back')
-    if (renderToString(<ActingBanner me={{ ...acting, acting: false }} />) !== '') throw new Error('a banner on your own log')
-  }],
   ['PeopleCard(the owner can open anyone\'s log; nobody else sees it)', null, () => {
     const people = [{ id: 'owner', name: 'Alex' }, { id: 'sam', name: 'Sam' }]
     const owner = { id: 'owner', real: { id: 'owner', admin: true }, people }
@@ -2658,6 +2794,14 @@ const cases = [
     if (renderToString(<PeopleCard who={{ id: 'sam', real: { id: 'sam', admin: false }, people: [] }} />) !== '') throw new Error('someone who is not the owner can switch logs')
     if (renderToString(<PeopleCard who={{ ...owner, people: [people[0]] }} />) !== '') throw new Error('a switcher with nobody to switch to')
   }],
+  ['starter: TestingTab', <TestingTab plan={starter} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
+  ['starter: WhyTab', <WhyTab plan={starter} />],
+  ['starter: ProfileMenu', <ProfileMenu plan={starter} entries={[]} upsertEntry={noop} deleteEntry={noop} status="synced" />],
+  ['example: TestingTab', <TestingTab plan={example} entries={[]} upsertEntry={noop} deleteEntry={noop} />,
+    (html) => { if (!text(html).includes('5 km time trial')) throw new Error('the example test does not render') }],
+
+  // ===== batch E: people =====
+
   /*
    * SHARED WORKOUTS (sharedwith.jsx). "With …" is the owner's, on the owner's own
    * log, with someone else on the install. Its absences are pinned because an
@@ -2707,7 +2851,7 @@ const cases = [
           .map(m => [Boolean(m[1]), m[2], m[3]])
         if (JSON.stringify(btns) !== JSON.stringify([[true, 'Y', 'You'], [false, 'S', 'Sam']])) throw new Error(`the bar reads ${JSON.stringify(btns)}`)
         // Pinned by CSS: the sheet body scrolls, and the bar sticks to its top.
-        const css = readFileSync(new URL('./src/styles.css', import.meta.url), 'utf8')
+        const css = readFileSync(new URL('./src/css/people.css', import.meta.url), 'utf8')
         const rule = (css.match(/\.personbar \{[^}]*\}/) || [''])[0]
         if (!/position: sticky/.test(rule) || !/top: -16px/.test(rule)) throw new Error(`the person bar is not pinned: ${rule}`)
       }],
@@ -2920,74 +3064,9 @@ const cases = [
       }],
     ]
   })(),
-  // The rest day is a door of its own: as a footer link under the old session
-  // picker it was technically reachable and the user could not find it. "Pick a
-  // session" went on 2026-10-14: its cards are folders inside Log a workout.
-  // "Plan the week" went with the quotas on 2026-10-25 (issue #31).
-  ['FabMenu(four doors: log, rest, plan, the timer last; no week planner, no session picker)',
-    <FabMenu onClose={noop} onPlan={noop} onLog={noop} onPlanWeek={noop} onRest={noop} onTimer={noop} />,
-    (html) => {
-      const t = text(html)
-      const doors = ['Log a workout', 'Log a rest day', 'Plan a workout', 'Interval timer']
-      for (const door of doors) {
-        if (!t.includes(door)) throw new Error(`no "${door}" door`)
-      }
-      // Logging doors, then planning, then tools (docs/DESIGN.md, "The + menu, final shape").
-      const at = doors.map(d => t.indexOf(d))
-      if (at.some((x, i) => i && x < at[i - 1])) throw new Error(`the doors are out of order: ${doors.join(' < ')}`)
-      if (/Plan the week/.test(t)) throw new Error('the week planner is back on the +')
-      if (/Pick a session/.test(t)) throw new Error('the separate session door is back')
-      // The common case leads (docs/DESIGN.md D7).
-      if (t.indexOf('Log a workout') > t.indexOf('Plan a workout')) throw new Error('Log a workout is not the first door')
-      if (/quota|Move Every Day/i.test(t)) throw new Error('the + still talks about quotas or a habit name')
-    }],
-  /*
-   * The interval timer (timer.jsx, issue #32). It used to exist only inside
-   * workout mode, which only the climbing cards with a declared timer reach.
-   * Now any workout's sheet has the door, and the + menu has one of its own.
-   */
-  ['FabMenu(an interval timer door)', null, () => {
-    const t = text(renderToString(<FabMenu onClose={noop} onPlan={noop} onLog={noop} onRest={noop} onPlanWeek={noop} onTimer={noop} />))
-    if (!t.includes('Interval timer')) throw new Error('no timer in the + menu')
-    if (text(renderToString(<FabMenu onClose={noop} onPlan={noop} onLog={noop} />)).includes('Interval timer')) {
-      throw new Error('a timer door with nothing behind it')
-    }
-  }],
-  ['SessionSheet(an ordinary workout opens the interval timer)', null, () => {
-    const opt = plan.dailyMenu.find(m => m.id === 'log-workout')
-    if (hasWorkout(opt)) throw new Error('the test card is supposed to have no timer of its own')
-    const entry = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
-      // Done, as today's entries are by default since #34: the timer must not hang off `!done`.
-      data: { slot: 'main', optId: opt.id, level: 2, name: 'Run', minutes: 30, done: true, out: { activity: 'run' } } }
-    const sheet = text(renderToString(
-      <SessionSheet opt={opt} entry={entry} tone="rec" entries={[]} isFuture={false}
-        onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop} onStartWorkout={noop} />))
-    if (!sheet.includes('Interval timer')) throw new Error('no timer on an ordinary workout\'s sheet')
-    // What the button asks for, answered by the host the app mounts.
-    const req = timerRequestFor(opt, entry)
-    if (req.title !== 'Run') throw new Error(`the timer is titled ${req.title}`)
-    if (req.presets.some(Boolean)) throw new Error('an ordinary card invented a plan timer')
-    openTimer(req)
-    try {
-      const html = renderToString(<TimerHost entries={[]} upsertEntry={noop} deleteEntry={noop} />)
-      const t = text(html)
-      for (const w of ['Interval timer', 'Run', 'Start', 'Work', 'Rest', 'Rounds', BUILT_INS[0].name]) {
-        if (!t.includes(w)) throw new Error(`the timer opened without "${w}"`)
-      }
-    } finally { closeTimer() }
-    if (renderToString(<TimerHost entries={[]} upsertEntry={noop} deleteEntry={noop} />) !== '') {
-      throw new Error('the host shows a timer nobody asked for')
-    }
-  }],
-  ['SessionSheet(no interval timer on a rest day)', null, () => {
-    const opt = plan.dailyMenu.find(m => m.role === 'rest')
-    const entry = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
-      data: { slot: 'main', optId: opt.id, level: 1, name: 'Rest day', minutes: 0, done: true, out: {} } }
-    const t = text(renderToString(
-      <SessionSheet opt={opt} entry={entry} tone="rest" entries={[]} isFuture={false}
-        onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop} />))
-    if (t.includes('Interval timer')) throw new Error('a timer for resting')
-  }],
+
+  // ===== the interval timer (#36) =====
+
   ['TimerSetup(the default first, saved presets after, a climbing card\'s timer offered as one)', null, () => {
     const card = plan.dailyMenu.find(m => m.id === 'max-hangs')
     const entries = [
@@ -3017,68 +3096,6 @@ const cases = [
       if (!t.includes(w)) throw new Error(`no "${w}" on the run screen`)
     }
     if (!/class="it it-run k-rest"/.test(html)) throw new Error('the screen is not coloured for rest')
-  }],
-  // It asks WHY before it logs — the reasons are the rest card's own output, so
-  // they must render here and the answer must be the same field the sheet edits.
-  ['RestPrompt(asks why before logging)',
-    <RestPrompt opt={plan.dailyMenu.find(m => m.role === 'rest')} onSave={noop} onClose={noop} />,
-    (html) => {
-      const t = text(html)
-      for (const w of ['Why rest today?', 'Sick', 'Travelling', 'Planned recovery', 'Log the rest day']) {
-        if (!t.includes(w)) throw new Error(`no "${w}"`)
-      }
-      if (!/<textarea/.test(html)) throw new Error('no box for his own words')
-      // A forgotten rest day is logged after the fact, so the day is choosable.
-      if (!/type="date"/.test(html)) throw new Error('a rest day can only be logged for today')
-    }],
-  ['RestPrompt(opens on the day it was asked from)',
-    <RestPrompt opt={plan.dailyMenu.find(m => m.role === 'rest')} date="2026-09-20"
-      entryFor={() => null} onSave={noop} onClose={noop} />,
-    (html) => {
-      if (!/value="2026-09-20"/.test(html)) throw new Error('the prompt ignored the day it was opened on')
-    }],
-  // What the user said about a rest day shows ON the rest day, in Your day and in the
-  // log — not only inside the sheet (2026-09-25).
-  ['TodayTab(a rest day says why)', <TodayTab plan={plan} entries={[
-    { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
-      data: { slot: 'main', optId: 'off', level: 1, name: 'Rest day', minutes: 0, done: true,
-        out: { why: 'sick', notes: 'Head cold, stayed in bed' } } }]}
-    upsertEntry={noop} deleteEntry={noop} />,
-    (html) => {
-      const t = text(html)
-      if (!t.includes('Sick')) throw new Error('the reason is not on the row')
-      if (!t.includes('Head cold, stayed in bed')) throw new Error('the note is not on the row')
-    }],
-  ['LogTab(a rest day says why)', <LogTab plan={plan} upsertEntry={noop} deleteEntry={noop} entries={[
-    { id: 'daily-2026-09-20', kind: 'daily', date: '2026-09-20', updatedAt: 'z',
-      data: { slot: 'main', optId: 'off', level: 1, name: 'Rest day', minutes: 0, done: true,
-        out: { why: 'travel', notes: 'Flight to Denver' } } }]} />,
-    (html) => {
-      const t = text(html)
-      if (!t.includes('Travelling')) throw new Error('the reason is not on the log card')
-      if (!t.includes('Flight to Denver')) throw new Error('the note is not on the log card')
-    }],
-
-  // A FRESH INSTALL. content/starter.json is the first thing a stranger's
-  // install renders: no climbing cards, the catalogs only.
-  ['starter: TodayTab', <TodayTab plan={starter} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
-  ['starter: LogTab', <LogTab plan={starter} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
-  ['starter: ProgressView', <ProgressView plan={starter} entries={[]} />],
-  ['starter: TestingTab', <TestingTab plan={starter} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
-  ['starter: WhyTab', <WhyTab plan={starter} />],
-  ['starter: ProfileMenu', <ProfileMenu plan={starter} entries={[]} upsertEntry={noop} deleteEntry={noop} status="synced" />],
-  ['starter: ActivityChooser', <ActivityChooser plan={starter} field={activityFieldOf(starter)} onPick={noop} onClose={noop} />,
-    (html) => { if (!/Run/.test(text(html))) throw new Error('the activity catalog is missing from the starter') }],
-  ['example: TodayTab', <TodayTab plan={example} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
-  ['example: TestingTab', <TestingTab plan={example} entries={[]} upsertEntry={noop} deleteEntry={noop} />,
-    (html) => { if (!text(html).includes('5 km time trial')) throw new Error('the example test does not render') }],
-  // The example has no climbing, so its cards sit in "From the plan", not under a sport they are not.
-  ['example: ActivityChooser, From the plan', <ActivityChooser plan={example} field={activityFieldOf(example)}
-    onPick={noop} onPickCard={noop} onClose={noop} initialFolder="plan" />,
-    (html) => { if (!text(html).includes('Long run')) throw new Error('the example sessions are not offered') }],
-  ['example: no climbing folders', null, () => {
-    const keys = climbingFolders(example).map(f => f.key)
-    if (keys.join() !== 'plan') throw new Error(`the example is foldered as ${keys.join(', ')}`)
   }],
 ]
 
