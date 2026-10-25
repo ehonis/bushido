@@ -82,6 +82,52 @@ contradict this file, say so in the issue before writing it.
 - The web stays the spec for behaviour; the overhaul redesigns both together, so a screen PR
   changes the web screen and its `mobile/src/features` twin in the same PR.
 
+### D6. A workout log, not a climbing tool: what goes
+
+The owner's direction (2026-10-25): Bushido is now a plain, very easy to use workout logging app.
+Measured from the live log, the last 30 days were free-form workouts, rest days, planned
+workouts and shared workouts, with WHOOP/Strava attached. These features are **removed from the
+app** (UI, routes, prompts, tests that pin them, AGENTS.md sections). Data they already stored
+stays on disk untouched and is simply no longer shown:
+
+- Daily check-in (`checkin.jsx`, check-in entries, the dormant check-in coach `/api/chat`).
+- Journal (`journal.jsx`, `lib/journal.js`).
+- Achievements (`achievements.jsx`, `lib/achievements.js`, the tab).
+- Linked goals (`goals.jsx`, `lib/goals.js`, `/api/goals`, the tab, goal-pace notifications).
+- Quotas and Plan the week (`quotabars.jsx`, `lib/quota.js`, `weekplanner.jsx`,
+  `server/weekplanner.js`, the Week tab, quota entries, planner prompt text about "what the
+  week still owes").
+- The AI coach chat (`coach.jsx`, `server/coach.js`, the tab, the coach note). AI "Write it for
+  me" workout planning STAYS.
+- Climbing-specific prominence: force/MVC tests, the critical-force ceiling and climbing-only
+  charts no longer lead any screen. Climbing cards stay pickable (grouped under Climbing, after
+  the general ways to log), and their history still reads. The hard-finger blocks may stay in
+  `lib/` where they guard placement, but nothing climbing-specific is shown above ordinary
+  workout logging.
+
+Stays: Today, Log, Progress (general charts), Log a workout, Pick a session, Plan a workout (by
+hand or AI), rest days, the runner, shared workouts / people, WHOOP, Strava, gear, body weight,
+notifications (minus goal pace), Settings.
+
+Navigation after the cut: **Today, Log, Progress** (the Week tab goes with quotas). The + menu
+holds only what remains.
+
+### D7. Intuitive first
+
+Every screen should be obvious to someone who has never seen it: one primary action per
+screen, plain labels instead of jargon ("sRPE", "slot", "adjunct", "repeaters" never appear as
+UI words), no more than two taps to log the common case, nothing hidden behind an unlabeled
+icon. When in doubt, remove a control rather than explain it.
+
+### D8. The workout timer is a general interval timer
+
+The workout-mode timer becomes a general interval timer, usable for any workout and not only
+climbing cards: work/rest/rounds/sets/rest-between-sets, count-in, optional named intervals, presets
+the user saves, big glanceable display, cues (beeps on web, haptics on the phone via the existing
+`lib/cues`). Highly customisable but with a one-screen default that starts in one tap. The clock
+rules in `AGENTS.md` §6.5 that still make sense (absolute instants so it survives backgrounding,
+count-up when no rest is given) stay; the content-declared climbing timers still work as presets.
+
 ## Visual system
 
 (Filled in by the foundation PR: tokens, type scale, spacing, components, and the per-screen
