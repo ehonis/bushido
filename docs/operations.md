@@ -24,6 +24,7 @@ bushido/
   data/plan.json        your own plan: preferred over everything but env (backed up before
                         Settings replaces or removes it)
   data/coach/           the AI coach's conversations, one file each
+  data/drafts/          "Write it for me" drafts, one file each (up to 8, a week at most)
   data/whoop.json       WHOOP cache: workouts + daily recovery (disposable)
   data/strava.json      Strava cache: recent rides/runs/walks + gear (disposable)
   data/strava-oauth.json        the owner's Strava grant (0600; Bushido is its only holder)
@@ -230,6 +231,10 @@ Signed out, `/api/*` answers `401` with `X-Bushido-Auth: login` and pages redire
 | `POST /api/coach/chat` | `{ message, threadId?, context? }` → one coach turn; one model run |
 | `POST /api/plan/workout` | `{ kinds, minutes, goal, for? }` → a workout with the sets written in; one model run, stored nowhere |
 | `POST /api/plan/revise` | `{ plan, message, thread, for? }` → the same workout, changed; stored nowhere |
+| `GET`/`POST /api/plan/drafts` | this person's AI workout drafts; `{ picked, minutes, goal, context, for? }` starts one, answering at once with it still working |
+| `GET`/`PUT`/`DELETE /api/plan/drafts/<id>` | one draft; `PUT { pres }` saves edits; `DELETE` discards (and stops its run) |
+| `POST /api/plan/drafts/<id>/revise` · `…/retry` | `{ message, pres? }` revises on the draft; retry re-runs a failed turn |
+| `POST /api/plan/drafts/<id>/keep` | claim it before placing (`409`/`404` with `code: "kept"` when another device kept it); `{ release: true }` hands it back. A draft whose id is on an entry (`data.plan.draftId`) is deleted |
 | `POST /api/plan/week` | `{ monday, counts, message, thread, for? }` → the week's quotas, proposed; stored nowhere |
 
 `for` (a person's id) is the owner planning for someone else: the run uses their space. Owner

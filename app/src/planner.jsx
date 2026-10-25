@@ -20,10 +20,13 @@
  * the session sheet shows afterwards. One component, two places, because a
  * second one would drift.
  *
- * **Nothing is stored until the user keeps it.** A run that produced a session the user does
- * not want costs a model call and nothing else: no entry, no thread, no file.
- * The model never writes to the log — the user does, with a tap, exactly as with the
- * coach's offers.
+ * **Nothing reaches the log until the user keeps it.** "Write it for me" is a DRAFT
+ * the server keeps beside the log (lib/drafts.js, server/drafts.js): the run
+ * belongs to the draft, not to this screen, so leaving, locking the phone or
+ * opening another device loses nothing, and the drafts are listed on the first
+ * screen to reopen where they were. A draft is not an entry. The model never
+ * writes to the log — the user does, with a tap, exactly as with the coach's
+ * offers, and the draft is discarded once it is kept.
  *
  * **AND THERE ARE TWO ROUTES THROUGH IT**: the user either builds the workout
  * themselves by picking exercises, or has the model write it. The fork is on the
@@ -44,7 +47,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
 import { FullScreen } from './modal.jsx'
 import { Markdown } from './lib/markdown.jsx'
-import { requestWorkout, reviseWorkout, plannerContext } from './lib/plannerapi.js'
+import {
+  reviseWorkout, plannerContext, createDraft, reviseDraft, retryDraft, saveDraft, discardDraft, claimDraft,
+} from './lib/plannerapi.js'
+import {
+  useDrafts, draftKey, draftStep, draftPres, draftTitle, draftLine, presForServer,
+  placedDraftIds, unplacedDrafts, draftToEvict, keepGate, DRAFT_MAX,
+} from './lib/drafts.js'
 import {
   normalizePrescription, prescriptionLine, prescriptionSteps, itemLine, setLine,
   patchSet, addSet, removeSet, removeItem, patchItem, patchBlock, appendLift, setFieldsFor,
@@ -116,54 +125,156 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
   const [goal, setGoal] = useState('')
   const [pres, setPres] = useState(null)
   const [error, setError] = useState(null)
-  const abort = useRef(null)
 
-  // A planning run is a model reading their log — it takes tens of seconds, and a
-  // spinner with no sense of how long is a spinner the user taps away from. See Working.
-  useEffect(() => () => abort.current?.abort(), [])
+  /*
+   * The drafts, and the one this screen has open.
+   *
+   * A planning run is a model reading their log for tens of seconds, and it now
+   * runs on the server under a draft, so this screen only looks: `useDrafts`
+   * polls while one is being written, and when the open draft changes STEP (its
+   * run ended, or a revision started) `enter` moves the screen to match. A saved
+   * edit does not change the step, so it never pulls the editor out from under them.
+   */
+  const ai = currentMe().features.ai
+  const { drafts: listed, upsert, drop } = useDrafts(ai)
+  /*
+   * Kept ONCE. A draft whose id is already on an entry in the log (this device
+   * kept it, maybe offline, or another device did and it has synced) is on a
+   * day: it is not offered, and its discard is tried again here, because the
+   * one fired when it was kept may never have reached the server.
+   */
+  const placed = useMemo(() => placedDraftIds(entries, target ? theirs.entries : []), [entries, target, theirs.entries])
+  const drafts = useMemo(() => unplacedDrafts(listed, placed), [listed, placed])
+  useEffect(() => {
+    for (const d of listed) {
+      if (placed.has(d.id)) { drop(d.id); discardDraft(d.id).catch(() => {}) }
+    }
+  }, [listed, placed, drop])
+  const [notice, setNotice] = useState(null)  // why a keep was refused, said on the first screen
+  const [draftId, setDraftId] = useState(null)
+  const open = draftId ? drafts.find(d => d.id === draftId) || null : null
+  const synced = useRef(null)     // draftKey of what the screen last showed
+  const skipSave = useRef(false)  // the plan just came FROM the server; do not send it back
+  const [talkError, setTalkError] = useState(null)
 
   const label = picked.map(k => k.label).join(' + ')
   const primary = picked[0] || null
 
+  const enter = useCallback((d) => {
+    synced.current = draftKey(d)
+    const at = draftStep(d)
+    if (at === 'review') {
+      const p = draftPres(d, liftField)
+      if (!p) {
+        setError('the planner wrote a session with nothing in it — try again')
+        return setStep('failed')
+      }
+      skipSave.current = true
+      setPres(p)
+      setError(null)
+    } else {
+      setError(at === 'failed' ? d.error || 'the planner failed' : null)
+    }
+    setTalkError(null)
+    setStep(at)
+  }, [liftField])
+
+  useEffect(() => {
+    if (open && draftKey(open) !== synced.current) enter(open)
+  }, [open, enter])
+
+  /*
+   * Their edits on the review screen go onto the draft, so the same draft opened
+   * on another device is the one they were editing. Not while a revision is being
+   * written: its answer replaces the plan anyway.
+   */
+  useEffect(() => {
+    if (step !== 'review' || !draftId || !pres) return undefined
+    if (skipSave.current) { skipSave.current = false; return undefined }
+    if (open?.status === 'working') return undefined
+    const t = setTimeout(() => { saveDraft(draftId, presForServer(pres)).then(upsert).catch(() => {}) }, 800)
+    return () => clearTimeout(t)
+  }, [pres]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /*
+   * "Write it for me": a draft on the server, already being written.
+   *
+   * The FIRST kind the user picked wins where the model leaves the category
+   * blank (the server lays the answer on that way, server/drafts.js). With
+   * several kinds in one trip there is no single right category — one entry has
+   * one — so the first is only a default, and the review screen asks which.
+   *
+   * Run again from the ask (Redo, Change the ask), the new draft replaces the
+   * one it was redoing rather than leaving two of the same workout in the list.
+   */
   const run = useCallback(async () => {
     setStep('working')
     setError(null)
-    const ctrl = new AbortController()
-    abort.current = ctrl
+    const replacing = draftId
     try {
-      const raw = await requestWorkout({
-        kinds: picked.map(k => k.prompt || k.label),
+      const d = await createDraft({
+        picked,
         minutes,
         goal: goal.trim(),
         context: plannerContext({ readiness, week, iso }),
-        signal: ctrl.signal,
         forId: target?.id || null,
       })
-      const built = normalizePrescription(raw, { liftField })
-      if (!built) throw new Error('the planner wrote a session with nothing in it — try again')
-      /*
-       * The FIRST kind the user picked wins where the model left the answer blank.
-       *
-       * With several kinds in one trip there is no single right category — a gym
-       * day that is legs and core and a spin fills one quota, not three, because
-       * one entry has one category. So the first is only a default, and the
-       * review screen asks which. That was chosen over splitting it into three
-       * entries: one session followed start to finish is the point.
-       */
-      setPres({
-        ...built,
-        category: built.category || primary?.category || null,
-        activity: built.activity || primary?.activity || null,
-        focus: built.focus || goal.trim() || label,
-        ask: { kinds: picked.map(k => k.label), minutes, goal: goal.trim() },
-      })
-      setStep('review')
+      upsert(d)
+      synced.current = draftKey(d)
+      setDraftId(d.id)
+      if (replacing && replacing !== d.id) {
+        drop(replacing)
+        discardDraft(replacing).catch(() => {})
+      }
     } catch (e) {
-      if (ctrl.signal.aborted) return
       setError(e.message)
       setStep('failed')
     }
-  }, [picked, minutes, goal, readiness, week, iso, liftField, label, primary, target])
+  }, [picked, minutes, goal, readiness, week, iso, target, draftId, upsert, drop])
+
+  /** Try a failed draft again; a draft that never got made is simply made. */
+  const retry = useCallback(async (d = open) => {
+    if (!d || d.status !== 'failed') return run()
+    try {
+      const next = await retryDraft(d.id)
+      upsert(next)
+      if (d.id === draftId) enter(next)
+    } catch (e) {
+      setError(e.message)
+    }
+  }, [open, run, upsert, draftId, enter])
+
+  /** Reopen a draft from the list, at the step it is on, with what was asked. */
+  const resume = (d) => {
+    setPicked(d.picked || [])
+    setMinutes(d.ask?.minutes || 45)
+    setGoal(d.ask?.goal || '')
+    setTarget(d.for ? (forPeople.find(p => p.id === d.for.id) || d.for) : null)
+    setDraftId(d.id)
+    enter(d)
+  }
+
+  const discard = (d) => {
+    drop(d.id)
+    discardDraft(d.id).catch(() => {})
+    if (d.id === draftId) setDraftId(null)
+  }
+
+  /** A revision on the open draft: the message is on the thread at once, the answer when the run ends. */
+  const talk = draftId ? {
+    busy: open?.status === 'working',
+    error: talkError || (open?.status === 'failed' && open?.run?.kind === 'revise' ? open.error : null),
+    failedMessage: open?.status === 'failed' && open?.run?.kind === 'revise' ? open.run.message : null,
+    onAsk: async (message) => {
+      setTalkError(null)
+      try {
+        upsert(await reviseDraft(draftId, { message, pres: presForServer(pres) }))
+      } catch (e) {
+        setTalkError(e.message)
+        throw e
+      }
+    },
+  } : null
 
   /**
    * The other route: the blocks, named, with nothing in them.
@@ -224,20 +335,44 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
    * survive this, or it lands on their day as an entry with no work in it.
    */
   const keep = async () => {
-    const cleaned = dropEmptyBlocks(pres)
+    if (saving) return
+    setError(null)
+    setSaving(true)
+    /*
+     * Claimed first, so a draft is kept once: a second device that still shows it
+     * is told it was kept and sent back to the list. The draft's id goes on the
+     * plan it places, which is what retires it after an offline keep.
+     */
+    const gate = await keepGate({ draftId, placed, claim: claimDraft })
+    if (!gate.go) {
+      setSaving(false)
+      if (!gate.gone) return setError(gate.error)
+      drop(draftId)
+      setDraftId(null)
+      setNotice(gate.error)
+      return setStep('kind')
+    }
+    const cleaned = { ...dropEmptyBlocks(pres), ...(draftId ? { draftId } : {}) }
+    // Kept, the draft has done its job: it goes, and the entry is what remains.
+    const done = () => {
+      if (!draftId) return
+      drop(draftId)
+      discardDraft(draftId).catch(() => {})
+      setDraftId(null)
+    }
     if (target) {
       // Into THEIR log, through the people endpoints. Their day is read first so
       // the ids are the ones their own app would mint. It can fail (offline, their
       // log moved); then nothing is claimed and the editor stays as it was.
-      setError(null)
-      setSaving(true)
       try {
         const kept = await onKeepFor(target, cleaned)
+        done()
         setKeptId(kept?.first || null)
         setKeptCount(kept?.count || 1)
         setKeptFor(target)
         setStep('kept')
       } catch (e) {
+        if (gate.claimed) claimDraft(draftId, { release: true })
         setError(`Not on ${target.name}’s day: ${e.message}`)
       } finally {
         setSaving(false)
@@ -245,6 +380,8 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
       return
     }
     const kept = onKeep(cleaned)
+    done()
+    setSaving(false)
     // One planning run can land as several workouts — see splitPrescription.
     setKeptId(kept?.first || null)
     setKeptCount(kept?.count || 1)
@@ -254,6 +391,7 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
 
   /** Round again, from the top, with the last ask cleared. */
   const another = () => {
+    setDraftId(null)
     setPres(null)
     setKeptId(null)
     setKeptFor(null)
@@ -264,12 +402,16 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
   }
 
   const back = () => {
-    if (step === 'ask') return setStep('kind')
+    if (step === 'ask') { setDraftId(null); return setStep('kind') }
     // Backing out of the builder throws away what the user typed, so it goes back to
     // the kinds rather than to a screen the user did not come from.
     if (step === 'build') return setStep('kind')
-    if (step === 'failed') return setStep('ask')
-    if (step === 'working') { abort.current?.abort(); return setStep('ask') }
+    // To the first screen, where the drafts are: a failure there is one tap from
+    // its retry or its bin, and a full list (429) is one tap from making room.
+    if (step === 'failed') { setDraftId(null); return setStep('kind') }
+    // Leaving the wait cancels nothing: the draft carries on, and is listed on the
+    // first screen, which is where this goes.
+    if (step === 'working') { setDraftId(null); return setStep('kind') }
     // Backing out of the "what now" screen is the same as "back to today" — the
     // workout is already on the day either way, which is what that screen says.
     onClose()
@@ -282,6 +424,10 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
       icon="ClipboardCheck"
       onBack={back}
     >
+      {step === 'kind' && notice && <p className="withrow-err plan-keep-err">{notice}</p>}
+      {step === 'kind' && (
+        <DraftList drafts={drafts} onOpen={(d) => { setNotice(null); resume(d) }} onRetry={retry} onDiscard={discard} />
+      )}
       {step === 'kind' && <ForChoice people={forPeople} target={target} onTarget={setTarget} />}
       {step !== 'kind' && step !== 'kept' && <ForLine person={target} people={forPeople} />}
 
@@ -294,17 +440,21 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
       {step === 'kind' && (!target || theirs.ready) && (
         <KindStep plan={plan} custom={custom} setCustom={setCustom}
           picked={picked} setPicked={setPicked}
-          onNext={() => setStep('ask')} onBuild={build} />
+          onNext={() => { setNotice(null); setStep('ask') }} onBuild={build} />
       )}
 
       {step === 'ask' && (
         <AskStep picked={picked} label={label} minutes={minutes} setMinutes={setMinutes}
           goal={goal} setGoal={setGoal} chips={minuteChips}
           placeholder={plan?.plannerKinds?.goalPlaceholder}
+          evicts={draftId ? null : draftToEvict(drafts)}
           onGo={run} />
       )}
 
-      {step === 'working' && <Working label={label} minutes={minutes} />}
+      {step === 'working' && (
+        <Working label={label} minutes={minutes} since={open?.run?.startedAt || null}
+          onDiscard={open ? () => { discard(open); setStep('kind') } : null} />
+      )}
 
       {step === 'failed' && (
         <div className="plan-failed">
@@ -316,8 +466,11 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
             busy or unreachable costs you the wait and nothing else.
           </p>
           <div className="plan-actions fork">
-            <button className="btn" onClick={run}><Icon name="RotateCw" size={16} /> Try again</button>
+            <button className="btn" onClick={() => retry()}><Icon name="RotateCw" size={16} /> Try again</button>
             <button className="btn ghost" onClick={() => setStep('ask')}>Change the ask</button>
+            {!open && drafts.length > 0 && (
+              <button className="btn ghost" onClick={back}>See your drafts</button>
+            )}
             {/* Not a dead end. The box being busy is no reason not to plan the
                 session — it is only a reason to write it yourself. */}
             <button className="btn ghost" onClick={build}>
@@ -338,8 +491,8 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
       {step === 'review' && pres && (
         <ReviewStep pres={pres} setPres={setPres} liftField={liftField} entries={ctxEntries}
           categories={ctxPlan?.quotaCategories || []}
-          onRedo={() => setStep('ask')}
-          onKeep={saving ? () => {} : keep} forId={target?.id || null} forName={target?.name || null} />
+          onRedo={() => setStep('ask')} talk={talk}
+          onKeep={saving || talk?.busy ? () => {} : keep} forId={target?.id || null} forName={target?.name || null} />
       )}
 
       {step === 'kept' && pres && (
@@ -541,7 +694,7 @@ function KindGroup({ group: g, has, toggle }) {
 
 /* ------------------------------------------------- step: how long, what for */
 
-function AskStep({ picked, label, minutes, setMinutes, goal, setGoal, chips, placeholder, onGo }) {
+function AskStep({ picked, label, minutes, setMinutes, goal, setGoal, chips, placeholder, onGo, evicts = null }) {
   const many = picked.length > 1
   return (
     <>
@@ -580,6 +733,14 @@ function AskStep({ picked, label, minutes, setMinutes, goal, setGoal, chips, pla
         </p>
       </div>
 
+      {/* At the cap, the oldest draft not being written makes room. Said before, not after. */}
+      {evicts && (
+        <p className="sub plan-fine plan-evicts">
+          <Icon name="Info" size={13} /> You already have {DRAFT_MAX} drafts. Writing this one throws
+          away the oldest you have not kept: <strong>{draftTitle(evicts)}</strong>.
+        </p>
+      )}
+
       <div className="plan-actions sticky">
         <button className="btn big" onClick={onGo}>
           <Icon name="Sparkles" size={17} />{' '}
@@ -611,12 +772,20 @@ const WORKING_STAGES = [
   'Writing the sets…',
 ]
 
-function Working({ label, minutes }) {
-  const [secs, setSecs] = useState(0)
+/*
+ * `since` is when the draft's run started, so a draft reopened half way through
+ * counts from where it is rather than from zero. Leaving cancels nothing (the run
+ * is the draft's, on the server) and the screen says so, because the old promise
+ * that it did was the reason to stand and watch it.
+ */
+export function Working({ label, minutes, since = null, onDiscard = null }) {
+  const from = useMemo(() => (since ? Date.parse(since) : Date.now()), [since])
+  const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    const iv = setInterval(() => setSecs(s => s + 1), 1000)
+    const iv = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(iv)
   }, [])
+  const secs = Math.max(0, Math.round((now - from) / 1000))
   const stage = WORKING_STAGES[Math.min(WORKING_STAGES.length - 1, Math.floor(secs / 12))]
 
   return (
@@ -625,8 +794,67 @@ function Working({ label, minutes }) {
       <div className="plan-working-title">Building {minutes} minutes of {label.toLowerCase()}</div>
       <p className="plan-working-stage">{stage}</p>
       <div className="plan-working-dots"><i /><i /><i /></div>
-      <p className="sub">{secs}s — it usually takes under a minute. Leaving this screen cancels it.</p>
+      <p className="sub">
+        {secs}s — it usually takes under a minute. You can leave: it carries on, and waits for
+        you under Plan a workout.
+      </p>
+      {onDiscard && (
+        <button className="linkbtn plan-working-stop" onClick={onDiscard}>Stop and throw it away</button>
+      )}
     </div>
+  )
+}
+
+/**
+ * The drafts on the first screen: written, being written, or failed.
+ *
+ * Above the kinds, because a draft is a workout already half planned and the
+ * first thing to offer is finishing it. Tapping one reopens it at its step; a
+ * failed one has its retry on the row; the bin throws one away. Nothing on this
+ * list is in the log, and the row never claims otherwise.
+ */
+export function DraftList({ drafts = [], onOpen, onRetry, onDiscard, now = null }) {
+  const [tick, setTick] = useState(() => now ?? Date.now())
+  const working = drafts.some(d => d.status === 'working')
+  useEffect(() => {
+    if (!working || now != null) return undefined
+    const iv = setInterval(() => setTick(Date.now()), 1000)
+    return () => clearInterval(iv)
+  }, [working, now])
+  if (!drafts.length) return null
+  const at = now ?? tick
+
+  return (
+    <section className="plandrafts" aria-label="Your drafts">
+      <div className="kindgroup-head">
+        <Icon name="Sparkles" size={14} />
+        <span>Drafts — not on your day yet</span>
+      </div>
+      {drafts.map(d => (
+        <div key={d.id} className={`plandraft ${d.status}`}>
+          <button className="plandraft-open" onClick={() => onOpen(d)}>
+            <span className="plandraft-ico">
+              <Icon name={d.status === 'working' ? 'Timer' : d.status === 'failed' ? 'TriangleAlert' : 'ClipboardCheck'} size={17} />
+            </span>
+            <span className="plandraft-body">
+              <strong>{draftTitle(d)}</strong>
+              <span className="sub">{draftLine(d, at)}</span>
+            </span>
+          </button>
+          {d.status === 'failed' && (
+            <button className="btn ghost plandraft-retry" onClick={() => onRetry(d)}>
+              <Icon name="RotateCw" size={15} /> Try again
+            </button>
+          )}
+          <button className="plandraft-del" onClick={() => {
+            if (d.status === 'ready' && typeof window !== 'undefined' && !window.confirm(`Throw away “${draftTitle(d)}”?`)) return
+            onDiscard(d)
+          }} aria-label={`Discard ${draftTitle(d)}`}>
+            <Icon name="Trash2" size={15} /> <span>Discard</span>
+          </button>
+        </div>
+      ))}
+    </section>
   )
 }
 
@@ -687,10 +915,19 @@ const REVISE_PROMPTS = [
  * **Their own edits survive it.** The plan sent up is the plan as the user has it,
  * steppers and all, and the prompt tells the model those numbers are their.
  */
-export function PlanTalk({ pres, onChange, compact = false, forId = null }) {
+/*
+ * `draft`: the planner's open draft (planner flow only). Then a revision is the
+ * draft's, on the server: `draft.onAsk` starts it, the message and the answer
+ * arrive on `pres.thread` from the draft, and `busy`/`error` are the draft's, so
+ * a revision still being written when the page was left is still being written
+ * when it is reopened. Without it (the session sheet), a revision is one request.
+ */
+export function PlanTalk({ pres, onChange, compact = false, forId = null, draft = null }) {
   const [text, setText] = useState('')
-  const [asking, setAsking] = useState(false)
-  const [error, setError] = useState(null)
+  const [localAsking, setAsking] = useState(false)
+  const [localError, setError] = useState(null)
+  const asking = draft ? draft.busy : localAsking
+  const error = draft ? draft.error : localError
   /*
    * COLLAPSED, since 2026-09-21, and in both places it appears. It was always
    * open, on the argument that a section you have to open first does not show you
@@ -702,15 +939,25 @@ export function PlanTalk({ pres, onChange, compact = false, forId = null }) {
    * The header still says how many turns the thread holds, so a conversation the user
    * had with it is never silently hidden — it is one tap, with a count on it.
    */
-  const [shown, setShown] = useState(false)
+  const [shown, setShown] = useState(Boolean(draft?.busy || draft?.error))
   const [full, setFull] = useState(false)
   const liftField = liftFieldOf(usePlan())
   const thread = pres?.thread || []
+
+  // A revision that did not come back: its message goes back in the box.
+  const failedMessage = draft?.failedMessage || null
+  useEffect(() => {
+    if (failedMessage) { setText(t => t || failedMessage); setShown(true) }
+  }, [failedMessage])
 
   const ask = async (message) => {
     const said = String(message || '').trim()
     if (!said || asking) return
     setText('')
+    if (draft) {
+      try { await draft.onAsk(said) } catch { setText(said) }
+      return
+    }
     setError(null)
     setAsking(true)
     // Their message goes on immediately. A revision takes tens of seconds, and a
@@ -933,10 +1180,10 @@ function PieceAdder({ unit, onAdd }) {
 
 /* ------------------------------------------------------------- step: review */
 
-function ReviewStep({ pres, setPres, liftField, entries = [], categories = [], onRedo, onKeep, forId = null, forName = null }) {
+function ReviewStep({ pres, setPres, liftField, entries = [], categories = [], onRedo, onKeep, forId = null, forName = null, talk = null }) {
   return (
     <>
-      <PlanTalk pres={pres} onChange={setPres} forId={forId} />
+      <PlanTalk pres={pres} onChange={setPres} forId={forId} draft={talk} />
 
       <SplitNote parts={splitPrescription(pres)} />
 
@@ -957,7 +1204,7 @@ function ReviewStep({ pres, setPres, liftField, entries = [], categories = [], o
 
       <div className="plan-actions sticky">
         <button className="btn ghost" onClick={onRedo}><Icon name="RotateCw" size={16} /> Redo</button>
-        <button className="btn big" onClick={onKeep}>
+        <button className="btn big" onClick={onKeep} disabled={Boolean(talk?.busy)}>
           <Icon name="Plus" size={17} /> {forName ? `Put it on ${forName}’s day` : 'Put it on today'}
         </button>
       </div>

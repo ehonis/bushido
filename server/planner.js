@@ -348,10 +348,11 @@ function revisePrompt({ plan, message, thread = [], name }) {
 function planWorkout({
   bin, model, effort, timeoutMs, repoRoot, dataDir, logDir, brainFile, today, plan,
   kinds = [], minutes, goal, context, revise = null, name, notes, env,
-  person = null, ownerSources = [], measurements = true,
+  person = null, ownerSources = [], measurements = true, signal = null,
 }) {
   if (person) brainFile = null
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new Error('cancelled'))
     const child = spawn(bin, [
       '--print',
       '--model', model,
@@ -371,11 +372,16 @@ function planWorkout({
       reject(new Error('the planner took too long — try again, or give it a narrower goal'))
     }, timeoutMs)
 
+    // A draft discarded mid-run (server/drafts.js) takes its model run with it.
+    const cancel = () => { child.kill('SIGKILL'); reject(new Error('cancelled')) }
+    signal?.addEventListener('abort', cancel, { once: true })
+
     child.stdout.on('data', c => { out += c })
     child.stderr.on('data', c => { err += c })
     child.on('error', (e) => { clearTimeout(timer); reject(new Error(`cannot run ${bin}: ${e.message}`)) })
     child.on('close', (code) => {
       clearTimeout(timer)
+      signal?.removeEventListener('abort', cancel)
       if (code !== 0) {
         return reject(new Error(err.trim().split('\n').pop() || `claude exited ${code}`))
       }
@@ -404,9 +410,9 @@ function safeParse(s) {
 }
 
 /**
- * What a planning run costs to keep. Nothing — unlike a coach thread, a
- * prescription IS a log entry the moment the user keeps it, so there is no file store
- * here and no cleanup to do.
+ * The content file a run is told about. A planning run keeps nothing itself:
+ * what it returns is written onto a draft by server/drafts.js, and becomes a log
+ * entry only when the user keeps it.
  */
 const readPlanJson = (file) => {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return null }

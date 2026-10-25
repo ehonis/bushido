@@ -27,6 +27,9 @@
  *   GET  /api/coach/threads   the AI coach's conversations; POST /api/coach/chat for a turn
  *   POST /api/plan/workout    { kinds, minutes, goal } -> a prescription, stored nowhere
  *   POST /api/plan/revise     { plan, message } -> the same plan, changed; stored nowhere
+ *   GET  /api/plan/drafts     this person's AI workout drafts; POST one to start writing it;
+ *                             GET/PUT/DELETE /api/plan/drafts/:id, POST …/:id/revise, …/retry, …/keep
+ *                             (server/drafts.js: the run belongs to the draft, not the page)
  *   POST /api/plan/week       { monday, counts, message, thread } -> the week's quotas, proposed; stored nowhere
  *   GET  /api/state           { version, updatedAt, state }
  *   PUT  /api/state           { state } -> merged with what's on disk, returns merged doc
@@ -59,6 +62,7 @@ const { spawn } = require('child_process')
 const chat = require('./chat.js')
 const coach = require('./coach.js')
 const planner = require('./planner.js')
+const { createDrafts, dirOf: draftsDir, keptIdsIn } = require('./drafts.js')
 const weekplanner = require('./weekplanner.js')
 const { createBushidoNotify } = require('./notify.js')
 const notifyFacts = require('./notify-facts.js')
@@ -194,6 +198,8 @@ const COACH_TIMEOUT_MS = Number(process.env.BUSHIDO_COACH_TIMEOUT_MS) || 180000
  */
 const PLANNER_EFFORT = process.env.BUSHIDO_PLANNER_EFFORT || 'low'
 const PLANNER_TIMEOUT_MS = Number(process.env.BUSHIDO_PLANNER_TIMEOUT_MS) || 150000
+/* "Write it for me" drafts, and the runs writing them. See server/drafts.js. */
+const drafts = createDrafts()
 /*
  * The week planner shares the planner's model and timeout and sits one notch
  * higher on effort: it is comparing three weeks of what the user set against what the user
@@ -2288,8 +2294,10 @@ const server = http.createServer(async (req, res) => {
      * offer it at all.
      */
     const aiRoute = p.startsWith('/api/coach/') || p === '/api/plan/workout' || p === '/api/plan/revise' || p === '/api/plan/week'
+      || p === '/api/plan/drafts' || p.startsWith('/api/plan/drafts/')
     if (aiRoute && !features.ai) {
       if (p === '/api/coach/threads' && req.method === 'GET') return send(res, 200, { threads: [] }, { 'Cache-Control': 'no-cache' })
+      if (p === '/api/plan/drafts' && req.method === 'GET') return send(res, 200, { drafts: [] }, { 'Cache-Control': 'no-cache' })
       return send(res, 503, { error: 'The coach and planners are not available on this account yet.', code: 'ai-not-configured' })
     }
 
@@ -2446,6 +2454,107 @@ const server = http.createServer(async (req, res) => {
         console.error('[bushido] planner revise failed:', err.message)
         return send(res, 503, { error: err.message })
       }
+    }
+
+    /*
+     * AI workout drafts (server/drafts.js, docs/DESIGN.md D3).
+     *
+     * "Write it for me" is a draft in the REQUESTER's own space (`drafts/` beside
+     * their log, never in it), and the model run belongs to the draft: the server
+     * writes its result or its error onto the file when it ends, so leaving the
+     * page, locking the phone or opening another device loses nothing. A draft
+     * for someone else (`for`) is still the owner's draft; its runs are built on
+     * that person's space, exactly as /api/plan/workout's are. Nothing here
+     * writes the log: keeping a draft is the app's own placement, on a tap, and
+     * the app discards the draft afterwards.
+     */
+    if (p === '/api/plan/drafts' || p.startsWith('/api/plan/drafts/')) {
+      const dir = draftsDir(space)
+      const rest = p.slice('/api/plan/drafts'.length).split('/').filter(Boolean)
+      const [id, action] = rest
+      if (rest.length > 2) return send(res, 404, { error: 'not found' })
+      /*
+       * The drafts this space has already kept: ids stamped on entries in its own
+       * log and, for a draft planned for someone, in theirs. Read per request (a
+       * keep made offline arrives with the log's next sync, not here).
+       */
+      const keptIds = new Map()
+      const isKept = (draftId) => {
+        const d = drafts.read(dir, draftId)
+        const owners = [space, ...(d?.for?.id && users.get(d.for.id) ? [spaceFor(users.get(d.for.id))] : [])]
+        return owners.some(sp => {
+          if (!keptIds.has(sp.stateFile)) {
+            let ids = new Set()
+            try { ids = keptIdsIn(readStateSync(sp).state) } catch { /* unreadable: nothing is known kept */ }
+            keptIds.set(sp.stateFile, ids)
+          }
+          return keptIds.get(sp.stateFile).has(draftId)
+        })
+      }
+      // Whose context a draft's runs are built on: its `for`, resolved now, for this request.
+      const targetOf = (draft) => aiSpaceFor({ for: draft?.for?.id || null }, ctx, space)
+      const runner = (target) => ({ kind, draft, message, signal }) => {
+        const { ai, common } = aiRun(target)
+        if (!ai.installed) throw new Error(AI_MISSING)
+        const plan = planner.readPlanJson(target.planFile().file) || {}
+        const { thread = [], ...current } = draft.pres || {}
+        return planner.planWorkout({
+          ...common, model: ai.plannerModel, effort: PLANNER_EFFORT,
+          timeoutMs: PLANNER_TIMEOUT_MS, plan, signal,
+          ...(kind === 'revise'
+            // The thread as it was before this message, which is the run's own `message`.
+            ? { revise: { plan: current, message, thread: thread.slice(0, -1).slice(-8) } }
+            : { kinds: draft.ask.kinds, minutes: draft.ask.minutes, goal: draft.ask.goal, context: draft.context }),
+        })
+      }
+      const answer = (fn) => {
+        try { return send(res, 200, { draft: fn() }) } catch (err) {
+          if (err.status) return send(res, err.status, { error: err.message, ...(err.code ? { code: err.code } : {}) })
+          throw err
+        }
+      }
+      const ready = (target) => {
+        if (target.refused) return target.refused
+        if (!aiRun(target.space).ai.installed) return [503, { error: AI_MISSING, code: 'ai-not-configured' }]
+        return null
+      }
+
+      if (!id && req.method === 'GET') {
+        return send(res, 200, { drafts: drafts.list(dir, { isKept }) }, { 'Cache-Control': 'no-cache' })
+      }
+      if (!id && req.method === 'POST') {
+        const body = await readBody(req, 64 * 1024)
+        const target = aiSpaceFor(body, ctx, space)
+        const refused = ready(target)
+        if (refused) return send(res, ...refused)
+        const forWho = target.space === space ? null : { id: target.space.id, name: aboutFor(target.space).name }
+        return answer(() => drafts.create(dir, { ...body, for: forWho }, runner(target.space), { isKept }))
+      }
+
+      const draft = drafts.read(dir, id)
+      // Gone is how a second device learns the draft was kept (or thrown away) on another.
+      if (!draft) return send(res, 404, { error: 'This draft is gone: it was kept or thrown away on another device.', code: 'kept' })
+      if (!action && req.method === 'GET') return send(res, 200, { draft }, { 'Cache-Control': 'no-cache' })
+      if (!action && req.method === 'DELETE') return send(res, 200, { ok: drafts.discard(dir, id) })
+      if (!action && req.method === 'PUT') {
+        const body = await readBody(req, 256 * 1024)
+        return answer(() => drafts.save(dir, id, body?.pres))
+      }
+      // Claimed before the app places it, so a draft is kept once; `release` gives it back.
+      if (action === 'keep' && req.method === 'POST') {
+        const body = await readBody(req, 4 * 1024)
+        return answer(() => drafts.keep(dir, id, { isKept, release: body?.release === true }))
+      }
+      if ((action === 'revise' || action === 'retry') && req.method === 'POST') {
+        const body = await readBody(req, 256 * 1024)
+        const target = targetOf(draft)
+        const refused = ready(target)
+        if (refused) return send(res, ...refused)
+        return answer(() => action === 'revise'
+          ? drafts.revise(dir, id, body, runner(target.space))
+          : drafts.retry(dir, id, runner(target.space)))
+      }
+      return send(res, 405, { error: 'method not allowed' })
     }
 
     /*

@@ -31,8 +31,8 @@ process.on('exit', () => {
 })
 
 /** Start a server; resolves once it is listening, with its log so far. */
-function boot({ env = {}, seed = null } = {}) {
-  const dataDir = mkdtemp('bushido-http-')
+function boot({ env = {}, seed = null, dataDir: reuse = null } = {}) {
+  const dataDir = reuse || mkdtemp('bushido-http-')
   if (seed) for (const [f, body] of Object.entries(seed)) fs.writeFileSync(path.join(dataDir, f), body)
   const port = 20000 + Math.floor(Math.random() * 20000)
   const child = spawn(process.execPath, [SERVER], {
@@ -70,6 +70,17 @@ const form = (o) => ({
   body: new URLSearchParams(o).toString(),
 })
 const cookieFrom = (res) => (res.headers.get('set-cookie') || '').split(';')[0]
+
+/** Poll until `fn` returns something truthy; a model run is a child process, so "later" is real. */
+async function waitFor(fn, label, ms = 8000) {
+  const until = Date.now() + ms
+  for (;;) {
+    const v = await fn()
+    if (v) return v
+    if (Date.now() > until) throw new Error(`timed out waiting for ${label}`)
+    await new Promise(r => setTimeout(r, 40))
+  }
+}
 
 ;(async () => {
   /* ------------------------------------------------------------ fresh install */
@@ -866,6 +877,7 @@ process.stdin.on('end', () => {
     eq(addDirsOf(r), [SAM_DIR], `${label}: --add-dir is not just Sam's space`)
     for (const want of [`Read(${rule(D)}/state.json*)`, `Read(${rule(D)}/coach/**)`, `Read(${rule(D)}/coach.json*)`,
       `Read(${rule(D)}/whoop.json*)`, `Read(${rule(D)}/strava.json*)`, `Read(${rule(D)}/backups/**)`, `Read(${rule(D)}/users.json*)`,
+      `Read(${rule(D)}/drafts/**)`,
       `Read(${rule(path.join(D, 'users', 'robin'))}/**)`, `Read(${rule(BRAIN)})`, `Read(${rule(path.dirname(BRAIN))}/**)`, `Read(${rule(FOOD)}/**)`]) {
       ok(deny.includes(want), `${label}: no deny for ${want}`)
     }
@@ -933,8 +945,192 @@ process.stdin.on('end', () => {
     ok(addDirsOf(r).includes(D), 'the owner\'s data dir is not readable')
   })
 
+  await step('drafts: Sam\'s drafts are in Sam\'s space, written by Sam\'s run, and invisible to the owner', async () => {
+    const PICK = [{ key: 'legs', label: 'Legs', prompt: 'a leg day' }]
+    const r = await postAi('/api/plan/drafts', { picked: PICK, minutes: 30 }, samH())
+    eq(r.status, 200)
+    const { draft } = await r.json()
+    const mine = (h) => get(`${three.base}/api/plan/drafts/${draft.id}`, h)
+    await waitFor(async () => (await (await mine(samH())).json()).draft.status === 'ready', 'Sam\'s draft')
+    assertSamRun(lastRun(), 'Sam\'s draft')
+    ok(fs.existsSync(path.join(SAM_DIR, 'drafts', `${draft.id}.json`)), 'Sam\'s draft is not in Sam\'s space')
+    ok(!fs.existsSync(path.join(D, 'drafts', `${draft.id}.json`)), 'Sam\'s draft is in the owner\'s folder')
+    eq((await mine(ownerH())).status, 404, 'the owner read Sam\'s draft by id')
+    eq((await get(`${three.base}/api/plan/drafts/${draft.id}`, { method: 'DELETE', ...ownerH() })).status, 404, 'the owner discarded Sam\'s draft')
+    const ownerList = (await (await get(`${three.base}/api/plan/drafts`, ownerH())).json()).drafts
+    ok(!ownerList.some(d => d.id === draft.id), 'the owner was shown Sam\'s draft')
+    eq((await (await get(`${three.base}/api/plan/drafts`, samH())).json()).drafts.map(d => d.id), [draft.id])
+  })
+
+  await step('drafts: the owner\'s draft FOR Sam is the owner\'s, and its run is Sam\'s', async () => {
+    const r = await postAi('/api/plan/drafts', { picked: [{ key: 'legs', label: 'Legs' }], minutes: 30, for: 'sam' }, ownerH())
+    eq(r.status, 200)
+    const { draft } = await r.json()
+    eq(draft.for, { id: 'sam', name: 'Sam' })
+    await waitFor(async () => (await (await get(`${three.base}/api/plan/drafts/${draft.id}`, ownerH())).json()).draft.status === 'ready', 'the draft for Sam')
+    assertSamRun(lastRun(), 'owner drafting for Sam')
+    ok(fs.existsSync(path.join(D, 'drafts', `${draft.id}.json`)), 'the owner\'s draft is not in the owner\'s folder')
+    const rev = await postAi(`/api/plan/drafts/${draft.id}/revise`, { message: 'shorter' }, ownerH())
+    eq(rev.status, 200)
+    await waitFor(async () => (await (await get(`${three.base}/api/plan/drafts/${draft.id}`, ownerH())).json()).draft.status === 'ready', 'the revision for Sam')
+    assertSamRun(lastRun(), 'owner revising a draft for Sam')
+    ok(!(await (await get(`${three.base}/api/plan/drafts`, samH())).json()).drafts.some(d => d.id === draft.id), 'Sam was shown the owner\'s draft')
+    // Kept into Sam's log, the owner's draft is retired by the entry there.
+    const ready = (await (await get(`${three.base}/api/plan/drafts/${draft.id}`, ownerH())).json()).draft
+    const entry = { id: 'daily-2026-10-25', date: '2026-10-25', type: 'daily', data: { optId: 'planned', done: false, plan: { ...ready.pres, draftId: draft.id } } }
+    eq((await get(`${three.base}/api/entry`, { method: 'POST', headers: { ...json, ...samH().headers }, body: JSON.stringify({ entry }) })).status, 200)
+    ok(!(await (await get(`${three.base}/api/plan/drafts`, ownerH())).json()).drafts.some(d => d.id === draft.id),
+      'a draft kept into Sam\'s log is still offered to the owner')
+    eq((await postAi('/api/plan/drafts', { picked: [{ key: 'legs', label: 'Legs' }], minutes: 30, for: 'owner' }, samH())).status, 403, 'Sam drafted for the owner')
+  })
+
   await three.stop()
   certs.close()
+
+  /* ------------------------------------------ AI workout drafts, end to end */
+  /*
+   * A fake CLI the test can hold: a goal saying SLOW waits for a release file,
+   * a goal saying FAIL exits non-zero while a flag file exists. Nothing here is
+   * a real model; the point is that the run belongs to the draft on disk and
+   * not to any request, so "the page went away" is just "nobody asked".
+   */
+  const dk = mkdtemp('bushido-drafts-')
+  const RELEASE = path.join(dk, 'release')
+  const FAILFLAG = path.join(dk, 'fail')
+  const SLOWFAKE = path.join(dk, 'claude')
+  fs.writeFileSync(SLOWFAKE, `#!${process.execPath}
+const fs = require('fs')
+const argv = process.argv.slice(2)
+let stdin = ''
+process.stdin.on('data', c => { stdin += c })
+process.stdin.on('end', () => {
+  if (stdin.includes('GOAL-FAIL') && fs.existsSync(${JSON.stringify(FAILFLAG)})) {
+    process.stderr.write('fake planner fell over\\n'); process.exit(1)
+  }
+  const revise = stdin.includes('Return the WHOLE session again')
+  const answer = () => process.stdout.write(JSON.stringify({ model: 'fake', structured_output: {
+    title: revise ? 'Shorter legs' : stdin.includes('GOAL-SLOW') ? 'Slow legs' : 'Legs', minutes: 30, why: 'because',
+    ...(revise ? { changed: 'Cut a set.' } : {}),
+    blocks: [{ name: 'Main', items: [{ kind: 'lift', name: 'Squat', sets: [{ reps: 5 }] }] }] } }))
+  if (!stdin.includes('GOAL-SLOW')) return answer()
+  const iv = setInterval(() => { if (fs.existsSync(${JSON.stringify(RELEASE)})) { clearInterval(iv); answer() } }, 30)
+})
+`, { mode: 0o755 })
+  const draftEnv = { BUSHIDO_AUTH: 'proxy', CLAUDE_BIN: SLOWFAKE }
+  let dv = await boot({ env: draftEnv })
+  const DV = dv.dataDir
+  const PICKED = [{ key: 'legs', label: 'Legs', prompt: 'a leg day', category: 'strength', activity: 'lift' }]
+  const dpost = (p, body = {}) => get(`${dv.base}${p}`, { method: 'POST', headers: json, body: JSON.stringify(body) })
+  const dget = async (id) => (await (await get(`${dv.base}/api/plan/drafts/${id}`)).json()).draft
+  const dlist = async () => (await (await get(`${dv.base}/api/plan/drafts`)).json()).drafts
+  const settled = (id, status = 'ready') => waitFor(async () => { const d = await dget(id); return d?.status === status && d }, `draft ${status}`)
+  const newDraft = async (goal) => {
+    const r = await dpost('/api/plan/drafts', { picked: PICKED, minutes: 45, goal })
+    eq(r.status, 200, `create (${goal})`)
+    return (await r.json()).draft
+  }
+
+  await step('drafts: "Write it for me" survives a reload mid-run and after it finishes', async () => {
+    const d = await newDraft('GOAL-SLOW')
+    eq(d.status, 'working')
+    // A reload mid-run: nothing is waiting on the first request, and the draft is still there, working.
+    eq((await dlist()).map(x => [x.id, x.status]), [[d.id, 'working']])
+    await new Promise(r => setTimeout(r, 150))
+    eq((await dget(d.id)).status, 'working', 'it finished without being released')
+    fs.writeFileSync(RELEASE, '')
+    const done = await settled(d.id)
+    eq([done.pres.title, done.pres.category, done.pres.ask.kinds], ['Slow legs', 'strength', ['Legs']])
+    // After it finished: a fresh read, as another device would make.
+    eq((await dlist()).find(x => x.id === d.id).status, 'ready')
+    ok(fs.existsSync(path.join(DV, 'drafts', `${d.id}.json`)), 'the draft is not a file in data/drafts')
+    const state = await (await get(`${dv.base}/api/state`)).json()
+    eq(Object.keys(state.state.entries), [], 'a draft wrote the log')
+  })
+
+  await step('drafts: two at once are written side by side', async () => {
+    fs.rmSync(RELEASE, { force: true })
+    const a = await newDraft('GOAL-SLOW first')
+    const b = await newDraft('GOAL-SLOW second')
+    eq([(await dget(a.id)).status, (await dget(b.id)).status], ['working', 'working'])
+    fs.writeFileSync(RELEASE, '')
+    await settled(a.id); await settled(b.id)
+    ok((await dlist()).filter(x => x.status === 'ready').length >= 3, 'a draft went missing')
+  })
+
+  await step('drafts: a failed run is a draft with the error, and Try again writes it', async () => {
+    fs.writeFileSync(FAILFLAG, '')
+    const d = await newDraft('GOAL-FAIL')
+    const f = await settled(d.id, 'failed')
+    ok(/fake planner fell over/.test(f.error), `the error is not the planner's: ${f.error}`)
+    eq(f.pres, null)
+    fs.rmSync(FAILFLAG)
+    eq((await dpost(`/api/plan/drafts/${d.id}/retry`)).status, 200)
+    eq((await settled(d.id)).pres.title, 'Legs')
+  })
+
+  await step('drafts: a revision is stored on the draft, message first and answer after', async () => {
+    const d = await newDraft('quick')
+    const ready = await settled(d.id)
+    const r = await dpost(`/api/plan/drafts/${d.id}/revise`, { message: 'make it shorter', pres: { ...ready.pres, title: 'My edit' } })
+    eq(r.status, 200)
+    const w = (await r.json()).draft
+    eq([w.status, w.pres.thread.at(-1).text], ['working', 'make it shorter'])
+    const done = await settled(d.id)
+    eq(done.pres.thread.map(m => [m.role, m.text]), [['you', 'make it shorter'], ['coach', 'Cut a set.']])
+    eq(done.pres.title, 'Shorter legs')
+    // Edits on the review screen are saved too.
+    const put = await get(`${dv.base}/api/plan/drafts/${d.id}`, { method: 'PUT', headers: json, body: JSON.stringify({ pres: { ...done.pres, title: 'Mine now' } }) })
+    eq(put.status, 200)
+    eq((await dget(d.id)).pres.title, 'Mine now')
+  })
+
+  await step('drafts: discard deletes it', async () => {
+    const d = await newDraft('quick')
+    eq((await get(`${dv.base}/api/plan/drafts/${d.id}`, { method: 'DELETE' })).status, 200)
+    eq((await get(`${dv.base}/api/plan/drafts/${d.id}`)).status, 404)
+    ok(!(await dlist()).some(x => x.id === d.id), 'a discarded draft is still listed')
+  })
+
+  await step('drafts: keeping is once only: claimed, placed with its id, then removed', async () => {
+    const d = await settled((await newDraft('quick')).id)
+    // Two devices have it open. The first claims it, places it, discards it.
+    eq((await dpost(`/api/plan/drafts/${d.id}/keep`)).status, 200)
+    eq((await dpost(`/api/plan/drafts/${d.id}/keep`)).status, 409, 'the second device was allowed to keep it too')
+    ok(!(await dlist()).some(x => x.id === d.id), 'a draft being kept is still offered')
+    const entry = { id: 'daily-2026-10-25', date: '2026-10-25', type: 'daily', data: { optId: 'planned', done: false, plan: { ...d.pres, draftId: d.id } } }
+    eq((await get(`${dv.base}/api/entry`, { method: 'POST', headers: json, body: JSON.stringify({ entry }) })).status, 200)
+    eq((await get(`${dv.base}/api/plan/drafts/${d.id}`, { method: 'DELETE' })).status, 200)
+    eq((await dpost(`/api/plan/drafts/${d.id}/keep`)).status, 404, 'a kept and discarded draft could be kept again')
+    const state = await (await get(`${dv.base}/api/state`)).json()
+    eq(state.state.entries['daily-2026-10-25'].data.plan.title, 'Legs')
+  })
+
+  await step('drafts: kept offline (the discard never arrived), the synced entry retires the draft', async () => {
+    const d = await settled((await newDraft('quick')).id)
+    // A failed placement hands the claim back and the draft is offered again.
+    eq((await dpost(`/api/plan/drafts/${d.id}/keep`)).status, 200)
+    eq((await dpost(`/api/plan/drafts/${d.id}/keep`, { release: true })).status, 200)
+    ok((await dlist()).some(x => x.id === d.id), 'a released draft is not offered again')
+    // The phone kept it offline: its entry syncs later, its DELETE never comes.
+    const entry = { id: 'daily-2026-10-26', date: '2026-10-26', type: 'daily', data: { optId: 'planned', done: false, plan: { ...d.pres, draftId: d.id } } }
+    await get(`${dv.base}/api/entry`, { method: 'POST', headers: json, body: JSON.stringify({ entry }) })
+    ok(!(await dlist()).some(x => x.id === d.id), 'a draft already on the day is offered again as Ready')
+    eq((await get(`${dv.base}/api/plan/drafts/${d.id}`)).status, 404, 'the kept draft was not removed')
+  })
+
+  await step('drafts: a restart mid-run leaves the draft failed with a retry, not stuck working', async () => {
+    fs.rmSync(RELEASE, { force: true })
+    const d = await newDraft('GOAL-SLOW restart')
+    await dv.stop()
+    dv = await boot({ env: draftEnv, dataDir: DV })
+    const f = await dget(d.id)
+    eq(f.status, 'failed', 'a draft whose run died with the server still says working')
+    ok(/restarted/.test(f.error), f.error)
+    fs.writeFileSync(RELEASE, '')
+    eq((await dpost(`/api/plan/drafts/${d.id}/retry`)).status, 200)
+    eq((await settled(d.id)).pres.title, 'Slow legs')
+  })
+  await dv.stop()
 
   /* ------------------------------------------------------- an existing install */
   const seed = {
