@@ -16,6 +16,8 @@ import { localIso } from '../lib/dates.js'
 import { actAs } from '../lib/whoami.js'
 import { reloadApp } from '../shell/reload'
 import { impact } from '../ui/haptics'
+import { useApp } from '../shell/AppData'
+import { QuickLog } from './quicklog'
 
 /*
  * Three tabs, since 2026-10-25 (issue #31): Today, Log, Progress. Week went with
@@ -70,18 +72,24 @@ const FAB_ROWS = [
 ] as const
 
 /**
- * What the + offers. Three doors: the separate session picker went on 2026-10-14 when the
- * plan's cards moved into Log a workout as the climbing folders (lib/folders.js), and
- * Plan the week went with the quotas on 2026-10-25.
+ * What the + offers. The separate session picker went on 2026-10-14 when the
+ * plan's cards moved into Log a workout as the climbing folders (lib/folders.js),
+ * and Plan the week went with the quotas on 2026-10-25.
  * A sheet from the bottom, because the button is at the bottom and a menu that
  * opens away from your thumb is one you reach across for.
+ *
+ * `quick` is the quick-log rows (features/quicklog.tsx), right under Log a
+ * workout, so "I did a run" is + → Run (docs/DESIGN.md, "Logging in two taps").
+ * Left out, the menu builds them from the app's own state, as App.jsx's call
+ * site does on the web.
  */
-export function FabMenu({ onClose, onPlan, onLog, onRest, onTimer = null }: {
+export function FabMenu({ onClose, onPlan, onLog, onRest, onTimer = null, quick }: {
   onClose: () => void
   onPlan: () => void
   onLog: () => void
   onRest: (() => void) | null
   onTimer?: (() => void) | null
+  quick?: React.ReactNode
 }) {
   const insets = useSafeAreaInsets()
   const handlers: Record<string, (() => void) | null> = { plan: onPlan, log: onLog, rest: onRest, timer: onTimer }
@@ -91,15 +99,18 @@ export function FabMenu({ onClose, onPlan, onLog, onRest, onTimer = null }: {
       <Pressable style={st.scrim} onPress={onClose} accessibilityLabel="Close">
         <Pressable style={[st.fabmenu, { marginBottom: Math.max(space[2], insets.bottom) }]} onPress={() => {}} accessibilityLabel="Add a workout">
           {FAB_ROWS.filter((r) => handlers[r.key]).map((r) => (
-            <Press key={r.key} haptic style={st.row} onPress={() => handlers[r.key]?.()}>
-              <View style={[st.rowIco, { backgroundColor: r.tint ? colors.accentSoft : colors.panel3 }]}>
-                <Icon name={r.icon} size={22} color={r.tint || colors.inkDim} />
-              </View>
-              <View style={{ flex: 1, gap: 2 }}>
-                <T size={font.body} weight={600}>{r.title}</T>
-                <T size={font.small} dim>{r.sub}</T>
-              </View>
-            </Press>
+            <React.Fragment key={r.key}>
+              <Press haptic style={st.row} onPress={() => handlers[r.key]?.()}>
+                <View style={[st.rowIco, { backgroundColor: r.tint ? colors.accentSoft : colors.panel3 }]}>
+                  <Icon name={r.icon} size={22} color={r.tint || colors.inkDim} />
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <T size={font.body} weight={600}>{r.title}</T>
+                  <T size={font.small} dim>{r.sub}</T>
+                </View>
+              </Press>
+              {r.key === 'log' ? (quick === undefined ? <FabQuickLog /> : quick) : null}
+            </React.Fragment>
           ))}
           <Press onPress={onClose} style={st.cancel}>
             <T size={font.body} weight={600}>Cancel</T>
@@ -108,6 +119,22 @@ export function FabMenu({ onClose, onPlan, onLog, onRest, onTimer = null }: {
       </Pressable>
       </GestureHandlerRootView>
     </RNModal>
+  )
+}
+
+/**
+ * The quick rows from the app's state: on the day Today is showing (never a future
+ * one), and the placed workout's sheet opens on Today, exactly as Log a workout's
+ * own pick does (AppData `placeAll`).
+ */
+function FabQuickLog() {
+  const { plan, store, menuFrom, viewDay, setFab, setOpenEntryId, setTab } = useApp()
+  const today = localIso()
+  const from = menuFrom === 'today' ? viewDay : null
+  return (
+    <QuickLog plan={plan} entries={store.entries} upsertEntry={store.upsertEntry}
+      date={from && from <= today ? from : today} style={st.quick}
+      onPlaced={(id) => { setFab(null); setOpenEntryId(id); setTab('today') }} />
   )
 }
 
@@ -179,5 +206,7 @@ const st = StyleSheet.create({
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: 64, paddingVertical: space[2], paddingHorizontal: space[3], borderRadius: radius.card },
   rowIco: { width: 44, height: 44, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center' },
+  // Under Log a workout, icons lined up with its title (logging.css .fabmenu .quicklog).
+  quick: { paddingLeft: space[3] + 44 + space[3], paddingRight: space[3], marginBottom: space[1] },
   cancel: { minHeight: 44, marginTop: space[1], alignItems: 'center', justifyContent: 'center', borderRadius: radius.card, backgroundColor: colors.panel2 },
 })

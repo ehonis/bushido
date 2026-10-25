@@ -262,7 +262,8 @@ one line, at most about 40 characters, no sentence, no full stop, no dash. Loggi
 before planning doors, and tools last. #36's door currently carries two sentences ("Work, rest,
 rounds. Starts in one tap; change anything first if you like."); whichever of #29/#36 lands second
 cuts it to the line above. #29 already orders the doors this way and shortens the lines;
-#31 removed Plan the week (doors 1, 3 and 4 are live; 2 and 5 are still to come).
+#31 removed Plan the week (doors 1, 3 and 4 are live; 2 and 5 are still to come). #42 added door 2
+(`quicklog.jsx`, under Log a workout) and the same rows as Log a workout's Recent group.
 
 ### Logging in two taps (D7)
 

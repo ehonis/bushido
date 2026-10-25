@@ -24,9 +24,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, FlatList, ScrollView, StyleSheet, View } from 'react-native'
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable'
-import { colors, mix, TAP } from '../theme'
+import { colors, font, mix, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
-import { IconBtn, Input, Press } from '../ui/kit'
+import { Btn, IconBtn, Input, Press } from '../ui/kit'
 import { Popover } from '../ui/Sheet'
 import { impact, success, tap } from '../ui/haptics'
 import { Icon } from '../lib/icons'
@@ -79,7 +79,7 @@ export function SwipeRemove({ children, onRemove, label = 'Remove', enabled = tr
           style={sw.act}
         >
           <Icon name="Trash2" size={16} color={colors.white} />
-          <T size={12} weight={600} color={colors.white}>{label}</T>
+          <T size={font.small} weight={600} color={colors.white}>{label}</T>
         </Press>
       )}
     >
@@ -96,11 +96,11 @@ const sw = StyleSheet.create({
 })
 
 /**
- * One number, moved with thumbs.
- *
- * 44pt targets either side of an input that is still an input. The minus goes
- * inert at the floor rather than disappearing — a control that vanishes under
- * your thumb mid-session moves everything next to it.
+ * One number, moved with thumbs (docs/DESIGN.md, Stepper): − and + either side
+ * of an input that is still an input, what it measures under it, on the tokens.
+ * Two fit beside a set's number on a phone. The minus goes inert at the floor
+ * rather than disappearing — a control that vanishes under your thumb
+ * mid-session moves everything next to it. The big sibling is the runner's.
  */
 export function Stepper({
   label, value, step = 1, min = null, max = null, suffix = '', quiet = false,
@@ -126,7 +126,7 @@ export function Stepper({
     onChange(Math.round(next * 100) / 100)
   }
   return (
-    <View style={[st.stepper, quiet && { opacity: 0.72 }]}>
+    <View style={[st.stepper, quiet && st.stepperQuiet]}>
       <Press onPress={() => bump(-1)} disabled={min !== null && n <= min} style={st.stepperBtn}
         accessibilityRole="button" accessibilityLabel={`less ${label}`}>
         <Icon name="Minus" size={15} color={colors.inkDim} />
@@ -137,7 +137,7 @@ export function Stepper({
           placeholderTextColor={colors.inkFaint} keyboardAppearance="dark" selectionColor={colors.accent}
           selectTextOnFocus style={st.stepperIn}
         />
-        <T size={9.5} faint lineHeight={11} style={{ letterSpacing: 0.4 }}>{`${label}${suffix}`}</T>
+        <T size={font.caption} dim lineHeight={font.caption}>{`${label}${suffix}`}</T>
       </View>
       <Press onPress={() => bump(1)} disabled={max !== null && n >= max} style={st.stepperBtn}
         accessibilityRole="button" accessibilityLabel={`more ${label}`}>
@@ -177,7 +177,7 @@ export function ExercisePicker({ field, onPick, onClose }: any) {
         <View style={st.pickGroups}>
           {groups.map((g: string) => (
             <Press key={g} haptic onPress={() => setQ(g)} style={[st.implchip, { minHeight: 36 }]}>
-              <T size={11} faint>{g}</T>
+              <T size={font.small} faint>{g}</T>
             </Press>
           ))}
         </View>
@@ -192,11 +192,11 @@ export function ExercisePicker({ field, onPick, onClose }: any) {
           <Press onPress={() => onPick(ex.key)} style={st.pickRow} accessibilityRole="button">
             <ExerciseBody field={field} exercise={ex.key} name={ex.name} size={26} />
             <T size={15} style={{ flex: 1, minWidth: 0 }}>{ex.name}</T>
-            {ex.group ? <T size={11} dim>{ex.group}</T> : null}
+            {ex.group ? <T size={font.small} dim>{ex.group}</T> : null}
           </Press>
         )}
         ListEmptyComponent={q.trim() ? (
-          <T size={12.5} dim lineHeight={19} style={{ padding: 12 }}>
+          <T size={font.small} dim style={{ padding: 12 }}>
             Nothing called that. Try the movement’s other name — or add it to the catalog in plan.json, which is where this list lives.
           </T>
         ) : null}
@@ -247,23 +247,23 @@ export function ExerciseCard({
         {/* What it works, on the row, wherever the name is. */}
         <ExerciseBody field={liftField} exercise={item.exercise} name={item.name} size={30} />
         <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0 }}>
-          <T size={14.5} weight={600} lineHeight={19}>{item.name}</T>
-          {muscles ? <T size={10.5} weight={500} faint style={{ marginTop: 2, textTransform: 'lowercase' }}>{muscleWords(muscles)}</T> : null}
+          <T size={font.body} weight={600}>{item.name}</T>
+          {muscles ? <T size={font.caption} weight={500} dim style={{ marginTop: 2, textTransform: 'lowercase' }}>{muscleWords(muscles)}</T> : null}
         </View>
-        <T size={12} faint tabular numberOfLines={1} align="right" style={{ flexShrink: 1, minWidth: 0, maxWidth: '45%' }}>{item.line}</T>
+        <T size={font.small} faint tabular numberOfLines={1} align="right" style={{ flexShrink: 1, minWidth: 0, maxWidth: '45%' }}>{item.line}</T>
         <Icon name={open ? 'ChevronUp' : 'ChevronDown'} size={15} color={colors.inkFaint} style={{ marginTop: 1 }} />
       </Press>
 
       {open && (
         <>
-          {item.note ? <T size={12} faint style={{ marginTop: 4, marginBottom: 8 }}>{item.note}</T> : null}
+          {item.note ? <T size={font.small} faint style={{ marginTop: 4, marginBottom: 8 }}>{item.note}</T> : null}
 
           {prior && (
             <View style={st.prior}>
               <Icon name="RotateCw" size={12} color={colors.inkFaint} style={{ marginTop: 2 }} />
-              <T size={11.5} faint tabular style={{ flex: 1 }}>
+              <T size={font.small} faint tabular style={{ flex: 1 }}>
                 {`last time (${prior.date}): `}
-                <T size={11.5} weight={600} dim>{prior.summary}</T>
+                <T size={font.small} weight={600} dim>{prior.summary}</T>
                 {prior.implement ? ` · ${prior.implement}` : ''}
               </T>
             </View>
@@ -281,10 +281,10 @@ export function ExerciseCard({
                 Number(b.value === item.implement) - Number(a.value === item.implement)).map((i) => {
                 const on = item.implement === i.value
                 return (
-                  <Press key={i.value} haptic style={[st.implchip, on && { borderColor: colors.accent }]}
+                  <Press key={i.value} haptic style={[st.implchip, on && st.implchipOn]}
                     accessibilityState={{ selected: on }}
                     onPress={() => onPatch({ implement: i.value, implementLabel: i.label, weightLabel: i.weightLabel || null })}>
-                    <T size={12} color={on ? colors.accent : colors.inkFaint}>{i.label}</T>
+                    <T size={font.small} color={on ? colors.ink : colors.inkDim}>{i.label}</T>
                   </Press>
                 )
               })}
@@ -295,7 +295,7 @@ export function ExerciseCard({
             {item.sets.map((s: any, i: number) => (
               <SwipeRemove key={s.id} label="Remove" onRemove={() => onRemoveSet(s.id)}>
                 <View style={st.set}>
-                  <T size={11} faint tabular align="center" style={{ width: 20 }}>{String(i + 1)}</T>
+                  <T size={font.small} dim tabular align="center" style={{ width: 20 }}>{String(i + 1)}</T>
                   {setFieldsFor(item, s).map((f: string) => (
                     <Stepper key={f} {...(STEP[f] ? STEP[f](item, s) : { label: f, step: 1, min: 0 })} value={s[f]} blank={blank}
                       placeholder={s.hint?.[f] != null && s.hint[f] !== '' ? String(s.hint[f]) : '—'}
@@ -319,14 +319,8 @@ export function ExerciseCard({
           {/* Remove sits on the RIGHT, away from the thumb that is adding sets —
               they were side by side and they do opposite things. */}
           <View style={st.itemFoot}>
-            <Press onPress={() => { impact(); onAddSet() }} style={st.link} accessibilityRole="button">
-              <Icon name="Plus" size={13} color={colors.accent} />
-              <T size={14} color={colors.accent} style={st.underline}>another set</T>
-            </Press>
-            <Press onPress={() => { tap(); onRemove() }} style={[st.link, { marginLeft: 'auto' }]} accessibilityRole="button">
-              <Icon name="Trash2" size={13} color={colors.accent} />
-              <T size={14} color={colors.accent} style={st.underline}>remove</T>
-            </Press>
+            <Btn kind="quiet" icon="Plus" title="Add a set" style={st.footBtn} onPress={() => { impact(); onAddSet() }} />
+            <RemoveBtn onPress={() => { tap(); onRemove() }} />
           </View>
         </>
       )}
@@ -335,6 +329,19 @@ export function ExerciseCard({
 
   // Folded, the whole card swipes away; open, its set rows do (one swipe target at a time).
   return open ? card : <SwipeRemove label="Remove" onRemove={onRemove}>{card}</SwipeRemove>
+}
+
+/** A quiet "Remove" that turns the bad colour under the thumb (the web's :hover). */
+function RemoveBtn({ onPress }: { onPress: () => void }) {
+  const [held, setHeld] = useState(false)
+  const fg = held ? colors.bad : colors.inkDim
+  return (
+    <Press onPress={onPress} onPressIn={() => setHeld(true)} onPressOut={() => setHeld(false)}
+      accessibilityRole="button" style={[st.footBtn, st.footBtnRow, { marginLeft: 'auto' }]}>
+      <Icon name="Trash2" size={16} color={fg} />
+      <T size={font.body} weight={600} color={fg}>Remove</T>
+    </Press>
+  )
 }
 
 /* ------------------------------------------------------------- reordering */
@@ -366,8 +373,8 @@ function ReorderRow({ item, liftField, first, last, moved, onSettled, onUp, onDo
     <Animated.View style={[st.reorderRow, { backgroundColor: bg, borderColor: border }]}>
       <ExerciseBody field={liftField} exercise={item.exercise} name={item.name} size={28} />
       <View style={{ flex: 1, minWidth: 0 }}>
-        <T size={14} weight={600}>{item.name}</T>
-        {muscles ? <T size={10.5} faint style={{ marginTop: 2, textTransform: 'lowercase' }}>{muscleWords(muscles)}</T> : null}
+        <T size={font.body} weight={600}>{item.name}</T>
+        {muscles ? <T size={font.caption} faint style={{ marginTop: 2, textTransform: 'lowercase' }}>{muscleWords(muscles)}</T> : null}
       </View>
       <Press haptic onPress={onUp} disabled={first} style={st.arrow} accessibilityLabel={`move ${item.name} up`}>
         <Icon name="ChevronUp" size={18} color={colors.inkDim} />
@@ -407,7 +414,7 @@ export function ExerciseSection({
 
   const move = (itemId: any, dir: string) => setMoved(onMove(itemId, dir))
 
-  const heading = <T size={13} faint caps style={{ flexShrink: 1, minWidth: 0 }}>{title}</T>
+  const heading = <T size={font.body} weight={600} style={{ flexShrink: 1, minWidth: 0 }}>{title}</T>
 
   return (
     <View style={{ marginBottom: open ? 22 : 10 }}>
@@ -422,7 +429,7 @@ export function ExerciseSection({
         {/* The count and the reorder button travel TOGETHER, so a long title
             wraps the pair onto a second line instead of squeezing between them. */}
         <View style={st.blockMeta}>
-          {count != null && <T size={11} faint tabular>{String(count)}</T>}
+          {count != null && <T size={font.small} dim tabular>{String(count)}</T>}
           {/* Reorder is per SECTION, because that is the only place an order
               means anything. Offered only where there is something to reorder. */}
           {onMove && open && items.length > 1 && (
@@ -430,7 +437,7 @@ export function ExerciseSection({
               accessibilityState={{ selected: ordering }} hitSlop={6}
               style={[st.reorderBtn, ordering && { borderColor: colors.accent }]}>
               <Icon name={ordering ? 'Check' : 'ArrowUpDown'} size={13} color={ordering ? colors.accent : colors.inkFaint} />
-              <T size={11.5} color={ordering ? colors.accent : colors.inkFaint}>{ordering ? 'done' : 'reorder'}</T>
+              <T size={font.small} color={ordering ? colors.accent : colors.inkFaint}>{ordering ? 'done' : 'reorder'}</T>
             </Press>
           )}
         </View>
@@ -450,8 +457,8 @@ export function ExerciseSection({
                   onUp={() => move(it.id, 'up')}
                   onDown={() => move(it.id, 'down')} />
               ))}
-              <T size={12} dim style={{ marginTop: 2 }}>
-                Order only — nothing else about these changes. Tap <T size={12} dim style={{ fontStyle: 'italic' }}>done</T> when it reads right.
+              <T size={font.small} dim style={{ marginTop: 2 }}>
+                Order only — nothing else about these changes. Tap <T size={font.small} dim style={{ fontStyle: 'italic' }}>done</T> when it reads right.
               </T>
             </View>
           ) : (
@@ -469,8 +476,8 @@ export function ExerciseSection({
 
           {onAdd && liftField && !ordering && (
             <Press onPress={() => { tap(); setAdding(true) }} style={st.add} accessibilityRole="button">
-              <Icon name="Plus" size={15} color={colors.inkFaint} />
-              <T size={13} faint>{addLabel}</T>
+              <Icon name="Plus" size={15} color={colors.inkDim} />
+              <T size={font.small} dim>{addLabel}</T>
             </Press>
           )}
           {adding && (
@@ -484,7 +491,7 @@ export function ExerciseSection({
           {/* Below the catalog, because the catalog answers most of this question. */}
           {foot && !ordering && !adding && foot}
 
-          {!items.length && note && <T size={12.5} dim lineHeight={19} style={{ marginTop: 8 }}>{note}</T>}
+          {!items.length && note && <T size={font.small} dim style={{ marginTop: 8 }}>{note}</T>}
         </>
       )}
     </View>
@@ -494,14 +501,15 @@ export function ExerciseSection({
 const st = StyleSheet.create({
   stepper: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: 9,
+    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.lineStrong, borderRadius: radius.control,
   },
-  stepperBtn: { width: TAP, height: TAP, alignItems: 'center', justifyContent: 'center' },
-  stepperMid: { alignItems: 'center', minWidth: 52, paddingVertical: 2 },
+  stepperQuiet: { backgroundColor: 'transparent', borderColor: colors.line },
+  stepperBtn: { width: 40, height: TAP, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center' },
+  stepperMid: { alignItems: 'center', gap: 1, minWidth: 48, paddingVertical: 2 },
   stepperIn: {
-    width: 52, padding: 0, paddingHorizontal: 0, paddingVertical: 0, textAlign: 'center', color: colors.ink,
+    width: 48, padding: 0, paddingHorizontal: 0, paddingVertical: 0, textAlign: 'center', color: colors.ink,
     backgroundColor: 'transparent', borderWidth: 0, borderRadius: 0,
-    fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'], minHeight: 24,
+    fontSize: font.input, fontWeight: '600', fontVariant: ['tabular-nums'], minHeight: 22,
   },
   pickHead: { flexDirection: 'row', gap: 6, padding: 8, borderBottomWidth: 1, borderBottomColor: colors.line, alignItems: 'center' },
   pickGroups: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, padding: 8, borderBottomWidth: 1, borderBottomColor: colors.line },
@@ -510,9 +518,11 @@ const st = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: colors.line,
   },
   implchip: {
-    paddingHorizontal: 11, minHeight: 34, borderRadius: 999, justifyContent: 'center',
-    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: space[3], minHeight: 36, borderRadius: radius.pill, justifyContent: 'center',
+    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line,
   },
+  implchipOn: { borderColor: colors.accentLine, backgroundColor: colors.accentSoft },
   item: {
     backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line,
     borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 8,
@@ -522,10 +532,12 @@ const st = StyleSheet.create({
   impl: { marginVertical: 8, marginRight: -12, flexGrow: 0 },
   sets: { gap: 7, marginTop: 8 },
   set: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, backgroundColor: colors.panel2 },
-  setx: { width: TAP, height: TAP, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginLeft: 'auto' },
+  setx: { width: 32, height: TAP, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', marginLeft: 'auto' },
+  // Add on the left, Remove on the far right: they do opposite things.
   itemFoot: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 10 },
-  link: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: TAP },
-  underline: { textDecorationLine: 'underline' },
+  // Quiet buttons whose text lines up with the card's edge: the padding is the tap target.
+  footBtn: { paddingHorizontal: space[2], marginHorizontal: -space[2] },
+  footBtnRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[2], minHeight: TAP, borderRadius: radius.control },
   blockHead: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 },
   blockToggle: { flexDirection: 'row', alignItems: 'center', gap: 7, flexGrow: 1, flexShrink: 1, minWidth: 0, minHeight: TAP },
   blockMeta: { flexDirection: 'row', alignItems: 'center', gap: 10, marginLeft: 'auto' },
@@ -542,7 +554,7 @@ const st = StyleSheet.create({
     backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: 9,
   },
   add: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: TAP,
-    borderWidth: 1, borderStyle: 'dashed', borderColor: colors.line, borderRadius: 8,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[2], minHeight: TAP,
+    borderWidth: 1, borderStyle: 'dashed', borderColor: colors.lineStrong, borderRadius: radius.control,
   },
 })

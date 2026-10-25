@@ -11,11 +11,14 @@ import { Undo2 } from 'lucide-react'
 import { TestingTab, WhyTab } from './src/testing.jsx'
 import {
   PlanFlow, PrescriptionEditor, KeptStep, PlanTalk, BuildStep, groupedKinds, liftFieldOf,
-  DraftList, Working,
+  DraftList, Working, KindStep,
 } from './src/planner.jsx'
 import { draftStep, draftPres, draftLine } from './src/lib/drafts.js'
 import { WorkoutRunner } from './src/runner.jsx'
 import { FabMenu, RestPrompt, ActingBanner, tabsFor } from './src/App.jsx'
+import { QuickLog } from './src/quicklog.jsx'
+import { ActivityPicker } from './src/activitypicker.jsx'
+import { recentActivities, quickEntry } from './src/lib/quicklog.js'
 import { _setMe } from './src/lib/whoami.js'
 import { hasIcon } from './src/lib/icons.jsx'
 import { plannerContext } from './src/lib/plannerapi.js'
@@ -260,6 +263,16 @@ const TRIP = normalizePrescription({
     }] },
   ],
 }, { liftField: LIFT_FIELD })
+
+/* Three days of the log, for the quick-log rows: a run, a ride, then a row, plus a
+ * second run and a climb that must not count. Newest distinct first: row, run, ride. */
+const QUICK_LOG = [
+  ['2026-10-19', 'run'], ['2026-10-20', 'mtb'], ['2026-10-21', 'run'], ['2026-10-22', 'rowing'],
+].map(([date, activity]) => ({
+  id: `daily-${date}`, kind: 'daily', date, updatedAt: 'z',
+  data: { optId: 'log-workout', name: activity, done: true, out: { activity } },
+})).concat([{ id: 'daily-2026-10-22-max-hangs', kind: 'daily', date: '2026-10-22', updatedAt: 'z',
+  data: { optId: 'max-hangs', slot: 'extra', done: true, out: {} } }])
 
 /* One previous leg day, so "what did I do last time" has something to find. */
 const PRIOR_LIFTS = [{
@@ -1697,8 +1710,9 @@ const cases = [
       throw new Error('an activity with an unknown group vanished')
     }
   }],
-  ['ActivityChooser(renders, pinned first)',
-    <ActivityChooser plan={plan} field={activityFieldOf(plan)} onPick={noop} onPickCard={noop} onClose={noop} />,
+  ['ActivityChooser(renders: search, Recent, the catalog, Climbing last)',
+    <ActivityChooser plan={plan} field={activityFieldOf(plan)} onPick={noop} onPickCard={noop} onClose={noop}
+      entries={QUICK_LOG} />,
     (html) => {
       const t = text(html)
       // The general ways to log lead; the plan's climbing cards follow as two
@@ -1706,18 +1720,37 @@ const cases = [
       for (const f of ['Bouldering', 'Rock climbing']) {
         if (!t.includes(f)) throw new Error(`no ${f} folder`)
       }
-      if (t.indexOf('Your usual') > t.indexOf('Bouldering')) throw new Error('the climbing folders lead the general sports')
-      if (t.lastIndexOf('Climbing') < t.indexOf('Your usual')) throw new Error('the Climbing group is not after the activities')
+      if (t.indexOf('Recent') > t.indexOf('Bouldering')) throw new Error('the climbing folders lead the general sports')
+      if (t.lastIndexOf('Climbing') < t.indexOf('Running')) throw new Error('the Climbing group is not after the activities')
       for (const name of ['Mountain bike', 'Swim', 'Run', 'Lift']) {
         if (!t.includes(name)) throw new Error(`${name} is not in the activity list`)
       }
-      if (!/Your usual/.test(t)) throw new Error('his six pinned sports are not led with')
-      // The right-hand column says which category it files under, which the
-      // group heading above the row cannot.
-      if (!/Anything else|Bike|Run/.test(t)) throw new Error('no category on the rows')
-      // Same screen as the session picker, literally — if this diverges, one of
-      // them has grown a second implementation.
-      if (!/class="spick-row"/.test(html)) throw new Error('the two pickers are not the same screen')
+      // Recent is the quick-log list: what was logged last, newest first.
+      const recent = t.slice(t.indexOf('>Recent<'), t.indexOf('>Running<'))
+      if (!(recent.indexOf('Rowing') > -1 && recent.indexOf('Rowing') < recent.indexOf('Mountain bike'))) {
+        throw new Error('Recent does not lead with the newest logged activity')
+      }
+      // Each group is a section head over ONE card of rows (docs/DESIGN.md).
+      if (!/class="section-head"><h3>Recent<\/h3>/.test(html)) throw new Error('Recent is not a section head')
+      if (!/class="card spick-list list"/.test(html) || !/class="list-row spick-row"/.test(html)) {
+        throw new Error('the groups are not a card of list rows')
+      }
+      // Gone, pinned absent: "Your usual" (Recent replaced it), the paragraph under the
+      // search, the category echoed on every row, and small capitals as group titles.
+      if (/Your usual/.test(t)) throw new Error('"Your usual" is back; Recent replaced it')
+      if (/the form arrives the right shape|Something you already did/.test(t)) throw new Error('the paragraph is back')
+      if (/91 activities/.test(t)) throw new Error('the header counts the catalog again')
+      if (/spick-min|spick-grouphead/.test(html)) throw new Error('the old per-row card or category column is back')
+      if (/<span class="list-row-meta">(Run|Bike|Swim|Lift)<\/span>/.test(html)) throw new Error('a row repeats its category')
+    }],
+  ['ActivityChooser(a fresh log: Recent is the catalog\'s pins)',
+    <ActivityChooser plan={plan} field={activityFieldOf(plan)} onPick={noop} onPickCard={noop} onClose={noop} />,
+    (html) => {
+      const t = text(html)
+      const recent = t.slice(t.indexOf('>Recent<'), t.indexOf('>Running<'))
+      if (!/Run/.test(recent) || !/Treadmill run/.test(recent) || !/Bike/.test(recent)) {
+        throw new Error('a fresh Recent is not the first pinned sports')
+      }
     }],
   // The ones the user actually asked after, each in the folder it belongs in.
   // Named rather than counted, because "21 rows rendered" would have passed
@@ -1747,7 +1780,7 @@ const cases = [
     (html) => {
       const t = text(html)
       if (!/Log the climb/.test(t) || !/Bouldering/.test(t)) throw new Error('no climbing folders')
-      if (/Your usual|Mountain bike/.test(t)) throw new Error('a climb can be logged as a generic workout')
+      if (/Your usual|Recent|Mountain bike/.test(t)) throw new Error('a climb can be logged as a generic workout')
       if (!/for Mon, Oct 12/.test(t)) throw new Error('the day it lands on is not said')
     }],
   /* ============================================ plan a workout, and run it
@@ -1807,39 +1840,46 @@ const cases = [
   /* Multi-select, and the conversation that follows a plan: several workouts can
    * be selected to plan a full day at the gym, and a created plan can be followed
    * up on with the AI rather than being a dead end. */
-  ['PlanFlow(more than one kind at a time)', <PlanFlow plan={plan} entries={[]} iso={TODAY}
-    onKeep={noop} onStart={noop} onClose={noop} />,
+  ['PlanFlow(more than one kind at a time, numbered in the order picked)',
+    <KindStep plan={plan} custom="" setCustom={noop} setPicked={noop} onNext={noop} onBuild={noop} ai
+      picked={[plan.plannerKinds.kinds[2], plan.plannerKinds.kinds[0]]} />,
     (html) => {
-      const t = text(html)
-      if (!/as many as you like/i.test(t)) throw new Error('nothing says you can pick several')
-      // Every card is a toggle, and Next is what commits — a card that navigates
+      // Every row is a toggle, and the fork is what commits — a row that navigates
       // on tap cannot be the second of three.
-      if (!/aria-pressed="false"/.test(html)) throw new Error('the kind cards are not toggles')
-      // What commits a selection is the FORK, since 2026-09-22 — either button
-      // takes the picks on, one to the model and one to the editor.
-      if (!/Write it for me|Write me \d+ in one/.test(t)) throw new Error('no way to commit a selection')
+      if (!/aria-pressed="false"/.test(html) || !/aria-pressed="true"/.test(html)) throw new Error('the kind rows are not toggles')
+      // The check carries the order: the planner writes the blocks in it.
+      const marks = [...html.matchAll(/class="kindrow-check"[^>]*>(\d*)</g)].map(m => m[1]).filter(Boolean)
+      if (marks.join() !== '2,1') throw new Error(`the picks are numbered ${marks.join()}, not in the order tapped`)
+      if (!/Write it for me/.test(text(html))) throw new Error('no way to commit a selection')
     }],
   /*
-   * TWO ROUTES, and the choice is on the screen the user is already looking at.
-   *
-   * A workout can be planned by hand from picked exercises, or written by the AI.
-   * A fork whose halves are
-   * not both visible is not a fork, so this asserts both buttons and the sentence
-   * that says what the difference costs — the model's route is a minute of
-   * waiting and the user's own is none.
+   * TWO ROUTES (docs/DESIGN.md, Plan a workout). Kinds are rows with a check under
+   * section heads, no prose; the footer appears once a kind is picked, with "Write it
+   * for me" as the primary and "Build it myself" as the secondary when AI is on.
    */
-  ['PlanFlow(his own route, or the model\'s)', <PlanFlow plan={plan} entries={[]} iso={TODAY}
+  ['PlanFlow(nothing picked: no footer, no paragraph, rows not cards)', <PlanFlow plan={plan} entries={[]} iso={TODAY}
     onKeep={noop} onStart={noop} onClose={noop} />,
     (html) => {
       const t = text(html)
-      if (!/Build it myself/.test(t)) throw new Error('no way to plan it himself')
-      if (!/Write it for me/.test(t)) throw new Error('no way to ask the model')
-      if (!/build it yourself/i.test(t)) throw new Error('the lead does not say there are two ways')
-      if (!/sends nothing anywhere/i.test(t)) throw new Error('nothing says what the two routes cost')
-      // Both are real buttons of the same size — one of them being a text link
-      // would be the app having an opinion it was asked not to have.
-      const buttons = html.match(/class="btn big[^"]*"/g) || []
-      if (buttons.length < 2) throw new Error('the two routes are not the same kind of control')
+      if (/Build it myself|Write it for me/.test(t)) throw new Error('the fork shows before anything is picked')
+      if (/as many as you like|sends nothing anywhere|Pick what you are doing/i.test(t)) throw new Error('the paragraphs are back')
+      if (/kindcard|kindgrid|kindgroup-head/.test(html)) throw new Error('the kinds are cards in a grid again')
+      if (!/class="list-row kindrow/.test(html)) throw new Error('the kinds are not list rows')
+      if (!/class="section-head"><h3>Lifting<\/h3>/.test(html)) throw new Error('the groups are not section heads')
+      // A group's blurb is content, and is no longer printed.
+      const blurb = plan.plannerKinds.groups.find(g => g.blurb)?.blurb
+      if (blurb && t.includes(blurb.slice(0, 30))) throw new Error('a group blurb paragraph is on screen')
+    }],
+  ['PlanFlow(picked, AI on: Write it for me primary, Build it myself secondary)',
+    <KindStep plan={plan} custom="" setCustom={noop} setPicked={noop} onNext={noop} onBuild={noop} ai
+      picked={[plan.plannerKinds.kinds[0]]} />,
+    (html) => {
+      const btns = [...html.matchAll(/<button class="(btn big[^"]*)"[^>]*>.*?<\/button>/g)].map(m => [m[1], text(m[0])])
+      const write = btns.find(([, t]) => /Write it for me/.test(t))
+      const build = btns.find(([, t]) => /Build it myself/.test(t))
+      if (!write || write[0].trim() !== 'btn big') throw new Error(`"Write it for me" is ${write?.[0]}, not the primary`)
+      if (!build || !/secondary/.test(build[0])) throw new Error(`"Build it myself" is ${build?.[0]}, not the secondary`)
+      if (/Write me \d+ in one/.test(text(html))) throw new Error('the button changes its words with the count')
     }],
   /*
    * The hand-built route, opened empty.
@@ -1959,7 +1999,10 @@ const cases = [
     ]} />,
     (html) => {
       const t = text(html)
-      for (const want of ['Drafts — not on your day yet', 'Legs', 'Being written… 40s', '2,000 yd threshold',
+      // Drafts first, as list rows in one card (docs/DESIGN.md, Plan a workout).
+      if (!/class="section-head"><h3>Drafts<\/h3>/.test(html)) throw new Error('drafts have no section head')
+      if ((html.match(/class="list-row plandraft /g) || []).length !== 3) throw new Error('the drafts are not list rows')
+      for (const want of ['Not on your day yet', 'Legs', 'Being written… 40s', '2,000 yd threshold',
         'For Sam · Ready · 30 min · 1 h ago', 'Core', 'Did not finish: the planner took too long']) {
         if (!t.includes(want)) throw new Error(`no "${want}"`)
       }
@@ -1969,7 +2012,7 @@ const cases = [
   ['DraftList(no drafts, no list)', <DraftList drafts={[]} onOpen={noop} onRetry={noop} onDiscard={noop} />,
     (html) => { if (html) throw new Error('an empty list rendered something') }],
   ['PlanFlow(no draft list until there is a draft)', <PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />,
-    (html) => { if (/Drafts — not on your day/.test(text(html))) throw new Error('a draft list with nothing in it') }],
+    (html) => { if (/plandrafts|Not on your day yet/.test(html)) throw new Error('a draft list with nothing in it') }],
   ['Working(leaving the wait cancels nothing, and it says so)',
     <Working label="Legs" minutes={45} since={null} onDiscard={noop} />,
     (html) => {
@@ -2102,11 +2145,15 @@ const cases = [
     entries={rich} onRun={noop} onExit={noop} />,
     (html) => {
       const t = text(html)
-      if (!/Mark set 1/.test(t)) throw new Error('no way to mark the set he is on')
-      if (!/planned/.test(t)) throw new Error('the target is not on screen')
+      if (!/Done set/.test(t)) throw new Error('no way to mark the set he is on')
+      // One primary on the screen (docs/DESIGN.md D7), and the old label is gone.
+      if (/Mark set \d/.test(t)) throw new Error('"Mark set N" is back; the primary is "Done set"')
+      if ((html.match(/class="btn big run-done"/g) || []).length !== 1) throw new Error('not exactly one primary')
+      if (!/Planned/.test(t)) throw new Error('the target is not on screen')
+      if (/run-target-label|text-transform/.test(html)) throw new Error('the target is a small-caps label again')
       // The two things that make it usable one-handed.
       if (!/class="bigstep-in"/.test(html)) throw new Error('the numbers are not thumb-sized')
-      if (!/class="run-done"/.test(html)) throw new Error('the mark button is not the big one')
+      if (!/run-done/.test(html)) throw new Error('the mark button is not the big one')
       // "If you add another set, you have to type in the weight every single time."
       // The runner has to offer one more set of this, and the box has to take a
       // decimal — a number input would eat the dot in "37.5".
@@ -2121,7 +2168,8 @@ const cases = [
     (html) => {
       const t = text(html)
       if (!/rest/i.test(t)) throw new Error('a rest does not say it is one')
-      if (!/next:/.test(t)) throw new Error('the rest screen does not say what is coming')
+      if (!/Next:/.test(t)) throw new Error('the rest screen does not say what is coming')
+      if (/class="btn big run-done"/.test(html)) throw new Error('a primary on the rest screen; skipping the rest is the quiet one')
     }],
   ['WorkoutRunner(no plan on the entry)', <WorkoutRunner session={PLANNED_CARD}
     entry={{ id: 'x', kind: 'daily', date: TODAY, data: { optId: 'planned', out: {} } }}
@@ -2210,8 +2258,12 @@ const cases = [
       for (const k of plan.plannerKinds.kinds.filter(k => k.group === 'bike')) {
         if (!t.includes(k.label)) throw new Error(`${k.label} is not in the page`)
       }
-      if (!/\d+ kinds/.test(t)) throw new Error('a folded group does not say how many are in it')
-      if (!/pick swim, bike or run/i.test(t)) throw new Error('nothing says the sportless kinds choose the sport')
+      if (!/<summary class="section-head"><h3>[^<]+<\/h3><span class="sub">\d+<\/span>/.test(html)) {
+        throw new Error('a folded group is not a section head saying how many are in it')
+      }
+      // The endurance group's paragraph ("These let the model pick swim, bike or run…") is
+      // content and stays in the file, but the screen no longer prints it (D7).
+      if (/pick swim, bike or run/i.test(t)) throw new Error('the endurance paragraph is back on the screen')
     }],
   /* The planner picks a sport from what was LOGGED lately, not from a quota (issue #31). */
   ['plannerContext(hands over the last week\'s workouts, not quotas)', null, () => {
@@ -2234,14 +2286,28 @@ const cases = [
       throw new Error('an empty week does not say so')
     }
   }],
-  ['PlanFlow(no AI: building it yourself is the only route)', null, () => {
+  ['PlanFlow(no AI: building it yourself is the only button, primary, and nothing mentions a model)', null, () => {
+    const one = [plan.plannerKinds.kinds[0]]
     _setMe({ id: 'sam', owner: false, features: { ai: false, goals: false, whoop: false, strava: false, notifications: false } })
     try {
-      const t = text(renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />))
+      // Read from whoami, as PlanFlow does, with something picked.
+      const html = renderToString(<KindStep plan={plan} custom="" setCustom={noop} setPicked={noop}
+        onNext={noop} onBuild={noop} picked={one} />)
+      const t = text(html)
       if (!/Build it myself/.test(t)) throw new Error('no way to build a workout without the AI')
       if (/Write it for me|Write me \d/.test(t)) throw new Error('the model is offered to someone it is not set up for')
+      if (/model|Sparkles/i.test(t.replace(/<[^>]*>/g, ' '))) throw new Error('the screen mentions a model')
+      const btns = html.match(/<button class="btn big[^"]*"/g) || []
+      if (btns.length !== 1 || /secondary|ghost/.test(btns[0])) throw new Error(`the only button is ${btns.join(' / ')}, not one primary`)
+      const flow = text(renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />))
+      if (/Write it for me|Drafts/.test(flow)) throw new Error('the flow offers the model or its drafts')
     } finally { _setMe({}) }
-    const owner = text(renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />))
+    // The server's ai-not-configured has the same effect (`ai={false}` is what PlanFlow passes then).
+    const refused = text(renderToString(<KindStep plan={plan} custom="" setCustom={noop} setPicked={noop}
+      onNext={noop} onBuild={noop} picked={one} ai={false} />))
+    if (/Write it for me/.test(refused)) throw new Error('after ai-not-configured the model is still offered')
+    const owner = text(renderToString(<KindStep plan={plan} custom="" setCustom={noop} setPicked={noop}
+      onNext={noop} onBuild={noop} picked={one} />))
     if (!/Write it for me/.test(owner)) throw new Error('the owner lost "Write it for me"')
   }],
   // The rest day is a door of its own: as a footer link under the old session
@@ -2265,6 +2331,77 @@ const cases = [
       if (t.indexOf('Log a workout') > t.indexOf('Plan a workout')) throw new Error('Log a workout is not the first door')
       if (/quota|Move Every Day/i.test(t)) throw new Error('the + still talks about quotas or a habit name')
     }],
+  /*
+   * LOGGING IN TWO TAPS (quicklog.jsx, docs/DESIGN.md). + → Run: up to three recent
+   * activities right under Log a workout, before every other door, each one tap that
+   * places the workout and opens its sheet.
+   */
+  ['FabMenu(the quick-log rows sit under Log a workout, before the rest day)',
+    <FabMenu onClose={noop} onPlan={noop} onLog={noop} onRest={noop} onTimer={noop}
+      quick={<QuickLog plan={plan} entries={QUICK_LOG} upsertEntry={noop} onPlaced={noop} />} />,
+    (html) => {
+      const t = text(html)
+      const order = ['Log a workout', 'Rowing', 'Run', 'Mountain bike', 'Log a rest day', 'Plan a workout', 'Interval timer']
+      const at = order.map(d => t.indexOf(`>${d}<`))
+      if (at.some(x => x < 0)) throw new Error(`missing: ${order.filter((d, i) => at[i] < 0).join(', ')}`)
+      if (at.some((x, i) => i && x < at[i - 1])) throw new Error(`out of order: ${order.join(' < ')}`)
+      if ((html.match(/class="list-row quicklog-row"/g) || []).length !== 3) throw new Error('not three quick rows')
+      if (!/aria-label="Log Rowing"/.test(html)) throw new Error('a quick row does not say what it does')
+    }],
+  ['QuickLog(the newest distinct activities, then the pins; never tomorrow, never a climb)', null, () => {
+    const field = activityFieldOf(plan)
+    const keys = (es) => recentActivities(es, field, { today: TODAY }).map(a => a.key).join()
+    if (keys([]) !== 'run,treadmill-run,bike') throw new Error(`a fresh log offers ${keys([])}`)
+    if (keys(QUICK_LOG) !== 'rowing,run,mtb') throw new Error(`the log offers ${keys(QUICK_LOG)}`)
+    const tomorrow = [{ id: 'f', kind: 'daily', date: '2999-01-01', data: { optId: 'log-workout', out: { activity: 'swim' } } }]
+    if (keys(tomorrow).startsWith('swim')) throw new Error('a planned future workout counts as recent')
+    const climbOnly = [{ id: 'c', kind: 'daily', date: TODAY, data: { optId: 'max-hangs', out: { hardFingers: true } } }]
+    if (keys(climbOnly) !== 'run,treadmill-run,bike') throw new Error('a climbing card leaked into the quick rows')
+    const gone = [{ id: 'g', kind: 'daily', date: TODAY, deleted: true, data: { optId: 'log-workout', out: { activity: 'swim' } } }]
+    if (keys(gone).startsWith('swim')) throw new Error('a deleted workout counts as recent')
+  }],
+  ['QuickLog(one tap writes the workout card on the day, done, and hands back its id)', null, () => {
+    const menu = plan.dailyMenu
+    const e = quickEntry({ menu, entries: [], activity: 'run', date: '2026-10-20', today: '2026-10-25' })
+    if (e.id !== 'daily-2026-10-20' || e.data.optId !== 'log-workout' || e.data.out.activity !== 'run') {
+      throw new Error(`wrote ${JSON.stringify({ id: e.id, optId: e.data.optId, out: e.data.out })}`)
+    }
+    if (e.data.done !== true) throw new Error('a workout logged on a day that has arrived is not done (AGENTS.md §4)')
+    // A second on the same day is an extra, with the id Log a workout would mint.
+    const two = quickEntry({ menu, entries: [e], activity: 'bike', date: '2026-10-20', today: '2026-10-25' })
+    if (two.id === e.id || two.data.slot !== 'extra') throw new Error('a second quick log overwrote the first')
+    // Never tomorrow: you cannot have done it yet.
+    const later = quickEntry({ menu, entries: [], activity: 'run', date: '2026-10-30', today: '2026-10-25' })
+    if (later.date !== '2026-10-25') throw new Error('a quick log landed on a future day')
+    // The component writes exactly that, and reports the id it wrote.
+    let wrote = null
+    let opened = null
+    const html = renderToString(<QuickLog plan={plan} entries={[]} upsertEntry={(x) => { wrote = x }}
+      onPlaced={(id) => { opened = id }} />)
+    if (!/aria-label="Log Run"/.test(html)) throw new Error('no Run row on a fresh log')
+    if (wrote || opened) throw new Error('rendering wrote something')
+    if (renderToString(<QuickLog plan={{ ...plan, dailyMenu: plan.dailyMenu.filter(m => m.id !== 'log-workout') }}
+      entries={[]} upsertEntry={noop} />) !== '') throw new Error('quick rows with no workout card to place')
+  }],
+  /*
+   * The form's activity question (activitypicker.jsx). Picked, it is one row that
+   * opens the picker again, with the word on it; the underlined "Change" link in a
+   * box went (docs/DESIGN.md, session sheet). Unpicked, the pins are answer chips,
+   * and nothing on it talks about plan.json.
+   */
+  ['ActivityPicker(picked: a row that opens the picker; unpicked: pins as answer chips)', null, () => {
+    const field = activityFieldOf(plan)
+    const picked = renderToString(<ActivityPicker field={field} value="run" onChange={noop} />)
+    if (!/<button type="button" class="list-row actpick picked"/.test(picked)) throw new Error('the picked activity is not a row you can tap')
+    if (!/>Change</.test(picked) || /actpick-change/.test(picked)) throw new Error('"Change" is not on the row, or the old link is back')
+    const open = renderToString(<ActivityPicker field={field} value={null} onChange={noop} />)
+    if ((open.match(/class="out-chip /g) || []).length !== field.activities.filter(a => a.pinned).length) {
+      throw new Error('the pinned sports are not answer chips')
+    }
+    if (/to choose from|plan\.json/.test(open)) throw new Error('the picker talks about its catalog again')
+  }],
+  ['starter: QuickLog offers the starter\'s pinned sports', <QuickLog plan={starter} entries={[]} upsertEntry={noop} />,
+    (html) => { if ((html.match(/quicklog-row/g) || []).length !== 3) throw new Error('a fresh install has no quick rows') }],
   /*
    * The interval timer (timer.jsx, issue #32). It used to exist only inside
    * workout mode, which only the climbing cards with a declared timer reach.

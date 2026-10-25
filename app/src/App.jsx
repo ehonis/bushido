@@ -14,6 +14,7 @@ import { PlanProvider } from './lib/planctx.jsx'
 import { PlanFlow } from './planner.jsx'
 import { splitPrescription } from './lib/prescription.js'
 import { ActivityChooser, activityFieldOf } from './picker.jsx'
+import { QuickLog } from './quicklog.jsx'
 import { outWith } from './lib/unlogged.js'
 import { placeEntries, planPeople, keepPlanFor, toneFor } from './lib/trainer.js'
 import { PersonDay } from './trainer.jsx'
@@ -82,8 +83,12 @@ export function ActingBanner({ me }) {
  * the first row and the only one in the accent. Logging doors, then planning,
  * then tools. Each door says what it is in one line; the paragraphs that used to
  * sit under each one made the menu something to read rather than to press.
+ *
+ * `quick` is the quick-log rows (quicklog.jsx), right under Log a workout: the
+ * last few activities, one tap each, so "I did a run" is + → Run (docs/DESIGN.md,
+ * "Logging in two taps").
  */
-export function FabMenu({ onClose, onPlan, onLog, onRest, onTimer = null }) {
+export function FabMenu({ onClose, onPlan, onLog, onRest, onTimer = null, quick = null }) {
   return (
     <div className="fabmenu-scrim" onClick={onClose} role="presentation">
       <div className="fabmenu" onClick={e => e.stopPropagation()} role="dialog" aria-label="Add a workout">
@@ -94,6 +99,7 @@ export function FabMenu({ onClose, onPlan, onLog, onRest, onTimer = null }) {
             <span className="sub">Something you already did</span>
           </span>
         </button>
+        {quick}
         {/* A rest day the user chose is part of the week, and it used to be a link at the
             foot of the old session picker, under thirty cards — which is to say nowhere.
             One tap: choosing it is the whole action, so nothing opens. */}
@@ -506,7 +512,12 @@ export default function App() {
           onPlan={() => setFab('plan')}
           onLog={() => openLog(tab === 'today' ? viewDay : null)}
           onRest={restOpt ? () => askRest() : null}
-          onTimer={() => { setFab(null); openTimer() }} />
+          onTimer={() => { setFab(null); openTimer() }}
+          quick={
+            <QuickLog plan={plan} entries={store.entries} upsertEntry={store.upsertEntry}
+              date={logDay(tab === 'today' ? viewDay : null)}
+              onPlaced={(id) => { setFab(null); setOpenEntryId(id); setTab('today') }} />
+          } />
       )}
 
       {/*

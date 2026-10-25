@@ -7,8 +7,8 @@
  * INSIDE the workout picker, as folders: Bouldering and Rock climbing
  * (lib/folders.js says what goes where, and why folders are not activities).
  *
- *   ACTIVITIES the sports catalog, grouped as the catalog groups itself, pinned
- *              sports first. Picking one puts the workout card on the day with the
+ *   ACTIVITIES the sports catalog, grouped as the catalog groups itself, after
+ *              Recent. Picking one puts the workout card on the day with the
  *              activity already answered.
  *   FOLDERS    the plan's own cards, grouped inside each folder by the category
  *              each declares. Picking one puts it on the day with its protocol,
@@ -19,22 +19,26 @@
  * content, because the owner's plan file is not in the repository.
  *
  * NOTHING RANKS: a list of doors, in the order the content file declares them,
- * with a search box that reaches both. The right-hand column says what each row
- * COSTS or IS: minutes for a card, the category for an activity, the card count
- * for a folder.
+ * with a search box that reaches both. The one exception is Recent, at the top:
+ * the quick-log list (lib/quicklog.js), because "the thing I did yesterday" is
+ * the likeliest answer. Each group is a section head over ONE card of rows, and a
+ * row says its name once (docs/DESIGN.md): the category echo and the paragraph
+ * under the search went. The right-hand column is only what a row COSTS or HOLDS:
+ * minutes for a card, the session count for a folder.
  */
 import React, { useMemo, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
-import { colors } from '../theme'
+import { colors, font, radius, space } from '../theme'
 import { Icon } from '../lib/icons'
 import { T } from '../ui/Text'
-import { IconBtn, Input, Press } from '../ui/kit'
+import { Card, IconBtn, Input, Press, SectionHeader } from '../ui/kit'
 import { FullScreen } from '../ui/Sheet'
 import { impact } from '../ui/haptics'
 import {
-  catalogOf as activityCatalog, groupedActivities, pinnedActivities, searchActivities,
+  catalogOf as activityCatalog, groupedActivities, searchActivities,
 } from '../lib/activities.js'
 import { climbingFolders, folderCards, folderOf, FOLDERS } from '../lib/folders.js'
+import { recentActivities } from '../lib/quicklog.js'
 
 export { groupedSessions, climbingFolders } from '../lib/folders.js'
 
@@ -43,12 +47,12 @@ export { groupedSessions, climbingFolders } from '../lib/folders.js'
 /**
  * A grouped list of things you can pick, full screen.
  *
- * `groups` is `[{ key, name, icon, items: [{ key, name, sub, icon, meta }] }]`.
+ * `groups` is `[{ key, name, items: [{ key, name, sub, icon, meta }] }]`.
  * `onSearch` is optional: a catalog with its own ranked search passes it in;
  * anything else gets the plain every-word-must-match filter below.
  */
 export function PickerScreen({
-  title, sub, icon = 'Layers', lead, placeholder,
+  title, sub, icon = 'Layers', placeholder = 'Search',
   groups, onSearch = null, onPick, onClose, footer = null,
 }: any) {
   const [q, setQ] = useState('')
@@ -66,56 +70,52 @@ export function PickerScreen({
   return (
     <FullScreen title={title} sub={sub} icon={icon} onBack={onClose}>
       <View style={st.search}>
-        <Icon name="Target" size={15} color={colors.inkFaint} />
+        <Icon name="Target" size={16} color={colors.inkFaint} />
         <Input value={q} onChangeText={setQ} placeholder={placeholder}
           accessibilityLabel={`Search ${title}`} returnKeyType="search" autoCorrect={false}
           style={st.searchInput} />
         {q ? <IconBtn icon="X" size={16} label="Clear" onPress={() => setQ('')} /> : null}
       </View>
 
-      {lead && !query ? <T size={12.5} dim lineHeight={19} style={{ marginBottom: 18 }}>{lead}</T> : null}
-
       {hits ? (
-        <View style={st.group}>
-          <GroupHead icon="Target" name={`${hits.length} match${hits.length === 1 ? '' : 'es'}`} />
-          {hits.map(r => <Row key={r.key} row={r} onPick={pick} />)}
-          {!hits.length && <T size={12.5} dim>Nothing matches that.</T>}
-        </View>
+        hits.length
+          ? <RowCard rows={hits} onPick={pick} />
+          : <T size={font.small} dim style={{ marginVertical: space[2] }}>Nothing matches “{query}”.</T>
       ) : (
-        groups.map((g: any) => (
-          <View key={g.key} style={st.group}>
-            <GroupHead icon={g.icon} name={g.name} n={g.items.length} />
-            {g.items.map((r: any) => <Row key={r.key} row={r} onPick={pick} />)}
+        groups.map((g: any, i: number) => (
+          <View key={g.key}>
+            <SectionHeader title={g.name} style={i === 0 ? { marginTop: 0 } : null} />
+            <RowCard rows={g.items} onPick={pick} />
           </View>
         ))
       )}
 
       {footer && !query ? footer : null}
-      {!total && <T size={12.5} dim>Nothing to pick from.</T>}
+      {!total && <T size={font.small} dim>Nothing to pick from.</T>}
     </FullScreen>
   )
 }
 
-function GroupHead({ icon, name, n }: { icon: string; name: string; n?: number }) {
+/** One card of .list-rows with hairlines between them. */
+function RowCard({ rows, onPick }: { rows: any[]; onPick: (key: string) => void }) {
   return (
-    <View style={st.grouphead}>
-      <Icon name={icon} size={14} color={colors.inkFaint} />
-      <T size={10.5} caps faint style={{ flex: 1, letterSpacing: 0.84 }}>{name}</T>
-      {n != null ? <T size={10.5} faint tabular>{n}</T> : null}
-    </View>
+    <Card style={st.list}>
+      {rows.map((r, i) => <Row key={r.key} row={r} first={i === 0} onPick={onPick} />)}
+    </Card>
   )
 }
 
-function Row({ row, onPick }: { row: any; onPick: (key: string) => void }) {
+function Row({ row, first, onPick }: { row: any; first: boolean; onPick: (key: string) => void }) {
   return (
-    <Press onPress={() => onPick(row.key)} accessibilityRole="button" style={st.row}>
-      <Icon name={row.icon} size={17} color={colors.accent} />
-      <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
-        <T size={14} weight={700} numberOfLines={1}>{row.name}</T>
-        {row.sub ? <T size={11.5} faint numberOfLines={1}>{row.sub}</T> : null}
+    <Press onPress={() => onPick(row.key)} accessibilityRole="button" accessibilityLabel={row.name}
+      style={[st.row, !first && st.rowRule]}>
+      <Icon name={row.icon || 'Activity'} size={20} color={colors.inkDim} />
+      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+        <T size={font.body} weight={500} numberOfLines={1}>{row.name}</T>
+        {row.sub ? <T size={font.small} dim numberOfLines={1}>{row.sub}</T> : null}
       </View>
-      {row.meta ? <T size={12} faint tabular>{row.meta}</T> : null}
-      <Icon name="ChevronRight" size={15} color={colors.inkFaint} />
+      {row.meta ? <T size={font.small} dim tabular>{row.meta}</T> : null}
+      <Icon name="ChevronRight" size={16} color={colors.inkFaint} />
     </Press>
   )
 }
@@ -132,45 +132,42 @@ function defaultSearch(groups: any[], q: string) {
 /* ------------------------------------------------------- the 91 activities */
 
 /**
- * The activity catalog as picker groups, their pinned sports first. The pins are
- * a real group because that is what they are: the sports that are most of what
- * the user logs. `meta` is the CATEGORY, not the group: the group is already the
- * heading above the row, so the right-hand column says what it files under.
+ * The activity catalog as picker groups, Recent first: the quick-log list
+ * (lib/quicklog.js), the newest distinct activities in `entries` and then the
+ * catalog's pins, so a fresh install leads with its pins. Then the catalog's own
+ * groups, in its order, and anything whose group it no longer lists.
  */
-export function activityGroups(field: any, plan: any) {
+export function activityGroups(field: any, plan: any, entries: any[] = []) {
   if (!field) return []
-  const catName = (key: string) =>
-    (plan?.quotaCategories || []).find((c: any) => c.key === key)?.name || null
-
   const row = (a: any) => ({
     key: a.key, name: a.name, icon: a.icon || 'Activity',
-    meta: catName(a.category),
     search: (a.aka || []).join(' '),
   })
 
-  const pins: any[] = (pinnedActivities as any)(field)
-  const groups: any[] = pins.length
-    ? [{ key: '_pinned', name: 'Your usual', icon: 'Flame', items: pins.map(row) }]
+  const recent: any[] = (recentActivities as any)(entries, field)
+  const groups: any[] = recent.length
+    ? [{ key: '_recent', name: 'Recent', items: recent.map(row) }]
     : []
 
   for (const g of (groupedActivities as any)(field)) {
-    groups.push({ key: g.name, name: g.name, icon: g.items[0]?.icon || 'Activity', items: g.items.map(row) })
+    groups.push({ key: g.name, name: g.name, items: g.items.map(row) })
   }
 
   // The same orphan rule the sessions follow: an activity whose group the
   // catalog no longer lists must still be reachable, not silently dropped.
-  const listed = new Set(groups.flatMap(g => g.items.map((i: any) => i.key)))
+  const listed = new Set(groups.filter(g => g.key !== '_recent').flatMap(g => g.items.map((i: any) => i.key)))
   const orphans = (activityCatalog as any)(field).activities.filter((a: any) => !listed.has(a.key))
   if (orphans.length) {
-    groups.push({ key: '_other', name: 'Everything else', icon: 'Sparkles', items: orphans.map(row) })
+    groups.push({ key: '_other', name: 'Everything else', items: orphans.map(row) })
   }
   return groups
 }
 
 /* ------------------------------------------------------- the plan's cards */
 
+// `folderName` only in search results, where the folder is not the heading above.
 const cardRow = (m: any, folderName: string | null = null) => ({
-  key: `card:${m.id}`, name: m.name, sub: folderName || m.tier, icon: m.icon,
+  key: `card:${m.id}`, name: m.name, sub: folderName, icon: m.icon,
   meta: m.minutes ? `${m.minutes} min` : null,
   search: m.dose,
 })
@@ -179,11 +176,14 @@ const cardRow = (m: any, folderName: string | null = null) => ({
 export function folderGroup(plan: any) {
   const folders: any[] = climbingFolders(plan)
   if (!folders.length) return null
+  // "Climbing" only when that is what is in it; a plan with no climbing tags
+  // (the example's runs) gets its cards under a heading that does not lie.
+  const climbing = folders.every(f => f.key !== 'plan')
   return {
-    key: '_climbing', name: 'Climbing', icon: 'Mountain',
+    key: '_climbing', name: climbing ? 'Climbing' : 'Your plan',
     items: folders.map(f => ({
       key: `folder:${f.key}`, name: f.name, icon: f.icon,
-      sub: 'Sessions from the plan', meta: `${f.count}`,
+      meta: `${f.count} session${f.count === 1 ? '' : 's'}`,
     })),
   }
 }
@@ -204,11 +204,12 @@ export function folderRows(plan: any, key: string) {
  *
  * `dayLabel` is said in the header when the pick does not land on today, because
  * logging Monday's climb from Wednesday must not look like logging it today.
+ * `entries` is the log, for Recent; without it Recent is the catalog's pins.
  * `climbingOnly` is the route from a WHOOP climb on the unlogged card: the
  * catalog is the wrong answer there (AGENTS.md §6.1), so only the folders show.
  */
 export function ActivityChooser({
-  plan, field, onPick, onPickCard = null, onClose,
+  plan, field, onPick, onPickCard = null, onClose, entries = [],
   dayLabel = null, climbingOnly = false, initialFolder = null,
 }: {
   plan: any
@@ -216,6 +217,7 @@ export function ActivityChooser({
   onPick: (activity: string) => void
   onPickCard?: ((optId: string) => void) | null
   onClose: () => void
+  entries?: any[]
   dayLabel?: string | null
   climbingOnly?: boolean
   initialFolder?: string | null
@@ -223,10 +225,9 @@ export function ActivityChooser({
   const [folder, setFolder] = useState<string | null>(initialFolder)
   const climbing = useMemo(() => (onPickCard ? folderGroup(plan) : null), [plan, onPickCard])
   const groups = useMemo(() => [
-    ...(climbingOnly ? [] : activityGroups(field, plan)),
+    ...(climbingOnly ? [] : activityGroups(field, plan, entries)),
     ...(climbing ? [climbing] : []),
-  ], [climbing, climbingOnly, field, plan])
-  const n = (activityCatalog as any)(field).activities.length
+  ], [climbing, climbingOnly, field, plan, entries])
   const cards: any[] = onPickCard ? folderCards(plan) : []
 
   const pick = (key: string) => {
@@ -237,35 +238,25 @@ export function ActivityChooser({
 
   if (folder) {
     const f = FOLDERS.find(x => x.key === folder)
-    const rows = folderRows(plan, folder)
     return (
       <PickerScreen
         title={f?.name || 'Climbing'}
-        sub={[`${rows.reduce((k: number, g: any) => k + g.items.length, 0)} in the plan`, dayLabel].filter(Boolean).join(' · ')}
+        sub={dayLabel}
         icon={f?.icon || 'Mountain'}
-        placeholder="max hangs, 4×4, ARC, crag day…"
-        lead="The plan's own sessions, in the order it declares them. Each one asks the hard-finger question, so the finger budget sees what you did."
-        groups={rows} onPick={pick}
+        placeholder={`Search ${(f?.name || 'the plan').toLowerCase()}`}
+        groups={folderRows(plan, folder)} onPick={pick}
         // Back goes up one level, unless the folder was where this screen opened.
         onClose={initialFolder ? onClose : () => setFolder(null)}
       />
     )
   }
 
-  const sub = climbingOnly
-    ? [`${cards.length} sessions`, dayLabel]
-    : [`${n} activities`, cards.length ? `${cards.length} sessions` : null, dayLabel]
-
   return (
     <PickerScreen
       title={climbingOnly ? 'Log the climb' : 'Log a workout'}
-      sub={sub.filter(Boolean).join(' · ')}
+      sub={dayLabel}
       icon={climbingOnly ? 'Mountain' : 'NotebookPen'}
-      placeholder={climbingOnly ? 'board, 4×4, ARC, crag day…' : 'run, mountain bike, bench press, erg…'}
-      lead={climbingOnly
-        ? 'Which session was it? WHOOP recorded the climb; the card asks the hard-finger question.'
-        : 'Something you already did. Pick it and the form arrives the right shape: a ride '
-          + 'asks for distance, a swim for yards, a lift for the exercises.'}
+      placeholder={climbingOnly ? 'Search sessions' : 'Search'}
       groups={groups}
       /* The catalog has its own ranked search: "ru" has to return Run before Ruck.
          Cards follow, matched on every word, so "max hangs" finds its card
@@ -281,7 +272,6 @@ export function ActivityChooser({
           })
         const activityHits = climbingOnly ? [] : (searchActivities as any)(field, q).map((a: any) => ({
           key: a.key, name: a.name, icon: a.icon || 'Activity',
-          meta: (plan?.quotaCategories || []).find((c: any) => c.key === a.category)?.name || null,
         }))
         return [...activityHits, ...cardHits]
       }}
@@ -299,15 +289,13 @@ export function activityFieldOf(plan: any) {
 }
 
 const st = StyleSheet.create({
+  // styles.css .spick-search and the base .list-row (docs/DESIGN.md).
   search: {
-    flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10, paddingLeft: 10,
-    borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: colors.panel2,
+    flexDirection: 'row', alignItems: 'center', gap: space[2], marginBottom: space[6], paddingLeft: space[3],
+    minHeight: 44, borderWidth: 1, borderColor: colors.lineStrong, borderRadius: radius.control, backgroundColor: colors.panel2,
   },
   searchInput: { flex: 1, minWidth: 0, borderWidth: 0, backgroundColor: 'transparent', paddingHorizontal: 0 },
-  group: { marginBottom: 20 },
-  grouphead: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 7 },
-  row: {
-    flexDirection: 'row', alignItems: 'center', gap: 11, marginBottom: 6, paddingVertical: 11, paddingHorizontal: 12,
-    minHeight: 44, backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: 9,
-  },
+  list: { paddingVertical: 0, marginBottom: 0 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: 52, paddingVertical: space[2] },
+  rowRule: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
 })

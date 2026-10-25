@@ -313,8 +313,8 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
       )}
 
       {confirmExit && (
-        <div className="wo-confirm">
-          <p>Leave the workout? Every set you've marked is already saved.</p>
+        <div className="wo-confirm" role="dialog" aria-label="Leave the workout?">
+          <p>Leave the workout? Every set you marked is saved.</p>
           <div className="wo-confirm-btns">
             <button className="btn ghost" onClick={() => setConfirmExit(false)}>Keep going</button>
             <button className="btn" onClick={onExit}>Leave</button>
@@ -365,11 +365,7 @@ function Intro({ session, steps, onStart, resumed }) {
 
   return (
     <div className="wo-intro">
-      <p className="wo-lead">
-        {resumed || done
-          ? `Picking up where you left off — ${done} of ${steps.length} sets already marked.`
-          : 'One set at a time. The timer counts the reps; you mark the set.'}
-      </p>
+      {(resumed || done) ? <p className="wo-lead">{done} of {steps.length} sets marked</p> : null}
 
       <div className="how-list">
         {byEx.map(e => (
@@ -386,15 +382,9 @@ function Intro({ session, steps, onStart, resumed }) {
       {/* Worth one tap before a session rather than finding out three sets in.
           The commonest cause of a silent timer is the iPhone ring switch, which
           this either fixes on the spot or proves is the problem. */}
-      <button className="wo-link" onClick={() => { primeAudio(); CUES.work() }}>
-        <Icon name="Volume2" size={15} /> Test the sound
+      <button className="btn quiet wo-sound" onClick={() => { primeAudio(); CUES.work() }}>
+        <Icon name="Volume2" size={16} /> Test the sound
       </button>
-
-      <p className="wo-note">
-        Timed sets run themselves — {LEAD_IN}s to get set after you tap start, then it counts
-        you in and switches on its own. Screen stays awake while it runs, and each change of
-        phase beeps. Both need the HTTPS address to work reliably — see the README.
-      </p>
     </div>
   )
 }
@@ -424,12 +414,16 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onPause,
   // clock is the only thing worth the screen.
   const reading = phase === 'setrest' && step.how
 
+  /*
+   * THE INTERVAL TIMER'S FACE (timer.css), where the two overlap (docs/DESIGN.md,
+   * Workout mode): the phase in words, the clock as wide as the screen allows,
+   * where you are, and the row of controls, in the timer's own classes rather than
+   * a copy of them, so the two screens cannot drift. `--k` is the phase colour
+   * both read (logging.css maps workout mode's phases onto it). What is workout
+   * mode's own stays its own: the how-to, the rep pips, the set log and the rail.
+   */
   return (
     <div className={`wo-face p-${phase} ${paused ? 'paused' : ''}`}>
-      <div className="wo-where">
-        {step.exName} · set {step.setIndex + 1} of {step.setCount}
-      </div>
-
       {step.how && !reading && (
         <button className="wo-how" onClick={onHow}>
           <span className="wo-howfig"><Figure name={step.how.figure} /></span>
@@ -438,15 +432,14 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onPause,
         </button>
       )}
 
-      <Clock className={`wo-clock ${tap ? 'tappable' : ''}`} onClick={tap || undefined}>
-        <div className="wo-phase">{PHASE_LABEL[phase]}{paused ? ' · paused' : ''}</div>
-        <div className="wo-count">{left != null ? clock(showing) : clock(counted)}</div>
+      <Clock className={`it-face wo-clock ${paused ? 'paused' : ''} ${tap ? 'tappable' : ''}`} onClick={tap || undefined}>
+        <span className="it-phase">{PHASE_LABEL[phase]}{paused ? ' · Paused' : ''}</span>
+        <span className="it-count">{left != null ? clock(showing) : clock(counted)}</span>
+        <span className="it-where">{step.exName} · Set {step.setIndex + 1} of {step.setCount}</span>
         {left == null && (
-          <div className="wo-untimed">
-            {openEnded
-              ? 'No target on this one — tap the clock when the set is done.'
-              : 'Rest as long as you need. Tap the clock to start the next set.'}
-          </div>
+          <span className="it-hint">
+            {openEnded ? 'Tap the clock when the set is done' : 'Tap the clock to start the next set'}
+          </span>
         )}
       </Clock>
 
@@ -458,48 +451,45 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onPause,
             ))}
           </div>
         ) : (
-          <div className="wo-repcount">rep {rep} of {timing.reps}</div>
+          <div className="it-hint it-tabular">Rep {rep} of {timing.reps}</div>
         )
       )}
 
       {openEnded && (
         <button className="btn wo-setdone" onClick={onEndSet}>
-          <Icon name="Check" size={18} /> Done — log this set
+          <Icon name="Check" size={18} /> Done set
         </button>
       )}
 
-      <div className="wo-ctl">
+      <div className="it-ctl wo-ctl">
         {left != null && (
-          <button className="wo-btn" onClick={() => onBump(-15)} aria-label="15 seconds less">
-            <Icon name="Minus" size={16} /> 15s
+          <button className="it-btn" onClick={() => onBump(-15)} aria-label="15 seconds less">
+            <Icon name="Minus" size={18} /> 15s
           </button>
         )}
-        <button className="wo-btn primary" onClick={onPause}>
-          <Icon name={paused ? 'Play' : 'Pause'} size={18} />
+        <button className="it-btn on" onClick={onPause}>
+          <Icon name={paused ? 'Play' : 'Pause'} size={20} />
           {paused ? 'Resume' : 'Pause'}
         </button>
         {left != null && (
-          <button className="wo-btn" onClick={() => onBump(15)} aria-label="15 seconds more">
-            <Icon name="Plus" size={16} /> 15s
+          <button className="it-btn" onClick={() => onBump(15)} aria-label="15 seconds more">
+            <Icon name="Plus" size={18} /> 15s
           </button>
         )}
-      </div>
-
-      <div className="wo-ctl2">
-        <button className="wo-link" onClick={onSkip}>
-          <Icon name="SkipForward" size={15} /> {phase === 'setrest' ? 'Start next set' : 'Skip ahead'}
+        <button className="it-btn" onClick={onSkip}>
+          <Icon name="SkipForward" size={18} /> {phase === 'setrest' ? 'Next set' : 'Skip'}
         </button>
         {phase !== 'setrest' && !openEnded && (
-          <button className="wo-link" onClick={onEndSet}>
-            <Icon name="Flag" size={15} /> End set here
+          <button className="it-btn" onClick={onEndSet}>
+            <Icon name="Flag" size={18} /> End set
           </button>
         )}
       </div>
 
       {reading && (
         <div className="wo-hownext">
-          <div className="wo-hownexth">
-            <Icon name="PersonStanding" size={14} /> Next up — {step.exName}
+          <div className="section-head wo-hownexth">
+            <h3>Next up: {step.exName}</h3>
           </div>
           <HowBody how={step.how} />
         </div>
@@ -558,7 +548,7 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }) {
 
   return (
     <div className="wo-review">
-      <div className="wo-where">{step.exName} · set {step.setIndex + 1} of {step.setCount}</div>
+      <div className="wo-where">{step.exName} · Set {step.setIndex + 1} of {step.setCount}</div>
       <h3 className="wo-reviewh">What actually happened?</h3>
       <p className="wo-reviewsub">Pre-filled from the plan. Change anything that didn't match.</p>
 

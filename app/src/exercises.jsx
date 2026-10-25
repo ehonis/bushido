@@ -258,9 +258,9 @@ export function ExerciseCard({
           {/* Remove sits on the RIGHT, away from the thumb that is adding sets —
               they were side by side and they do opposite things. */}
           <div className="presc-itemfoot">
-            <button className="linkbtn" onClick={onAddSet}><Icon name="Plus" size={13} /> another set</button>
-            <button className="linkbtn danger presc-itemrm" onClick={onRemove}>
-              <Icon name="Trash2" size={13} /> remove
+            <button className="btn quiet" onClick={onAddSet}><Icon name="Plus" size={16} /> Add a set</button>
+            <button className="btn quiet presc-itemrm" onClick={onRemove}>
+              <Icon name="Trash2" size={16} /> Remove
             </button>
           </div>
         </>

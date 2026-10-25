@@ -8,9 +8,9 @@
  * climbing (see lib/folders.js for what goes where and why the folders are not
  * catalog activities).
  *
- *   ACTIVITIES the 91-sport catalog, grouped as the catalog groups itself, with
- *              their six pinned sports first. Picking one puts the workout card on
- *              the day with the activity already answered.
+ *   ACTIVITIES the 91-sport catalog, grouped as the catalog groups itself, after
+ *              Recent. Picking one puts the workout card on the day with the
+ *              activity already answered.
  *   FOLDERS    the plan's own cards — the board, 4×4s, max hangs, ARC, the
  *              load-cell tests — grouped inside each folder by the category each
  *              declares. Picking one puts it on the day with its protocol, cues,
@@ -22,19 +22,26 @@
  *
  * NOTHING RANKS. A list of doors, in the order the content file declares them,
  * with a search box that reaches both. The user already knows what they did;
- * they need somewhere to press.
+ * they need somewhere to press. The one exception is Recent, at the top: the
+ * activities of the last few workouts logged (lib/quicklog.js), the same rows
+ * the + menu offers, because "the thing I did yesterday" is the likeliest answer.
  *
- * The right-hand column says what each row COSTS or IS: minutes for a card,
- * the category for an activity, the card count for a folder.
+ * Laid out on the visual system (docs/DESIGN.md, 2026-10-25): each group is a
+ * section head over ONE card of rows, not a card per row, and a row says its name
+ * once. The category used to sit on the right of every activity ("Run …… Run"),
+ * which the group heading above it already said; it went, and so did the
+ * paragraph under the search box. The right-hand column is only what a row COSTS
+ * or HOLDS: minutes for a card, the session count for a folder.
  */
 
 import { useMemo, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
 import { FullScreen } from './modal.jsx'
 import {
-  catalogOf as activityCatalog, groupedActivities, pinnedActivities, searchActivities,
+  catalogOf as activityCatalog, groupedActivities, searchActivities,
 } from './lib/activities.js'
 import { climbingFolders, folderCards, folderOf, FOLDERS } from './lib/folders.js'
+import { recentActivities } from './lib/quicklog.js'
 
 export { groupedSessions, climbingFolders } from './lib/folders.js'
 
@@ -43,14 +50,14 @@ export { groupedSessions, climbingFolders } from './lib/folders.js'
 /**
  * A grouped list of things you can pick, full screen.
  *
- * `groups` is `[{ key, name, icon, items: [{ key, name, sub, icon, meta }] }]`.
+ * `groups` is `[{ key, name, items: [{ key, name, sub, icon, meta }] }]`.
  * `onSearch` is optional: a catalog with its own ranked search (the activities
  * have one, and it is better than a substring match — see lib/activities.js)
  * passes it in; anything else gets the plain every-word-must-match filter below,
  * which is the right default and not worth a second implementation.
  */
 export function PickerScreen({
-  title, sub, icon = 'Layers', lead, placeholder,
+  title, sub, icon = 'Layers', placeholder = 'Search',
   groups, onSearch = null, onPick, onClose, footer = null,
 }) {
   const [q, setQ] = useState('')
@@ -67,37 +74,28 @@ export function PickerScreen({
   return (
     <FullScreen title={title} sub={sub} icon={icon} onBack={onClose}>
       <div className="spick-search">
-        <Icon name="Target" size={15} />
+        <Icon name="Target" size={16} />
         <input value={q} onChange={e => setQ(e.target.value)}
           placeholder={placeholder} aria-label={`Search ${title}`} />
         {q && (
-          <button className="modal-btn" onClick={() => setQ('')} aria-label="Clear">
+          <button className="iconbtn" onClick={() => setQ('')} aria-label="Clear">
             <Icon name="X" size={16} />
           </button>
         )}
       </div>
 
-      {lead && !query && <p className="sub spick-lead">{lead}</p>}
-
       {hits ? (
-        <div className="spick-group">
-          <div className="spick-grouphead">
-            <Icon name="Target" size={14} />
-            <span>{hits.length} match{hits.length === 1 ? '' : 'es'}</span>
-          </div>
-          {hits.map(r => <Row key={r.key} row={r} onPick={onPick} />)}
-          {!hits.length && <p className="sub">Nothing matches that.</p>}
-        </div>
+        hits.length
+          ? <div className="card spick-list list">{hits.map(r => <Row key={r.key} row={r} onPick={onPick} />)}</div>
+          : <p className="sub spick-none">Nothing matches “{query}”.</p>
       ) : (
         groups.map(g => (
-          <div key={g.key} className="spick-group">
-            <div className="spick-grouphead">
-              <Icon name={g.icon} size={14} />
-              <span>{g.name}</span>
-              <span className="spick-n">{g.items.length}</span>
+          <section key={g.key} className="spick-group" aria-label={g.name}>
+            <div className="section-head"><h3>{g.name}</h3></div>
+            <div className="card spick-list list">
+              {g.items.map(r => <Row key={r.key} row={r} onPick={onPick} />)}
             </div>
-            {g.items.map(r => <Row key={r.key} row={r} onPick={onPick} />)}
-          </div>
+          </section>
         ))
       )}
 
@@ -109,16 +107,14 @@ export function PickerScreen({
 
 function Row({ row, onPick }) {
   return (
-    <button className="spick-row" onClick={() => onPick(row.key)}>
-      <span className="spick-ico"><Icon name={row.icon} size={17} /></span>
-      <span className="spick-body">
-        <strong>{row.name}</strong>
-        {row.sub && <span className="sub">{row.sub}</span>}
+    <button className="list-row spick-row" onClick={() => onPick(row.key)}>
+      <Icon name={row.icon || 'Activity'} size={20} />
+      <span className="list-row-main">
+        <span className="list-row-title">{row.name}</span>
+        {row.sub && <span className="list-row-meta">{row.sub}</span>}
       </span>
-      {row.meta && <span className="spick-min">{row.meta}</span>}
-      <span className="spick-chev">
-        <Icon name="ChevronDown" size={15} style={{ transform: 'rotate(-90deg)' }} />
-      </span>
+      {row.meta && <span className="list-row-meta">{row.meta}</span>}
+      <Icon name="ChevronRight" size={16} className="list-row-chev" />
     </button>
   )
 }
@@ -135,51 +131,45 @@ function defaultSearch(groups, q) {
 /* ------------------------------------------------------- the 91 activities */
 
 /**
- * The activity catalog as picker groups, their pinned sports first.
+ * The activity catalog as picker groups, Recent first.
  *
- * The pins are a real group rather than a styling trick, because that is what
- * they are: the six sports that are the overwhelming majority of what the user logs.
- * The catalog declares which (`pinned`), so it stays content — see
- * activitypicker.jsx, which has offered them as one-tap chips inside the form
- * since the day the catalog landed.
- *
- * `meta` is the CATEGORY, not the group. The group is already the heading above
- * the row, so the right-hand column says what it files under instead.
+ * Recent is the quick-log list (lib/quicklog.js): the activities of the newest
+ * distinct workouts in `entries`, then the catalog's pinned sports to fill it,
+ * so a fresh install leads with its pins as "Your usual" used to (the catalog
+ * declares them, `pinned`, so it stays content). Then the catalog's own groups,
+ * in its order, and anything whose group it no longer lists.
  */
-export function activityGroups(field, plan) {
+export function activityGroups(field, plan, entries = []) {
   if (!field) return []
-  const catName = (key) =>
-    (plan?.quotaCategories || []).find(c => c.key === key)?.name || null
-
   const row = (a) => ({
     key: a.key, name: a.name, icon: a.icon || 'Activity',
-    meta: catName(a.category),
     search: (a.aka || []).join(' '),
   })
 
-  const pins = pinnedActivities(field)
-  const groups = pins.length
-    ? [{ key: '_pinned', name: 'Your usual', icon: 'Flame', items: pins.map(row) }]
+  const recent = recentActivities(entries, field)
+  const groups = recent.length
+    ? [{ key: '_recent', name: 'Recent', items: recent.map(row) }]
     : []
 
   for (const g of groupedActivities(field)) {
-    groups.push({ key: g.name, name: g.name, icon: g.items[0]?.icon || 'Activity', items: g.items.map(row) })
+    groups.push({ key: g.name, name: g.name, items: g.items.map(row) })
   }
 
   // The same orphan rule the sessions follow: an activity whose group the
   // catalog no longer lists must still be reachable, not silently dropped.
-  const listed = new Set(groups.flatMap(g => g.items.map(i => i.key)))
+  const listed = new Set(groups.filter(g => g.key !== '_recent').flatMap(g => g.items.map(i => i.key)))
   const orphans = activityCatalog(field).activities.filter(a => !listed.has(a.key))
   if (orphans.length) {
-    groups.push({ key: '_other', name: 'Everything else', icon: 'Sparkles', items: orphans.map(row) })
+    groups.push({ key: '_other', name: 'Everything else', items: orphans.map(row) })
   }
   return groups
 }
 
 /* ------------------------------------------------------- the plan's cards */
 
+// `folderName` only in search results, where the folder is not the heading above.
 const cardRow = (m, folderName = null) => ({
-  key: `card:${m.id}`, name: m.name, sub: folderName || m.tier, icon: m.icon,
+  key: `card:${m.id}`, name: m.name, sub: folderName, icon: m.icon,
   meta: m.minutes ? `${m.minutes} min` : null,
   search: m.dose,
 })
@@ -192,10 +182,10 @@ export function folderGroup(plan) {
   // (the example's runs) gets its cards under a heading that does not lie.
   const climbing = folders.every(f => f.key !== 'plan')
   return {
-    key: '_climbing', name: climbing ? 'Climbing' : 'Your plan', icon: climbing ? 'Mountain' : 'Layers',
+    key: '_climbing', name: climbing ? 'Climbing' : 'Your plan',
     items: folders.map(f => ({
       key: `folder:${f.key}`, name: f.name, icon: f.icon,
-      sub: 'Sessions from the plan', meta: `${f.count}`,
+      meta: `${f.count} session${f.count === 1 ? '' : 's'}`,
     })),
   }
 }
@@ -215,23 +205,23 @@ export function folderRows(plan, key) {
  * as a ride or a swim or a lift. Picking a CARD (out of a folder, or straight off
  * a search) places that card, exactly as the old session picker did.
  *
- * `onPick(activityKey)` and `onPickCard(optId)` are the two outcomes. `day` is
- * the date the pick lands on, said in the header when it is not today, because
+ * `onPick(activityKey)` and `onPickCard(optId)` are the two outcomes. `dayLabel`
+ * is the date the pick lands on, said in the header when it is not today, because
  * logging Monday's climb from Wednesday must not look like logging it today.
+ * `entries` is the log, for Recent; without it Recent is the catalog's pins.
  * `climbingOnly` is the route from a WHOOP climb on the unlogged card: the
  * catalog is the wrong answer there (AGENTS.md §6.1), so only the folders show.
  */
 export function ActivityChooser({
-  plan, field, onPick, onPickCard = null, onClose,
+  plan, field, onPick, onPickCard = null, onClose, entries = [],
   dayLabel = null, climbingOnly = false, initialFolder = null,
 }) {
   const [folder, setFolder] = useState(initialFolder)
   const climbing = useMemo(() => (onPickCard ? folderGroup(plan) : null), [plan, onPickCard])
   const groups = useMemo(() => [
-    ...(climbingOnly ? [] : activityGroups(field, plan)),
+    ...(climbingOnly ? [] : activityGroups(field, plan, entries)),
     ...(climbing ? [climbing] : []),
-  ], [climbing, climbingOnly, field, plan])
-  const n = activityCatalog(field).activities.length
+  ], [climbing, climbingOnly, field, plan, entries])
   const cards = onPickCard ? folderCards(plan) : []
 
   const pick = (key) => {
@@ -242,36 +232,25 @@ export function ActivityChooser({
 
   if (folder) {
     const f = FOLDERS.find(x => x.key === folder)
-    const rows = folderRows(plan, folder)
     return (
       <PickerScreen
         title={f?.name || 'Climbing'}
-        sub={[`${rows.reduce((k, g) => k + g.items.length, 0)} in the plan`, dayLabel].filter(Boolean).join(' · ')}
+        sub={dayLabel}
         icon={f?.icon || 'Mountain'}
-        placeholder={`Search ${(f?.name || 'the plan').toLowerCase()}…`}
-        lead="The plan's own sessions, in the order it declares them. Each one asks the
-          hard-finger question, so the finger budget sees what you did."
-        groups={rows} onPick={pick}
+        placeholder={`Search ${(f?.name || 'the plan').toLowerCase()}`}
+        groups={folderRows(plan, folder)} onPick={pick}
         // Back goes up one level, unless the folder was where this screen opened.
         onClose={initialFolder ? onClose : () => setFolder(null)}
       />
     )
   }
 
-  const sub = climbingOnly
-    ? [`${cards.length} sessions`, dayLabel]
-    : [`${n} activities`, cards.length ? `${cards.length} sessions` : null, dayLabel]
-
   return (
     <PickerScreen
       title={climbingOnly ? 'Log the climb' : 'Log a workout'}
-      sub={sub.filter(Boolean).join(' · ')}
+      sub={dayLabel}
       icon={climbingOnly ? 'Mountain' : 'NotebookPen'}
-      placeholder={climbingOnly ? 'board, 4×4, ARC, crag day…' : 'run, mountain bike, bench press, erg…'}
-      lead={climbingOnly
-        ? 'Which session was it? WHOOP recorded the climb; the card asks the hard-finger question.'
-        : 'Something you already did. Pick it and the form arrives the right shape: a ride '
-          + 'asks for distance, a swim for yards, a lift for the exercises.'}
+      placeholder={climbingOnly ? 'Search sessions' : 'Search'}
       groups={groups}
       /* The catalog has its own ranked search, and it is better than a substring
          match: "ru" has to return Run before Ruck. Cards follow, matched on every
@@ -287,7 +266,6 @@ export function ActivityChooser({
           })
         const activityHits = climbingOnly ? [] : searchActivities(field, q).map(a => ({
           key: a.key, name: a.name, icon: a.icon || 'Activity',
-          meta: (plan?.quotaCategories || []).find(c => c.key === a.category)?.name || null,
         }))
         return [...activityHits, ...cardHits]
       }}
