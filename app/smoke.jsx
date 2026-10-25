@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs'
 import { TodayTab, SessionSheet, DaySwitcher, dayWords } from './src/tabs.jsx'
 import { ToastList } from './src/toast.jsx'
 import { pushToast, dismissToast, useToasts } from './src/lib/toast.js'
+import { Undo2 } from 'lucide-react'
 import { TestingTab, WhyTab } from './src/testing.jsx'
 import {
   PlanFlow, PrescriptionEditor, KeptStep, PlanTalk, BuildStep, groupedKinds, liftFieldOf,
@@ -29,7 +30,7 @@ import { GearSection } from './src/gear.jsx'
 import { ProfileMenu, ProfilePanel, PeopleCard, homePages } from './src/profile.jsx'
 import { TheirSide } from './src/sharedwith.jsx'
 import { sharedCopy } from './src/lib/shared.js'
-import { SidesWorkout, PeopleDays, PersonDay, MyAbout, ForChoice, ForLine, SideSwitch } from './src/trainer.jsx'
+import { SidesWorkout, PeopleDays, PersonDay, MyAbout, ForChoice, ForLine, SideSwitch, DayHead } from './src/trainer.jsx'
 import { planPeople } from './src/lib/trainer.js'
 import { PlanProvider } from './src/lib/planctx.jsx'
 import { PrefsProvider } from './src/lib/prefs.jsx'
@@ -441,8 +442,9 @@ const cases = [
       if (!/38 min/.test(t) || !/52 min/.test(t)) throw new Error('each one carries its own length')
       // One line each: time · distance, or what was lifted. Effort ("RPE") is in
       // the sheet, not on the row (#41).
-      if (!/38 min · 4\.2 mi/.test(t)) throw new Error('the run does not read time · distance')
-      if (!/52 min · 1 exercise · 2 sets · 1,650 lb/.test(t)) throw new Error('the lift day does not say what it was')
+      const plain = t.replace(/<[^>]+>/g, '')
+      if (!/38 min · 4\.2 mi/.test(plain)) throw new Error('the run does not read time · distance')
+      if (!/52 min · 1 exercise · 2 sets · 1,650 lb/.test(plain)) throw new Error('the lift day does not say what it was')
       if (/RPE/.test(t)) throw new Error('a bare "RPE" is on the day list')
     }],
   /*
@@ -549,7 +551,9 @@ const cases = [
       const t = text(html)
       if ((html.match(/class="card daylist"/g) || []).length !== 1) throw new Error('the day is not one card')
       if ((html.match(/class="list-row dl-row/g) || []).length !== 2) throw new Error('the rows are not list rows')
-      if (!/29 min · 3\.1 mi/.test(t)) throw new Error('the row does not read time · distance as typed')
+      if (!/29 min · 3\.1 mi/.test(t.replace(/<[^>]+>/g, ''))) throw new Error('the row does not read time · distance as typed')
+      // Wraps between its pieces, never inside one ("45 / min").
+      if (!/<span class="meta-bit">29 min ·<\/span>/.test(text(html))) throw new Error('the meta line can break inside a piece')
       if (/45 min/.test(t)) throw new Error('the card\u2019s estimate is on the row as if it were the time')
       if (!/aria-label="Done"/.test(html)) throw new Error('a done session does not say so by its icon')
       if (!/aria-label="Not done"/.test(html) || !/Not done/.test(t)) throw new Error('a session marked undone does not say so')
@@ -1281,7 +1285,7 @@ const cases = [
         out: { activity: 'run', duration: 29, distance: 3.1 } } }
     const html = renderToString(<SessionSheet opt={otherCard} entry={entry} entries={rich} isFuture={false}
       onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop} />)
-    const sub = text((html.match(/<div class="modal-sub">(.*?)<\/div>/) || [])[1] || '')
+    const sub = text((html.match(/<div class="modal-sub">(.*?)<\/div>/) || [])[1] || '').replace(/<[^>]+>/g, '')
     if (sub !== 'Today · 29 min') throw new Error(`the header reads "${sub}"`)
     if (/any sport|counts anyway/.test(text(html))) throw new Error('the card\u2019s tier is back in the header')
     // The form is open, and the timer is a row at the foot rather than a big button.
@@ -1307,6 +1311,31 @@ const cases = [
     if (/Removed Run|Not saved/.test(renderToString(<Probe />))) throw new Error('dismissed, and still showing')
     if (undone) throw new Error('Undo ran without being pressed')
   }],
+  /* Undo is a step BACK: its glyph turns back (lucide Undo2), not Retry's arrow forward. */
+  ['ToastList(Undo turns back; Retry goes again)', null, () => {
+    const html = renderToString(<ToastList toasts={[
+      { id: 1, kind: 'info', text: 'Removed Run', count: 1, action: { label: 'Undo', icon: Undo2, onClick: noop } },
+      { id: 2, kind: 'error', text: 'Not saved', count: 1, action: { label: 'Retry', onClick: noop } },
+    ]} />)
+    if (!/lucide-undo-2[\s\S]*?Undo/.test(html)) throw new Error('Undo is not drawn with the undo glyph')
+    if (!/lucide-rotate-cw[\s\S]*?Retry/.test(html)) throw new Error('Retry lost its arrow')
+    if ((html.match(/lucide-rotate-cw/g) || []).length !== 1) throw new Error('the redo arrow is on Undo too')
+  }],
+  /* An unanswered slider is a placeholder (AGENTS.md §6.4): nothing lit, until moved or tapped. */
+  ['SessionLog(an unanswered slider looks unanswered)', null, () => {
+    const entry = (out) => ({ id: 'sl', kind: 'daily', date: TODAY, updatedAt: 'z', data: { optId: 'log-workout', out } })
+    const blank = renderToString(<SessionLog session={otherCard} entry={entry({ activity: 'run' })} entries={[]} onSave={noop} bare />)
+    if (!/class="slider unset"/.test(blank)) throw new Error('an unanswered slider is drawn lit, as if answered')
+    if (!/class="out-value guess"/.test(blank)) throw new Error('its number is not a placeholder')
+    const set = renderToString(<SessionLog session={otherCard} entry={entry({ activity: 'run', rpe: 4 })} entries={[]} onSave={noop} bare />)
+    if (/slider unset|out-value guess/.test(set)) throw new Error('an answered slider still reads as unanswered')
+  }],
+  /* The reasons and the notes box are two questions, with room between them. */
+  ['RestPrompt(a gap between the reasons and Notes)',
+    <RestPrompt opt={plan.dailyMenu.find(m => m.role === 'rest')} onSave={noop} onClose={noop} />,
+    (html) => {
+      if (!/class="out-field rest-why"[\s\S]*?notefield-label">Notes</.test(html)) throw new Error('the reasons run straight into Notes')
+    }],
   ['TodayTab(a planned session on the day)', <TodayTab plan={plan} entries={[PLANNED_ENTRY]}
     upsertEntry={noop} deleteEntry={noop} onPlan={noop} onLog={noop} />,
     (html) => {
@@ -2262,7 +2291,11 @@ const cases = [
   // ===== batch C: Log and Progress =====
 
   ['LogTab', <LogTab plan={plan} entries={entries} upsertEntry={noop} deleteEntry={noop} />],
-  ['LogTab(empty)', <LogTab plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
+  ['LogTab(empty)', <LogTab plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} />,
+    (html) => {
+      if (!/class="empty"/.test(html) || !/Nothing logged yet/.test(text(html))) throw new Error('an empty log should say so in an .empty')
+      if (/class="filters/.test(html)) throw new Error('filters over an empty log filter nothing')
+    }],
   /* The feed reads the rename too — it computes each row's name live rather than
      trusting `data.name`, which is what makes a rename land on every surface at
      once. A commute also wears its "just miles" tag here. */
@@ -2275,11 +2308,79 @@ const cases = [
       const t = text(html)
       if (!/Commute/.test(t)) throw new Error('the feed row ignored the rename')
       if (!/just miles/.test(t)) throw new Error('a commute should still say what it is')
+      // Its category differs from its name, so the row says it once: "Bike · 22 min · just miles".
+      if (!/Bike · 22 min · just miles/.test(t)) throw new Error(`the commute's line read wrong: ${t.match(/list-row-meta">([^<]*)/)?.[1]}`)
     }],
+  /*
+   * Wave 2 (issue #43): one card per day, the workouts as rows. Pinned from both
+   * sides: the day is a sentence-case section head with no count, the rows live
+   * in ONE card per day, and the old shape (a card per workout under a
+   * capitalised date with "N workouts", and a down chevron as if the row opened
+   * in place) is gone.
+   */
+  ['LogTab(one card per day, workouts as rows, a header like "Fri 23 Oct")', <LogTab plan={plan} upsertEntry={noop} deleteEntry={noop} entries={[
+    { id: 'r1', kind: 'daily', date: isoShift(TODAY, -3), updatedAt: 'z',
+      data: { optId: 'log-workout', level: 2, done: true, out: { activity: 'run', duration: 32, distance: 3.1, rpe: 5 } } },
+    { id: 'r2', kind: 'daily', date: isoShift(TODAY, -3), updatedAt: 'z',
+      data: { optId: 'log-workout', level: 2, done: true, out: { activity: 'bike', duration: 60, distance: 18, rpe: 6 } } },
+    { id: 'r3', kind: 'daily', date: isoShift(TODAY, -5), updatedAt: 'z',
+      data: { optId: 'log-workout', level: 2, done: true, out: { activity: 'run', duration: 40, distance: 4, rpe: 6 } } },
+  ]} />,
+    (html) => {
+      const t = text(html)
+      const heads = [...t.matchAll(/<div class="section-head"><h3>([^<]*)<\/h3>/g)].map(m => m[1])
+      if (heads.length !== 2) throw new Error(`expected two day heads, got ${heads}`)
+      for (const h of heads) {
+        if (!/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)( \d{4})?$/.test(h)) {
+          throw new Error(`a day head read "${h}", not like "Fri 23 Oct"`)
+        }
+      }
+      if ((t.match(/class="card list logday-list"/g) || []).length !== 2) throw new Error('not one card per day')
+      if ((t.match(/class="list-row logrow/g) || []).length !== 3) throw new Error('each workout should be one row')
+      if (/\d workouts?</.test(t)) throw new Error('the day head still counts its workouts')
+      if (/logcard|logday-head|logday-n/.test(html)) throw new Error('the card-per-workout feed is back')
+      if (/lucide-chevron-down|aria-expanded/.test(html)) throw new Error('a row looks like it opens in place; it opens the sheet')
+      if (!/lucide-chevron-right/.test(html)) throw new Error('a row has no chevron to say it opens')
+      // A row says its name once and its time and distance after it, nothing in capitals.
+      if (/>Run<\/span><span class="list-row-meta">Run/.test(t)) throw new Error('the category echoes the name')
+      if (!/32 min · 3\.1 mi/.test(t)) throw new Error('the row line should be time · distance')
+      if (/RPE/.test(t)) throw new Error('a bare "RPE" is on a row')
+      if (/text-transform|logcard-cat/.test(html)) throw new Error('small capitals on the feed')
+    }],
+  /* Untitled free-form workouts used to be named after the button that made them
+     ("Log a workout"). A row is named by its activity, and with none yet it is a
+     workout. */
+  ['LogTab(an untitled workout is named by its activity)', <LogTab plan={plan} upsertEntry={noop} deleteEntry={noop} entries={[
+    { id: 'u1', kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { optId: 'log-workout', level: 2, done: true, name: 'Log a workout', out: { activity: 'swim', duration: 30 } } },
+    { id: 'u2', kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { optId: 'log-workout', level: 2, done: true, name: 'Log a workout', out: { duration: 20 } } },
+  ]} />,
+    (html) => {
+      const titles = [...text(html).matchAll(/list-row-title">([^<]*)</g)].map(m => m[1])
+      if (titles.includes('Log a workout')) throw new Error(`a row is named after the button: ${titles}`)
+      if (!titles.includes('Swim')) throw new Error(`the swim is not named by its activity: ${titles}`)
+      if (!titles.includes('Workout')) throw new Error(`a workout with no activity yet should read "Workout": ${titles}`)
+    }],
+  // Filters: "All" and the categories actually logged, no counts, and none at all
+  // when there is only one thing to show.
+  ['LogTab(filters are All plus what you log, chips that fit)', <LogTab plan={plan} entries={rich} upsertEntry={noop} deleteEntry={noop} />,
+    (html) => {
+      const t = text(html)
+      const chips = [...t.matchAll(/<button class="chip[^"]*"[^>]*>([^<]*)<\/button>/g)].map(m => m[1])
+      if (chips[0] !== 'All') throw new Error(`the first filter should be All: ${chips}`)
+      if (chips.length < 2) throw new Error('more than one category is logged, so there is something to filter')
+      if (/<em>/.test(t) || chips.some(c => /\d/.test(c))) throw new Error(`a count rides in a chip: ${chips}`)
+      const named = (plan.quotaCategories || []).map(c => c.name)
+      for (const c of chips.slice(1)) if (!named.includes(c)) throw new Error(`"${c}" is not a category`)
+    }],
+  ['LogTab(one category, no filters)', <LogTab plan={plan} upsertEntry={noop} deleteEntry={noop} entries={[
+    { id: 'o1', kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { optId: 'log-workout', level: 2, done: true, out: { activity: 'run', duration: 30 } } },
+  ]} />,
+    (html) => { if (/class="filters/.test(html)) throw new Error('a filter with one choice is not a choice') }],
   // The split gym night, which is the shape per-session minutes exist for: two
   // workouts on one date, each with its own time, adding up to the day.
-  //
-  // so going through it would have exercised the charts and none of this.
   ['LogTab(two sessions, one day)', <LogTab plan={plan} entries={[
     { id: 'g1', kind: 'daily', date: '2026-08-13', updatedAt: 'z',
       data: { slot: 'main', optId: 'board', level: 4, name: 'Gym: board', done: true,
@@ -2287,7 +2388,8 @@ const cases = [
     { id: 'g2', kind: 'daily', date: '2026-08-13', updatedAt: 'z',
       data: { slot: 'main', optId: 'lead-laps', level: 3, name: 'Doubled lead laps', done: true,
         minutes: 25, minutesSource: 'typed', out: { rpe: 6, fingers: 2 } } },
-  ]} upsertEntry={noop} deleteEntry={noop} />],
+  ]} upsertEntry={noop} deleteEntry={noop} />,
+    (html) => { if ((text(html).match(/class="card list logday-list"/g) || []).length !== 1) throw new Error('one day, one card') }],
   ['ProgressView(critical force)', <ProgressView plan={plan} entries={[...rich, ...cfEntries]} />],
   // An old log's check-ins, journal days, quotas and achievements are history the
   // app no longer reads (issue #31): the Log renders, and none of them is a workout.
@@ -2300,7 +2402,7 @@ const cases = [
   ['ProgressView(legacy entries are not workouts)', <ProgressView plan={plan} entries={LEGACY} />,
     (html) => {
       const t = text(html)
-      if (!/Nothing here/.test(t)) throw new Error('a legacy entry was counted as a workout')
+      if (!/Nothing logged yet/.test(t)) throw new Error('a legacy entry was counted as a workout')
       if (/Achievement/.test(t)) throw new Error('the achievement filter is back')
     }],
   ['ProgressView(rich)', <ProgressView plan={plan} entries={rich} />,
@@ -2309,27 +2411,86 @@ const cases = [
       /*
        * The three per-session grade charts — lead laps, fun bouldering, fun sport
        * — became TWO charts on 2026-09-15: hardest route and hardest boulder,
-       * across whatever is in scope. Three charts of the same measurement split by
-       * which card recorded it is precisely the "so specific" problem the rebuild
-       * was for.
-       *
-       * What survives unchanged is the property those assertions were really
-       * protecting: a grade chart reads its axis off the LADDER, not off the
-       * stored decimal. A hero that says "10.2" is a chart asking them to decode
-       * their own log.
+       * across whatever is in scope. What survives is the property those
+       * assertions protected: a grade chart reads its axis off the LADDER, not
+       * off the stored decimal. A hero that says "10.2" is a chart asking them
+       * to decode their own log.
        */
+      const hero = (title) => t.match(new RegExp(`${title}</h3>(?:<p class="viz-help">[^<]*</p>)?<div class="viz-hero">([^<]*)`))?.[1]
       if (!/Hardest route/.test(t)) throw new Error('the route-grade chart is missing')
-      const hero = t.match(/Hardest route<\/div><div class="viz-hero">([^<]*)/)
-      if (!/^5\.\d/.test(hero?.[1] || '')) {
-        throw new Error(`the route headline read "${hero?.[1]}", not a rung`)
-      }
+      if (!/^5\.\d/.test(hero('Hardest route') || '')) throw new Error(`the route headline read "${hero('Hardest route')}", not a rung`)
       if (!/Hardest boulder/.test(t)) throw new Error('the boulder-grade chart is missing')
-      const vHero = t.match(/Hardest boulder<\/div><div class="viz-hero">([^<]*)/)
-      if (!/^V\d/.test(vHero?.[1] || '')) {
-        throw new Error(`the boulder headline read "${vHero?.[1]}", not a V grade`)
+      if (!/^V\d/.test(hero('Hardest boulder') || '')) throw new Error(`the boulder headline read "${hero('Hardest boulder')}", not a V grade`)
+    }],
+  /*
+   * Wave 2 (issue #43): Progress LEADS with the answer. Workouts and time for the
+   * period, two numbers in one card, with the period as a segmented control
+   * under them; the filter card, the "Since" row and the tiles went.
+   */
+  ['ProgressView(leads with workouts and time, the period under them)', <ProgressView plan={plan} entries={rich} />,
+    (html) => {
+      const t = text(html)
+      const head = t.indexOf('class="card proghead"')
+      if (head < 0) throw new Error('no headline card')
+      if (t.indexOf('<svg') >= 0 && t.indexOf('<svg') < head) throw new Error('a chart comes before the headline')
+      const card = t.slice(head, t.indexOf('class="filters', head) > 0 ? t.indexOf('class="filters', head) : undefined)
+      for (const w of ['Workouts', 'Time']) if (!card.includes(`>${w}<`)) throw new Error(`the headline has no ${w}`)
+      if ((card.match(/class="proghead-value"/g) || []).length !== 2) throw new Error('the headline is two numbers')
+      const seg = card.match(/class="seg proghead-seg"[^]*?<\/div>/)?.[0] || ''
+      const segs = [...seg.matchAll(/<button[^>]*>([^<]*)<\/button>/g)].map(m => m[1])
+      if (segs.join('|') !== '4 wk|8 wk|6 mo|All') throw new Error(`the period should be 4 wk · 8 wk · 6 mo · All, got ${segs}`)
+      if (!/aria-pressed="true"[^>]*>8 wk</.test(seg)) throw new Error('8 weeks is the default')
+      // Gone from the old address: the filter card, its labels and the tiles.
+      if (/scopebar|scoperow|class="tiles"|class="tile /.test(html)) throw new Error('the old filter card or tiles are back')
+      if (/>Since<|>Category<|>Load<|RPE × minutes|Hours</.test(t)) throw new Error('an old label is back')
+    }],
+  // "Just one thing" moved from a labelled select in the filter card to a row.
+  ['ProgressView("Just one thing" is a row that opens a list)', <ProgressView plan={plan} entries={rich} />,
+    (html) => {
+      const t = text(html)
+      const row = t.match(/<label class="list-row progpick-row">[^]*?<\/label>/)?.[0] || ''
+      if (!/Just one thing/.test(row)) throw new Error('"Just one thing" is not a row')
+      if (!/Any workout/.test(row)) throw new Error('the row should say what is picked')
+      if (!/<select[^>]*aria-label="Just one thing"/.test(row)) throw new Error('the row opens no list')
+      if (/scopesel/.test(html)) throw new Error('the old select is back')
+    }],
+  ['ProgressView(category chips only when more than one is logged)', <ProgressView plan={plan} entries={rich} />,
+    (html) => {
+      const chips = [...text(html).matchAll(/<button type="button" class="chip[^"]*"[^>]*>([^<]*)<\/button>/g)].map(m => m[1])
+      if (chips[0] !== 'All' || chips.length < 3) throw new Error(`expected All and the categories: ${chips}`)
+      if (chips.some(c => /\d/.test(c))) throw new Error(`a count in a chip: ${chips}`)
+    }],
+  ['ProgressView(one category, no chips)', <ProgressView plan={plan} entries={[
+    { id: 'p1', kind: 'daily', date: isoShift(TODAY, -2), updatedAt: 'z', data: { optId: 'log-workout', level: 2, done: true, out: { activity: 'run', duration: 30, distance: 3, rpe: 5 } } },
+    { id: 'p2', kind: 'daily', date: isoShift(TODAY, -9), updatedAt: 'z', data: { optId: 'log-workout', level: 2, done: true, out: { activity: 'run', duration: 45, distance: 5, rpe: 6 } } },
+  ]} />,
+    (html) => {
+      const t = text(html)
+      if (/class="filters/.test(t)) throw new Error('a chip row with one category in it')
+      if (!/>2<\/span><span class="proghead-label">Workouts/.test(t)) throw new Error('two runs should read as 2 workouts')
+      if (!/>1\.3<span class="proghead-unit">h</.test(t)) throw new Error('75 minutes should read 1.3 h')
+    }],
+  // Charts titled in plain words; each still declares when it applies, keeps its
+  // table view, and the critical-force chart keeps its noise band.
+  ['ProgressView(charts in plain words, a table each, the noise band kept)', <ProgressView plan={plan} entries={[...rich, ...cfEntries]} />,
+    (html) => {
+      const t = text(html)
+      for (const w of ['Workouts per week', 'Time per week', 'Effort per week']) {
+        if (!t.includes(`>${w}</h3>`)) throw new Error(`no "${w}" chart`)
       }
-      // And the filter bar itself, which is the whole point of the rebuild.
-      if (!/Everything/.test(t)) throw new Error('the scope bar does not say what it is showing')
+      for (const w of ['Training load', 'Session RPE', 'Hours per week', 'sRPE', 'Volume —']) {
+        if (t.includes(w)) throw new Error(`jargon back on Progress: ${w}`)
+      }
+      const charts = (t.match(/class="viz"/g) || []).length
+      const toggles = (t.match(/class="viz-toggle"[^>]*>Table</g) || []).length
+      if (!charts || toggles !== charts) throw new Error(`${charts} charts but ${toggles} table switches`)
+      if (/\d{4}-\d{2}-\d{2}<\/text>/.test(t)) throw new Error('a bar is labelled with a raw date')
+    }],
+  ['ProgressView(no paragraph explaining the page)', <ProgressView plan={plan} entries={rich} />,
+    (html) => {
+      const t = text(html)
+      if (/Why these charts|blurb|progress-how/.test(t)) throw new Error('the explanatory blurb is back on Progress')
+      if (/text-transform/.test(t)) throw new Error('small capitals on Progress')
     }],
   // The max hang series has to survive the split: two entries under the old id,
   // one under the new, and one continuous line.
@@ -2342,16 +2503,78 @@ const cases = [
       data: { slot: 'extra', optId: 'repeaters', level: 4, name: 'Repeaters', minutes: 20, done: true,
         out: { rpe: 7, fingers: 3, sets: { repeaters: [{ reps: 12, weight: 18 }] }, signs: { repeaters: '-' } } } },
   ]} />],
-  ['ProgressView(empty)', <ProgressView plan={plan} entries={[]} />],
+  ['ProgressView(empty)', <ProgressView plan={plan} entries={[]} />,
+    (html) => {
+      if (!/class="empty"/.test(html) || !/Nothing logged yet/.test(text(html))) throw new Error('an empty log should say so')
+      if (/proghead/.test(html)) throw new Error('zeros and a period switch over nothing')
+    }],
   ['ProgressView(one point)', <ProgressView plan={plan} entries={rich.slice(0, 3)} />],
+  // A window with nothing in it offers the one way out, as a button.
+  ['ProgressView(nothing in the period offers all time)', <ProgressView plan={plan} entries={[
+    { id: 'old', kind: 'daily', date: '2024-01-08', updatedAt: 'z', data: { optId: 'log-workout', level: 2, done: true, out: { activity: 'run', duration: 30 } } },
+  ]} />,
+    (html) => {
+      const t = text(html)
+      if (!/Nothing logged in these weeks/.test(t)) throw new Error('an empty period should say so')
+      if (!/class="btn secondary"[^>]*>Show all time</.test(t)) throw new Error('no way out of an empty period')
+    }],
+  // Review of #46: the y-axis gutter is sized from its widest label, so "3000"
+  // keeps its first digit, and a count axis never ticks at 0.5.
+  ['ProgressView(axis numbers fit, counts tick in whole numbers)', <ProgressView plan={plan} entries={[...rich,
+    ...[0, 1, 2, 3].map(i => ({ id: `big${i}`, kind: 'daily', date: isoShift(TODAY, -i), updatedAt: 'z',
+      data: { optId: 'log-workout', level: 2, done: true, out: { activity: 'run', duration: 300, rpe: 9 } } }))]} />,
+    (html) => {
+      const t = text(html)
+      const chart = (title) => t.slice(t.indexOf(`>${title}</h3>`), t.indexOf('</svg>', t.indexOf(`>${title}</h3>`)))
+      const effort = chart('Effort per week')
+      const ticks = [...effort.matchAll(/text-anchor="end" class="viz-tick">([^<]+)</g)].map(m => m[1])
+      const widest = Math.max(...ticks.map(x => x.length))
+      const padL = Number(effort.match(/<line x1="([\d.]+)"/)?.[1])
+      if (widest < 4) throw new Error(`expected a four-digit effort axis, got ${ticks}`)
+      if (!(padL >= widest * 6.6 + 12)) throw new Error(`a ${widest}-digit label in a ${padL}px gutter is clipped`)
+      for (const title of ['Workouts per week', 'Hard finger days per week']) {
+        const c = chart(title)
+        if (!c) throw new Error(`no ${title} chart`)
+        const bad = [...c.matchAll(/text-anchor="end" class="viz-tick">([^<]+)</g)].map(m => m[1]).filter(x => !/^\d+$/.test(x))
+        if (bad.length) throw new Error(`${title} ticks at ${bad}: a count has no fractions`)
+      }
+    }],
+  // Narrowed from the row, the page says so: no chip claims "All", and the
+  // headline names the pick beside a Clear. Unnarrowed, no such line.
+  ['ProgressView(narrowed: the pick is named in the headline, with Clear, and All is not lit)', <ProgressView plan={plan} entries={rich}
+    initialScope={{ category: null, session: 'subthreshold', exercise: null, weeks: null }} />,
+    (html) => {
+      const t = text(html)
+      const scope = t.match(/<div class="proghead-scope">([^]*?)<\/div>/)?.[1] || ''
+      const what = scope.match(/proghead-scope-what">([^<]*)</)?.[1]
+      const picked = t.match(/progpick-value on">([^<]*)</)?.[1]
+      if (!what || what === 'subthreshold' || what !== picked) throw new Error(`the headline does not name the pick: "${what}" vs the row's "${picked}"`)
+      if (!/Clear<\/button>/.test(scope)) throw new Error('no way back from a narrowed page')
+      if (/class="chip on"[^>]*>All</.test(t)) throw new Error('All is lit while one workout is picked')
+    }],
+  ['ProgressView(not narrowed: All lit, no scope line)', <ProgressView plan={plan} entries={rich} />,
+    (html) => {
+      const t = text(html)
+      if (/proghead-scope/.test(t)) throw new Error('a "narrowed to" line over the whole log')
+      if (!/class="chip on"[^>]*>All</.test(t)) throw new Error('All should be lit when nothing is picked')
+    }],
+  // The empty log holds the one button that fills it, when the shell hands it over.
+  ['LogTab(the empty log offers "Log a workout")', <LogTab plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} onLog={noop} />,
+    (html) => {
+      const empty = text(html).match(/<div class="empty">[^]*?<\/div>/)?.[0] || ''
+      if (!/<button type="button" class="btn">Log a workout<\/button>/.test(empty)) throw new Error('the empty log has no way to fill it')
+    }],
+  // Row icons wear the list row's own ink; the accent is the +'s on this screen.
+  ['LogTab(row icons are the row\'s own ink)', <LogTab plan={plan} entries={rich} upsertEntry={noop} deleteEntry={noop} />,
+    (html) => { if (/logrow-ico/.test(html)) throw new Error('a local override is colouring the row icons again') }],
   ['LogTab(a rest day says why)', <LogTab plan={plan} upsertEntry={noop} deleteEntry={noop} entries={[
     { id: 'daily-2026-09-20', kind: 'daily', date: '2026-09-20', updatedAt: 'z',
       data: { slot: 'main', optId: 'off', level: 1, name: 'Rest day', minutes: 0, done: true,
         out: { why: 'travel', notes: 'Flight to Denver' } } }]} />,
     (html) => {
       const t = text(html)
-      if (!t.includes('Travelling')) throw new Error('the reason is not on the log card')
-      if (!t.includes('Flight to Denver')) throw new Error('the note is not on the log card')
+      if (!t.includes('Travelling')) throw new Error('the reason is not on the log row')
+      if (!t.includes('Flight to Denver')) throw new Error('the note is not on the log row')
     }],
   ['starter: LogTab', <LogTab plan={starter} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
   ['starter: ProgressView', <ProgressView plan={starter} entries={[]} />],
@@ -2539,6 +2762,9 @@ const cases = [
           if (tags !== 1) throw new Error(`expected one likely tag, got ${tags}`)
           const climbFirst = t2.indexOf('rock-climbing') < t2.indexOf('Weightlifting')
           if (!climbFirst) throw new Error('the overlapping workout should rank first')
+          // Why, as text on the row: a tooltip is invisible on a phone.
+          if (!/class="list-row-meta wh-why">Overlaps this session by \d+ min</.test(html)) throw new Error('the reason for Likely is not on the row')
+          if (/class="wh-tag" title=/.test(html)) throw new Error('the reason went back into a tooltip')
           // Heart rate against their own max, and the partial recording called out.
           if (!/avg 132 \(68%\)/.test(t2)) throw new Error('no percentage of max heart rate')
           if (!/26 min zone 3\+/.test(t2)) throw new Error('hard minutes missing')
@@ -2557,6 +2783,8 @@ const cases = [
           if (t2.indexOf('rock-climbing') > t2.indexOf('Weightlifting')) {
             throw new Error('the mismatched sport should sink below the climb')
           }
+          // The sport decided it, so that is the reason given, not "the only workout today".
+          if (!/The only workout of this sport today/.test(t2)) throw new Error('the reason does not name the sport')
           if ((html.match(/>Attach</g) || []).length !== 2) throw new Error('both should still be attachable')
         }],
       // Two climbs is ambiguous again, and the app goes quiet rather than guessing.
@@ -2734,6 +2962,7 @@ const cases = [
               const tags = (html.match(/class="wh-tag"/g) || []).length
               if (tags !== 1) throw new Error(`expected one likely tag, got ${tags}`)
               const t2 = text(html)
+              if (!/The sport you picked/.test(t2)) throw new Error('the reason for Likely is not on the row')
               if (t2.indexOf('Towpath') > t2.indexOf('Evening walk')) throw new Error('the ride should rank first')
             }],
           ['Strava(attached, with laps and the bike)', acts({ activity: 'bike', duration: 82, distance: 18.3, strava: {
@@ -3297,6 +3526,20 @@ const cases = [
         if (!/About Sam/.test(t)) throw new Error('no way to edit Sam\'s About you')
         if (!/Everything you change here goes in Sam’s log/.test(t)) throw new Error('the week does not say whose log a change goes in')
         if (/What is on Sam/.test(t)) throw new Error('the old paragraph is back')
+      }],
+      ['DayHead(an empty day says "Nothing" the same way, today included)', null, () => {
+        const head = (props) => text(renderToString(<DayHead date={TODAY} {...props} />)).replace(/<[^>]+>/g, '')
+        if (!/Nothing$/.test(head({ empty: true }))) throw new Error('an empty day does not say "Nothing"')
+        if (!/Today · Nothing$/.test(head({ today: true, empty: true }))) throw new Error(`an empty today reads: ${head({ today: true, empty: true })}`)
+        if (/Nothing/.test(head({ today: true })) || !/Today$/.test(head({ today: true }))) throw new Error('today with something on it says "Nothing"')
+        if (/Nothing|Today/.test(head({}))) throw new Error('a day with something on it has a note')
+        if (/Nothing on today/.test(readFileSync(new URL('./src/trainer.jsx', import.meta.url), 'utf8'))) throw new Error('the separate "Nothing on today." line is back')
+      }],
+      ['WithControl(the × that takes someone off is a 44px target)', null, () => {
+        const css = readFileSync(new URL('./src/css/people.css', import.meta.url), 'utf8')
+        const x = (css.match(/\.personchip-x \{[^}]*\}/) || [''])[0]
+        if (!/width: var\(--tap\)/.test(x) || !/height: var\(--tap\)/.test(x)) throw new Error(`the × is smaller than 44px: ${x}`)
+        if (!/\.withrow \.personchip\.on \{[^}]*min-height: var\(--tap\)/.test(css)) throw new Error('the chip does not grow to hold a 44px ×')
       }],
       ['people.css(no small capitals, and every font size on the type scale)', null, () => {
         const css = readFileSync(new URL('./src/css/people.css', import.meta.url), 'utf8')

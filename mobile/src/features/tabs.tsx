@@ -17,7 +17,7 @@ import { SessionLog, PriorNote, DetailsSheet } from './sessionlog'
 import { restStats } from '../lib/stats.js'
 import { totalSets } from './setlog'
 import { liftsLine } from '../lib/lifts.js'
-import { pushToast } from '../lib/toast'
+import { pushToast, dismissToast } from '../lib/toast'
 import { localIso, fromIso } from '../lib/dates.js'
 import { isDone, extraEntryId, doneWhenPlaced, markDone } from '../lib/store.js'
 import { testEntryFor, testEntryId, testFor } from '../lib/tests.js'
@@ -238,7 +238,9 @@ export function TodayTab({
     const name = opt ? _titleFor(opt, entry.data?.out, entry.data?.plan) : entry.data?.name
     pushToast(name ? `Removed ${name}` : 'Removed', 'info', {
       duration: 6000,
-      action: { label: 'Undo', onClick: () => {
+      // `icon: null`: ToastHost's only glyph is Retry's arrow forward, wrong for a
+      // step back, so Undo is the word alone until the host draws `action.icon`.
+      action: { label: 'Undo', icon: null, onClick: () => {
         upsertEntry(live(entry))
         if (result) upsertEntry(live(result))
       } },
@@ -422,6 +424,16 @@ export { nameFor }
 /* Lives in lib/minutes.js now — the input to the training-load chart. */
 export { minutesFor }
 
+/**
+ * "1 exercise · 3 sets · about 45 min · with Sam" that wraps only BETWEEN its
+ * pieces: the spaces inside a piece, and before each dot, are non-breaking (the
+ * web's `.meta-bit`), so a long line reads as two tidy lines, never "45 / min".
+ */
+const metaText = (bits: (string | null | undefined)[]) => {
+  const parts = bits.filter(Boolean).flatMap((b) => String(b).split(' · '))
+  return parts.map((p, i) => p.replace(/ /g, '\u00a0') + (i < parts.length - 1 ? '\u00a0·' : '')).join(' ')
+}
+
 /** What a row's leading icon says: done, in progress, or not (yet). */
 const ROW_STATE: Record<string, { icon: string; label: string; color: string }> = {
   done: { icon: 'CircleCheck', label: 'Done', color: colors.good },
@@ -460,7 +472,7 @@ function DayList({ rows, onOpen, isFuture, viewIso, onLog = null, onRest = null,
             <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
               <T size={font.body} weight={500} numberOfLines={1}
                 color={r.state === 'open' ? colors.inkDim : colors.ink}>{r.name}</T>
-              {r.meta ? <T size={font.small} dim tabular numberOfLines={1}>{r.meta}</T> : null}
+              {r.meta ? <T size={font.small} dim tabular numberOfLines={2}>{r.meta}</T> : null}
             </View>
             <Icon name="ChevronRight" size={16} color={colors.inkFaint} />
           </Press>
@@ -634,11 +646,14 @@ export function SessionSheet({
   const setSync = (person: any, v: boolean) => onSaveEntry?.(withSync(latestEntry.current, person.id, v))
   const copyMine = () => { setDirty(true); theirs.update((cur: any) => copyExercises(cur, latestEntry.current)) }
 
-  /* A write to their log that did not land says so, with the way to send it again. */
+  /* A write to their log that did not land says so, with the way to send it again.
+     It stays only while it is true: the cleanup takes it down when the error
+     clears (a later write landed) and when the sheet closes. */
   useEffect(() => {
-    if (!theirs.error || !/^Not saved/.test(theirs.error)) return
-    pushToast(theirs.error, 'error', { duration: 0,
+    if (!theirs.error || !/^Not saved/.test(theirs.error)) return undefined
+    const id = pushToast(theirs.error, 'error', { duration: 0,
       action: { label: 'Retry', onClick: () => theirs.update((cur: any) => cur) } })
+    return () => { if (id != null) dismissToast(id) }
   }, [theirs.error])
 
   /*
@@ -649,10 +664,10 @@ export function SessionSheet({
    */
   const out = entry?.data?.out
   const timed = planned && (minutesSourceOf as any)(opt, out) !== 'estimate' ? `${_minutesFor(opt, out)} min` : null
-  const subLine = [
+  const subLine = metaText([
     entry?.date ? dayWords(entry.date) : null,
     timed || (pres ? prescriptionLine(pres) : null),
-  ].filter(Boolean).join(' · ')
+  ])
 
   /*
    * The footer (docs/DESIGN.md "Session sheet"). Every field saves as typed, so
@@ -935,7 +950,7 @@ function DaySessions({
   const metaFor = (entry: any, opt: any) => {
     const out = entry.data?.out || {}
     const me = currentMe()
-    if (isRunning(entry)) return [runLine(entry), (withLine as any)(entry, me.people)].filter(Boolean).join(' · ')
+    if (isRunning(entry)) return metaText([runLine(entry), (withLine as any)(entry, me.people)])
     const bits: (string | null)[] = []
     if (!isDone(entry)) bits.push(viewIso > localIso() ? 'Planned' : 'Not done')
     if (opt.role === 'rest') bits.push(...(restStats as any)(entry, opt))
@@ -950,7 +965,7 @@ function DaySessions({
     }
     // "with Sam" (lib/shared.js), or "planned by Alex" (lib/trainer.js).
     bits.push((withLine as any)(entry, me.people), plannedLine(entry, me))
-    return bits.filter(Boolean).join(' · ')
+    return metaText(bits)
   }
 
   const rowFor = (entry: any, opt: any) => ({

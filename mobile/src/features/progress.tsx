@@ -8,20 +8,23 @@
  * mean something for that — see lib/metrics.js, where each one declares when it
  * applies. Climbing charts come LAST (issue #31): a workout log first.
  *
+ * Wave 2 (issue #43): the page LEADS with the answer, workouts and time for the
+ * period, in one card with the period under them; categories are chips only
+ * when there is more than one; "Just one thing" is a row that opens a list. The
+ * paragraph explaining why these charts and not others went.
+ *
  * Everything here is presentation. The filter is `lib/scope.js` and the charts
  * are `lib/metrics.js`, both pure and tested as arithmetic on the web.
  */
 import React, { useMemo, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
-import { colors } from '../theme'
+import { colors, font, space } from '../theme'
 import { T } from '../ui/Text'
-import { Card, H2, Press, Sub, s as kit } from '../ui/kit'
+import { Btn, Card, Chip, Divider, Empty, H2, Row, Segmented } from '../ui/kit'
 import { showMenu } from '../ui/menu'
-import { Icon } from '../lib/icons'
-import { LineChart, BarChart, StatTile, SERIES } from '../lib/viz'
-import { Blurb } from './blurb'
+import { LineChart, BarChart, SERIES } from '../lib/viz'
 import { localIso } from '../lib/dates.js'
-import { EMPTY_SCOPE, resolveScope, scopeOptions, describeScope } from '../lib/scope.js'
+import { EMPTY_SCOPE, resolveScope, scopeOptions } from '../lib/scope.js'
 import { metricsFor, totalsFor } from '../lib/metrics.js'
 
 const RANGES = [
@@ -30,20 +33,19 @@ const RANGES = [
   { weeks: 26, label: '6 mo' },
   { weeks: null, label: 'All' },
 ]
+const rangeKey = (weeks: number | null) => (weeks == null ? 'all' : String(weeks))
 
-const GROUP_ICON: Record<string, string> = {
-  Volume: 'Layers',
-  Distance: 'Route',
-  Climbing: 'Mountain',
-  Strength: 'Dumbbell',
-  Effort: 'HeartPulse',
-  'This session': 'FlaskConical',
+/** Minutes as the headline says them: "45 min", "4.5 h", "28 h". */
+function timeLabel(minutes: number) {
+  const m = Math.round(Number(minutes) || 0)
+  if (m < 60) return { value: String(m), unit: 'min' }
+  const h = m / 60
+  return { value: String(h < 10 ? Math.round(h * 10) / 10 : Math.round(h)), unit: 'h' }
 }
 
-export function ProgressView({ plan, entries }: any) {
+export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }: any) {
   const today = (localIso as any)()
-  const [scope, setScope] = useState<any>(EMPTY_SCOPE)
-  const [tilesW, setTilesW] = useState(0)
+  const [scope, setScope] = useState<any>(initialScope)
 
   /*
    * The options come from the WHOLE log, not from the current window. Otherwise
@@ -63,6 +65,16 @@ export function ProgressView({ plan, entries }: any) {
 
   const set = (patch: any) => setScope((sc: any) => ({ ...sc, ...patch }))
   const narrowed = Boolean(scope.category || scope.session || scope.exercise)
+  const clear = () => setScope((sc: any) => ({ ...EMPTY_SCOPE, weeks: sc.weeks }))
+  // What the numbers are OF, in words, whenever it is not everything, beside the
+  // way back, so a page narrowed from a row further down never passes for the whole log.
+  const named = (list: any[], v: any) => (list || []).find((o: any) => o.value === v)?.label || v
+  const narrowedTo = [
+    scope.category && named(options.categories, scope.category),
+    scope.session && named(options.sessions, scope.session),
+    scope.exercise && named(options.exercises, scope.exercise),
+  ].filter(Boolean).join(' · ')
+  const loggedAny = options.sessions.length > 0
 
   // Bodyweight is not a workout, so it is not in the scope — but it is the one
   // series worth seeing next to the volume, and it belongs to no filter.
@@ -71,191 +83,131 @@ export function ProgressView({ plan, entries }: any) {
     .map((e: any) => ({ x: e.date, y: Number(e.data.lb) }))
     .sort((a: any, b: any) => String(a.x).localeCompare(String(b.x))), [entries])
 
-  // .tiles: auto-fit columns of at least 132pt, which is two on a phone.
-  const cols = tilesW ? Math.max(1, Math.floor((tilesW + 10) / (132 + 10))) : 2
-  const tileW = tilesW ? (tilesW - 10 * (cols - 1)) / cols : undefined
-  const tile = (key: string, el: React.ReactNode) => (
-    <View key={key} style={{ width: tileW ?? '47%' }}>{el}</View>
-  )
+  if (!loggedAny) {
+    return (
+      <Empty icon="Gauge">
+        <T size={font.body} dim align="center">Nothing logged yet</T>
+        <T size={font.small} dim align="center">Log a workout and your weeks show up here.</T>
+      </Empty>
+    )
+  }
+
+  const time = timeLabel(totals.minutes)
+  const extra = [
+    `${totals.days} day${totals.days === 1 ? '' : 's'}`,
+    totals.miles > 0 ? `${totals.miles} mi` : null,
+    totals.yards > 0 ? `${totals.yards.toLocaleString()} yd swum` : null,
+  ].filter(Boolean).join(' · ')
 
   return (
     <>
-      <Card style={{ paddingBottom: 6 }}>
-        <View style={st.scopeHead}>
-          <H2 style={{ marginBottom: 12, flex: 1 }}>{(describeScope as any)({ plan, scope, options })}</H2>
-          {narrowed && (
-            <Press haptic onPress={() => setScope((sc: any) => ({ ...EMPTY_SCOPE, weeks: sc.weeks }))}
-              accessibilityRole="button" style={st.clear} hitSlop={10}>
-              <Icon name="X" size={13} color={colors.inkFaint} />
-              <T size={12} faint>Clear</T>
-            </Press>
-          )}
-        </View>
-
-        <ScopeRow label="Category" options={options.categories} value={scope.category}
-          onPick={(v: any) => set({ category: v, session: null, exercise: null })} />
-
-        <ScopePick label="Just one thing" options={options.sessions} value={scope.session}
-          onPick={(v: any) => set({ session: v, exercise: null })} all="Any workout" />
-
-        {options.exercises.length > 0 && (
-          <ScopePick label="One lift" options={options.exercises} value={scope.exercise}
-            onPick={(v: any) => set({ exercise: v })} all="Any exercise" />
-        )}
-
-        <View style={st.row}>
-          <T size={11} faint caps style={st.rowLabel}>Since</T>
-          <View style={st.opts}>
-            {RANGES.map(r => (
-              <ChipBtn key={r.label} on={scope.weeks === r.weeks} label={r.label}
-                onPress={() => set({ weeks: r.weeks })} />
-            ))}
+      <Card>
+        {narrowed ? (
+          <View style={st.scope}>
+            <T size={font.body} weight={600} numberOfLines={1} style={{ flex: 1 }}>{narrowedTo}</T>
+            <Btn kind="quiet" small icon="X" title="Clear" onPress={clear} />
+          </View>
+        ) : null}
+        <View style={st.nums}>
+          <View style={st.num}>
+            <T size={font.display} weight={600} lineHeight={40} tabular>{String(totals.sessions)}</T>
+            <T size={font.small} dim>{totals.sessions === 1 ? 'Workout' : 'Workouts'}</T>
+          </View>
+          <View style={st.num}>
+            <T size={font.display} weight={600} lineHeight={40} tabular>
+              {time.value}<T size={font.body} dim>{` ${time.unit}`}</T>
+            </T>
+            <T size={font.small} dim>Time</T>
           </View>
         </View>
+        {totals.sessions > 0 ? <T size={font.small} dim style={{ marginTop: space[2] }}>{extra}</T> : null}
+        <Segmented
+          style={st.seg}
+          value={rangeKey(scope.weeks)}
+          onChange={(v) => set({ weeks: RANGES.find(r => rangeKey(r.weeks) === v)!.weeks })}
+          options={RANGES.map(r => ({ value: rangeKey(r.weeks), label: r.label }))}
+        />
+      </Card>
+
+      {options.categories.length > 1 && (
+        <View style={st.cats}>
+          {/* "All" is lit only when nothing is narrowed. */}
+          <Chip small label="All" on={!narrowed} onPress={clear} />
+          {options.categories.map((o: any) => (
+            <Chip key={o.value} small label={o.label} on={scope.category === o.value}
+              onPress={() => set({ category: scope.category === o.value ? null : o.value, session: null, exercise: null })} />
+          ))}
+        </View>
+      )}
+
+      <Card style={st.picks}>
+        <ScopePick label="Just one thing" options={options.sessions} value={scope.session}
+          onPick={(v: any) => set({ session: v, exercise: null })} all="Any workout" />
+        {options.exercises.length > 0 && (
+          <>
+            <Divider />
+            <ScopePick label="One lift" options={options.exercises} value={scope.exercise}
+              onPick={(v: any) => set({ exercise: v })} all="Any exercise" />
+          </>
+        )}
       </Card>
 
       {resolved.isEmpty ? (
-        <Card>
-          <H2>Nothing here</H2>
-          <Sub style={{ margin: 0 }}>
-            {'No workouts match that. '}
-            {scope.weeks
-              ? <>Try <T size={13} weight={700}>All</T> for the range, or clear a filter.</>
-              : 'Clear a filter to widen it.'}
-          </Sub>
-        </Card>
+        <Empty>
+          <T size={font.body} dim align="center">{narrowed ? 'Nothing logged for that' : 'Nothing logged in these weeks'}</T>
+          {narrowed
+            ? <Btn kind="secondary" title="Show everything" onPress={clear} />
+            : <Btn kind="secondary" title="Show all time" onPress={() => set({ weeks: null })} />}
+        </Empty>
       ) : (
-        <>
-          <View style={st.tiles} onLayout={(e) => setTilesW(e.nativeEvent.layout.width)}>
-            {tile('w', <StatTile icon="Flame" label="Workouts" value={totals.sessions}
-              sub={`${totals.days} day${totals.days === 1 ? '' : 's'}`} />)}
-            {tile('h', <StatTile icon="Timer" label="Hours" value={totals.hours} />)}
-            {totals.miles > 0 && tile('m', <StatTile icon="Route" label="Miles" value={totals.miles} />)}
-            {totals.yards > 0 && tile('y', <StatTile icon="Waves" label="Yards swum" value={totals.yards} />)}
-            {tile('l', <StatTile icon="Gauge" label="Load" value={totals.load.toLocaleString()}
-              sub="RPE × minutes" />)}
-          </View>
-
-          {groups.map((g: any) => (
-            <Card key={g.name}>
-              <View style={st.h2Row}>
-                <Icon name={GROUP_ICON[g.name] || 'Gauge'} size={16} />
-                <H2 style={{ marginBottom: 0 }}>{g.name}</H2>
+        groups.map((g: any) => (
+          <Card key={g.name}>
+            <H2 style={{ marginBottom: space[3] }}>{g.name}</H2>
+            {g.metrics.map((m: any, i: number) => (
+              <View key={m.key} style={i > 0 ? st.metricNext : null}>
+                {/* One series per chart, so one colour: a colour that changed from
+                    chart to chart would claim a difference that is not there. */}
+                {m.kind === 'bar'
+                  ? <BarChart bars={m.points} label={m.label} help={m.help} unit={m.unit || ''}
+                      refLine={m.ref} refLabel={m.refLabel} color={SERIES[0]} />
+                  : <LineChart points={m.points} label={m.label} help={m.help} unit={m.unit || ''}
+                      fmtY={m.fmtY} noisePct={m.noisePct} color={SERIES[0]} />}
               </View>
-              {g.metrics.map((m: any, i: number) => (
-                <View key={m.key} style={i > 0 ? st.metricNext : null}>
-                  {m.help ? <Sub size={12} style={st.help}>{m.help}</Sub> : null}
-                  {m.kind === 'bar'
-                    ? <BarChart bars={m.points} label={m.label} unit={m.unit || ''}
-                        refLine={m.ref} refLabel={m.refLabel}
-                        color={SERIES[i % SERIES.length]} />
-                    : <LineChart points={m.points} label={m.label} unit={m.unit || ''}
-                        fmtY={m.fmtY} noisePct={m.noisePct}
-                        color={SERIES[i % SERIES.length]} />}
-                </View>
-              ))}
-            </Card>
-          ))}
-        </>
+            ))}
+          </Card>
+        ))
       )}
 
       {bw.length > 1 && !narrowed && (
         <Card>
-          <View style={st.h2Row}>
-            <Icon name="PersonStanding" size={16} />
-            <H2 style={{ marginBottom: 0 }}>Bodyweight</H2>
-          </View>
-          <Sub size={12} style={st.help}>
-            Not a workout, so no filter touches it — but it is what half the other
-            numbers get divided by.
-          </Sub>
-          <LineChart points={bw} label="Bodyweight" unit=" lb" color={SERIES[2]} />
+          <H2 style={{ marginBottom: space[3] }}>Body</H2>
+          <LineChart points={bw} label="Bodyweight" unit=" lb" color={SERIES[0]} />
         </Card>
       )}
-
-      <Blurb id="progress-how" title="Why these charts and not others" tone="card">
-        <Sub style={{ margin: 0 }}>
-          Each chart declares when it means anything, and the page draws the ones that do —
-          so filtering to running drops every climbing chart, and filtering to one lift
-          brings up its top set. A line needs two points before it is a trend rather than a
-          dot with an axis. The very specific climbing numbers — critical force, 4×4 rest,
-          straddle reach — are declared by the sessions themselves in{' '}
-          <T size={13} mono style={st.code}>plan.json</T>,
-          and show up under <T size={13} weight={700}>This session</T> when that session is in scope.
-        </Sub>
-      </Blurb>
     </>
   )
 }
 
-/** .chip with a faint count, as the scope rows draw them. */
-function ChipBtn({ on, label, icon, n, onPress }: { on: boolean; label: string; icon?: string; n?: any; onPress: () => void }) {
-  const fg = on ? colors.ink : colors.inkDim
-  return (
-    <Press haptic onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: on }}
-      style={[kit.chip, on && kit.chipOn]}>
-      {icon ? <Icon name={icon} size={13} color={fg} /> : null}
-      <T size={13} color={fg}>
-        {label}
-        {n !== undefined && n !== null ? <T size={13} color={fg} style={{ opacity: 0.5 }}>{` ${n}`}</T> : null}
-      </T>
-    </Press>
-  )
-}
-
-/** A row of chips where one can be on, or none. */
-function ScopeRow({ label, options, value, onPick }: any) {
-  if (!options?.length) return null
-  return (
-    <View style={st.row}>
-      <T size={11} faint caps style={st.rowLabel}>{label}</T>
-      <View style={st.opts}>
-        {options.map((o: any) => (
-          <ChipBtn key={o.value} on={value === o.value} icon={o.icon} label={o.label} n={o.n}
-            onPress={() => onPick(value === o.value ? null : o.value)} />
-        ))}
-      </View>
-    </View>
-  )
-}
-
 /**
- * A select, for the lists that are too long to be chips — as a system action
- * sheet. Twenty-four things logged and two hundred exercises do not fit on a
- * phone as buttons.
+ * "Just one thing" and "One lift": a row that says what is picked and opens the
+ * list as a system action sheet (the web's native select).
  */
 function ScopePick({ label, options, value, onPick, all }: any) {
   if (!options?.length) return null
   const cur = options.find((o: any) => o.value === value)
   const open = () => showMenu([
     { label: all, onPress: () => onPick(null) },
-    ...options.map((o: any) => ({ label: `${o.label} (${o.n})`, onPress: () => onPick(o.value) })),
+    ...options.map((o: any) => ({ label: o.label, onPress: () => onPick(o.value) })),
   ], { title: label })
-  return (
-    <View style={st.row}>
-      <T size={11} faint caps style={st.rowLabel}>{label}</T>
-      <Press onPress={open} accessibilityRole="button" accessibilityLabel={label} style={st.select}>
-        <T size={15} numberOfLines={1} style={{ flex: 1 }}>{cur ? `${cur.label} (${cur.n})` : all}</T>
-        <Icon name="ChevronDown" size={16} color={colors.inkFaint} />
-      </Press>
-    </View>
-  )
+  return <Row label={label} value={cur ? cur.label : all} onPress={open} />
 }
 
 const st = StyleSheet.create({
-  scopeHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 },
-  clear: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  // .scoperow under 520px: the label above its options.
-  row: { gap: 4, paddingVertical: 7, borderTopWidth: 1, borderTopColor: colors.line },
-  rowLabel: { paddingTop: 2 },
-  opts: { flexDirection: 'row', flexWrap: 'wrap', gap: 5 },
-  select: {
-    flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44, paddingHorizontal: 10,
-    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: 10,
-  },
-  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 14 },
-  h2Row: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
-  metricNext: { marginTop: 18, paddingTop: 16, borderTopWidth: 1, borderTopColor: colors.line },
-  help: { marginTop: -2, marginBottom: 8 },
-  code: { backgroundColor: colors.panel2 },
+  scope: { flexDirection: 'row', alignItems: 'center', gap: space[2], marginTop: -space[2], marginRight: -space[3], marginBottom: space[2] },
+  nums: { flexDirection: 'row', gap: space[4] },
+  num: { flex: 1, minWidth: 0, gap: 2 },
+  seg: { marginTop: space[4], marginBottom: 0 },
+  cats: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2], marginBottom: space[3] },
+  picks: { paddingVertical: 0 },
+  metricNext: { marginTop: space[6], paddingTop: space[4], borderTopWidth: 1, borderTopColor: colors.line },
 })

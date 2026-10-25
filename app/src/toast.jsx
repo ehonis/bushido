@@ -32,6 +32,15 @@ export function ToastHost() {
   return <ToastList toasts={toasts} />
 }
 
+/* An action's glyph, as mobile's `ToastAction.icon`: a component (Undo passes
+   lucide's Undo2), null for none, absent for Retry's arrow. */
+function ActionIcon({ icon }) {
+  if (icon === null) return null
+  if (!icon) return <Icon name="RotateCw" size={13} />
+  const Glyph = icon
+  return <Glyph size={13} strokeWidth={1.75} aria-hidden="true" />
+}
+
 /** The toasts themselves, newest first. Pure, so the smoke suite can draw it. */
 export function ToastList({ toasts }) {
   return (
@@ -45,7 +54,7 @@ export function ToastList({ toasts }) {
           {t.action && (
             <button type="button" className="toast-act"
               onClick={() => { const run = t.action.onClick; dismissToast(t.id); run() }}>
-              <Icon name="RotateCw" size={13} /> {t.action.label}
+              <ActionIcon icon={t.action.icon} /> {t.action.label}
             </button>
           )}
           <button type="button" className="toast-x" aria-label="Dismiss" onClick={() => dismissToast(t.id)}>

@@ -57,7 +57,7 @@ export function BlockHead({ icon, title, pulling, onPull }: { icon: string; titl
     <View style={wh.head}>
       <Icon name={icon} size={16} color={colors.series2} />
       <T size={font.body} weight={600} style={{ flex: 1 }} numberOfLines={1}>{title}</T>
-      <Btn kind="quiet" small title={pulling ? 'Refreshing…' : 'Refresh'} disabled={pulling}
+      <Btn kind="quiet" title={pulling ? 'Refreshing…' : 'Refresh'} disabled={pulling}
         onPress={() => { impact(); onPull() }} />
     </View>
   )
@@ -111,17 +111,29 @@ export function OfferRow({ title, lines, likely, likelyWhy, taken, first, action
           <T size={font.body} weight={500} color={taken ? colors.inkDim : colors.ink}>{title}</T>
           {/* The suggestion is marked, not applied: it still takes the tap (§8.2). */}
           {likely ? (
-            <View style={wh.tag} accessibilityLabel={`Likely: ${likelyWhy || ''}`}>
+            <View style={wh.tag}>
               <T size={font.caption} weight={500}>Likely</T>
             </View>
           ) : null}
         </View>
+        {/* Why it is marked: the evidence, said on the row rather than only to VoiceOver (§8.2). */}
+        {likely && likelyWhy ? <T size={font.small} tabular>{likelyWhy}</T> : null}
         {lines}
       </View>
-      <Btn kind="secondary" small title={action} disabled={disabled} onPress={() => { success(); onAttach() }} />
+      <Btn kind="secondary" title={action} disabled={disabled} onPress={() => { success(); onAttach() }} />
     </View>
   )
 }
+
+/**
+ * Why a workout is marked Likely, in the order `rankForSession` (server/whoop.js)
+ * tests its three reasons. Shown as a line on the row, not a tooltip: a phone has
+ * no hover, and a claim the user cannot read is one they cannot argue with.
+ */
+export const likelyWhy = (c: any) => (c.overlapPct >= 50 && c.overlapMin
+  ? `Overlaps this session by ${c.overlapMin} min`
+  : c.sportFit === true ? 'The only workout of this sport today'
+    : 'The only workout WHOOP recorded today')
 
 /** A line under an offer or inside an attached row. */
 export function Line2({ children, warn }: { children: React.ReactNode; warn?: boolean }) {
@@ -248,8 +260,8 @@ function SplitEditor({ snap, onChange, onClear }: { snap: any; onChange: (part: 
       ) : null}
 
       <View style={wh.acts}>
-        {part ? <Btn kind="quiet" small title="Use the whole workout" onPress={onClear} /> : null}
-        <Btn kind="secondary" small title="Save this part" disabled={!computed}
+        {part ? <Btn kind="quiet" title="Use the whole workout" onPress={onClear} /> : null}
+        <Btn kind="secondary" title="Save this part" disabled={!computed}
           onPress={() => computed && onChange(computed)} />
       </View>
     </View>
@@ -393,7 +405,7 @@ export function WhoopWorkouts({ session, entry, entries, onSave }: { session: an
                 </Fold>
 
                 <View style={wh.acts}>
-                  <Btn kind="quiet" small title="Detach" onPress={() => detach(snap)} />
+                  <Btn kind="quiet" title="Detach" onPress={() => detach(snap)} />
                 </View>
               </AttachedRow>
             )
@@ -431,7 +443,7 @@ export function WhoopWorkouts({ session, entry, entries, onSave }: { session: an
               return (
                 <OfferRow key={c.workout.id} first={i === 0} title={c.workout.sport}
                   likely={c.likely} taken={Boolean(c.attachedTo)}
-                  likelyWhy={c.overlapMin ? `overlaps this session by ${c.overlapMin} min` : 'the only workout WHOOP recorded on this day'}
+                  likelyWhy={likelyWhy(c)}
                   action={c.attachedTo ? 'Attach here too' : 'Attach'} onAttach={() => attach(c.workout)}
                   lines={[
                     <Line2 key="when">{span(c.workout.start, c.workout.end)}</Line2>,
@@ -752,6 +764,7 @@ export function WhoopSleep({ date }: { date: string }) {
         <View style={wh.sleepHead}>
           <CardTitle style={{ marginBottom: 0 }}>Sleep</CardTitle>
           <Segmented<string>
+            tap
             style={{ marginBottom: 0, minWidth: 180 }}
             value={String(days)}
             onChange={(v) => { setDays(Number(v)); setHover(null) }}

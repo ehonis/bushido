@@ -6,19 +6,22 @@
  * that test. A second way in was a second thing to keep honest. Charts moved to
  * their own tab — they answer a different question.
  *
- * THE FEED IS ONE CARD PER WORKOUT, not one per entry. Bodyweight, notes, tests
- * and skips are all real entries and none of them belongs in a list of things
- * the user did.
+ * THE FEED IS WORKOUTS, not entries. Bodyweight, notes, tests and skips are all
+ * real entries and none of them belongs in a list of things the user did.
+ *
+ * Since wave 2 (issue #43) it is one card per DAY with each workout a row: name,
+ * one line of time and distance, a chevron. The row opens the sheet; gear, effort
+ * and WHOOP/Strava are read there, not repeated on every row.
  *
  * Native: a row swipes left to remove it (through the same confirmation the
  * sheet's bin uses), and tapping opens the session as a page sheet.
  */
 import React, { useMemo, useRef, useState } from 'react'
-import { ScrollView, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable'
-import { colors, mix, radius } from '../theme'
+import { colors, font, radius, space } from '../theme'
 import { T } from '../ui/Text'
-import { Card, H2, Press, Sub, s as kit } from '../ui/kit'
+import { Btn, Chip, Divider, Empty, Press, SectionHeader, s as kit } from '../ui/kit'
 import { Modal } from '../ui/Sheet'
 import { confirm } from '../ui/menu'
 import { impact, tap } from '../ui/haptics'
@@ -30,9 +33,7 @@ import { isDone, isTraining } from '../lib/store.js'
 import { minutesFor } from '../lib/minutes.js'
 import { fromIso, localIso } from '../lib/dates.js'
 import { categoryOf, disciplineOf } from '../lib/category.js'
-import { gearOn, gearUsage } from '../lib/gear.js'
 import { loggedActivity } from '../lib/activities.js'
-import { useStrava } from '../lib/strava.jsx'
 import { titleFor, withCasualName } from '../lib/naming.js'
 import { withLine } from '../lib/shared.js'
 import { plannedLine } from '../lib/trainer.js'
@@ -47,40 +48,50 @@ const fmt1 = (n: number) => Math.round(n * 10) / 10
 const DELETE_LABEL = 'Delete this workout'
 const DELETE_BODY = 'It goes out of the log, out of your training load and off the streak. The measurement it carries goes with it.'
 
-/** A human date that says "today" and "yesterday", because those are most of them. */
+const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/**
+ * A day's header: "Today", "Yesterday", then "Fri 23 Oct" (with the year once it
+ * is not this one). Spelled out by hand so the phone and the web say the same.
+ */
 function dayLabel(iso: string, today: string) {
   if (iso === today) return 'Today'
-  const d = fromIso(iso)
   const y = fromIso(today); y.setDate(y.getDate() - 1)
   if (iso === (localIso as any)(y)) return 'Yesterday'
-  const within = (Date.parse(today) - Date.parse(iso)) / 86400000
-  return d.toLocaleDateString([], within < 300
-    ? { weekday: 'short', month: 'short', day: 'numeric' }
-    : { month: 'short', day: 'numeric', year: 'numeric' })
+  const d = fromIso(iso)
+  const label = `${WEEKDAY[d.getDay()]} ${d.getDate()} ${MONTH[d.getMonth()]}`
+  return d.getFullYear() === fromIso(today).getFullYear() ? label : `${label} ${d.getFullYear()}`
 }
 
 /**
- * The numbers worth putting on a card, in the order they matter for THAT sport.
- * Distance leads for a ride and a run because it is the thing the user'd say
- * out loud; for a lift it is the exercises.
+ * The one line under a workout's name: how long, then how far, as on Today's
+ * rows. Effort is in the sheet; on a row it was a bare "RPE 5".
  */
-function statsOf(entry: any, opt: any, _plan: any) {
+function statsOf(entry: any, opt: any) {
   const out = entry.data?.out || {}
   const st: string[] = []
   const mins = (minutesFor as any)(opt, out)
 
+  if (mins > 0) st.push(`${Math.round(mins)} min`)
   if (Number(out.distance) > 0) st.push(`${fmt1(Number(out.distance))} mi`)
   if (Number(out.poolDistance) > 0) st.push(`${Math.round(Number(out.poolDistance))} yd`)
-  if (mins > 0) st.push(`${Math.round(mins)} min`)
-  if (Number(out.elevation) > 0) st.push(`${Math.round(Number(out.elevation))} ft`)
-  if (Number(out.speed) > 0) st.push(`${fmt1(Number(out.speed))} mph`)
   const lifts = Array.isArray(out.lifts) ? out.lifts.length : 0
   if (lifts) st.push(`${lifts} exercise${lifts === 1 ? '' : 's'}`)
-  if (Number(out.rpe) > 0) st.push(`RPE ${out.rpe}`)
   return st
 }
 
-export function LogTab({ plan, entries, upsertEntry, deleteEntry }: any) {
+/**
+ * What a workout is called on its row. The card's own name is the button that
+ * made it ("Log a workout"), so one with no activity picked yet is a workout.
+ */
+function rowName(opt: any, entry: any) {
+  if (!opt) return entry.data?.name || 'Workout'
+  const name = (titleFor as any)(opt, entry.data?.out, entry.data?.plan)
+  return opt.categoryFrom === 'activity' && name === opt.name ? 'Workout' : name
+}
+
+export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }: any) {
   const today = todayIso()
   const [filter, setFilter] = useState('all')
   /*
@@ -92,13 +103,8 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry }: any) {
   const [openId, setOpenId] = useState<string | null>(null)
   // The details layer, behind the pencil. See DetailsSheet in sessionlog.
   const [editing, setEditing] = useState(false)
-  const { cache: strava } = (useStrava as any)()
 
   const menu = plan?.dailyMenu || []
-  const gearById = useMemo(() => {
-    const rows = plan ? (gearUsage as any)({ plan, entries, strava }) : []
-    return new Map<string, any>(rows.map((r: any) => [r.id, r]))
-  }, [plan, entries, strava])
 
   /*
    * Workouts only, newest first. A logged REST day is kept — "I deliberately did
@@ -114,7 +120,7 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry }: any) {
       return {
         entry: e,
         opt,
-        name: opt ? (titleFor as any)(opt, e.data?.out, e.data?.plan) : (e.data?.name || 'Session'),
+        name: rowName(opt, e),
         icon: act?.icon || opt?.icon || 'Activity',
         category: (categoryOf as any)(e, menu),
         discipline: (disciplineOf as any)(e, menu),
@@ -154,47 +160,43 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry }: any) {
     return [...m.entries()]
   }, [shown])
 
-  const filterChip = (key: string, label: string, n: number) => {
-    const on = filter === key
-    return (
-      <Press key={key} haptic onPress={() => setFilter(key)} accessibilityRole="button"
-        accessibilityState={{ selected: on }} style={[kit.chip, on && kit.chipOn]}>
-        <T size={13} color={on ? colors.ink : colors.inkDim}>
-          {label} <T size={13} color={on ? colors.ink : colors.inkDim} style={{ opacity: 0.55 }}>{String(n)}</T>
-        </T>
-      </Press>
-    )
-  }
+  const catName = (key: string) => cats.find((c: any) => c.key === key)?.name || null
 
   return (
     <>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={st.filters}
-        contentContainerStyle={{ gap: 6 }}>
-        {filterChip('all', 'All', workouts.length)}
-        {cats.map((c: any) => filterChip(c.key, c.name, workouts.filter((w: any) => w.category === c.key).length))}
-      </ScrollView>
-
-      {!workouts.length && (
-        <Card>
-          <H2>Nothing logged yet</H2>
-          <Sub style={{ margin: 0 }}>
-            Everything you finish on the <T size={13} weight={700}>Today</T> tab shows up here, newest
-            first, with what it was done on.
-          </Sub>
-        </Card>
+      {/* "All" and the categories actually logged, wrapping rather than running
+          off the edge. No counts: a number in a chip read as part of its name. */}
+      {cats.length > 1 && (
+        <View style={st.filters}>
+          <Chip small label="All" on={filter === 'all'} onPress={() => setFilter('all')} />
+          {cats.map((c: any) => (
+            <Chip key={c.key} small label={c.name} on={filter === c.key} onPress={() => setFilter(c.key)} />
+          ))}
+        </View>
       )}
 
-      {days.map(([date, list]) => (
-        <View style={st.logday} key={date}>
-          <View style={st.dayHead}>
-            <T size={12} weight={600} faint caps>{dayLabel(date, today)}</T>
-            <T size={12} faint>{`${list.length} workout${list.length === 1 ? '' : 's'}`}</T>
+      {!workouts.length && (
+        <Empty icon="NotebookPen">
+          <T size={font.body} dim align="center">Nothing logged yet</T>
+          <T size={font.small} dim align="center">Workouts you log show up here, newest first.</T>
+          {onLog ? <Btn title="Log a workout" onPress={() => onLog()} /> : null}
+        </Empty>
+      )}
+
+      {/* One card per day, its workouts as rows (wave 2): a row opens the sheet. */}
+      {days.map(([date, list], di) => (
+        <View key={date} style={di > 0 ? st.dayNext : null}>
+          <SectionHeader title={dayLabel(date, today)} style={st.dayHead} />
+          <View style={st.dayCard}>
+            {list.map((w: any, i: number) => (
+              <React.Fragment key={w.entry.id}>
+                {i > 0 ? <Divider /> : null}
+                <LogRow w={w} cat={catName(w.category)}
+                  onOpen={() => { if (w.opt) setOpenId(w.entry.id) }}
+                  onRemove={deleteEntry ? () => deleteEntry(w.entry.id) : null} />
+              </React.Fragment>
+            ))}
           </View>
-          {list.map((w: any) => (
-            <LogRow key={w.entry.id} w={w} plan={plan} gearById={gearById}
-              onOpen={() => { if (w.opt) setOpenId(w.entry.id) }}
-              onRemove={deleteEntry ? () => deleteEntry(w.entry.id) : null} />
-          ))}
         </View>
       ))}
 
@@ -246,75 +248,41 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry }: any) {
   )
 }
 
-/** One workout card; swipes left to reveal Remove. */
-function LogRow({ w, plan, gearById, onOpen, onRemove }: {
-  w: any; plan: any; gearById: Map<string, any>; onOpen: () => void; onRemove: (() => void) | null
+/** One workout row; swipes left to reveal Remove. */
+function LogRow({ w, cat, onOpen, onRemove }: {
+  w: any; cat: string | null; onOpen: () => void; onRemove: (() => void) | null
 }) {
   const ref = useRef<SwipeableMethods>(null)
-  const gear = (gearOn as any)(w.entry) as string[]
-  const out = w.entry.data?.out || {}
-  const muted = w.rest || w.casual
-  const stats: string[] = w.rest ? (restStats as any)(w.entry, w.opt) : statsOf(w.entry, w.opt, plan)
+  const stats: string[] = w.rest ? (restStats as any)(w.entry, w.opt) : statsOf(w.entry, w.opt)
+  // The category only where it says something the name does not.
+  const meta = [
+    !w.rest && cat && cat.toLowerCase() !== String(w.name).toLowerCase() ? cat : null,
+    ...stats,
+    w.casual ? 'just miles' : null,
+  ].filter(Boolean).join(' · ')
+  const people = [w.with, w.by].filter(Boolean).join(' · ')
 
   const remove = async () => {
     const ok = await confirm(`${DELETE_LABEL}?`, { message: DELETE_BODY, confirmLabel: 'Remove' })
     if (ok) { impact(); onRemove?.() } else ref.current?.close()
   }
 
-  const card = (
-    <Press onPress={() => { if (w.opt) { tap(); onOpen() } }} accessibilityRole="button"
-      style={[st.card, w.rest && { opacity: 0.7 }]}>
-      <View style={st.ico}>
-        <Icon name={w.icon} size={18} color={muted ? colors.inkFaint : colors.accent} />
+  const row = (
+    <Press onPress={() => { if (w.opt) { tap(); onOpen() } }} disabled={!w.opt} accessibilityRole="button"
+      accessibilityLabel={[w.name, meta].filter(Boolean).join(', ')} style={[kit.row, st.row]}>
+      {/* The row's own ink, as the kit's Row: the accent is for the + on this screen. */}
+      <Icon name={w.icon} size={20} color={colors.inkDim} />
+      <View style={st.main}>
+        <T size={font.body} weight={500} numberOfLines={1}>{w.name}</T>
+        {meta ? <T size={font.small} dim tabular>{meta}</T> : null}
+        {/* A workout done together, or one the owner planned for this person. */}
+        {people ? <T size={font.caption} dim>{people}</T> : null}
       </View>
-      <View style={st.body}>
-        <View style={st.head}>
-          <T size={15} weight={700}>{w.name}</T>
-          {w.category ? (
-            <T size={10} faint caps>
-              {plan?.quotaCategories?.find((c: any) => c.key === w.category)?.name}
-            </T>
-          ) : null}
-          {w.casual ? <View style={st.casual}><T size={10} faint caps lineHeight={14}>just miles</T></View> : null}
-        </View>
-        {w.with ? (
-          <View style={st.gear}>
-            <Icon name="Users" size={12} color={colors.inkFaint} />
-            <T size={11} faint>{w.with}</T>
-          </View>
-        ) : null}
-        {w.by ? (
-          <View style={st.gear}>
-            <Icon name="ClipboardCheck" size={12} color={colors.inkFaint} />
-            <T size={11} faint>{w.by}</T>
-          </View>
-        ) : null}
-        {stats.length > 0 && (
-          <View style={st.stats}>
-            {stats.map((t, i) => <T key={i} size={13} dim tabular>{t}</T>)}
-          </View>
-        )}
-        {/* What it was done on — the point of attaching gear at all. */}
-        {gear.length > 0 && (
-          <View style={st.gear}>
-            <Icon name="ShoppingBag" size={12} color={colors.inkFaint} />
-            <T size={11} faint style={{ flexShrink: 1 }}>
-              {gear.map((id) => gearById.get(id)?.name || 'gear you deleted').join(' · ')}
-            </T>
-          </View>
-        )}
-        {(out.whoop || out.strava) ? (
-          <View style={st.srcs}>
-            {out.whoop ? <View style={[st.pip, { borderColor: mix(colors.series1, 45, colors.line) }]}><T size={10} dim lineHeight={13}>WHOOP</T></View> : null}
-            {out.strava ? <View style={[st.pip, { borderColor: mix(colors.series2, 45, colors.line) }]}><T size={10} dim lineHeight={13}>Strava</T></View> : null}
-          </View>
-        ) : null}
-      </View>
-      <Icon name="ChevronDown" size={16} color={colors.inkFaint} style={{ marginTop: 3 }} />
+      {w.opt ? <Icon name="ChevronRight" size={16} color={colors.inkFaint} /> : null}
     </Press>
   )
 
-  if (!onRemove) return <View style={{ marginBottom: 8 }}>{card}</View>
+  if (!onRemove) return row
 
   return (
     <ReanimatedSwipeable
@@ -322,37 +290,31 @@ function LogRow({ w, plan, gearById, onOpen, onRemove }: {
       friction={2}
       rightThreshold={40}
       overshootRight={false}
-      containerStyle={{ marginBottom: 8 }}
       renderRightActions={() => (
         <Press onPress={remove} accessibilityRole="button" accessibilityLabel={DELETE_LABEL} style={st.swipeDel}>
           <Icon name="Trash2" size={18} color={colors.bg} />
-          <T size={12} weight={600} color={colors.bg}>Remove</T>
+          <T size={font.caption} weight={600} color={colors.bg}>Remove</T>
         </Press>
       )}
     >
-      {card}
+      {row}
     </ReanimatedSwipeable>
   )
 }
 
 const st = StyleSheet.create({
-  filters: { flexGrow: 0, marginBottom: 12 },
-  logday: { marginTop: 18 },
-  dayHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginHorizontal: 2, marginBottom: 8 },
-  card: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 12,
-    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.md, padding: 16,
+  filters: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2], marginBottom: space[2] },
+  dayNext: { marginTop: space[6] },
+  dayHead: { marginTop: 0 },
+  // .card .list: one card per day, the rows inside it divided by hairlines.
+  dayCard: {
+    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.card,
+    paddingHorizontal: space[4], paddingVertical: space[1],
   },
-  ico: { width: 28, marginTop: 1 },
-  body: { flex: 1, minWidth: 0, gap: 5 },
-  head: { flexDirection: 'row', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' },
-  casual: { borderWidth: 1, borderColor: colors.line, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 },
-  stats: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 10 },
-  gear: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  srcs: { flexDirection: 'row', gap: 4 },
-  pip: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4, borderWidth: 1 },
+  row: { backgroundColor: colors.panel },
+  main: { flex: 1, minWidth: 0, gap: 2 },
   swipeDel: {
-    width: 88, marginLeft: 8, borderRadius: radius.md, backgroundColor: colors.vizCrit,
-    alignItems: 'center', justifyContent: 'center', gap: 4,
+    width: 88, marginLeft: space[2], marginVertical: space[1], borderRadius: radius.control, backgroundColor: colors.vizCrit,
+    alignItems: 'center', justifyContent: 'center', gap: space[1],
   },
 })

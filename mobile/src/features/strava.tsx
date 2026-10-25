@@ -102,6 +102,14 @@ function Laps({ rows, label }: { rows: any[]; label: string }) {
 
 /* ------------------------------------------------------- attach to a session */
 
+/**
+ * Why an activity is marked Likely, in the order `rankForSession` (server/strava.js)
+ * weighs its evidence (strava.jsx `likelyWhy`). Shown on the row, not only to VoiceOver.
+ */
+const likelyWhy = (c: any) => (c.overlapMin > 0
+  ? `Overlaps this session by ${Math.round(c.overlapMin)} min`
+  : c.fit === true ? 'The sport you picked' : 'The only activity on Strava today')
+
 export function StravaActivities({ session, entry, entries, onSave }: { session: any; entry: any; entries?: any[]; onSave: (out: any) => void }) {
   const { cache, status, pulling, error, pull, detail } = useStrava() as any
   const [attaching, setAttaching] = useState<any>(null)
@@ -184,10 +192,10 @@ export function StravaActivities({ session, entry, entries, onSave }: { session:
                 </Line2>
                 <View style={wh.acts}>
                   {snap.url ? (
-                    <Btn kind="quiet" small title="Open on Strava" style={{ marginRight: 'auto' }}
+                    <Btn kind="quiet" title="Open on Strava" style={{ marginRight: 'auto' }}
                       onPress={() => { Linking.openURL(snap.url).catch(() => {}) }} />
                   ) : null}
-                  <Btn kind="quiet" small title="Detach" onPress={() => detach(snap)} />
+                  <Btn kind="quiet" title="Detach" onPress={() => detach(snap)} />
                 </View>
               </AttachedRow>
             )
@@ -222,8 +230,7 @@ export function StravaActivities({ session, entry, entries, onSave }: { session:
               return (
                 <OfferRow key={a.id} first={i === 0} title={a.name || a.sport}
                   likely={c.likely} taken={Boolean(c.attachedTo)}
-                  likelyWhy={c.overlapMin ? `overlaps this session by ${c.overlapMin} min`
-                    : c.fit === true ? 'the sport you picked' : 'the only activity on Strava this day'}
+                  likelyWhy={likelyWhy(c)}
                   action={attaching === a.id ? 'Attaching…' : c.attachedTo ? 'Attach here too' : 'Attach'}
                   disabled={attaching !== null} onAttach={() => attach(a)}
                   lines={[

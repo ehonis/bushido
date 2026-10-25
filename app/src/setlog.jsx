@@ -184,7 +184,7 @@ export function ClimbLog({ count, values, spec, onChange, onMore, what = 'climb'
                 {/* onClick as well as onChange: a tap that lands where the thumb
                     already sits fires no change event, and dead centre — "spot
                     on" — is exactly where an untouched slider sits. */}
-                <input type="range" className="slider" min={FELT_MIN} max={FELT_MAX} step={1}
+                <input type="range" className={`slider ${felt == null ? 'unset' : ''}`} min={FELT_MIN} max={FELT_MAX} step={1}
                   value={felt ?? 0} style={{ '--pct': `${pct}%` }}
                   aria-label={`${where}${what} ${i + 1} felt for the grade`}
                   onChange={e => at(i, { felt: Number(e.target.value) })}

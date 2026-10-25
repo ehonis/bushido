@@ -165,11 +165,17 @@ function Slider({ field, value, onChange, yours = undefined }) {
             placeholder: a guess is never shown as an answer (AGENTS.md §6.4). */}
         <span className={`out-value ${value == null ? 'guess' : ''}`}>{v}</span>
       </div>
+      {/* `unset` draws the track unfilled and the thumb hollow, so an unanswered
+          slider reads as a placeholder too. onClick as well as onChange: a tap on
+          the thumb where it already sits fires no change, and that is how the
+          default gets answered. */}
       <input
         type="range" min={field.min} max={field.max} step={field.step} value={v}
+        aria-label={field.label}
         onChange={e => onChange(Number(e.target.value))}
+        onClick={e => { if (value == null) onChange(Number(e.target.value)) }}
         style={{ '--pct': `${pct}%` }}
-        className="slider"
+        className={`slider ${value == null ? 'unset' : ''}`}
       />
       {field.scale && (
         <div className="out-scale">

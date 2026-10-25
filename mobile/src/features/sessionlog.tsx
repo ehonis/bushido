@@ -179,7 +179,8 @@ function Slider({ field, value, onChange, yours }: any) {
         <T size={17} weight={value == null ? 500 : 600} tabular align="right" style={{ minWidth: 24 }}
           color={value == null ? colors.inkFaint : colors.ink}>{v == null ? '' : String(v)}</T>
       </View>
-      <RangeSlider min={field.min} max={field.max} step={field.step ?? 1} value={v} label={field.label} onChange={onChange} />
+      <RangeSlider min={field.min} max={field.max} step={field.step ?? 1} value={v} label={field.label} onChange={onChange}
+        unset={value == null} />
       {/* On a phone only the two ends of the scale have room. */}
       {scale && scale.length > 0 && (
         <View style={st.scale}>

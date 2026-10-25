@@ -1,17 +1,18 @@
 /*
  * Chart primitives — hand-rolled SVG, no chart library.
  *
- * Colours are the validated dataviz palette stepped for this app's dark surface
- * (#1c1a16): categorical slots 1–3 pass all-pairs CVD and contrast; the 4-step
- * load ramp passes the ordinal gates. Don't substitute hexes without re-running
- * scripts/validate_palette.js — the ordering is the CVD-safety mechanism, not taste.
+ * Colours are the validated dataviz palette stepped for this app's dark panel:
+ * categorical slots 1–3 pass all-pairs CVD and contrast; the 4-step load ramp
+ * passes the ordinal gates. Don't substitute hexes without re-running
+ * `npm --prefix app run palette` — the ordering is the CVD-safety mechanism, not taste.
  *
  * Every chart ships a hover layer and a table view, so identity and value are
- * never carried by colour alone.
+ * never carried by colour alone. A chart's head is its title in plain words, at
+ * most one line under it, then the latest number; text wears ink, never the
+ * series colour (feed.css).
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Icon } from './icons.jsx'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { localIso } from './dates.js'
 
 export const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)']
@@ -29,7 +30,7 @@ function useWidth() {
 }
 
 /** Axis ticks that land on round numbers rather than raw data extremes. */
-function niceScale(min, max, count = 4) {
+function niceScale(min, max, count = 4, integer = false) {
   if (!isFinite(min) || !isFinite(max)) return { lo: 0, hi: 1, ticks: [0, 1] }
   if (min === max) {
     const pad = Math.abs(min) * 0.1 || 1
@@ -38,7 +39,8 @@ function niceScale(min, max, count = 4) {
   const raw = (max - min) / count
   const mag = Math.pow(10, Math.floor(Math.log10(raw)))
   const norm = raw / mag
-  const step = (norm >= 5 ? 10 : norm >= 2 ? 5 : norm >= 1 ? 2 : 1) * mag
+  // A count has no half: a week holds 1 hard day or 2, never 0.5.
+  const step = Math.max((norm >= 5 ? 10 : norm >= 2 ? 5 : norm >= 1 ? 2 : 1) * mag, integer ? 1 : 0)
   const lo = Math.floor(min / step) * step
   const hi = Math.ceil(max / step) * step
   const ticks = []
@@ -46,8 +48,48 @@ function niceScale(min, max, count = 4) {
   return { lo, hi, ticks }
 }
 
-const fmtDate = iso =>
-  new Date(`${iso}T12:00:00`).toLocaleDateString([], { month: 'short', day: 'numeric' })
+/**
+ * The left gutter, sized from the widest tick label rather than fixed: a fixed
+ * 30px cut the first digit off "3000" once the ticks were on --fs-micro.
+ * ~6.6px per character at 11px, plus the 8px gap to the plot.
+ */
+const padFor = (labels, min = 30) =>
+  Math.max(min, Math.ceil(Math.max(0, ...labels.map(l => String(l).length)) * 6.6) + 12)
+
+const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const ISO = /^\d{4}-\d{2}-\d{2}$/
+
+/** "Oct 19". By hand, so the server render and every browser agree. */
+export const fmtDate = iso => {
+  const [, m, d] = String(iso).split('-').map(Number)
+  return `${MONTH[m - 1]} ${d}`
+}
+
+/** A bar's x: a week's Monday reads as "Oct 19"; anything else as it is. */
+const fmtX = x => (ISO.test(String(x)) ? fmtDate(x) : String(x))
+
+/**
+ * Which x labels fit. Raw ISO dates under every bar ran into each other at
+ * phone width ("2026-09-…2026-09-…"); now as many as fit at ~48px apiece,
+ * counted back from the newest so the latest week is always labelled.
+ */
+const labelEvery = (n, innerW) => Math.max(1, Math.ceil(n / Math.max(2, Math.floor(innerW / 48))))
+
+/** The head every chart shares: its title, one line of help, the latest number, the table switch. */
+function VizHead({ label, help, hero, showTable, onTable }) {
+  return (
+    <div className="viz-head">
+      <div className="viz-headmain">
+        <h3 className="viz-title">{label}</h3>
+        {help && <p className="viz-help">{help}</p>}
+        <div className="viz-hero">{hero}</div>
+      </div>
+      <button type="button" className="viz-toggle" onClick={onTable} aria-pressed={showTable}>
+        {showTable ? 'Chart' : 'Table'}
+      </button>
+    </div>
+  )
+}
 
 /* --------------------------------------------------------------- line chart */
 
@@ -65,7 +107,7 @@ const fmtDate = iso =>
  * is not a real step on its scale; that tick keeps its gridline and loses its
  * label, rather than inventing a rung between two rungs.
  */
-export function LineChart({ points, label, unit = '', height = 190, color = SERIES[0], goal, goalLabel = 'goal', noisePct, fmtY }) {
+export function LineChart({ points, label, help, unit = '', height = 190, color = SERIES[0], goal, goalLabel = 'goal', noisePct, fmtY }) {
   const [ref, w] = useWidth()
   const [hover, setHover] = useState(null)
   const [showTable, setShowTable] = useState(false)
@@ -82,9 +124,8 @@ export function LineChart({ points, label, unit = '', height = 190, color = SERI
   const fmt = fmtY || (v => `${v}${unit}`)
   const fmtTick = fmtY || (v => String(v))
 
-  const padL = 42, padR = 16, padT = 14, padB = 26
+  const padR = 16, padT = 14, padB = 26
   const W = Math.max(w, 240)
-  const innerW = Math.max(W - padL - padR, 10)
   const innerH = height - padT - padB
 
   const ys = data.map(d => d.y)
@@ -94,6 +135,8 @@ export function LineChart({ points, label, unit = '', height = 190, color = SERI
   const band = noisePct ? { lo: base * (1 - noisePct / 100), hi: base * (1 + noisePct / 100) } : null
   const domain = [...ys, ...(goal != null ? [goal] : []), ...(band ? [band.lo, band.hi] : [])]
   const { lo, hi, ticks } = niceScale(Math.min(...domain), Math.max(...domain))
+  const padL = padFor(ticks.map(fmtTick), 42)
+  const innerW = Math.max(W - padL - padR, 10)
 
   const xAt = i => padL + (data.length === 1 ? innerW / 2 : (i / (data.length - 1)) * innerW)
   const yAt = v => padT + innerH - ((v - lo) / (hi - lo || 1)) * innerH
@@ -116,37 +159,29 @@ export function LineChart({ points, label, unit = '', height = 190, color = SERI
 
   return (
     <div ref={ref} className="viz">
-      <div className="viz-head">
-        <div>
-          <div className="viz-title">{label}</div>
-          <div className="viz-hero">
-            {fmtY ? fmt(last.y) : last.y}
-            {!fmtY && <span className="viz-unit">{unit}</span>}
-            {delta != null && delta !== 0 && (() => {
-              const real = !noisePct || Math.abs(delta) > (first.y * noisePct) / 100
-              return (
-                <span className={`viz-delta ${real ? (delta > 0 ? 'up' : 'down') : 'noise'}`}>
-                  {delta > 0 ? '▲' : '▼'}{' '}
-                  {fmtY
-                    ? `${fmt(first.y)} → ${fmt(last.y)} since ${fmtDate(first.x)}`
-                    : `${Math.abs(Number(delta.toFixed(1)))}${unit} since ${fmtDate(first.x)}`}
-                  {noisePct && !real && ' · inside noise'}
-                </span>
-              )
-            })()}
-          </div>
-        </div>
-        <button className="viz-toggle" onClick={() => setShowTable(t => !t)} aria-pressed={showTable}>
-          {showTable ? 'chart' : 'table'}
-        </button>
-      </div>
+      <VizHead label={label} help={help} showTable={showTable} onTable={() => setShowTable(t => !t)} hero={<>
+        {fmtY ? fmt(last.y) : last.y}
+        {!fmtY && <span className="viz-unit">{unit}</span>}
+        {delta != null && delta !== 0 && (() => {
+          const real = !noisePct || Math.abs(delta) > (first.y * noisePct) / 100
+          return (
+            <span className={`viz-delta ${real ? (delta > 0 ? 'up' : 'down') : 'noise'}`}>
+              {delta > 0 ? '▲' : '▼'}{' '}
+              {fmtY
+                ? `${fmt(first.y)} → ${fmt(last.y)} since ${fmtDate(first.x)}`
+                : `${Math.abs(Number(delta.toFixed(1)))}${unit} since ${fmtDate(first.x)}`}
+              {noisePct && !real && ' · inside noise'}
+            </span>
+          )
+        })()}
+      </>} />
 
       {showTable ? (
         <table className="viz-table">
           <thead><tr><th>Date</th><th>{label}</th></tr></thead>
           <tbody>
             {[...data].reverse().map(d => (
-              <tr key={d.x}><td className="num">{d.x}</td><td className="num">{fmt(d.y)}</td></tr>
+              <tr key={d.x}><td className="num">{fmtDate(d.x)}</td><td className="num">{fmt(d.y)}</td></tr>
             ))}
           </tbody>
         </table>
@@ -299,46 +334,16 @@ export function LoadCalendar({ days, start, end }) {
   )
 }
 
-/* ------------------------------------------------------------------ tiles */
-
-export function StatTile({ label, value, unit, sub, tone, icon }) {
-  return (
-    <div className={`tile ${tone || ''}`}>
-      <div className="tile-label">
-        {icon && <Icon name={icon} size={12} className="tile-icon" />} {label}
-      </div>
-      <div className="tile-value">{value}<span className="viz-unit">{unit}</span></div>
-      {sub && <div className="tile-sub">{sub}</div>}
-    </div>
-  )
-}
-
-/** Countdown to the trip — the number that makes the block feel real. */
-export function useDaysUntil(dateIso) {
-  const [n, setN] = useState(() => diffDays(dateIso))
-  useEffect(() => {
-    const iv = setInterval(() => setN(diffDays(dateIso)), 60000)
-    return () => clearInterval(iv)
-  }, [dateIso])
-  return n
-}
-
-function diffDays(dateIso) {
-  if (!dateIso) return null
-  const target = new Date(`${dateIso}T12:00:00`)
-  const now = new Date()
-  return Math.ceil((target - now) / 86400000)
-}
-
 /* ------------------------------------------------------------- bar charts */
 
 /**
  * bars: [{ x: label, y: number, tone?: 'ok'|'over'|'under' }]
  * Rounded data-ends anchored to the baseline, 2px surface gap between adjacent
- * bars. `refLine` draws the rule the data is being judged against — e.g. the
- * hard-finger-days-per-week cap.
+ * bars. `refLine` draws the rule the data is being judged against. An x that is
+ * a week's Monday is shown as "Oct 19", and the headline says which week its
+ * number is ("week of Oct 19"), because a bare 5.7 does not.
  */
-export function BarChart({ bars, label, unit = '', height = 170, refLine, refLabel, color = SERIES[0] }) {
+export function BarChart({ bars, label, help, unit = '', height = 170, refLine, refLabel, color = SERIES[0] }) {
   const [ref, w] = useWidth()
   const [hover, setHover] = useState(null)
   const [showTable, setShowTable] = useState(false)
@@ -346,41 +351,38 @@ export function BarChart({ bars, label, unit = '', height = 170, refLine, refLab
   const data = (bars || []).filter(b => Number.isFinite(b.y))
   if (!data.length) return <div className="empty">Nothing logged for {label.toLowerCase()} yet.</div>
 
-  const padL = 30, padR = 12, padT = 12, padB = 24
+  const padR = 12, padT = 12, padB = 24
   const W = Math.max(w, 240)
-  const innerW = Math.max(W - padL - padR, 10)
   const innerH = height - padT - padB
 
   const maxY = Math.max(...data.map(d => d.y), refLine ?? 0)
-  const { lo, hi, ticks } = niceScale(0, maxY || 1, 3)
+  const { lo, hi, ticks } = niceScale(0, maxY || 1, 3, data.every((d) => Number.isInteger(d.y)))
+  const padL = padFor(ticks)
+  const innerW = Math.max(W - padL - padR, 10)
 
   const slot = innerW / data.length
   const bw = Math.max(Math.min(slot - 2, 34), 4) // 2px surface gap between bars
   const yAt = v => padT + innerH - ((v - lo) / (hi - lo || 1)) * innerH
+  const every = labelEvery(data.length, innerW)
+  const last = data.at(-1)
+  const weekly = ISO.test(String(last.x))
 
   return (
     <div ref={ref} className="viz">
-      <div className="viz-head">
-        <div>
-          <div className="viz-title">{label}</div>
-          <div className="viz-hero">
-            {data.at(-1).y}<span className="viz-unit">{unit}</span>
-          </div>
-        </div>
-        <button className="viz-toggle" onClick={() => setShowTable(t => !t)} aria-pressed={showTable}>
-          {showTable ? 'chart' : 'table'}
-        </button>
-      </div>
+      <VizHead label={label} help={help} showTable={showTable} onTable={() => setShowTable(t => !t)} hero={<>
+        {last.y}<span className="viz-unit">{unit}</span>
+        {weekly && <span className="viz-when">week of {fmtDate(last.x)}</span>}
+      </>} />
 
       {showTable ? (
         <table className="viz-table">
-          <thead><tr><th>Week</th><th>{label}</th></tr></thead>
+          <thead><tr><th>{weekly ? 'Week of' : ''}</th><th>{label}</th></tr></thead>
           <tbody>{[...data].reverse().map(d => (
-            <tr key={d.x}><td>{d.x}</td><td className="num">{d.y}{unit}</td></tr>))}</tbody>
+            <tr key={d.x}><td className="num">{fmtX(d.x)}</td><td className="num">{d.y}{unit}</td></tr>))}</tbody>
         </table>
       ) : (
         <svg width="100%" height={height} viewBox={`0 0 ${W} ${height}`} role="img"
-          aria-label={`${label} by week`} onMouseLeave={() => setHover(null)}>
+          aria-label={`${label}, latest ${last.y}${unit}`} onMouseLeave={() => setHover(null)}>
           {ticks.map(t => (
             <g key={t}>
               <line x1={padL} x2={W - padR} y1={yAt(t)} y2={yAt(t)} stroke="var(--viz-grid)" strokeWidth="1" />
@@ -404,101 +406,24 @@ export function BarChart({ bars, label, unit = '', height = 170, refLine, refLab
               <g key={d.x + i} onMouseEnter={() => setHover(i)} onClick={() => setHover(i)}>
                 <rect x={x} y={yAt(d.y)} width={bw} height={h} rx={Math.min(4, bw / 2)} fill={fill}
                   opacity={hover == null || hover === i ? 1 : 0.55} />
-                <rect x={x} y={padT} width={bw} height={innerH} fill="transparent" />
+                {/* The hit target is the whole slot, not the bar: a short bar is still easy to tap. */}
+                <rect x={padL + i * slot} y={padT} width={slot} height={innerH} fill="transparent" />
               </g>
             )
           })}
 
           {data.map((d, i) => (
-            (data.length <= 12 || i % 2 === 0) && (
+            (data.length - 1 - i) % every === 0 && (
               <text key={`l${i}`} x={padL + i * slot + slot / 2} y={height - 7}
-                textAnchor="middle" className="viz-tick">{d.x}</text>
+                textAnchor="middle" className="viz-tick">{fmtX(d.x)}</text>
             )
           ))}
         </svg>
       )}
       <div className="viz-tipline">
-        {hover != null ? `${data[hover].x} — ${data[hover].y}${unit}` : (refLabel || ' ')}
-      </div>
-    </div>
-  )
-}
-
-/**
- * Session mix per week. Stacked, with a 2px surface gap between segments so the
- * boundaries read without relying on colour contrast alone.
- */
-export function StackedBar({ weeks, keys, colors, labels, height = 170 }) {
-  const [ref, w] = useWidth()
-  const [hover, setHover] = useState(null)
-
-  const data = weeks || []
-  if (!data.length) return <div className="empty">No sessions logged yet.</div>
-
-  const padL = 26, padR = 12, padT = 12, padB = 24
-  const W = Math.max(w, 240)
-  const innerW = Math.max(W - padL - padR, 10)
-  const innerH = height - padT - padB
-  const maxY = Math.max(...data.map(d => keys.reduce((s, k) => s + (d[k] || 0), 0)), 1)
-  const { lo, hi, ticks } = niceScale(0, maxY, 3)
-  const slot = innerW / data.length
-  const bw = Math.max(Math.min(slot - 2, 34), 4)
-  const yAt = v => padT + innerH - ((v - lo) / (hi - lo || 1)) * innerH
-
-  return (
-    <div ref={ref} className="viz">
-      <div className="viz-head">
-        <div className="viz-title">Session mix by week</div>
-        <div className="viz-legend">
-          {keys.map((k, i) => (
-            <span key={k} className="lg">
-              <span className="viz-swatch" style={{ background: colors[i] }} />
-              <span className="viz-tick">{labels[i]}</span>
-            </span>
-          ))}
-        </div>
-      </div>
-
-      <svg width="100%" height={height} viewBox={`0 0 ${W} ${height}`} role="img"
-        aria-label="Session mix by week" onMouseLeave={() => setHover(null)}>
-        {ticks.map(t => (
-          <g key={t}>
-            <line x1={padL} x2={W - padR} y1={yAt(t)} y2={yAt(t)} stroke="var(--viz-grid)" strokeWidth="1" />
-            <text x={padL - 7} y={yAt(t) + 4} textAnchor="end" className="viz-tick">{t}</text>
-          </g>
-        ))}
-
-        {data.map((d, i) => {
-          const x = padL + i * slot + (slot - bw) / 2
-          let acc = 0
-          return (
-            <g key={d.label + i} onMouseEnter={() => setHover(i)} onClick={() => setHover(i)}
-              opacity={hover == null || hover === i ? 1 : 0.55}>
-              {keys.map((k, ki) => {
-                const v = d[k] || 0
-                if (!v) return null
-                const y0 = yAt(acc), y1 = yAt(acc + v)
-                acc += v
-                const h = Math.max(y0 - y1 - 2, 1) // 2px surface gap between segments
-                return <rect key={k} x={x} y={y1} width={bw} height={h} rx={Math.min(3, bw / 2)} fill={colors[ki]} />
-              })}
-              <rect x={x} y={padT} width={bw} height={innerH} fill="transparent" />
-            </g>
-          )
-        })}
-
-        {data.map((d, i) => (
-          (data.length <= 12 || i % 2 === 0) && (
-            <text key={`l${i}`} x={padL + i * slot + slot / 2} y={height - 7}
-              textAnchor="middle" className="viz-tick">{d.label}</text>
-          )
-        ))}
-      </svg>
-
-      <div className="viz-tipline">
         {hover != null
-          ? `${data[hover].label} — ` + keys.map((k, i) => `${labels[i]} ${data[hover][k] || 0}`).join(' · ')
-          : 'Hard days are capped at 2 per week.'}
+          ? `${weekly ? `Week of ${fmtX(data[hover].x)}` : fmtX(data[hover].x)}: ${data[hover].y}${unit}`
+          : (refLabel || ' ')}
       </div>
     </div>
   )

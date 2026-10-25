@@ -643,7 +643,9 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
 - **A number the app could guess is a placeholder, never a value.** Estimated duration,
   derived speed, an unanswered slider: pre-filled numbers get confirmed without reading.
   A blank `felt` is unanswered, not "spot on". The exception is the runner, which shows a
-  target the user asked for; the target stays on `data.plan`.
+  target the user asked for; the target stays on `data.plan`. An unanswered slider is
+  drawn as a placeholder too (`.slider.unset`, `RangeSlider unset`): an empty track and a
+  hollow thumb on the default, until it is moved or tapped.
 - **A number box is a text box that owns its text** (`NumInput`). Do not put
   `type="number"` back on a weight box: a controlled numeric input eats the trailing dot
   in "37.". Blank is `null` except in the lift log (`''`). Nothing negative, one dot, comma
@@ -766,10 +768,11 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
 
 - **A chart declares when it applies** (`metrics.js` registry of `{ applies, series }`);
   the page draws whichever apply and have data. Two points minimum for a line.
-- **Groups render in registry order, and Climbing is last.** The headline tiles are
-  workouts, hours, miles, yards and load; hard finger days are a Climbing chart, not a
-  tile. Pinned in `progress.test.js` (`climbing charts come after the general ones`).
-- Training load is sRPE (RPE × minutes), which is why minutes are measured when possible.
+- **Groups render in registry order, and Climbing is last.** The page leads with workouts
+  and time for the period; hard finger days are a Climbing chart. Pinned in
+  `progress.test.js` (`climbing charts come after the general ones`).
+- Charts are titled in plain words ("Effort per week", not "training load"); the effort
+  chart is still sRPE (RPE × minutes), which is why minutes are measured when possible.
 
 ### 6.9 Gear
 
@@ -1132,7 +1135,7 @@ What that means for the code that stays:
   dir. Readers ignore them by `kind`. Settings keys only those features used are dropped
   from `settings.json` on the next save, as any removed setting always was.
 - **Climbing follows, it does not lead.** In Log a workout the sports catalog comes first
-  and the Climbing folders after it; on Progress the tiles are general and the Climbing
+  and the Climbing folders after it; on Progress the headline is general and the Climbing
   group is last. Both are ordered in code, because the owner's plan file is outside the
   repo and cannot be reordered from here.
 - **Navigation is Today, Log, Progress** for everyone (`tabsFor`), and the + offers Log a

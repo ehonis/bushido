@@ -67,6 +67,13 @@
   width: 22px; height: 22px; border-radius: 50%; background: var(--ink);
   border: 3px solid var(--bg); cursor: pointer;
 }
+/* Unanswered (AGENTS.md §6.4): the thumb sits on the default as a placeholder
+   does, so nothing is lit — an empty track and a hollow thumb, until it is moved
+   or tapped. */
+.slider.unset::-webkit-slider-runnable-track { background: var(--panel-2); }
+.slider.unset::-moz-range-progress { background: transparent; }
+.slider.unset::-webkit-slider-thumb { background: var(--panel-3); box-shadow: inset 0 0 0 2px var(--ink-faint); }
+.slider.unset::-moz-range-thumb { background: var(--panel-3); box-shadow: inset 0 0 0 2px var(--ink-faint); }
 .slider:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 6px; }
 
 .out-toggle { display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer; min-height: 40px; }
@@ -512,6 +519,7 @@ button.btn.how-got {
   font-size: var(--fs-body); font-weight: 600; color: var(--ink); line-height: var(--lh-tight);
 }
 .dayswitch-words .sub { font-weight: 400; font-size: var(--fs-caption); }
+.rest-why { margin-bottom: var(--sp-4); }
 .rest-day {
   display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--sp-4);
   font-size: var(--fs-small); color: var(--ink-dim);
@@ -526,6 +534,8 @@ button.btn.how-got {
 .dl-row.s-done .dl-state { color: var(--good); }
 .dl-row.s-running .dl-state { color: var(--ink); }
 .dl-row.s-open .list-row-title { color: var(--ink-dim); }
+/* A meta line (MetaLine) wraps between its pieces, never inside one. */
+.meta-bit { white-space: nowrap; }
 
 /* An empty day: what goes here, then the ways to put it there. */
 .dl-empty { margin-bottom: var(--sp-3); }

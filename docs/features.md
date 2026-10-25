@@ -200,9 +200,9 @@ Strava.
 
 ## The log
 
-Every workout, newest first, grouped by day and filterable by category — with its
-numbers, what it was done on, and which services recorded it. The charts moved to their own
-**Progress** tab; they were never history.
+Every workout, newest first: one card per day ("Fri 23 Oct"), each workout a row with its
+time and distance. Tap a row to open it. Filter by **All** or by any category you have
+logged. The charts moved to their own **Progress** tab; they were never history.
 
 The old climbing-only quick-log (edge mm, added lb, hang seconds) is gone rather than moved:
 bodyweight has its own quick log here, for any date, and writes the same series the
@@ -210,11 +210,12 @@ charts already use; a max hang is logged by the session that *is* that test.
 
 ## Progress
 
-Ask a question first: filter by **category**, **one sport or session**, or **one lift
-exercise**, over 4 weeks / 8 weeks / 6 months / all time. The charts follow — filtering to
-running drops every climbing chart, filtering to bench press brings up its top set and
-volume. The headline tiles are workouts, hours, miles and load, and the **Climbing** group
-comes after Volume, Distance, Strength and Effort: a workout log first.
+It opens on the answer: how many workouts and how much time, over 4 weeks / 8 weeks /
+6 months / all time. Under that, narrow it by **category**, **just one thing** (a sport or
+a session) or **one lift**, and the charts follow — filtering to running drops every
+climbing chart, filtering to bench press brings up its top set. Charts are titled in plain
+words (**Time per week**, **Effort per week**), and the **Climbing** group comes after
+Training, Distance, Strength and Effort: a workout log first.
 
 This replaced about twenty hardcoded charts that were all on screen at once and nineteen of
 which were about climbing. Each chart now declares when it means anything, so the page draws
