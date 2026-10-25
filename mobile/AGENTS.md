@@ -15,7 +15,7 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
 ## How it fits together
 
 - **`src/lib/` is the web's `app/src/lib/`, at the same relative paths, mostly byte for byte.**
-  The pure modules (`store.js`, `quota.js`, `prescription.js`, `recommend.js`, `lifts.js`, …) are
+  The pure modules (`store.js`, `category.js`, `prescription.js`, `fingers.js`, `lifts.js`, …) are
   copied as JavaScript, not rewritten: `tsconfig.json` has `allowJs`. When the web changes one,
   copy it again and re-apply the few native edits, which are all marked in the file:
   - `store.js`: AppState (`lib/foreground.ts`) instead of `visibilitychange`; no hostname handoff.
@@ -23,7 +23,8 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
   - `signout.js`: `confirmFn` may return a promise.
   - Gone on purpose: `push.js` and `handoff.js` (web push and hostname moves have no native meaning).
   - Rewritten for React Native because they render: `icons.tsx` (lucide-react-native, same names),
-    `viz.tsx`, `figures.tsx`, `bodymap.tsx`, `markdown.tsx`, `cues.ts` (haptics for the web's beeps).
+    `viz.tsx`, `figures.tsx`, `bodymap.tsx`, `markdown.tsx` (the planner's reasoning), `cues.ts`
+    (haptics for the web's beeps).
   - `lib/minutes.js`, `unlogged.js`, `whoop.jsx` and `strava.jsx` import `../../../server/whoop.js`
     and `strava.js` exactly as the web does; `metro.config.js` watches `../server` for that, and the
     repo-root `.easignore` uploads those two files with the app.
@@ -46,8 +47,9 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
 - `src/shell/` is the frame: `Screen` (the header with the mark, streak and profile button, and a
   body that clears the dock), `TabBar` (the floating glass capsule, with the + beside it when there
   are four tabs or fewer, `compactDock()`, and above it otherwise), `Overlays`
-  (what the + opens), `reload.ts`, `accessReauth.ts`, `ScreenError`.
-- `src/app/` holds routes only: `(tabs)/` is one file per web tab; `connect.tsx` is sign-in.
+  (what the + opens: Log a workout, Log a rest day, Plan a workout, the interval timer), `reload.ts`, `accessReauth.ts`, `ScreenError`.
+- `src/app/` holds routes only: `(tabs)/` is one file per web tab (`index` is Today, then `log`
+  and `progress`; the web's `tabsFor` decides which show); `connect.tsx` is sign-in.
 - **`src/features/<name>.tsx` is `app/src/<name>.jsx`**, one file per web file, with the same
   export names and the same props. `features/app.tsx` is the components in `App.jsx`;
   `features/screens/` wraps each tab in its frame.
@@ -72,10 +74,13 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
   sheet, a system menu, a swipe, a haptic), not drift. Keep the web's comments that explain *why*,
   shortened if needed; they are the design history.
 - **Logic is not forked.** If the web component computes something, port the computation as is or
-  call the same `lib/` function. Never "simplify" a rule (`isDone`, `optFor`, the finger blocks).
+  call the same `lib/` function. Never "simplify" a rule (`isDone`, `optFor`, `isHardEntry`).
   `isDone` is done once a session's day arrives unless marked undone (`../AGENTS.md` §4);
   write done through `markDone` and new entries through `doneWhenPlaced`, never a raw
   `done:` flag, and gate "Start" on `canStart`, not on `done`.
+- **A removal is ported too.** A feature the web drops goes from `features/`, `features/screens/`,
+  `app/(tabs)/` and `lib/` in the same PR (issue #31 removed the check-in, journal, achievements,
+  goals, quotas and the week planner, and the coach). Old data they wrote stays in the log, unread.
 - **Never hand-draw an icon.** `<Icon name="…">` from `src/lib/icons.tsx` takes the web's lucide
   names. Missing one: add a deep import there after confirming the file exists in
   `node_modules/lucide-react-native/dist/esm/icons/`. Tabler (`@tabler/icons-react-native`, deep

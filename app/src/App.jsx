@@ -1,22 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useStore, doneWhenPlaced } from './lib/store.js'
-import { TodayTab, WeekTab } from './tabs.jsx'
+import { TodayTab } from './tabs.jsx'
 import { LogTab } from './log.jsx'
 import { Icon, BushidoMark, TAB_ICONS } from './lib/icons.jsx'
 import { PrefsProvider } from './lib/prefs.jsx'
 import { WhoopProvider } from './lib/whoop.jsx'
 import { StravaProvider } from './lib/strava.jsx'
 import { ProgressView } from './progress.jsx'
-import { AchievementsTab } from './achievements.jsx'
-import { TotemGoals } from './goals.jsx'
 import { localIso, fromIso } from './lib/dates.js'
 import { streakDays } from './lib/streak.js'
 import { ProfileMenu } from './profile.jsx'
 import { PlanProvider } from './lib/planctx.jsx'
-import { CoachProvider } from './lib/coachapi.jsx'
-import { CoachTab, CoachBubble } from './coach.jsx'
 import { PlanFlow } from './planner.jsx'
-import { WeekPlanFlow } from './weekplanner.jsx'
 import { splitPrescription } from './lib/prescription.js'
 import { ActivityChooser, activityFieldOf } from './picker.jsx'
 import { outWith } from './lib/unlogged.js'
@@ -28,44 +23,23 @@ import { currentMe, actAs } from './lib/whoami.js'
 import { TimerHost, openTimer } from './timer.jsx'
 
 /*
- * Four tabs, down from six on 2026-09-15.
- *
- * Gear, Testing and Why all moved under the profile. None of them is touched
- * mid-session — they are reference, not doing — and all three were taking room in
- * a bottom bar used one-handed with chalk on it. What is left is the four screens
- * a session actually passes through.
- */
-/*
- * The bar scrolls horizontally, which is what lets there be seven of these on a
- * phone. Order is roughly by how often a session touches them: Today and Week are
- * the two you open mid-workout, Log and Progress after, and the last three are
- * things you sit down with.
- *
- * ACHIEVEMENTS and GOALS are deliberately two tabs and not one. They are the two
- * things this app calls a target and they are genuinely different — an
- * achievement is open-ended and lives here; a Totem goal is a week or a quarter
- * with metrics that expire and lives there. Putting them under one heading would
- * undo the rename that separated them.
+ * Three tabs, since 2026-10-25 (issue #31): Today, Log, Progress. Bushido is a
+ * workout log, and those are the three things a log is for: what is on the day,
+ * what was done, and how it is going. Week went with the quotas, and
+ * Achievements, Goals and Coach went because they were not used. Gear, Testing
+ * and Why live under the profile: reference, not doing.
  */
 const TABS = [
   { id: 'today', label: 'Today' },
-  { id: 'week', label: 'Week' },
   { id: 'log', label: 'Log' },
   { id: 'progress', label: 'Progress' },
-  { id: 'achievements', label: 'Achievements' },
-  { id: 'goals', label: 'Goals' },
-  { id: 'coach', label: 'Coach' },
 ]
 
 /*
- * What this person's app offers (lib/whoami.js). The coach is the owner's for
- * now, and linked goals come from the owner's Totem; for anyone else those tabs
- * are not there at all, rather than there and saying "not set up".
+ * What this person's app offers. Every tab is everyone's now; the signature
+ * stays because callers (and the iPhone app) still pass features and ownership.
  */
-export const tabsFor = (features, owner = true) => TABS.filter(t =>
-  (t.id !== 'coach' || features?.ai !== false) &&
-  // The owner keeps the tab with no bridge: it is where the app says how to set one up.
-  (t.id !== 'goals' || owner || features?.goals))
+export const tabsFor = () => TABS
 
 /**
  * Says whose log is open when the owner is acting as someone else, on every
@@ -97,9 +71,8 @@ export function ActingBanner({ me }) {
  * write down, or one you have already done? "Pick a session" came back the same
  * day because twenty-one climbing cards had no other door, and went again on
  * 2026-10-14 when those cards moved into Log a workout as the Bouldering and Rock
- * climbing folders (see lib/folders.js). "Plan the week" arrived on 2026-09-19 —
- * the quotas the whole screen is measured against had steppers on the Week tab
- * and nothing to talk to.
+ * climbing folders (see lib/folders.js). "Plan the week" went with the quotas
+ * on 2026-10-25.
  *
  * A sheet from the bottom on a phone, because the button is at the bottom and a
  * menu that opens away from your thumb is a menu you reach across the screen for.
@@ -110,7 +83,7 @@ export function ActingBanner({ me }) {
  * then tools. Each door says what it is in one line; the paragraphs that used to
  * sit under each one made the menu something to read rather than to press.
  */
-export function FabMenu({ onClose, onPlan, onLog, onPlanWeek, onRest, onTimer = null }) {
+export function FabMenu({ onClose, onPlan, onLog, onRest, onTimer = null }) {
   return (
     <div className="fabmenu-scrim" onClick={onClose} role="presentation">
       <div className="fabmenu" onClick={e => e.stopPropagation()} role="dialog" aria-label="Add a workout">
@@ -140,15 +113,6 @@ export function FabMenu({ onClose, onPlan, onLog, onPlanWeek, onRest, onTimer = 
             <span className="sub">Build it yourself, or have it written for you</span>
           </span>
         </button>
-        {onPlanWeek && (
-          <button className="fabmenu-row" onClick={onPlanWeek}>
-            <span className="fabmenu-ico week"><Icon name="CalendarRange" size={22} /></span>
-            <span className="fabmenu-body">
-              <strong>Plan the week</strong>
-              <span className="sub">Talk this week&rsquo;s counts through</span>
-            </span>
-          </button>
-        )}
         {/* A timer on its own, for a workout nobody is logging yet. See timer.jsx. */}
         {onTimer && (
           <button className="fabmenu-row" onClick={onTimer}>
@@ -169,8 +133,7 @@ export function FabMenu({ onClose, onPlan, onLog, onPlanWeek, onRest, onTimer = 
  * Why rest today — asked before it is logged, not after.
  *
  * A rest day with no reason reads the same in a month whether the user was sick, beat
- * up or just busy, and those are three different things for the coach and for
- * them. The chips are the rest card's own `why` output (plan.json), so the same
+ * up or just busy, and those are three different things to look back on. The chips are the rest card's own `why` output (plan.json), so the same
  * answer shows up and stays editable in the session sheet afterwards; the box is
  * the ordinary `out.notes`. Both optional — a prompt, not a gate.
  */
@@ -259,15 +222,6 @@ export default function App() {
     return tabs.some(t => t.id === want) ? want : 'today'
   })
   const [plan, setPlan] = useState(undefined) // undefined = loading, null = absent
-  // Today's coach note. Absent is the normal case — most days the user has not talked
-  // to the coach at all — and absent has to mean "the app behaves exactly as it
-  // did before", so this stays null and every reader treats null as no advice.
-  // See lib/coach.js.
-  //
-  // A check-in is what writes it, which is why setCoach goes down to the Today
-  // tab: the card has to show what the conversation just decided without a
-  // reload. One document per day, revised in place as the user talks.
-  const [coach, setCoach] = useState(null)
 
   useEffect(() => {
     fetch('/api/content', { cache: 'no-cache' })
@@ -276,67 +230,7 @@ export default function App() {
       .catch(() => setPlan(null))
   }, [])
 
-  /*
-   * THE COACH IS OFF.
-   *
-   * Switched off on 2026-09-14 as part of the pivot, deliberately rather than by
-   * accident. `coach/CHECKIN.md` and `server/chat.js` are written around the
-   * eleven-week climbing block — its phases, its week focus, the trip it counted
-   * down to — and every one of those is now deleted. Left running it would have
-   * gone on confidently referencing a training block that does not exist, which
-   * is worse than silence: wrong advice delivered fluently is harder to ignore
-   * than no advice.
-   *
-   * Nothing else had to change to turn it off, because the coach was always
-   * built so that its failure mode is that nothing happens. `coach` stays null,
-   * `coachNudges` returns an empty map, and every term that reads it computes
-   * exactly what the app computed before the coach existed. The check-in card
-   * still saves the hard fields and the message; it just does not get a reply.
-   *
-   * To bring it back: rewrite CHECKIN.md for the achievements and a quota week, then
-   * restore this effect. The hard blocks are enforced before any nudge is read,
-   * so a rewritten coach still cannot produce an illegal day.
-   */
-  const COACH_ENABLED = false
-
-  useEffect(() => {
-    if (!COACH_ENABLED) return
-    const load = () => fetch('/api/coach', { cache: 'no-cache' })
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => setCoach(d && typeof d === 'object' ? d : null))
-      .catch(() => {})
-    load()
-    // A check-in on one device should show up on the other. It is one small
-    // file, so re-read it whenever the app comes back to the foreground.
-    const onFocus = () => { if (document.visibilityState === 'visible') load() }
-    document.addEventListener('visibilitychange', onFocus)
-    return () => document.removeEventListener('visibilitychange', onFocus)
-  }, [])
-
   useEffect(() => { location.hash = tab }, [tab])
-
-  /*
-   * Taking a session the coach offered.
-   *
-   * The coach does not write this — their tap does, through an ordinary entry
-   * (done, because it lands on today), exactly as picking one off the day list produces. So there is
-   * no such thing as a coach's write to the log: it lands as something the user chose
-   * and can edit or delete like anything else.
-   */
-  const placeFromCoach = (s) => {
-    const opt = (plan?.dailyMenu || []).find(o => o.id === s.optId)
-    if (!opt) return
-    const date = localIso()
-    const id = s.action === 'main' ? `daily-${date}` : `daily-${date}-${opt.id}`
-    store.upsertEntry({
-      id, kind: 'daily', date,
-      data: {
-        optId: opt.id, name: opt.name, minutes: opt.minutes, level: opt.level ?? 1,
-        done: doneWhenPlaced(date), out: {}, slot: s.action === 'main' ? 'main' : 'extra',
-      },
-    })
-    setTab('today')
-  }
 
   /* ------------------------------------------------------- the + button */
 
@@ -345,15 +239,15 @@ export default function App() {
    *
    * This is where the swap list, the quota lanes and the "add another session"
    * link all went on 2026-09-17. Today stopped offering sessions, so the way to
-   * put one on the day had to stop being part of Today — it is a button beside
-   * the coach bubble now, reachable from every tab, with the two things the user
-   * actually does under it.
+   * put one on the day had to stop being part of Today — it is a floating
+   * button now, reachable from every tab, with the things the user actually
+   * does under it.
    *
    * PLAN one and the planner writes the sets (see planner.jsx). LOG one and the
    * ordinary workout card opens with nothing filled in. Both land as ordinary
    * entries; neither is written by anything except their tap.
    */
-  const [fab, setFab] = useState(null)         // null | 'menu' | 'plan' | 'log' | 'rest' | 'week'
+  const [fab, setFab] = useState(null)         // null | 'menu' | 'plan' | 'log' | 'rest'
   const [openEntryId, setOpenEntryId] = useState(null)
 
   /*
@@ -449,10 +343,8 @@ export default function App() {
    *
    * The whole thing goes on the entry as `data.plan` — what was ASKED for, kept
    * separate from `out`, which is what happened. `out.category` and
-   * `out.activity` are what make it count toward a quota and pick the log form;
-   * `out.category` is the per-entry override the quota reader already honours, so
-   * a swim day that is really the cardio can say so without anything else
-   * changing. See lib/prescription.js and lib/quota.js.
+   * `out.activity` are what file it in the Log and Progress filters and pick the
+   * log form. See lib/prescription.js and lib/category.js.
    */
   /**
    * Keep a prescription — as one entry per WORKOUT in it.
@@ -465,8 +357,8 @@ export default function App() {
    * `out.whoop` and ONE `out.strava`, so a trip that was a lift and a ride has a
    * single slot for two measurements and whichever lands first owns it. Split,
    * each half has its own entry, its own log form and its own place for the watch
-   * to attach to — and the quota question answers itself, because one entry with
-   * one category is what the rest of this app already assumes.
+   * to attach to, and one entry with one category is what the rest of this app
+   * already assumes.
    *
    * `splitPrescription` decides where the seams are; a single-kind plan comes back
    * as one part and behaves exactly as it did. Returns the FIRST id, which is what
@@ -523,16 +415,15 @@ export default function App() {
     {/* The plan, reachable from the gear picker without threading it through
         five components that have no opinion about it. See lib/planctx.jsx. */}
     <PlanProvider plan={plan}>
-    <CoachProvider>
     {/* WHOOP wraps everything because the session log is rendered from five
         different places, including the history tab. Outside a provider the hook
         returns "no data", so nothing here is load-bearing. */}
     <WhoopProvider>
     <StravaProvider>
     {/* Three or four tabs fit beside the + in one row at the foot of a phone;
-        more than that need the whole width, and with no + (no plan yet, or the
-        coach) the capsule takes the row (styles.css, .tabs). */}
-    <div className="app" data-dock={tabs.length > 4 ? 'wide' : tab !== 'coach' && plan ? 'compact' : 'alone'}>
+        more than that need the whole width, and with no + (no plan yet) the
+        capsule takes the row (styles.css, .tabs). */}
+    <div className="app" data-dock={tabs.length > 4 ? 'wide' : plan ? 'compact' : 'alone'}>
       <header className="hdr">
         <h1><BushidoMark size={18} className="hdr-mark" /> Bushido</h1>
         {/*
@@ -592,40 +483,20 @@ export default function App() {
             {tab === 'today' && (
               <TodayTab plan={plan} entries={store.entries}
                 upsertEntry={store.upsertEntry} deleteEntry={store.deleteEntry}
-                settings={store.settings} saveSettings={store.saveSettings}
                 openEntryId={openEntryId} onOpened={() => setOpenEntryId(null)}
                 onPlan={() => setFab('plan')} onLog={openLog}
                 onViewDay={setViewDay}
-                onRest={restOpt ? askRest : null}
-                onSetWeek={() => setTab('week')} />
-            )}
-            {tab === 'week' && (
-              <WeekTab plan={plan} entries={store.entries} upsertEntry={store.upsertEntry} />
+                onRest={restOpt ? askRest : null} />
             )}
             {tab === 'progress' && <ProgressView plan={plan} entries={store.entries} />}
-            {tab === 'achievements' && (
-              <AchievementsTab plan={plan} entries={store.entries} upsertEntry={store.upsertEntry} />
-            )}
-            {/* Totem's, and read-only. `full` because on its own tab there is no
-                reason to hide the explanation the way a card on Today had to. */}
-            {tab === 'goals' && <TotemGoals full />}
-            {tab === 'coach' && me.features.ai && <CoachTab plan={plan} onPlace={placeFromCoach} />}
           </>
         )}
       </main>
-      {/*
-        * The two floating buttons, in one row so they cannot overlap and so the
-        * phone's bottom-right corner has one thing in it rather than two things
-        * that happen to be near each other. The + is the accent one: it is the
-        * action, and the coach is the thing you ask when you do not know what the
-        * action is.
-        */}
-      {tab !== 'coach' && plan && (
+      {plan && (
         <div className="fabs">
           <button className="fab plus" onClick={() => setFab('menu')} aria-label="Add a workout">
             <Icon name="Plus" size={24} />
           </button>
-          {me.features.ai && <CoachBubble plan={plan} onPlace={placeFromCoach} />}
         </div>
       )}
 
@@ -635,20 +506,7 @@ export default function App() {
           onPlan={() => setFab('plan')}
           onLog={() => openLog(tab === 'today' ? viewDay : null)}
           onRest={restOpt ? () => askRest() : null}
-          onPlanWeek={me.features.ai ? () => setFab('week') : null}
           onTimer={() => { setFab(null); openTimer() }} />
-      )}
-
-      {/*
-        * The week's quotas, talked through. Writes the same `quota-<monday>` entry
-        * the Week tab's steppers write, and only on their tap — see weekplanner.jsx.
-        */}
-      {fab === 'week' && (
-        <WeekPlanFlow plan={plan} entries={store.entries} iso={localIso()}
-          upsertEntry={store.upsertEntry}
-          onPlan={() => setFab('plan')}
-          people={people} owner={{ id: me.real.id, name: me.real.name }}
-          onClose={() => setFab(null)} />
       )}
 
       {/*
@@ -702,7 +560,6 @@ export default function App() {
     </div>
     </StravaProvider>
     </WhoopProvider>
-    </CoachProvider>
     </PlanProvider>
     </PrefsProvider>
   )

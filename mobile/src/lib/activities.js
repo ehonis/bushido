@@ -19,8 +19,8 @@
  * Four routing fields do all the work:
  *
  *   shape       which of `plan.formShapes` the user gets — distance | pool | lift | time
- *   category    the quota category it fills (see quota.js)
- *   discipline  what it spaces against (see recommend.js)
+ *   category    the category it files under (see category.js)
+ *   discipline  the sport family it belongs to (see category.js)
  *   whoop       the WHOOP `sport_name` values that resolve here
  *
  * CLIMBING IS NOT IN HERE, and that is the one absence worth defending. The
@@ -150,7 +150,7 @@ export function loggedActivity(opt, out) {
  * What DISCIPLINE a logged session belongs to — the same indirection as
  * `loggedActivity`, and the answer the quick names and the spacing rules read.
  *
- * Lives here rather than in `quota.js` because two callers now want it without
+ * Lives here rather than in `category.js` because two callers want it without
  * the menu in hand: `disciplineOf(entry, menu)` resolves the card first and then
  * asks this, and `naming.js` already has the card.
  */

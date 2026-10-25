@@ -5,14 +5,13 @@
  * every time; this one asks a question first and draws the charts that answer it.
  *
  * Tested as arithmetic rather than through a rendered page, because the claims
- * worth being sure of are claims about SETS — "filtering to the half iron
- * excludes every finger session" is either true of the resolved entries or it is
+ * worth being sure of are claims about SETS — "filtering to running excludes
+ * every finger session" is either true of the resolved entries or it is
  * not, and a screenshot on the day you tried it proves nothing about the day a
  * new category arrives.
  */
 
 import { readFileSync } from 'node:fs'
-import { achievements, categorySet } from './src/lib/achievements.js'
 import {
   EMPTY_SCOPE, resolveScope, scopeOptions, describeScope, weeksIn,
 } from './src/lib/scope.js'
@@ -77,25 +76,13 @@ check('a rest day is not a workout, and not a gap either', () => {
   eq(r.rests[0].data.optId, 'off')
 })
 
-check('THE ASK: filtering to an achievement excludes everything the others own', () => {
-  const iron = res({ achievement: 'half-iron' })
-  ok(iron.entries.length > 0, 'the half iron should have rides and runs')
-  ok(!iron.disciplines.has('climbing'), `climbing leaked in: ${[...iron.disciplines]}`)
-  for (const c of iron.categories) {
-    ok(['swim', 'bike', 'run'].includes(c), `${c} is not a half-iron category`)
-  }
-
-  const climb = res({ achievement: 'climb-12a' })
-  ok(!climb.disciplines.has('bike') && !climb.disciplines.has('run'),
-    `endurance leaked in: ${[...climb.disciplines]}`)
-})
-
-check('an achievement names categories that exist', () => {
-  const list = achievements(plan, [])
-  eq([...categorySet(list, 'half-iron')].sort(), ['bike', 'run', 'swim'])
-  eq(categorySet(list, null), null, 'no achievement means not narrowed, not narrowed to nothing')
-  eq([...categorySet(list, 'no-such-achievement')], [],
-    'a deleted achievement matches nothing rather than silently matching everything')
+check('the achievement filter is gone; an old scope naming one is ignored, not obeyed', () => {
+  // Achievements were removed on 2026-10-25 (issue #31). A stray `achievement` key
+  // must not narrow anything, or a remembered filter would empty the page.
+  ok(!('achievement' in EMPTY_SCOPE), 'EMPTY_SCOPE still carries an achievement')
+  eq(res({ achievement: 'half-iron' }).entries.length, res({}).entries.length)
+  ok(!('achievements' in scopeOptions({ plan, entries: LOG, today: TODAY, weeks: null })),
+    'the options still offer achievements')
 })
 
 check('filtering to a category', () => {
@@ -125,12 +112,12 @@ check('filtering to one lift exercise', () => {
 })
 
 check('filters compose rather than override', () => {
-  eq(res({ achievement: 'half-iron', category: 'run' }).entries.length, 2)
-  eq(res({ achievement: 'climb-12a', category: 'bike' }).entries.length, 0,
-    'a category outside the achievement yields nothing, rather than ignoring it')
+  eq(res({ category: 'run', session: 'run' }).entries.length, 2)
+  eq(res({ category: 'bike', session: 'max-hangs' }).entries.length, 0,
+    'a session outside the category yields nothing, rather than ignoring it')
 })
 
-check('a window is whole weeks, so the bars line up with the Week tab', () => {
+check('a window is whole weeks, Monday to Sunday', () => {
   const r = resolveScope({ plan, entries: LOG, scope: { ...EMPTY_SCOPE, weeks: 2 }, today: TODAY })
   eq(r.from, '2026-09-07', 'two weeks back from the Monday of 2026-09-15')
   ok(r.entries.every(e => e.date >= '2026-09-07'))
@@ -165,12 +152,6 @@ check('options carry counts, and sort by them', () => {
   eq(o.categories.slice(0, 2).map(c => c.value), ['bike', 'fingers'])
 })
 
-check('an achievement with nothing logged against it is not offered', () => {
-  const onlyClimbing = LOG.filter(e => e.data.optId === 'max-hangs')
-  const o = scopeOptions({ plan, entries: onlyClimbing, today: TODAY, weeks: null })
-  eq(o.achievements.map(a => a.value), ['climb-12a'])
-})
-
 check('the exercise list names the movement, not its key', () => {
   const o = scopeOptions({ plan, entries: LOG, today: TODAY, weeks: null })
   eq(o.exercises.find(e => e.value === 'bench-press').label, 'Bench press')
@@ -190,9 +171,9 @@ check('the page says what it is showing', () => {
 const labels = (r) => metricsFor(plan, r).flatMap(g => g.metrics.map(m => m.label))
 
 check('THE POINT: a chart that means nothing here is not drawn', () => {
-  const iron = labels(res({ achievement: 'half-iron' }))
-  ok(!iron.some(l => /finger/i.test(l)), `a finger chart under the half iron: ${iron}`)
-  ok(iron.some(l => /Miles/.test(l)), 'the half iron should chart miles')
+  const iron = labels(res({ category: 'run' }))
+  ok(!iron.some(l => /finger/i.test(l)), `a finger chart under running: ${iron}`)
+  ok(iron.some(l => /Miles/.test(l)), 'running should chart miles')
 
   const fingers = labels(res({ category: 'fingers' }))
   ok(!fingers.some(l => /Miles|speed/i.test(l)), `a distance chart under fingers: ${fingers}`)
@@ -200,7 +181,7 @@ check('THE POINT: a chart that means nothing here is not drawn', () => {
 })
 
 check('the universal charts are universal', () => {
-  for (const scope of [{}, { achievement: 'half-iron' }, { category: 'fingers' }, { exercise: 'bench-press' }]) {
+  for (const scope of [{}, { category: 'run' }, { category: 'fingers' }, { exercise: 'bench-press' }]) {
     const l = labels(res(scope))
     ok(l.some(x => /Training load/.test(x)), `no load chart for ${JSON.stringify(scope)}`)
     ok(l.some(x => /Workouts per week/.test(x)), `no session count for ${JSON.stringify(scope)}`)
@@ -248,10 +229,20 @@ check('a bar chart of one week is still a fact', () => {
   ok(labels(one).some(l => /Miles per week/.test(l)))
 })
 
-check('the hard-finger chart carries the cap as its reference line', () => {
-  const m = metricsFor(plan, res({ category: 'fingers' }))
+check('climbing charts come after the general ones, never first', () => {
+  // A workout log first (issue #31): with climbing in scope the Climbing group
+  // still draws, but after Volume, Distance, Strength and Effort.
+  const names = metricsFor(plan, res({})).map(g => g.name)
+  ok(names.includes('Climbing'), `no Climbing group: ${names}`)
+  eq(names[0], 'Volume')
+  for (const g of ['Distance', 'Effort']) {
+    if (names.includes(g)) ok(names.indexOf(g) < names.indexOf('Climbing'), `${g} after Climbing: ${names}`)
+  }
+  const hard = metricsFor(plan, res({ category: 'fingers' }))
     .flatMap(g => g.metrics).find(x => x.key === 'hardFingers')
-  eq(m.ref, plan.recommender.hardCap)
+  eq(hard.ref, undefined, 'the cap line went with the rule that enforced it')
+  const ex = METRICS.map(m => m.group)
+  eq(ex.indexOf('Climbing') > ex.lastIndexOf('Effort'), true, 'the registry orders Climbing last')
 })
 
 check("the plan's own specific charts survive, but only in their session's scope", () => {
@@ -291,7 +282,7 @@ check('every metric in the registry is renderable', () => {
 check('the totals add up what is in scope, and only that', () => {
   eq(totalsFor(plan, res({ category: 'bike' })).miles, 73.2)
   eq(totalsFor(plan, res({ category: 'run' })).miles, 8.1)
-  eq(totalsFor(plan, res({ achievement: 'half-iron' })).miles, 81.3)
+  eq(totalsFor(plan, res({ session: 'bike' })).miles + totalsFor(plan, res({ session: 'run' })).miles, 81.3)
   eq(totalsFor(plan, res({ category: 'fingers' })).miles, 0, 'hangboarding has no mileage')
 })
 
@@ -328,10 +319,9 @@ check('a commute adds miles and adds no load', () => {
 })
 
 check('hard finger days are counted on what he LOGGED', () => {
-  // The same predicate the two unbypassable rules use, so the chart and the
-  // blocker can never disagree about what a hard day was.
+  // lib/fingers.js: the logged answer, then the plan's declaration.
   eq(totalsFor(plan, res({})).hardFingerDays, 4)
-  eq(totalsFor(plan, res({ achievement: 'half-iron' })).hardFingerDays, 0)
+  eq(totalsFor(plan, res({ category: 'run' })).hardFingerDays, 0)
 })
 
 check('an empty scope totals to zero rather than to NaN', () => {

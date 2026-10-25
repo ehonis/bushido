@@ -4,9 +4,9 @@
 // With three or four tabs (`compactDock`) the + sits beside the capsule in the
 // same row and at the same height, so the foot of the screen is one row of
 // things to press; with more, the capsule takes the width and the + floats
-// above it. Anything else that floats (the coach bubble, while it exists) stacks
-// above the +. Drawn here because the bar is the one thing that knows which tab
-// is showing, and the + is hidden on Coach.
+// above it. Drawn here because the bar is the one thing that knows which tab is
+// showing (the + menu's Log a workout uses the day Today is showing only when
+// opened from Today).
 import React from 'react'
 import { Platform, StyleSheet, View } from 'react-native'
 import { BlurView } from 'expo-blur'
@@ -21,14 +21,13 @@ import { impact, tap } from '../ui/haptics'
 import { useApp } from './AppData'
 import { compactDock, DOCK_BOTTOM, DOCK_CLEAR, DOCK_H } from './Screen'
 import { tabsFor } from '../features/app'
-import { CoachBubble } from '../features/coach'
 
 /** Route name (src/app/(tabs)/*) to the web's tab id. */
 const ID_OF: Record<string, string> = { index: 'today' }
 
 export function TabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets()
-  const { me, plan, openMenu, placeFromCoach } = useApp()
+  const { me, plan, openMenu } = useApp()
   const allowed = new Set(tabsFor(me.features, me.owner).map((t) => t.id as string))
   const routes = state.routes.filter((r) => allowed.has(ID_OF[r.name] || r.name))
   const activeName = state.routes[state.index]?.name
@@ -47,12 +46,11 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
         style={[st.fade, { height: DOCK_CLEAR + insets.bottom + 26 }]}
       />
 
-      {activeId !== 'coach' && plan ? (
+      {plan ? (
         <View
           style={compact ? [st.fabsCompact, { bottom, right: side }] : [st.fabs, { bottom: bottom + DOCK_H + 18 }]}
           pointerEvents="box-none"
         >
-          {me.features.ai ? <CoachBubble plan={plan} onPlace={placeFromCoach} /> : null}
           <Press accessibilityLabel="Add a workout" onPress={() => { impact(); openMenu(activeId) }}
             style={[st.plus, compact && { width: DOCK_H, height: DOCK_H, borderRadius: DOCK_H / 2 }]}>
             <Icon name="Plus" size={24} color={colors.onAccent} />

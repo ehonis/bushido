@@ -4,8 +4,10 @@ Working notes for any person or AI agent changing this repository.
 
 If AGENTS.local.md exists, read it too: it holds the owner's deployment-specific notes.
 
-Bushido is a self-hosted, single-owner health and training log: a phone-first React PWA
-(`app/`) served by a zero-dependency Node server (`server/`), backed by one JSON file. The
+Bushido is a self-hosted, single-owner workout log: a phone-first React PWA (`app/`) and
+an iPhone app (`mobile/`) served by a zero-dependency Node server (`server/`), backed by
+one JSON file. Three tabs (Today, Log, Progress) and a + button (Log a workout, Log a
+rest day, Plan a workout, Interval timer). The
 [README](README.md) is the public front page; [`docs/features.md`](docs/features.md)
 describes each part of the app; [`docs/operations.md`](docs/operations.md) covers files,
 sign-in, the API, sync and backups; [`deploy/README.md`](deploy/README.md) covers the
@@ -21,10 +23,11 @@ reasons behind the design, and the things that have been removed on purpose.
 2. **Run `npm test` at the repo root** after any change to the app, the server or a
    content file. It runs every app suite, the SSR smoke render of every tab, and every
    server suite (including `server/http.test.js`, which boots real servers).
-3. **Two rules block; everything else advises.** No hard finger day the day after
-   another, and no more than `recommender.hardCap` in a week. Nothing may bypass them.
-4. **Nothing the AI produces is written until the user taps.** The coach and planners
-   return offers; the app's own write paths place them.
+3. **Stored data is never deleted or rewritten to suit the code.** Old entries of kinds
+   the app no longer has (check-ins, journal days, quotas, achievements) stay in
+   `state.json`, unread; readers filter by `kind`, never by "what exists" (§4, §10.8).
+4. **Nothing the AI produces is written until the user taps.** The workout planner
+   returns a proposal; the app's own write paths place it.
 5. **AI runs are constrained by `--allowedTools` / `--disallowedTools`, not by prompt
    text.** No AI run can write `data/state.json` or the plan file.
 6. **Resolve an entry's session with `optFor`, never a raw `menu.find`.**
@@ -49,7 +52,6 @@ reasons behind the design, and the things that have been removed on purpose.
 | `mobile/` | The native iPhone app (Expo). The web's phone layout rebuilt in React Native, with `app/src/lib/` copied in at the same paths. Its own install and rules: read `mobile/AGENTS.md` before changing it, and port a web change there when it touches a screen the app has. |
 | `content/starter.json` | What a fresh install runs on: catalogs and the rest card, no programme. **Generated.** |
 | `examples/plan.json` | A small, invented example plan (Settings → "Use the example plan"). **Generated.** |
-| `examples/coach/CHECKIN.md` | Prompt for the dormant check-in coach (§7). |
 | `test/fixtures/plan.json` | A large synthetic climbing-and-triathlon programme used by the test suites (smoke render, every app suite, `starter.test.mjs`) and by `starter.build.mjs` / `muscles.build.mjs`. The canonical fixture, and the source both generated files are built from. |
 | `data/` | Runtime state. Gitignored. Never commit, delete or rewrite it (§4). |
 | `deploy/bushido.service` | The systemd user unit. |
@@ -66,13 +68,10 @@ reasons behind the design, and the things that have been removed on purpose.
 | `server/users.js` | The people on an install, Cloudflare Access token checks, acting as someone (§3). |
 | `server/config.js` | Settings, env precedence, first-start migration, which plan file is in use (§3). |
 | `server/pages.js` | The server-rendered `/setup`, `/login` and `/settings` pages. Plain HTML on purpose: they must work before there is an account, before the app is built, and when a stale service worker is serving an old shell. |
-| `server/agentflags.js` | The permission flags every model run is spawned with: refused directories, the brain Write grant, the secrets deny list, and for anyone but the owner the denials that keep a run inside their own space (§7). Tested by `agentflags.test.js`. |
+| `server/agentflags.js` | The permission flags the planner is spawned with (`plannerFlags`): refused directories, the secrets deny list, and for anyone but the owner the denials that keep a run inside their own space (§7). Tested by `agentflags.test.js`. |
 | `server/prompting.js` | Shared prompt pieces: the athlete's name and notes (the owner's from Settings, anyone else's from their `about.json`), gender-neutral fallbacks. |
-| `server/coach.js` | The AI coach: an agent with read-only tools, threads in `data/coach/`. |
-| `server/planner.js` | Plan a workout (`/api/plan/workout`, `/api/plan/revise`). |
+| `server/planner.js` | Plan a workout (`/api/plan/workout`, `/api/plan/revise`): the only AI run. |
 | `server/drafts.js` | "Write it for me" drafts: the run belongs to a draft file in the person's `drafts/`, written by the server when the run ends (`/api/plan/drafts`, §7). |
-| `server/weekplanner.js` | Plan the week (`/api/plan/week`). |
-| `server/chat.js` | The old check-in coach (`/api/chat`). Switched off (§7). |
 | `server/whoop.js`, `server/strava.js` | Pure matching, snapshot and card-filling logic for each service. |
 | `server/notify.js`, `notify-facts.js`, `notify-categories.js` | Push notifications on top of an external notify core (§8). |
 
@@ -83,9 +82,11 @@ reasons behind the design, and the things that have been removed on purpose.
 | Render smoke suite | `app/smoke.jsx` | `npm run smoke` in `app/`. Mounts every tab and session viewer against real content. |
 | Store, merge, `isDone`, `markDone`, `doneWhenPlaced`, `isTraining`, entry ids | `app/src/lib/store.js` | The server's word-for-word copy of `isDone` is in `server/notify-facts.js` (§4). |
 | Session lookup | `app/src/lib/menu.js` | `optFor(menu, optId)`; renamed cards declare old ids as `aka`. |
-| Quotas | `app/src/lib/quota.js`, `app/src/quotabars.jsx` | The week. Quota set = entry `quota-<monday>`. |
-| Recommendation engine | `app/src/lib/recommend.js` | Pure. Not shown on Today any more (§10), but it is where the two finger rules live. |
-| Activity catalog | `app/src/lib/activities.js`, `app/src/activitypicker.jsx` | 91 sports, their form shape, quota category, WHOOP/Strava names. Content-driven. |
+| Categories | `app/src/lib/category.js` | `categoryOf`, `disciplineOf`: what an entry files under, for the Log filter and Progress. |
+| Dates and weeks | `app/src/lib/dates.js` | `localIso`, `fromIso`; `mondayOf`, `weekDays`, `shiftWeek` (Progress's weeks, Sam's week). |
+| Hard finger days | `app/src/lib/fingers.js` | `isHardEntry`, `fingerLoad`, `hardDates`: what is left of the recommender; read by the Progress Climbing charts (§6.1). |
+| Test results | `app/src/lib/tests.js`, `app/src/lib/force.js` | A test session writes its result; the Testing panel (profile) and the CF ceiling read it. |
+| Activity catalog | `app/src/lib/activities.js`, `app/src/activitypicker.jsx` | 91 sports, their form shape, category, WHOOP/Strava names. Content-driven. |
 | Lifts | `app/src/lib/lifts.js`, `app/src/liftlog.jsx` | Catalog search, logged-lift shape, arithmetic. `liftlog.jsx` is only an adapter. |
 | One exercise card | `app/src/exercises.jsx` | `ExerciseCard`, `ExerciseSection`, `ExercisePicker`, `Stepper`, `STEP`. **Shared by the lift log and the planner's editor.** |
 | Which fields a card asks | `app/src/lib/outputs.js` | `when` gates, `pruneHidden`, derived placeholders. |
@@ -96,19 +97,14 @@ reasons behind the design, and the things that have been removed on purpose.
 | Runner | `app/src/runner.jsx` | Set-by-set screen for a planned session. One writer. |
 | Workout mode | `app/src/workout.jsx`, `app/src/lib/workout.js` | The climbing cards' rep clock and set log. |
 | Interval timer | `app/src/timer.jsx`, `app/src/timer.css`, `app/src/lib/timer.js` | The general timer: from any workout's sheet and the + menu. Pure model, `now` as an argument; presets are `kind: 'timer'` entries (§6.5). |
-| Planner UI | `app/src/planner.jsx`, `app/src/lib/plannerapi.js`, `app/src/lib/drafts.js` | + → Plan a workout; `BuildStep` (by hand) and `AskStep`/`ReviewStep` (by model); `DraftList` reopens a draft at its step. |
-| Week planner UI | `app/src/weekplanner.jsx` | + → Plan the week. |
-| Pickers | `app/src/picker.jsx`, `app/src/lib/folders.js` | `PickerScreen`, `ActivityChooser` (Log a workout: the plan's cards in folders by `sched.discipline`, then the sports catalog). Declaration order, no ranking. |
+| Planner UI | `app/src/planner.jsx`, `app/src/lib/plannerapi.js`, `app/src/lib/drafts.js` | + → Plan a workout; `BuildStep` (by hand) and `AskStep`/`ReviewStep` (by model); `DraftList` reopens a draft at its step. `plannerContext` sends the last week's logged workouts. `lib/markdown.jsx` renders its reasoning. |
+| Pickers | `app/src/picker.jsx`, `app/src/lib/folders.js` | `PickerScreen`, `ActivityChooser` (Log a workout: the sports catalog, then the plan's cards under Climbing, in folders by `sched.discipline`). Declaration order, no ranking. |
 | Unlogged workouts | `app/src/lib/unlogged.js`, `app/src/unlogged.jsx` | What WHOOP/Strava saw that the log lacks; `pairUp`, `mergeTargets`, `outWith()`. |
 | Session sheet / edit panel | `app/src/sessionlog.jsx` | `SessionLog`, `SessionDetails`, `DetailsSheet`, `NameField`. |
 | Log feed | `app/src/log.jsx` | Newest first; the open sheet is keyed by ID. |
 | Progress | `app/src/lib/scope.js`, `app/src/lib/metrics.js`, `app/src/progress.jsx` | Charts declare when they apply. |
 | Gear | `app/src/lib/gear.js`, `app/src/gear.jsx`, `app/src/gearpicker.jsx` | Two origins (§6.9). |
 | Profile | `app/src/lib/profile.js`, `app/src/profile.jsx` | A `Popover`, not a `FullScreen`. |
-| Achievements | `app/src/lib/achievements.js`, `app/src/achievements.jsx` | The editable goals. Content seeds + store edits + tombstones, merged at read time. |
-| Linked goals | `app/src/lib/goals.js`, `app/src/goals.jsx` | Read-only goals from the bridge (§8.4). |
-| Journal | `app/src/lib/journal.js`, `app/src/journal.jsx` | Behaviours correlated with the next morning's recovery. Native: WHOOP has no journal API. |
-| Coach UI | `app/src/coach.jsx`, `app/src/lib/coachapi.jsx`, `app/src/lib/markdown.jsx` | Markdown is hand-rolled and renders to React elements, never HTML. |
 | Number inputs | `app/src/numinput.jsx`, `app/src/lib/numtext.js` | Text inputs that own their text (§6.4). |
 | Body diagram | `app/src/lib/bodymap.jsx`, `app/muscles.build.mjs` | `react-body-highlighter` + `free-exercise-db`; nothing hand-drawn. |
 | How-to figures | `app/src/howto.jsx`, `app/src/lib/figures.jsx` | Registry of SVG figures named by content. |
@@ -117,7 +113,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Device screen probe | `app/src/screeninfo.jsx` | Measures the iOS safe-area bug on the device (§10.5). |
 | Whose log this is | `app/src/lib/whoami.js` | Decided before the store mounts; per-person cache key; `X-Bushido-User` on every API call (§3). |
 | Shared workouts | `app/src/lib/shared.js`, `app/src/sharedwith.jsx` | "With …" on the sheet; someone's copy through the people endpoints (§3). |
-| The owner as trainer | `app/src/lib/trainer.js`, `app/src/trainer.jsx` | "For: You / Sam" in the planners, the workout side switcher, "Sam's day", About you (§3). `placeEntries` is the one place day ids are minted for a batch, for anyone's log. |
+| The owner as trainer | `app/src/lib/trainer.js`, `app/src/trainer.jsx` | "For: You / Sam" in Plan a workout, the workout side switcher, "Sam's day", About you (§3). `placeEntries` is the one place day ids are minted for a batch, for anyone's log. |
 
 ---
 
@@ -140,20 +136,25 @@ node app/starter.build.mjs    # regenerate content/starter.json and examples/pla
   property access in hand-written JSON here rather than on a phone mid-session.
 - `npm test` at the root = `npm --prefix app test` then every `server/*.test.js`. The app
   half includes `handoff.test.js`, the palette check, the per-area suites
-  (`test:rec`, `test:quota`, `test:ach`, `test:streak`, `test:gear`, `test:progress`,
-  `test:workout`, `test:coach`, `test:checkin`, `test:lifts`, `test:presc`,
-  `test:naming`, `test:md`, `test:goals`, `test:starter`) and the smoke suite. Run a
+  (`test:fingers`, `test:streak`, `test:gear`, `test:progress`, `test:workout`,
+  `test:tests` (test-result sessions), `test:lifts`, `test:presc`, `test:naming`,
+  `test:md`, `test:starter`, `test:signout`, `test:whoami`, `test:shared`,
+  `test:trainer`) and the smoke suite. Run a
   single suite while iterating; run the whole thing before you finish.
 - **The generated content must not drift.** `app/starter.test.mjs` fails if
   `content/starter.json` or `examples/plan.json` no longer match what
   `app/starter.build.mjs` produces from `test/fixtures/plan.json`. Edit the fixture's
-  shared parts (catalogs, recommender, journal, quick names, planner kinds), re-run the
-  build script, and commit all three. The build script also scrubs design-history quotes
-  that name a real person; the starter must never seed achievements.
-- **Prompts are tested for neutrality.** `server/prompts.test.js` builds every AI prompt
-  as a fresh install would and fails on a gendered pronoun or a personal name.
+  shared parts (catalogs, categories, quick names, planner kinds), re-run the build
+  script, and commit all three. The build script also scrubs design-history quotes that
+  name a real person, and leaves out the content of removed features (`recommender`,
+  `checkin`, `journal`, `achievements`): the fixture still carries them, as an old plan
+  file does, and the app must ignore them.
+- **Prompts are tested for neutrality.** `server/prompts.test.js` builds the planner's
+  prompts as a fresh install would and fails on a gendered pronoun, a personal name or
+  quota language.
 - `server/http.test.js` boots real servers on temporary data directories and drives
-  setup, sign-in and the defaults end to end. `server/config.test.js` and
+  setup, sign-in and the defaults end to end, including the `legacy data:` steps that boot
+  on a data dir full of removed features' entries and files. `server/config.test.js` and
   `server/auth.test.js` cover precedence, migration and sessions.
 
 ### What the smoke suite is for, and how to extend it
@@ -166,7 +167,8 @@ content. It is the main defence for this codebase, and it has had to learn three
   (`ActivityChooser(every startable card is in a folder)`, the planner kinds, figures named vs
   figures registered). **Any new route into the menu needs that kind of assertion.**
 - **A removal still renders.** The only way to catch a re-addition is to assert the
-  absence (`TodayTab(empty day offers nothing)`, `SessionSheet(no add-ons, no strap)`,
+  absence (`TodayTab(empty day offers nothing)`, `TodayTab(legacy entries are ignored)`,
+  `FabMenu(four doors…)`, `tabsFor(three tabs…)`, `SessionSheet(no add-ons, no strap)`,
   `Sheet(no second route to a second session)`, `SessionLog(the name box is not in the
   form)`, `Sheet(a lift-only session offers no clock)`).
 - **A control that moved needs a test at its new address**, or the move is
@@ -230,22 +232,23 @@ Stored in `data/settings.json` (0600). Sections:
 |---|---|
 | Account | Change password; shows the auth mode and its source (read-only). |
 | AI | Claude Code CLI path, optional API key (passed to the CLI as `ANTHROPIC_API_KEY`), model, and a **Test** button (`POST /api/settings/ai/test`). |
-| About you | Name and free-text notes given to every AI prompt. |
+| About you | Name and free-text notes given to the workout planner. |
 | Training plan | Download; import a file; use the example; back to the starter. Replacing `data/plan.json` copies the old one to `data/backups/plans/` (never rotated) first. The log is never touched. |
-| Integrations | Totem bridge URL, secret or `.env` file to read `BRIDGE_SECRET` from, habit id, and toggles for linked goals and habit sync. |
+| Integrations | Totem bridge URL, secret or `.env` file to read `BRIDGE_SECRET` from, habit id, and the habit sync toggle. |
 | Strava | The Strava API app's client ID, secret and optional redirect URI. Everyone connects their own account in the app. |
 | WHOOP | The WHOOP app's client ID, secret and optional redirect URI. The owner connects in the app. |
-| Other local services | Notify core directory, athlete-profile (brain) file, nutrition digest directory, timezone. |
+| Other local services | Notify core directory, athlete-profile (brain) file the planner may read, timezone. |
 
 Secrets (`ai.apiKey`, `totem.secret`, `strava.clientSecret`, `whoop.clientSecret`) are
 never sent to the browser; they are masked, and a masked value posted back is ignored. Each
-section keeps only the keys `blank()` names, so a removed setting is dropped on the next save.
+section keeps only the keys `blank()` names, so a removed setting is dropped on the next save
+(this is how `totem.goals` and `links.krakatoaDir` leave an older `settings.json`).
 
 ### More than one person (`server/users.js`, `app/src/lib/whoami.js`)
 
 - **The owner's files never move.** The owner's space is the data dir itself; anyone
   else's is `data/users/<id>/` with the same file names. `spaceFor()` in `server.js` is
-  the only place a log, backup, plan or coach path is built; do not reintroduce a
+  the only place a log, backup or plan path is built; do not reintroduce a
   module-level `STATE_FILE`.
 - **Identity is a verified Cloudflare Access JWT, never a bare header.** Present but
   invalid, or valid for an unknown email, is a `403`, never a fallback to the owner.
@@ -255,7 +258,7 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
   `bushido:cache-v1`); every API call carries `X-Bushido-User` and the server refuses a
   mismatch with `409 switched`. All four are load-bearing.
 - **Integrations are the owner's; the AI is everyone's.** `featuresFor(space)` turns WHOOP,
-  goals, habit sync and notifications off for anyone else (they are the owner's grants),
+  habit sync and notifications off for anyone else (they are the owner's grants),
   which must render exactly like an install that never set them up.
 - **Strava is everyone's own, and Bushido holds it, the owner's included.** Once Settings
   has a Strava API app (`config.strava()`), each person connects their OWN account
@@ -273,10 +276,12 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
   `sleepNights`). Habit sync and
   the "logged" push run only for the owner's writes. `ai` is on for everyone once a CLI is
   configured, and every run is built from ONE person's space (`aiRun(space)` in server.js;
-  §7 says what a non-owner's run can read). Without a CLI only the owner sees AI at all.
+  §7 says what a non-owner's run can read). Without a CLI only the owner sees "Write it
+  for me", so the "set AI up" answer has somewhere to appear; nobody else is shown a setup
+  they cannot do.
 - **About you is per person.** The owner's is in Settings, as always. Anyone else's is
   `about.json` in their space (`aboutFor`/`writeAbout`), edited by them (`/api/about`,
-  profile → You) or by the owner (`/api/people/:id/about`, "About Sam" in Sam's week), and
+  profile → You) or by the owner (`/api/people/:id/about`, "About Sam" in Sam's day), and
   falls back to the name in People. Prompts take the name and notes of the person the run
   is for, never the owner's.
 - **Only the owner is an admin**: Settings, People and acting-as are refused to anyone
@@ -311,16 +316,15 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
   workout from their side. All of it is owner-only, needs someone else on the install and
   is hidden while acting (`planPeople(me)`, the same rule as `sharePeople`).
   - **Planning for someone** is a "For: You / Sam" choice at the top of Plan a workout (both
-    routes) and Plan the week. The model runs with `for: <id>` on the request
-    (`aiSpaceFor`), so its log, plan, About you and recent weeks are theirs; the client
-    context (`plannerContext`, `weekContext`) is built from their log too, and WHOOP
-    readiness is left out. Nothing is written until the tap (§0.4). Keeping it writes into
+    routes). The model runs with `for: <id>` on the request (`aiSpaceFor`), so its log,
+    plan and About you are theirs; the client context (`plannerContext`) is built from their
+    log too, and WHOOP readiness is left out. Nothing is written until the tap (§0.4). Keeping it writes into
     THEIR log through `/api/people/:id/entry`: their day is read first and `placeEntries`
     mints the ids their own + would have, one entry per part (`plannedEntriesFor`), each
-    `done: false` (done from its day on, §4) with `data.plannedBy: { id, name }` stamped by the server. A week is their
-    `quota-<monday>` with `plannedBy`; a week they set themselves is a `409` and is left as
-    it is. The server accepts only `daily-…` entries carrying `sharedFrom` or `plannedBy` and
-    `quota-…` entries carrying `plannedBy`, and refuses any live entry without one of them.
+    `done: false` (done from its day on, §4) with `data.plannedBy: { id, name }` stamped by the server. The server
+    accepts only `daily-…` entries carrying `sharedFrom` or `plannedBy`, and refuses any
+    live entry without one of them. (Planning someone's WEEK went with the quotas; a
+    `quota-<monday>` entry is refused with a 400.)
     They see a quiet "planned by <owner>" (`plannedLine`) on the row, the sheet and the
     feed, and the entry is theirs to edit, log or delete. They cannot plan for anyone.
   - **Sides of a workout.** A shared entry opens the runner or workout mode through
@@ -340,7 +344,7 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     never touches the owner's store or cache. Act-as stays exactly as it was.
   - Pinned by the `trainer:`/`ai for everyone:` steps in `server/http.test.js`,
     `server/agentflags.test.js`, `server/prompts.test.js`, `app/trainer.test.js`, and the
-    `PlanFlow("For: …")`, `WeekPlanFlow("For: …")`, `SidesWorkout(…)`, `TodayTab("Sam's
+    `PlanFlow("For: …")`, `SidesWorkout(…)`, `TodayTab("Sam's
     day" …)` and "planned by" smoke cases, including every absence (one person, acting,
     not the owner).
 - Pinned by `server/users.test.js`, the people cases in `server/http.test.js`,
@@ -369,9 +373,9 @@ assume which plan an install runs on; code must work against the starter.
 ### Defaults off
 
 A **fresh install** (no `data/state.json`) gets: sign-in on; no AI unless a `claude` CLI
-is found (`CLAUDE_BIN`, `~/.local/bin/claude`, then `PATH`); no bridge, so linked goals
-are hidden and habit sync is off; no WHOOP or Strava app, so both are hidden; no notify core and therefore **no
-timers at all**; no brain file; no nutrition digest; starter content. AI routes answer
+is found (`CLAUDE_BIN`, `~/.local/bin/claude`, then `PATH`); no bridge, so habit sync is
+off; no WHOOP or Strava app, so both are hidden; no notify core and therefore **no
+timers at all**; no brain file; starter content. AI routes answer
 `503` with `code: "ai-not-configured"` and the UI says to set AI up; nothing else is
 affected.
 
@@ -383,7 +387,7 @@ an owner account is never switched to proxy), and it copies a legacy tracked
 that file first, so in practice the owner restores it with
 `git show 'HEAD@{1}:content/plan.json' > data/plan.json` (deploy/README.md); the server
 warns at start-up when a migrated install is running on the starter. Every other setting
-(bridge, notify core, brain file, nutrition digest, timezone, About you) starts off or
+(bridge, notify core, brain file, timezone, About you) starts off or
 blank, exactly as on a fresh install, and is configured in Settings. After that first
 write, `settings.json` is the only answer. Keep the migration that small: no deployment
 paths or personal values belong in code.
@@ -443,21 +447,29 @@ override, and its absence must render exactly like the app before it existed.
 - **Nothing rewrites history to suit a component.** Old shapes are read as they are
   (positional lift sets, `out.notes` on old entries, `out.intensity`/`out.effort`, the
   retired `hard-home` card id). New code adapts to stored data, not the reverse.
+- **Entries of removed kinds stay and are ignored.** A log may hold `checkin-<date>`,
+  `journal-<date>`, `journal-custom`, `quota-<monday>` and `achievement-<id>` entries.
+  Every reader selects the kinds it reads (`daily`, `bodyweight`, `gear`, `test`,
+  `skip-workout`, `timer`…) rather than dropping the ones it does not, so these are never a
+  workout, a streak day or a chart point, and nothing filters out a live kind such as an
+  undated `timer` preset; the merge,
+  export and backups carry them untouched. Never write a migration that drops them.
 - Non-log state lives beside the log: `data/drafts/` (AI workout drafts, not entries;
-  at most eight per person, a week old at most), `data/coach/` (coach threads, not entries),
-  `data/coach.json` (dated coach note), `data/whoop.json`, `data/strava.json`,
-  `data/goals.json` (caches), `data/vapid.json` (push identity — **deleting it silently
-  breaks every subscription**), `data/push-subscriptions.json` (a secret: endpoint + keys
-  is enough to push to a device).
+  at most eight per person, a week old at most), `data/whoop.json`, `data/strava.json` (caches),
+  `data/vapid.json` (push identity — **deleting it silently breaks every subscription**),
+  `data/push-subscriptions.json` (a secret: endpoint + keys is enough to push to a
+  device). An older install may also have `data/coach/`, `data/coach.json` and
+  `data/goals.json` from removed features: nothing reads or deletes them.
 
 ---
 
 ## 5. Content: the plan file is the content API
 
-No training content is hardcoded in the app. Sessions, catalogs, quota categories,
-achievements seeds, planner kinds, quick names, gear kinds, journal behaviours, check-in
-fields and recommender weights all come from the content file, so the programme can change
-with no rebuild.
+No training content is hardcoded in the app. Sessions, catalogs, categories
+(`quotaCategories`, a name kept from the quotas because plan files carry it), planner kinds,
+quick names and gear kinds all come from the content file, so the programme can change with
+no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal` and
+`achievements`: the app ignores them, and the test fixture keeps them to prove it.
 
 - **Sessions** are objects in `dailyMenu` with `role` (`session` / `adjunct` / `rest`), a
   `protocol`, `outputs` (log fields) and `logSpec` (per-set logging). Output types:
@@ -467,7 +479,9 @@ with no rebuild.
 - **Every menu session needs a `sched` block** (category, venue, finger load,
   `repeatable`, sport declarations); the suite fails otherwise. `sched.discipline`
   (`bouldering` / `rock-climbing`) says which folder of Log a workout the card sits in;
-  a card without one lands in "From the plan" (`lib/folders.js`).
+  a card without one lands in "From the plan" (`lib/folders.js`). Where the folders sit
+  (after the sports catalog) is decided in `picker.jsx`, not by content, because the
+  owner's plan file is not in the repository.
 - **A session is never deleted, only `retired: true`.** Every logged entry's `optId`
   resolves against `dailyMenu`; removing a card orphans every day it was trained. A
   renamed card lists its old ids in `aka`; a card that inherits history from a split card
@@ -502,25 +516,29 @@ with no rebuild.
 
 ### 6.1 Safety rules
 
-- **Two rules block. Everything else advises.** No hard finger day the day after another
-  (`hardMinGapDays`) and no more than `hardCap` a week. They are enforced in
-  `lib/recommend.js` before any suggestion is read, so a hallucinated extra hard day
-  produces a card that refuses to place itself. Per-discipline spacing, whole-body load
-  and every AI nudge are weighted terms with a sentence attached and a tap through them.
-  Do not soften the two blocks.
-- **`isHardEntry()` is the most load-bearing predicate in the app.** Order: a session that
-  cannot load the fingers never counts; then what the user logged (`out.hardFingers`,
-  pre-filled from `sched.fingerLoad`); then the plan's declaration.
+- **The two finger rules are no longer enforced by anything, and say so.** No hard finger
+  day the day after another (`hardMinGapDays`) and no more than `hardCap` a week used to
+  block the recommender's and the coach's offers. Those offers are gone (2026-10-25), and
+  placing a session (`placeEntries`, `pickMain`, `addExtra`) never consulted the rules, so
+  `lib/recommend.js` shrank to `lib/fingers.js`. The workout planner's prompt still tells
+  the model not to write a fourth hard finger day or one the day after another. If a
+  surface that OFFERS sessions ever comes back, it must read the rules from
+  `lib/fingers.js` (`hardDates`) before offering, not after.
+- **`isHardEntry()` decides what an old climbing week reads as.** It was the most
+  load-bearing predicate in the app while the rules blocked, and it is now what the
+  Progress Climbing charts count (`fingers.test.js`). Order: a session that cannot load the
+  fingers never counts; then what the user logged (`out.hardFingers`, pre-filled from
+  `sched.fingerLoad`); then the plan's declaration. Changing it rewrites history.
 - **Climbing is not in the activity catalog and must not be added.** Climbing sessions are
   `dailyMenu` cards that ask the hard-finger question; a second way to log climbing is a
-  way for a hard finger day to land where the budget cannot see it. Hence
+  way for a hard finger day to land where nothing asks the question. Hence
   `choiceForSport` returns null for climbing sports, `laneCandidates` never falls back to
   the workout card for a climbing category, and the unlogged-workout card offers a WHOOP or
   Strava climb only as a `climbing: true` row whose "Log it" opens the climbing folders
   (`onClimb`), never the workout card, "just miles" or "warm-up". The folders in Log a
   workout are doors to the climbing cards, not catalog activities.
-- **The finger budget counts what was LOGGED, never what was offered.** Alternatives and
-  suggestions must not consume it.
+- **Hard finger days count what was LOGGED, never what was planned or offered.**
+  `hardDates` reads only done entries.
 - **A training load the app computes must never be invented.** `resolveCeiling()`
   (`lib/force.js`) returns the critical-force-derived ceiling — CFmin or CF−6 kg,
   whichever is lower, offset per block via `loadCeiling` — and returns **null with the UI
@@ -535,7 +553,7 @@ with no rebuild.
   from filters and day lists, and `isHardEntry` falling through once turned bike rides
   into hard finger days. Lookups starting from the PLAN (`mutex`, `stacksWith`,
   `addAgain`) are fine as they are.
-- **A day is a list of sessions.** Day-level accounting (load calendar, hard-day count)
+- **A day is a list of sessions.** Day-level accounting (load calendar, hard finger days)
   takes the heaviest session; training load sums them. Only cards with
   `sched.repeatable: true` may appear twice (the free-form workout card and the
   `planned` container; `lifts.test.js` pins that they are the only two).
@@ -547,26 +565,17 @@ with no rebuild.
   so the second write sees the first. Give a screen ONE writer (`onRun(run, { out, done })`
   in the runner). Each of these was a real bug.
 
-### 6.3 Quotas and "just miles"
+### 6.3 "Just miles" and categories
 
-- **The week is quotas, not a template.** A quota is a count of workouts in a category for
-  a Monday–Sunday week, written by the user, never by the app. Misses expire on Sunday; no
-  debt carries. A quota set is an ordinary entry (`quota-<monday>`), so it syncs like
-  anything else.
-- **A quota counts workouts, per block.** `categoriesOf(entry, menu)` returns every
-  category an entry fills (a planned trip with a lift and a ride fills two); two blocks of
-  the same category are still one. `categoryOf` stays single-valued for spacing and
-  filters.
-- **The quota bars are a reading.** Pressing a bar shows what filled it; nothing on it
-  presses into a new session. Planned-but-not-done sessions draw a dotted continuation
-  (`pendingShown`) that never touches `done`, `remaining`, `owed` or the complete tick, and
-  is clamped to what is still owed.
 - **"Just miles" / warm-up are not training.** `data.training: false` (`isTraining`)
   counts for gear mileage, streak, habit and Progress miles, and is excluded from training
-  load (sRPE, load calendar, recommender ceiling) **and from quotas**. One place enforces
-  the quota half — `weekDaily` in `lib/quota.js` — so the bars, Week tab, planners and
-  week planner all agree. Absent means training. Marking one also names it (`out.titleFrom:
-  'casual'` → "Commute", `'warmup'` → "Warm-up"), and unticking removes only the app's name.
+  load (sRPE, the load calendar) and from the planner's "logged in the last week" context.
+  Absent means training. Marking one also names it (`out.titleFrom: 'casual'` →
+  "Commute", `'warmup'` → "Warm-up"), and unticking removes only the app's name.
+- **One category per entry.** `categoryOf(entry, menu)` (`lib/category.js`): `out.category`
+  beats the card's `category`, which beats the catalog activity's (`categoryFrom:
+  "activity"`). A planned trip with a lift and a ride is two entries, not one entry in two
+  categories (§6.6).
 
 ### 6.4 Logging forms
 
@@ -669,7 +678,8 @@ with no rebuild.
 - **Kinds are a list**; the seam is the BLOCK, not the author. `splitPrescription()` cuts
   at block categories (consecutive same-category blocks merge; uncategorised blocks join
   a neighbour) and `placeAll()` writes one entry per part, so each part gets its own WHOOP
-  and Strava slot and quota.
+  and Strava slot. The block control says it in plain words: *its own workout: Run* or
+  *part of the workout beside it*.
 - **`blockSurvives` has a `keep` arm**: picked-but-empty blocks survive edits, and
   `dropEmptyBlocks` runs on the way out in `keep()`. Both pinned in
   `prescription.test.js`.
@@ -701,6 +711,9 @@ with no rebuild.
 
 - **A chart declares when it applies** (`metrics.js` registry of `{ applies, series }`);
   the page draws whichever apply and have data. Two points minimum for a line.
+- **Groups render in registry order, and Climbing is last.** The headline tiles are
+  workouts, hours, miles, yards and load; hard finger days are a Climbing chart, not a
+  tile. Pinned in `progress.test.js` (`climbing charts come after the general ones`).
 - Training load is sRPE (RPE × minutes), which is why minutes are measured when possible.
 
 ### 6.9 Gear
@@ -724,34 +737,32 @@ is part of `npm test`. It has already caught a shipped palette failing.
 
 ## 7. AI runs
 
-Every AI feature spawns one headless Claude Code CLI run (`claude --print`, JSON schema
-for the reply) with the configured binary, model and environment (`config.ai()`;
-`spawnEnv()` adds a stored API key). Without a CLI those routes answer 503 and nothing
-else changes.
+There is one: the workout planner (`server/planner.js`, *Plan a workout → Write it for
+me*, `/api/plan/workout` and `/api/plan/revise`, and the drafts under `/api/plan/drafts`
+that run them). It spawns one headless Claude Code CLI
+run (`claude --print`, JSON schema for the reply) with the configured binary, model and
+environment (`config.ai()`; `spawnEnv()` adds a stored API key). Without a CLI those routes
+answer 503 with `code: "ai-not-configured"` and nothing else changes. The AI coach, the
+dormant check-in coach and the week planner were removed on 2026-10-25 (§10.8).
 
 **The boundary is flags, not prompt text.** A prompt is a request; a flag is a rule. All
-of them are built in `server/agentflags.js`:
+of them are built in `server/agentflags.js` (`plannerFlags`):
 
-- A brain or food-log directory that is the filesystem root, `$HOME` or an ancestor of it
-  is refused outright (no `--add-dir`, no `Write`), as is a `Write` grant on a directory
-  that contains the repo or the data dir.
+- Allowed: `Read`, `Grep`, `Glob`. Denied: `Bash`, `Edit`, `Write`, `NotebookEdit`,
+  `Task`, `WebSearch`, `WebFetch`, plus explicit `Edit` denials on `state.json`,
+  `plan.json`, `auth.json`, `settings.json`, the data dir and the repo. **No run may ever
+  write anything**, and none has a shell.
+- A brain directory that is the filesystem root, `$HOME` or an ancestor of it is refused
+  outright (no `--add-dir`). A safe one is passed with `--add-dir`, read-only, as is a
+  non-default data dir.
 - Every run denies `Read` of `auth.json`, `settings.json`, `vapid.json`,
   `push-subscriptions.json` in the data dir, any `.env`, `~/.claude/**` and `~/.ssh/**`.
 - Absolute paths in permission rules are written `//abs/path`; a single leading `/` is
   relative to the project in the CLI's rule syntax.
-- The paths these runs see (CLI binary, brain file, food-log dir, notify core) come only
-  from the environment or a hand-edited `settings.json`, never from a browser patch.
-
-| Run | Allowed | Denied | Can write |
-|---|---|---|---|
-| Coach (`server/coach.js`) | `Read`, `Grep`, `Glob`, `WebSearch`, `WebFetch` (+ `Write(<brain dir>/**)` only if a brain file is configured) | `Bash`, `Edit`, `NotebookEdit`, `Task` (+ `Write` when there is no brain file) | only files beside the configured brain file |
-| Workout planner (`server/planner.js`) | `Read`, `Grep`, `Glob` | everything else | nothing |
-| Week planner (`server/weekplanner.js`) | `Read`, `Grep`, `Glob` | `Bash`, `Edit`, `Write`, `NotebookEdit`, `Task`, `WebSearch`, `WebFetch` | nothing |
-| Check-in coach (`server/chat.js`, dormant) | no tools (`--tools ""`); context assembled server-side on stdin | — | nothing |
-
-Extra readable directories are passed with `--add-dir` (brain dir, nutrition digest dir, a
-non-default data dir). Read the header of `askCoach` before changing any list. **No run may
-ever write `data/state.json` or the plan file**, and none has a shell.
+- The paths a run sees (CLI binary, brain file, notify core) come only from the
+  environment or a hand-edited `settings.json`, never from a browser patch.
+- `ISOLATION` keeps the owner's own Claude Code settings, MCP servers, hooks and
+  CLAUDE.md out of the run. An un-isolated run once overwrote the training log.
 
 **A run for anyone but the owner** (their own, the owner acting as them, or the owner
 planning `for` them) is built by `aiRun(space)` from their space alone, and the flags make
@@ -759,55 +770,42 @@ that a rule rather than a request (`person` and `ownerSources` in `agentflags.js
 
 | | Their run |
 |---|---|
-| Can read | their own space (`data/users/<id>/`: log, coach threads, coach note, plan, About you), passed as the only `--add-dir`; the repo (the starter content, README, docs) from the cwd |
-| Is denied by rule | everything else directly in the data dir (enumerated when the run is spawned, plus the owner's file names whether or not they exist yet: `state.json`, `coach.json`, `plan.json`, `whoop.json`, `strava.json`, `goals.json`, `users.json`, `about.json`, `coach/`, `backups/`, `drafts/`), every other person's folder, the owner's brain file and its directory, the nutrition digest dir, the owner's own plan file when it is not the starter, and the usual secrets |
-| Never gets | the brain file or its Write grant (`Write`/`Edit` denied outright), the nutrition digest, WHOOP/Strava digests or cache paths, the owner's About you |
-| Prompt | their name and notes; `logDir` is their space, so every path in it is theirs; no brain, food-log, WHOOP or Strava section at all (`measurements: false`), exactly as on an install that never configured them |
+| Can read | their own space (`data/users/<id>/`: log, plan, drafts, About you), passed as the only `--add-dir`; the repo (the starter content, README, docs) from the cwd |
+| Is denied by rule | everything else directly in the data dir (enumerated when the run is spawned, plus the owner's file names whether or not they exist yet: `state.json`, `plan.json`, `whoop.json`, `strava.json`, `users.json`, `about.json`, `backups/`, `drafts/`, and an older install's `coach.json`, `coach/`, `goals.json`), every other person's folder, the owner's brain file and its directory, the owner's own plan file when it is not the starter, and the usual secrets |
+| Never gets | the brain file, WHOOP/Strava cache paths, the owner's About you |
+| Prompt | their name and notes; `logDir` is their space, so every path in it is theirs; no brain, WHOOP or Strava section at all (`measurements: false`), exactly as on an install that never configured them |
 
 Deny beats allow, and a deny on the data dir as a whole would also cover their own space
 inside it, which is why the owner's names are enumerated. Claude Code applies `Read` rules
 to Grep and Glob as well. `server/http.test.js` (the `ai for everyone:` steps, with a fake
 CLI that records its argv and prompt) and `agentflags.test.js` pin both the denials and
 that their own space is never denied; `prompts.test.js` pins the absent sections.
+`agentflags.live.test.js` (opt-in, `BUSHIDO_LIVE_CLI=1`) runs the real CLI in a hostile
+configuration and checks every write is refused.
 
-Rules that apply to all of them:
+Rules the planner keeps:
 
-- **Nothing is written until the user taps.** `/api/plan/workout`, `/api/plan/revise` and
-  `/api/plan/week` return a proposal and store it nowhere. `/api/plan/drafts` stores the
-  proposal on a draft beside the log (the SERVER writes it from the run's stdout; the run
-  still has no Write), and the log only on the tap. The coach's suggested sessions
-  render as cards whose buttons go through the same `pickMain`/`addExtra`/`dropEntry`
-  paths as the day list; which buttons exist is decided live on every render
-  (`placeable()`/`offers()`), and a card the day cannot take shows the reason where its
-  buttons would be. There is no such thing as an AI write to the log.
-- **The user's message is stored before the model is asked.** A turn can take minutes and
-  fail; the reply may be lost, never the question.
+- **Nothing is written until the user taps.** `/api/plan/workout` and `/api/plan/revise`
+  return a proposal and store it nowhere. `/api/plan/drafts` stores the proposal on a draft
+  beside the log (the SERVER writes it from the run's stdout; the run still has no Write),
+  and the log only on the tap; keeping it goes through the app's own `placeAll`. There is
+  no such thing as an AI write to the log.
 - **Revisions return the whole object** with a REQUIRED `changed` field (optional fields
   get omitted by models).
-- **Server-side context, not browser-posted context.** WHOOP/Strava digests are built
-  from the caches on disk (`chat.whoopDigest`, `chat.stravaDigest`, `weekContext`). Absent
-  data produces no section at all — a model told nothing about recovery must not conclude
-  the user is recovered.
-- **Pre-digest instead of letting a model read the log whole.** The week planner timed out
-  reading `state.json` at medium effort; `weekContext` now supplies the last three weeks
-  per category and the prompt says to Grep. Planners run at low effort
-  (`BUSHIDO_PLANNER_EFFORT`, `BUSHIDO_WEEK_EFFORT`) with timeouts set from measurement.
+- **Pre-digest instead of letting a model read the log whole.** `plannerContext`
+  (`lib/plannerapi.js`) sends today's WHOOP readiness (owner only) and the last 7 days of
+  done training workouts, so the model does not spend its budget parsing `state.json`.
+  Absent data produces no section at all — a model told nothing about recovery must not
+  conclude the user is recovered. Runs are at low effort (`BUSHIDO_PLANNER_EFFORT`) with a
+  timeout set from measurement.
 - **Prompts are gender-neutral and personal-detail-free.** The name and notes come from
   Settings via `server/prompting.js` (`who()`, `speaker()`, `notesSection()`), falling back
-  to "the athlete". `server/prompts.test.js` enforces it. Do not write a person's facts
-  into a prompt.
+  to "the athlete". `server/prompts.test.js` enforces it, and that no quota language is
+  left in the prompt. Do not write a person's facts into a prompt.
 - **The endurance kinds leave `category`/`activity` null** so the planner picks the sport
-  from what the week still owes; the planner prompt explains how. The builder never
-  guesses on the user's behalf ("counts toward nothing" until a chip is tapped).
-
-**The coach note and the check-in coach.** `data/coach.json` is a dated note: advice for
-another day does nothing, nudges are clamped to `recommender.coachCap` and read in
-`scoreSession` after the hard blocks return. The check-in coach (`/api/chat`,
-`examples/coach/CHECKIN.md`) was written around a retired programme structure and is
-**switched off**: the route refuses, the app does not fetch `/api/coach`, and
-`BUSHIDO_COACH=1` forces it on. Rewrite `CHECKIN.md` for quotas and standing achievements
-before removing either guard. A `changed` entry on a note renders as a "coach changed"
-chip and the smoke suite pins it; nothing writes one today, but the path stays honest.
+  it has seen least in the last week's log; the planner prompt explains how. The builder
+  never guesses on the user's behalf ("part of the workout beside it" until a chip is
+  tapped).
 
 **Nothing schedules an AI run, and nothing but a person edits the plan.** There was once a
 nightly timer and a "run the coach now" button that could edit the plan behind a
@@ -823,8 +821,8 @@ or a log being saved.
 
 ### 8.1 The Totem bridge
 
-Totem is the author's separate personal assistant app; its HTTP bridge exposes goals and a
-habits API. Any service exposing the same endpoints would work. Configure with Settings →
+Totem is the author's separate personal assistant app; its HTTP bridge exposes a habits
+API. Any service exposing the same endpoints would work. Configure with Settings →
 Integrations or `BUSHIDO_TOTEM_URL`, `BRIDGE_SECRET` / `BUSHIDO_TOTEM_ENV`,
 `BUSHIDO_TOTEM_HABIT`. The secret never reaches the browser.
 
@@ -863,16 +861,15 @@ WHOOP refresh runs at a time (`accessToken` in `server/whoop-api/client.mjs`; th
   `filled` map, never inferred. Climbing sports map to nothing on the free-form card.
 - **Scope errors travel verbatim** ("authorized without read:workout" names the fix); do
   not flatten them to "failed".
-- **Recovery is the weakest term in the engine**: clamped to `recommender.whoop.cap`,
-  applied after the hard blocks, against the user's own fortnight median (`baselineFor`),
-  null with fewer than four prior days or when WHOOP reports `calibrating`. Null must
-  compute identically to the app before WHOOP existed (`recommend.test.js` pins it).
+- **Recovery is read against the user's own fortnight median** (`baselineFor`), and is
+  null with fewer than four prior days or when WHOOP reports `calibrating`. Null renders
+  nothing, exactly as the app before WHOOP existed. (It used to be a capped term in the
+  recommender; that went on 2026-10-25.)
 - **Sleep and recovery rows accumulate in the cache** (`mergeDaily`): each pull is laid
   over what was cached, newest copy winning, kept for a year, so the Today tab's sleep
   graph (30d / 90d / 1y, ported from Totem's Habits tab) can look back further than the
   client's 60-day maximum per pull. A cache with no `backfilledAt` gets one 60-day pull. It is still
   a refetchable mirror; deleting it loses only graph history.
-- WHOOP has no journal, behaviour or survey endpoint; the journal is native by necessity.
 
 ### 8.3 Strava (`server/strava.js`, `app/src/lib/strava.jsx`, `app/src/strava.jsx`)
 
@@ -896,23 +893,12 @@ Same arrangement and the same cache-vs-snapshot rule (`data/strava.json` vs
   not ours to control. A merged row spans the union of both windows.
 - The free-form card's activity choice also declares sport at log time (`familyMatches`).
 
-### 8.4 Linked goals
+### 8.4 Hostnames
 
-The bridge owns goals; Bushido is a second window, not a second author. A goal is linked
-by an ordinary URL link pointing at this app, matched on HOST (exactly, not as a
-substring) so a path change does not unlink everything. The host is build-time env only:
-`VITE_BUSHIDO_HOST`, plus `VITE_BUSHIDO_LEGACY_HOSTS` for older hostnames, in `app/.env`.
-With `VITE_BUSHIDO_HOST` unset, the page's own `location.host` stands in (`bushidoHost()`);
-legacy hosts are env-only. `lib/handoff.js` likewise moves pages from the hostnames in
-`VITE_BUSHIDO_HANDOFF_FROM` to `VITE_BUSHIDO_HOST`, and does nothing when they are unset.
-No hostname belongs in shipped code. `GET /api/goals` proxies and caches to
-`data/goals.json`.
-
-- **Nothing in `lib/goals.js` recomputes progress.** Use `goal.progress.percent`; the
-  bridge already resolves sources and sub-goal rollups.
-- **The field is `subGoals`, not `steps`.** Take field names from a live payload, not
-  from what they ought to be called.
-- Two-way sync was considered and declined; keep it read-only.
+No hostname belongs in shipped code. `lib/handoff.js` moves pages from the hostnames in
+`VITE_BUSHIDO_HANDOFF_FROM` to `VITE_BUSHIDO_HOST` (build-time env, `app/.env`), and does
+nothing when they are unset. (Linked goals from the bridge, which also matched on
+`VITE_BUSHIDO_HOST`, were removed on 2026-10-25.)
 
 ### 8.5 Habit sync
 
@@ -934,19 +920,17 @@ timer.
 
 - A logged workout notifies **exactly once, when a write marks it done**
   (`completedDailyEntries` compares against the previous state), never on re-sync, an
-  edit, or a planned session's day arriving (§4), and names a linked goal only if that goal still has something left on it.
-- Scheduled facts (readiness, unlogged workouts, goal pace) are planned once a day,
+  edit, or a planned session's day arriving (§4), and says what was logged ("Logged. RPE
+  6."), nothing more.
+- Scheduled facts (readiness, unlogged workouts, the body warning) are planned once a day,
   drained on a 30s tick, and revalidated just before sending.
 - **A notifier that cannot start must never stop a workout being saved.**
   Tests: `server/notify-facts.test.js`.
 
-### 8.7 Read-only local files for the AI
+### 8.7 The brain file
 
-- **Brain file** (`BUSHIDO_BRAIN_FILE`): an optional Markdown athlete profile the coach
-  and planners may read; the coach may write only beside it. Absent is survivable.
-- **Nutrition digest dir** (`BUSHIDO_KRAKATOA_DIR`): a pre-computed `digest.json` from a
-  separate food-log app, read-only. **Do not build food logging into Bushido**; it was
-  deliberately split out to keep this app uncrowded.
+`BUSHIDO_BRAIN_FILE`: an optional Markdown athlete profile the workout planner may read.
+Read-only; nothing writes beside it any more. Absent is survivable.
 
 ---
 
@@ -958,9 +942,10 @@ See `docs/operations.md` for the full table. Shape to keep: `GET/PUT /api/state`
 `POST /api/settings/ai/test`, `GET /api/auth/me`, `POST /api/auth/password`, `GET /api/people`,
 `GET/POST /api/people/:id/entry` (shared workouts and what the owner planned for someone),
 `GET /api/people/:id/state|content` and `GET/PUT /api/people/:id/about` (owner only, §3),
-`GET/PUT /api/about` (anyone but the owner), `for` on the three planning routes, the coach,
-planner, WHOOP, Strava, goals and push routes, and `GET /api/health` (liveness; with a
-session, resolved paths and integration state).
+`GET/PUT /api/about` (anyone but the owner), `for` on the planner and draft routes, the
+planner, `/api/plan/drafts`, WHOOP, Strava and push routes, and `GET /api/health` (liveness; with a session,
+resolved paths, `ai: { model, claude, brain }` and integration state). `/api/chat`,
+`/api/coach*`, `/api/goals*` and `/api/plan/week` are gone and answer 404.
 
 ---
 
@@ -970,61 +955,47 @@ The app grew from a single dated climbing block into a multi-sport log, and seve
 large changes removed features on purpose. Each subsection is the reasoning to respect
 before "improving" something back.
 
-### 10.1 From one dated block to quotas and every sport
+### 10.1 From one dated block to every sport
 
 The original programme was eleven dated weeks with a weekday template. It was replaced,
-not migrated, by standing **achievements**, weekly **quotas**, a `category` on every
-session, a `hardFingers` question on every finger-loading card, and the 91-activity
-catalog. Removed: `weeks[]`, `phases[]`, `weekTemplate`, hotspot days and branches, trip
-mode, the standalone evidence index, `sched.weeks` gates (left in, they would block
-sessions forever), and the template's scoring weights.
+not migrated, by a `category` on every session, a `hardFingers` question on every
+finger-loading card, and the 91-activity catalog (and, until 2026-10-25, weekly quotas
+and achievements; §10.8). Removed: `weeks[]`, `phases[]`, `weekTemplate`, hotspot days and
+branches, trip mode, the standalone evidence index, `sched.weeks` gates (left in, they
+would block sessions forever), and the template's scoring weights.
 
-- **Venue is a filter, not a branch.** It is a hard block from what the user states;
-  absent a statement, nothing is assumed. Two venues exist: `climbing-gym` and `gym`
-  (weights); support blocks are `any`.
-- **Misses expire.** Debt that carries makes a bad week make the next one look worse.
 - **The catalog is content**, and gates may ask it (`when: { shape: [...] }`), so no field
   lists 91 keys.
-- **A pairing the plan declares (`sched.stacksWith`) outranks one the scorer likes**, and
-  a hard session rides along with another only where declared.
-- **What the user states outranks what the calendar guesses**: check-in fields with
-  `informs` (venue, time window, fingers now) feed the engine as hard blocks, and a
-  blocked session renders "Not today" with its reason.
+- **Old shapes stay readable.** Entries logged against those weeks, the retired cards and
+  the template still render (`optFor`, `aka`, `priorIds`); nothing migrated them.
 
 ### 10.2 The app stopped recommending
 
 A recommender the user ignores is not one that needs tuning, so Today stopped having an
-opinion and the effort went into writing a workout down and following it. Removed from
-Today: the tappable quota board, companion sessions, the "why today" card, the ranked
-swap list and dialog, the rest-day suggestion, per-session dismissals, the morning coach
-card. `DaySessions` renders the day and routes taps; it does not rank, offer, dismiss or
-explain.
+opinion (2026-09-17) and the effort went into writing a workout down and following it.
+Removed from Today: the tappable quota board, companion sessions, the "why today" card,
+the ranked swap list and dialog, the rest-day suggestion, per-session dismissals, the
+morning coach card. `DaySessions` renders the day and routes taps; it does not rank,
+offer, dismiss or explain. On 2026-10-25 the recommender itself went (§10.8); only
+`lib/fingers.js` is left. `TodayTab(empty day offers nothing)` asserts the absences.
 
-**`lib/recommend.js` stays** (the finger rules, `checkin.jsx`, `metrics.js`, its tests).
-**Do not wire it back into Today.** `TodayTab(empty day offers nothing)` asserts the
-absences.
+What went on: the **+** button. Removing the swap list briefly removed the only route to
+every climbing card while every test passed — the origin of the reachability rule in §2.
+"Pick a session" came back as that route, and went again on 2026-10-14: two doors for
+"write down what I did" meant knowing which list a thing lived in, and it only ever placed
+on today. The plan's cards are now folders (Bouldering, Rock climbing, by
+`sched.discipline`) inside Log a workout, under Climbing after the sports catalog, and Log
+a workout lands on **the day Today is showing**, never a future one, so a past climb can be
+logged on its own day. `FabMenu(four doors…)` and `TodayTab(empty day offers nothing)` pin
+the absence of the old door.
 
-What went on: the **+** button (Plan a workout, Plan the week, Log a workout, Log a rest
-day). Removing the swap list briefly removed the only route to every climbing card while
-every test passed — the origin of the reachability rule in §2. "Pick a session" came back
-as that route, and went again on 2026-10-14: two doors for "write down what I did" meant
-knowing which list a thing lived in, and it only ever placed on today. The plan's cards
-are now folders (Bouldering, Rock climbing, by `sched.discipline`) at the top of Log a
-workout, and Log a workout lands on **the day Today is showing**, never a future one, so a
-past climb can be logged on its own day. `FabMenu(four doors…)` and
-`TodayTab(empty day offers nothing)` pin the absence of the old door.
-
-### 10.3 Endurance as a catalog, and the week planner
+### 10.3 Endurance as a catalog
 
 - The `endurance` planner group is by **intent** (Zone 2, Long & easy, Recovery, Tempo,
   Threshold, VO2, Hills, Brick, Race rehearsal), sport-agnostic; Zone 2 leads it on
   purpose and the smoke suite pins the order. Swim, Bike and Run catalogs are collapsed
-  groups, each with a catch-all first.
-- **Plan the week** applies every workout-planner rule to a week: read-only tools,
-  stateless (thread and draft up, whole week back with `changed`), nothing written until
-  "Set the week", then an ordinary `quota-<monday>` entry via `buildQuotaEntry(monday,
-  counts, extra)` carrying the thread and reasoning. Opens on next week on a weekend
-  (`defaultMonday`). Does not run on open. Starts from what was done, not what was set.
+  groups, each with a catch-all first. A sport-agnostic kind lets the planner pick the
+  sport from the last week's log (§7).
 
 ### 10.4 The cull: fewer ways to do the same thing
 
@@ -1038,13 +1009,12 @@ rest intervals, and the runner for lift-only sessions.
 Added: everything folds; reorder per section; `out.notes` back as a plain notes box (same
 key, so old notes read back); several measurements per session (`out.whoop` keeps the
 first so every older reader stays right; extras in `*More`); a Warm-up button on unlogged
-workouts; `priorIds` for history; quota-bar rows open the entry (`onOpenEntry`, `openAs:
-'sheet'`).
+workouts; `priorIds` for history.
 
 **The log form and the planner's editor are the same component** (`exercises.jsx`).
 `liftlog.jsx` adapts the positional stored shape (index as set id) rather than migrating
 history; a blank is `''` there and `null` on a prescription via one `blank` prop.
-`BlockQuota` stays in `planner.jsx`. `.exlog-*` styles stay for the climbing set log,
+`BlockQuota` (the per-block "its own workout" control) stays in `planner.jsx`. `.exlog-*` styles stay for the climbing set log,
 which is a genuinely different form. `SessionLog(other training, a lift)` and
 `Sheet(a planned session)` pin the same one-open-card shape from opposite sides; if they
 disagree, someone has grown a second copy.
@@ -1070,13 +1040,53 @@ phone, suspect the inset before the stacking order.
 both opening `RestPrompt` in `App.jsx`. It asks why (chips from the rest card's own
 `why` output, plus notes; both optional), has a date field for a forgotten rest day, and
 edits an existing rest entry rather than adding a second. `restStats` in `lib/stats.js`
-shows the why on the row. Pinned by `FabMenu(five doors, rest included)` and
+shows the why on the row. Pinned by `FabMenu(four doors…)` and
 `RestPrompt(asks why before logging)`.
 
 ### 10.7 Food is a separate app
 
-Nutrition logging lives in a separate app. The only wire is the optional read-only
-digest directory (§8.7). Do not add food logging here.
+Nutrition logging lives in a separate app, which reads the owner's WHOOP through
+`/api/whoop/owner`. Bushido has no wire to it any more (the coach's read-only nutrition
+digest went with the coach). Do not add food logging here.
+
+### 10.8 The 2026-10-25 cut (issue #31)
+
+Bushido became a plain workout log. Measured from the live log, the month before was
+free-form workouts, rest days, planned and shared workouts with WHOOP/Strava attached, and
+nothing else. Removed from the web app, the iPhone app and the server, with their routes,
+prompts, notifications and tests:
+
+- the daily **check-in** and the dormant check-in coach (`/api/chat`, `CHECKIN.md`);
+- the **journal**;
+- **achievements** (their tab, the Progress filter, the starter's seeds);
+- **linked goals** (`/api/goals`, the goals cache, goal-pace notifications, the goals
+  toggle, `VITE_BUSHIDO_LEGACY_HOSTS`);
+- **quotas**, the Week tab, the quota bars and **Plan the week** (`/api/plan/week`, and
+  planning someone else's week);
+- the **AI coach** (its tab and bubble, threads, the coach note and its nudges, the brain
+  Write grant, the nutrition digest);
+- the **recommender**, except `lib/fingers.js` (§6.1).
+
+What that means for the code that stays:
+
+- **Stored data is never deleted.** Old `checkin-`, `journal-`, `journal-custom`,
+  `quota-` and `achievement-` entries stay in `state.json` and are carried through merge,
+  export and backups untouched; `coach.json`, `coach/` and `goals.json` stay in the data
+  dir. Readers ignore them by `kind`. Settings keys only those features used are dropped
+  from `settings.json` on the next save, as any removed setting always was.
+- **Climbing follows, it does not lead.** In Log a workout the sports catalog comes first
+  and the Climbing folders after it; on Progress the tiles are general and the Climbing
+  group is last. Both are ordered in code, because the owner's plan file is outside the
+  repo and cannot be reordered from here.
+- **Navigation is Today, Log, Progress** for everyone (`tabsFor`), and the + offers Log a
+  workout, Log a rest day, Plan a workout and the interval timer, in that order.
+- Pinned: `TodayTab(legacy entries are ignored)`, `LogTab(legacy entries are not workouts)`,
+  `ProgressView(legacy entries are not workouts)`, `FabMenu(four doors…)`,
+  `tabsFor(three tabs…)`, `plannerContext(…not quotas)`, the `legacy data:` steps in
+  `server/http.test.js` (a data dir full of the removed features' data boots, reads back
+  byte for byte through every write and export, and the removed routes answer 404),
+  `progress.test.js` (climbing last, no achievement filter) and `starter.test.mjs` (no
+  removed content in the starter).
 
 ---
 

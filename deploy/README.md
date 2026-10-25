@@ -127,64 +127,55 @@ file that differs from a fresh install in exactly two ways:
 It logs what it did. Nothing in the training log changes.
 
 **3. Turn back on what you used.** Everything else starts off, exactly as on a fresh
-install: the Totem bridge (goals and the habit sync), the Strava and WHOOP apps, the
-notification core, the athlete profile file, the food-log digest, the timezone and
-*About you*. Set the ones you had in Settings, or write them into `data/settings.json`
+install: the Totem bridge (the habit sync), the Strava and WHOOP apps, the
+notification core, the athlete profile file, the timezone and *About you*. Set the ones you had in Settings, or write them into `data/settings.json`
 before the first start; a `settings.json` that already exists is never migrated or
 overwritten.
 
 **4. Set the frontend's build-time hosts, then rebuild.** The app no longer ships any
-hostname. If goals in Totem link to this app, or the app used to live at another
-hostname, put them in `app/.env` (template: `app/.env.example`) and rebuild with
-`cd app && npm run build`:
+hostname. If the app used to live at another hostname, put both in `app/.env` (template:
+`app/.env.example`) and rebuild with `cd app && npm run build`:
 
 ```bash
 VITE_BUSHIDO_HOST=bushido.example.com              # the hostname the app is served at
-VITE_BUSHIDO_LEGACY_HOSTS=old-name.example.com     # older hostnames goal links may still use
 VITE_BUSHIDO_HANDOFF_FROM=old-name.example.com     # retired hostnames that hand pages over to VITE_BUSHIDO_HOST
 ```
 
-All three are optional. Without `VITE_BUSHIDO_HOST`, goals are matched against the host the
-page is opened at; without the other two, old links are not matched and nothing is handed
-over. They are read at build time, so a change needs a rebuild, not a restart.
+Both are optional; without them nothing is handed over. They are read at build time, so a
+change needs a rebuild, not a restart.
 
-## The coach
+## The workout planner
 
-The AI features — the coach (`POST /api/coach/chat`), the workout planner
-(`/api/plan/workout`, `/api/plan/revise`) and the week planner (`/api/plan/week`) — each
-run one headless `claude` from inside `bushido.service`. They need the Claude Code CLI,
-signed in as the user the service runs as, or an API key (Settings → AI, or
-`ANTHROPIC_API_KEY`). The CLI is found at `CLAUDE_BIN`, then `~/.local/bin/claude`, then
-on `PATH`; without one, those routes answer "set up AI in Settings" and nothing else is
-affected.
+The one AI feature, *Plan a workout → Write it for me* (`/api/plan/workout`,
+`/api/plan/revise`), runs one headless `claude` from inside `bushido.service`. It needs the
+Claude Code CLI, signed in as the user the service runs as, or an API key (Settings → AI, or
+`ANTHROPIC_API_KEY`). The CLI is found at `CLAUDE_BIN`, then `~/.local/bin/claude`, then on
+`PATH`; without one, those routes answer "set up AI in Settings" and nothing else is
+affected. *Build it myself* needs no AI at all.
 
-What each run may do is set by flags in the spawn, not by the prompt:
-
-| run | tools | can write |
-|---|---|---|
-| coach | `Read`, `Grep`, `Glob`, `WebSearch`, `WebFetch`; `Bash`, `Edit`, `NotebookEdit`, `Task` denied | only files beside the brain file, and only when one is configured |
-| workout and week planners | `Read`, `Grep`, `Glob`; everything else denied | nothing |
-
-None of them can write `data/state.json` or the plan file. Sessions the coach suggests are
-offers the app draws as cards; nothing lands on the day until you tap one.
+What the run may do is set by flags in the spawn, not by the prompt: `Read`, `Grep`,
+`Glob`, and everything else denied. It cannot write anything, including `data/state.json`
+and the plan file; what it returns is a proposal that lands on the day only when you keep it.
 
 | variable | default | |
 |---|---|---|
-| `BUSHIDO_COACH_MODEL`, `BUSHIDO_PLANNER_MODEL` | Settings → AI → Model, else `claude-sonnet-5` | |
-| `BUSHIDO_COACH_EFFORT` | `medium` | |
-| `BUSHIDO_PLANNER_EFFORT`, `BUSHIDO_WEEK_EFFORT` | `low` | measured: a quarter of the latency of the CLI default for a reply no worse |
-| `BUSHIDO_COACH_TIMEOUT_MS` | `180000` | the run is killed at this point and the card says so |
-| `BUSHIDO_BRAIN_FILE` | off (Settings → Other local services) | an athlete profile in Markdown. Absent is survivable — the AI is simply told less |
+| `BUSHIDO_PLANNER_MODEL` | Settings → AI → Model, else `claude-sonnet-5` | |
+| `BUSHIDO_PLANNER_EFFORT` | `low` | measured: a quarter of the latency of the CLI default for a reply no worse |
+| `BUSHIDO_PLANNER_TIMEOUT_MS` | `150000` | the run is killed at this point and the screen says so |
+| `BUSHIDO_BRAIN_FILE` | off (Settings → Other local services) | an athlete profile in Markdown the planner may read. Absent is survivable — it is simply told less |
 
-Each turn is a real model call billed to whichever account the CLI is signed in with.
-Nothing else in the app costs anything; `GET /api/health` shows the last coach turn.
+Each run is a real model call billed to whichever account the CLI is signed in with.
+Nothing else in the app costs anything.
 
-There used to be a second coach: a 04:40 systemd timer running `coach/run.sh`, a
-headless Opus session that could edit the plan behind a validate-test-revert gate, plus a
-button in the app that started the same script. Both are gone. If a box still has the
-unit installed — as `rung-coach.*` on anything set up before the 2026-10-02 rename, or
-`bushido-coach.*` if it was installed under the new name — remove it under whichever name
-it has:
+The AI coach (`/api/coach/chat`), the dormant check-in coach (`/api/chat`) and the week
+planner (`/api/plan/week`) were removed on 2026-10-25. The files they left in the data
+directory (`coach.json`, `coach/`, `goals.json`) are not read and not deleted.
+
+There used to be a scheduled coach too: a 04:40 systemd timer running `coach/run.sh`, a
+headless Opus session that could edit the plan behind a validate-test-revert gate. It is
+gone. If a box still has the unit installed — as `rung-coach.*` on anything set up before
+the 2026-10-02 rename, or `bushido-coach.*` if it was installed under the new name —
+remove it under whichever name it has:
 
 ```bash
 systemctl --user disable --now rung-coach.timer rung-coach.service

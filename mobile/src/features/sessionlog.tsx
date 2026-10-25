@@ -357,11 +357,11 @@ export function SessionDetails({ session, entry, entries, onSave, training, onTr
       <GearPicker session={session} out={out} entries={entries} onChange={(v: any) => set('gear', v)} />
 
       {/* Training, or just activity? `training: false` keeps the miles, the gear
-          and the streak, and takes it out of the quota and the training load. */}
+          and the streak, and takes it out of the training load. */}
       {onTraining && (
         <ToggleRow value={training === false} onChange={(v) => onTraining(!v)}>
           <T size={14}>Just miles — not a workout</T>
-          <T size={11} faint style={{ marginTop: 2 }}>Counts the distance and the streak. Not the quota, not the training load.</T>
+          <T size={11} faint style={{ marginTop: 2 }}>Counts the distance and the streak. Not the training load.</T>
         </ToggleRow>
       )}
 

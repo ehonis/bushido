@@ -1,18 +1,15 @@
 # Bushido
 
-Bushido is a self-hosted health and training log for someone training several sports at
-once. Instead of a calendar of planned days, each week has **quotas**, a count of workouts
-per category from Monday to Sunday ("3 bike, 2 run, 1 lift"). You fill them in whatever
-order the week allows, and anything left on Sunday expires instead of carrying over as
-debt. It logs 91 kinds of activity, each with a form that fits it, and keeps a lift log
-backed by a 207-movement exercise catalog. It can read WHOOP recovery and Strava
-activities. An optional AI coach and workout planner run on the Claude Code CLI. It is a
-phone-first installable web app, served by a Node server with no npm dependencies and
-backed by a single JSON file.
+Bushido is a self-hosted workout log: write down what you did, or plan a workout and
+follow it set by set. It logs 91 kinds of activity, each with a form that fits it, and
+keeps a lift log backed by a 207-movement exercise catalog. It can read WHOOP recovery and
+Strava activities, and an optional AI workout planner runs on the Claude Code CLI. It is a
+phone-first installable web app (plus an iPhone app in `mobile/`), served by a Node server
+with no npm dependencies and backed by a single JSON file.
 
 It started as one person's tool, built for training toward a 5.12a climbing redpoint and
-a half Ironman at the same time. Neither goal fits a fixed weekly schedule, and a missed
-Thursday shouldn't cost the session, only move it.
+a half Ironman at the same time, and was cut back on 2026-10-25 to the parts that person
+actually used: logging workouts, planning them, and seeing how it is going.
 
 > **A personal project.** Bushido was built for one user and is used daily by one user.
 > It is single-owner by design (one account per install), and the full climbing and
@@ -23,12 +20,8 @@ Thursday shouldn't cost the session, only move it.
 
 ## Features
 
-- **Weekly quotas.** Set them on the Week tab, which pre-fills from last week. The Today
-  tab shows one bar per category, done against asked-for, and pressing a bar lists the
-  sessions behind it. Workouts you have planned but not yet done show as a dotted segment
-  and never count as progress.
-- **Achievements.** The standing goals you are training for. Each one owns a set of
-  quota categories. You create, edit and date them in the app.
+- **Three tabs.** Today (what is on the day), Log (everything done, newest first) and
+  Progress (charts). The **+** button plans a workout, logs one, or logs a rest day.
 - **Log any workout.** A searchable catalog of 91 activities with pinned quick-picks. The
   form follows the activity: distance, pace and elevation or incline for a run or ride,
   yards and per-100 pace for a swim, the exercise chooser for a lift, time and effort for
@@ -40,14 +33,9 @@ Thursday shouldn't cost the session, only move it.
   budget and a goal. An agent reads your log and recovery and writes every set, load and
   rest. You can edit everything, revise it by chatting ("make it shorter"), or skip the
   AI and build it yourself. Nothing is stored until you keep it.
-- **Plan the week.** The same idea for quotas: the agent compares what you set against
-  what you did over recent weeks and proposes the week's counts.
 - **Workout runner.** One set per screen, pre-filled numbers, and rest that starts
   itself. Deadlines are stored as absolute times, so closing the app mid-rest or picking
   up on another device lands on the right second.
-- **AI coach.** Threaded conversations with read-only tools over your log, the content
-  file and the web. It can offer sessions as cards, but nothing goes on your day until
-  you tap one.
 - **WHOOP and Strava.** Unlogged workouts are offered as one-tap cards with time and
   distance filled in. The same ride recorded by both services becomes one entry. Recovery,
   HRV and resting heart rate are read against your own two-week baseline, last night's
@@ -55,16 +43,16 @@ Thursday shouldn't cost the session, only move it.
   with a two-week strip, and Strava bikes and shoes arrive with their odometers.
 - **Gear.** Bikes and shoes come from Strava. Ropes, shoes, plates and boards you add
   yourself, and their use is counted from your log in miles, hours or reps.
-- **Journal.** 42 optional behaviours (sleep, intake, state), plus your own, compared
-  against the next morning's recovery.
-- **Progress.** Charts filtered by achievement, category, sport or lift, over 4 weeks to
-  all time, showing only what you have actually logged.
+- **Progress.** Charts filtered by category, sport or lift, over 4 weeks to all time,
+  showing only what you have actually logged.
+- **More than one person.** The owner can add people to an install, share a workout with
+  them (each keeps their own numbers) and plan sessions for them.
 - **Offline-first sync.** Every device keeps a local cache and an outbox. Writes merge
   last-write-wins per entry, deletes are tombstones, and every write snapshots the
   previous state to `data/backups/`.
-- **Two safety rules enforced in code.** For finger-intensive climbing: no hard finger
-  day the day after another, and no more than three a week. The rest of the scheduling
-  advice only advises.
+- **Climbing sessions** from a plan file are still pickable (after the general sports)
+  and ask whether the session was a hard finger day; Progress charts those after the
+  general charts.
 
 ## How it is built
 
@@ -78,8 +66,8 @@ server/server.js  ── Node 22, no npm dependencies ────────�
         │                │                  │                             │
         ▼                ▼                  ▼                             ▼
   data/state.json   content/*.json   claude CLI (headless)        Totem bridge (optional)
-  + 60 backups      catalog, quotas  coach and planners,          WHOOP, goals,
-                    sessions         structured output,           habit sync
+  + 60 backups      catalogs,        workout planner,             habit sync
+                    sessions         structured output,
                                      tool allow/deny lists
 ```
 
@@ -90,9 +78,9 @@ server/server.js  ── Node 22, no npm dependencies ────────�
 - **Server** (`server/`): plain Node `http`, `fs` and `crypto`. One JSON document, written
   atomically behind a write lock. Model runs are spawned as `claude --print` with a JSON
   schema for the reply and explicit tool allow/deny lists.
-- **Content** (`content/`, `examples/`): the activity and lift catalogs, quota categories,
-  session cards and recommender weights are JSON, fetched at runtime, so changing them
-  needs no rebuild.
+- **Content** (`content/`, `examples/`): the activity and lift catalogs, categories,
+  planner kinds and session cards are JSON, fetched at runtime, so changing them needs no
+  rebuild.
 - **Tests**: dependency-free Node scripts with `assert`, a server-side render of every
   tab against real content, an end-to-end test that boots the server and drives setup,
   sign-in and the defaults, and a palette check for contrast and colour-blind separation
@@ -123,15 +111,13 @@ npm start        # builds the app on first run, then serves it on port 8099
 2. **AI (optional).** Install the Claude Code CLI and sign in to it once in a terminal
    as the same user that runs Bushido, or paste an Anthropic API key in Settings → AI.
    Press **Test**. Without AI the app works and the AI features say they need setting up.
-3. **About you (optional).** Write what the coach and planners should know: goals,
+3. **About you (optional).** Write what the workout planner should know: goals,
    injuries, equipment.
-4. Open the app. Add an achievement on the **Achievements** tab, set the week on the
-   **Week** tab, and log a workout with the **+** button.
+4. Open the app and log a workout with the **+** button.
 
 A fresh install starts on `content/starter.json`, which has the catalogs and no
 programme. To see a filled-in plan, use Settings → Training plan → **Use the example
-plan**: a small invented one, with two achievements, four session cards and a benchmark
-test. `test/fixtures/plan.json` is the full programme the test suites run against, and
+plan**: a small invented one, with four session cards and a benchmark test. `test/fixtures/plan.json` is the full programme the test suites run against, and
 it is also a valid plan to import.
 
 Change the port with `BUSHIDO_PORT`, the data directory with `BUSHIDO_DATA_DIR`. Every
@@ -163,12 +149,12 @@ built-in sign-in.
 
 | | how | default |
 |---|---|---|
-| AI coach, workout and week planners | Claude Code CLI, spawned headless | on if a CLI is found |
+| AI workout planner | Claude Code CLI, spawned headless | on if a CLI is found |
 | Strava | connected directly: everyone on the install connects their own account through a Strava API app set in Settings | off |
 | WHOOP | connected directly by the owner, through a WHOOP app set in Settings | off |
-| Linked goals, habit sync | through a **Totem bridge**, a separate HTTP service | off |
+| Habit sync | through a **Totem bridge**, a separate HTTP service | off |
 | Push notifications | a notification core loaded by path | off |
-| Athlete profile, food-log digest | files the AI may read | off |
+| Athlete profile | a Markdown file the planner may read | off |
 
 Strava is Bushido's own: create an API app at strava.com/settings/api, enter its client
 ID and secret in Settings → Strava, and each person connects from profile → Settings in the
@@ -176,7 +162,7 @@ app. A new Strava app accepts only its creator until it is raised to ten athlete
 page. WHOOP is the owner's: create an app at developer.whoop.com, add
 `<your Bushido address>/whoop/callback` as its redirect URL, enter its client ID and secret
 in Settings → WHOOP, and connect from profile → Settings. Totem, the author's
-personal-assistant app, provides linked goals and habit sync, and reads the owner's Strava
+personal-assistant app, receives the habit sync and reads the owner's Strava
 and WHOOP back from Bushido; it is not in this repository.
 
 ## Development
@@ -194,7 +180,7 @@ because the suites check every session against the code.
 
 - [`docs/features.md`](docs/features.md): each part of the app and why it works the way it does
 - [`docs/operations.md`](docs/operations.md): files, sign-in, the full API, sync, backups, phone setup
-- [`deploy/README.md`](deploy/README.md): the systemd unit, upgrading an older install, the coach's permissions
+- [`deploy/README.md`](deploy/README.md): the systemd unit, upgrading an older install, the planner's permissions
 - [`AGENTS.md`](AGENTS.md): working notes for people and AI agents changing the code
 
 The app was renamed three times as its scope grew: rung, then Endurcrux (2026-09-14),

@@ -62,7 +62,6 @@ import {
 import { ExerciseSection } from './exercises.jsx'
 import { useWhoop, readinessFor } from './lib/whoop.jsx'
 import { usePlan } from './lib/planctx.jsx'
-import { progress as quotaProgress } from './lib/quota.js'
 import { currentMe } from './lib/whoami.js'
 import { ForChoice, ForLine, usePersonLog } from './trainer.jsx'
 
@@ -108,7 +107,6 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
   // WHOOP is the owner's: someone else's plan is told nothing about recovery,
   // exactly as on an install without it (§7: absent data means no section).
   const readiness = useMemo(() => (target ? null : readinessFor(whoopCache, iso)), [whoopCache, iso, target])
-  const week = useMemo(() => quotaProgress({ plan: ctxPlan, entries: ctxEntries, iso }), [ctxPlan, ctxEntries, iso])
 
   // kind | ask | working | review | failed | kept, plus `build` — the hand-built
   // route, which reaches the same editor from the same kinds with no model in it.
@@ -216,7 +214,7 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
         picked,
         minutes,
         goal: goal.trim(),
-        context: plannerContext({ readiness, week, iso }),
+        context: plannerContext({ readiness, plan: ctxPlan, entries: ctxEntries, iso }),
         forId: target?.id || null,
       })
       upsert(d)
@@ -230,7 +228,7 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
       setError(e.message)
       setStep('failed')
     }
-  }, [picked, minutes, goal, readiness, week, iso, target, draftId, upsert, drop])
+  }, [picked, minutes, goal, readiness, ctxPlan, ctxEntries, iso, target, draftId, upsert, drop])
 
   /** Try a failed draft again; a draft that never got made is simply made. */
   const retry = useCallback(async (d = open) => {
@@ -1231,9 +1229,9 @@ function SplitNote({ parts }) {
       <div>
         <strong>This lands as {parts.length} separate workouts</strong>
         <span className="sub">
-          {parts.map(p => p.title).join(' · ')} — each with its own log and its own quota, so
-          a ride your watch recorded attaches to the ride. Change a block&rsquo;s
-          <em> counts toward</em> below to move the seams.
+          {parts.map(p => p.title).join(' · ')} — each with its own log, so a ride your
+          watch recorded attaches to the ride. Change which blocks are
+          <em> their own workout</em> below to move the seams.
         </span>
       </div>
     </div>
@@ -1241,18 +1239,15 @@ function SplitNote({ parts }) {
 }
 
 /**
- * Which quota a BLOCK fills — and therefore where the session SPLITS.
+ * Which category a BLOCK is — and therefore where the session SPLITS.
  *
- * It was one picker for the whole session for about two hours. "Counts toward"
- * belongs to each workout in the session, not to the session as a whole: a run
- * and a lift each go to their own quota. That corrects the single-category call
- * made earlier the same day — a session that genuinely is a lift AND a run should move
- * two bars, because the quota rule was always that a quota counts WORKOUTS rather
- * than days.
+ * Each workout in the session has its own category, not the session as a whole:
+ * a run and a lift land as two entries, each with its own log and its own place
+ * for the watch to attach to. (Until 2026-10-25 this was also which weekly quota
+ * the block filled; the quotas are gone, the split stays.)
  *
  * `none` is a real answer and the default for a warm-up: a block that is not a
- * workout in its own right should not quietly fill a quota. See `categoriesOf` in
- * lib/quota.js for what the week does with the set.
+ * workout in its own right belongs to the one beside it.
  */
 function BlockQuota({ categories, value, onChange }) {
   if (!categories.length) return null
@@ -1262,7 +1257,7 @@ function BlockQuota({ categories, value, onChange }) {
       <summary>
         <Icon name="Target" size={12} />
         <span>
-          {picked ? <>counts toward <strong>{picked.name}</strong></> : 'counts toward nothing'}
+          {picked ? <>its own workout: <strong>{picked.name}</strong></> : 'part of the workout beside it'}
         </span>
       </summary>
       <div className="blockquota-chips">

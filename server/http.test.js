@@ -147,21 +147,20 @@ async function waitFor(fn, label, ms = 8000) {
     eq((await get(`${s.base}/api/auth/session`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{}' })).status, 415)
   })
 
-  await step('fresh defaults: no WHOOP, Strava, goals, notifications or AI, and nothing errors', async () => {
+  await step('fresh defaults: no WHOOP, Strava, notifications or AI, and nothing errors', async () => {
     const h = { headers: { cookie } }
     eq((await (await get(`${s.base}/api/whoop`, h)).json()).configured, false)
     eq((await (await get(`${s.base}/api/strava`, h)).json()).configured, false)
-    eq((await (await get(`${s.base}/api/goals`, h)).json()).configured, false)
     eq((await (await get(`${s.base}/api/push/key`, h)).json()).configured, false)
     const health = await (await get(`${s.base}/api/health`, h)).json()
-    eq([health.notify, health.totem.enabled, health.chat.claude], [false, false, false])
+    eq([health.notify, health.totem.enabled, health.ai.claude], [false, false, false])
     const plan = await get(`${s.base}/api/plan/workout`, {
       method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: '{"kinds":["legs"],"minutes":30}',
     })
     eq(plan.status, 503)
     eq((await plan.json()).code, 'ai-not-configured')
     const content = await (await get(`${s.base}/api/content`, h)).json()
-    eq(content.achievements, [], 'a fresh install seeds achievements')
+    ok(!('achievements' in content), 'a fresh install seeds achievements')
     ok(!('facility' in content), 'a fresh install serves the example plan')
     ok(!/error|failed/i.test(s.log()), `the server logged an error:\n${s.log()}`)
   })
@@ -270,12 +269,12 @@ async function waitFor(fn, label, ms = 8000) {
   })
   await step('"Back to the starter" also drops a plan file named in settings.json', async () => {
     const before = await (await get(`${named.base}/api/content`)).json()
-    ok(before.achievements.some(a => a.id === 'example-10k'), 'the named plan is not what loads to begin with')
+    ok(before.dailyMenu.some(m => m.id === 'example-easy-run'), 'the named plan is not what loads to begin with')
     const r = await get(`${named.base}/api/plan/reset`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
     eq(r.status, 200)
     eq((await r.json()).plan.source, 'starter')
     const after = await (await get(`${named.base}/api/content`)).json()
-    eq(after.achievements, [], 'the starter is not served after the reset')
+    ok(!after.dailyMenu.some(m => m.id === 'example-easy-run'), 'the starter is not served after the reset')
     eq(JSON.parse(fs.readFileSync(path.join(named.dataDir, 'settings.json'), 'utf8')).plan.file, '', 'plan.file is still set')
   })
   await named.stop()
@@ -359,10 +358,9 @@ async function waitFor(fn, label, ms = 8000) {
     eq((await (await get(`${two.base}/api/whoop`, as('sam@example.com'))).json()).configured, false)
     eq((await (await get(`${two.base}/api/strava`, as('sam@example.com'))).json()).configured, false)
     eq((await (await get(`${two.base}/api/push/key`, as('sam@example.com'))).json()).configured, false)
-    eq((await (await get(`${two.base}/api/coach/threads`, as('sam@example.com'))).json()).threads, [])
     const ai = await get(`${two.base}/api/plan/workout`, { method: 'POST', headers: { ...json, ...as('sam@example.com').headers }, body: JSON.stringify({ kinds: ['legs'], minutes: 30 }) })
     eq([ai.status, (await ai.json()).code], [503, 'ai-not-configured'])
-    eq((await (await get(`${two.base}/api/content`, as('sam@example.com'))).json()).achievements, [], 'not the starter')
+    ok((await (await get(`${two.base}/api/content`, as('sam@example.com'))).json()).dailyMenu.some(m => m.id === 'log-workout'), 'not the starter')
   })
 
   await step('the owner acts as someone: their log, until switching back', async () => {
@@ -522,25 +520,13 @@ async function waitFor(fn, label, ms = 8000) {
     eq(ran.status, 200)
   })
 
-  await step('trainer: a planned week is Sam\'s quota-<monday>; a week Sam set is never overwritten', async () => {
+  await step('trainer: a week can no longer be planned for someone (the quotas are gone)', async () => {
     const week = { id: 'quota-2026-10-12', kind: 'quota', date: '2026-10-12', updatedAt: '2026-10-10T08:00:00Z',
       data: { counts: { run: 2 }, plannedBy: { id: 'x', name: 'y' } } }
-    const r = await post('sam', week)
-    eq(r.status, 200)
-    eq((await r.json()).entry.data.plannedBy, { id: 'owner', name: 'Alex' })
-    eq(samFile().state.entries[week.id].data.counts, { run: 2 })
-    eq(samFile().state.entries[week.id].data.done, undefined, 'a quota entry was given a done flag')
-    // Sam sets the next week herself; the owner's planner may not replace it.
-    const own = { id: 'quota-2026-10-19', kind: 'quota', date: '2026-10-19', updatedAt: '2026-10-10T08:00:00Z', data: { counts: { bike: 1 } } }
-    await get(`${two.base}/api/entry`, { method: 'POST', headers: { ...json, ...as('sam@example.com', { 'x-bushido-user': 'sam' }).headers }, body: JSON.stringify({ entry: own }) })
-    const over = await post('sam', { ...own, updatedAt: '2030-01-01T00:00:00Z', data: { counts: { run: 9 }, plannedBy: { id: 'owner' } } })
-    const body = await over.json()
-    eq([over.status, body.code], [409, 'not-shared'])
-    ok(/already set that week/.test(body.error), body.error)
-    eq(samFile().state.entries[own.id].data.counts, { bike: 1 }, 'the owner overwrote a week Sam set')
-    eq((await post('sam', { ...week, data: { counts: { run: 1 } } })).status, 400, 'a quota with no plannedBy')
-    eq((await post('sam', { ...week, data: { counts: {}, sharedFrom: { id: 'owner' } } })).status, 400, 'a quota can only be planned, not shared')
+    eq((await post('sam', week)).status, 400)
+    eq(samFile().state.entries[week.id], undefined, 'a quota entry was written into Sam\'s log')
   })
+
 
   await step('trainer: the owner reads Sam\'s log, plan and About you, and edits the About you', async () => {
     const st = await (await get(`${two.base}/api/people/sam/state`, owns())).json()
@@ -809,8 +795,8 @@ async function waitFor(fn, label, ms = 8000) {
   /* ---------------------------------- every person's AI runs, on their own space */
   /*
    * A fake Claude CLI that records what it was spawned with (argv and the prompt
-   * on stdin) and answers in each run's shape. The owner has a brain file, a
-   * food-log digest, WHOOP and Strava caches, coach threads and About-you notes;
+   * on stdin) and answers in each run's shape. The owner has a brain file, WHOOP
+   * and Strava caches, an old install's coach threads and About-you notes;
    * the point of these steps is that Sam's runs see none of it, and that the
    * owner planning FOR Sam gets Sam's context, not the owner's.
    */
@@ -825,18 +811,14 @@ process.stdin.on('data', c => { stdin += c })
 process.stdin.on('end', () => {
   fs.appendFileSync(${JSON.stringify(RECORD)}, JSON.stringify({ argv, stdin }) + '\\n')
   const schema = argv[argv.indexOf('--json-schema') + 1] || ''
-  const out = schema.includes('"counts"') ? { reply: 'ok', counts: [], changed: 'nothing' }
-    : schema.includes('"blocks"') ? { title: 'Legs', minutes: 30, why: 'because', changed: 'x', blocks: [{ name: 'Main', items: [{ kind: 'lift', name: 'Squat', sets: [{ reps: 5 }] }] }] }
+  const out = schema.includes('"blocks"') ? { title: 'Legs', minutes: 30, why: 'because', changed: 'x', blocks: [{ name: 'Main', items: [{ kind: 'lift', name: 'Squat', sets: [{ reps: 5 }] }] }] }
     : { reply: 'hello' }
   process.stdout.write(JSON.stringify({ structured_output: out, model: 'fake' }))
 })
 `, { mode: 0o755 })
   const BRAIN = path.join(ai, 'brain', 'projects', 'profile.md')
-  const FOOD = path.join(ai, 'food')
   fs.mkdirSync(path.dirname(BRAIN), { recursive: true })
   fs.writeFileSync(BRAIN, 'OWNER-BRAIN-PROFILE')
-  fs.mkdirSync(FOOD)
-  fs.writeFileSync(path.join(FOOD, 'digest.json'), '{}')
   const runs = () => fs.readFileSync(RECORD, 'utf8').trim().split('\n').map(l => JSON.parse(l))
   const lastRun = () => runs().at(-1)
   const argOf = (r, name) => { const i = r.argv.indexOf(name); return i < 0 ? '' : r.argv[i + 1] }
@@ -848,7 +830,7 @@ process.stdin.on('end', () => {
     env: {
       BUSHIDO_AUTH: 'proxy', BUSHIDO_ACCESS_TEAM: 'test-team', BUSHIDO_ACCESS_AUD: AUD,
       BUSHIDO_ACCESS_CERTS_URL: `http://127.0.0.1:${certs.address().port}/certs`,
-      CLAUDE_BIN: FAKE, BUSHIDO_BRAIN_FILE: BRAIN, BUSHIDO_KRAKATOA_DIR: FOOD,
+      CLAUDE_BIN: FAKE, BUSHIDO_BRAIN_FILE: BRAIN,
     },
     seed: {
       'state.json': JSON.stringify({ version: 1, updatedAt: '2026-09-01T00:00:00Z', state: { entries: {} } }),
@@ -878,7 +860,7 @@ process.stdin.on('end', () => {
     for (const want of [`Read(${rule(D)}/state.json*)`, `Read(${rule(D)}/coach/**)`, `Read(${rule(D)}/coach.json*)`,
       `Read(${rule(D)}/whoop.json*)`, `Read(${rule(D)}/strava.json*)`, `Read(${rule(D)}/backups/**)`, `Read(${rule(D)}/users.json*)`,
       `Read(${rule(D)}/drafts/**)`,
-      `Read(${rule(path.join(D, 'users', 'robin'))}/**)`, `Read(${rule(BRAIN)})`, `Read(${rule(path.dirname(BRAIN))}/**)`, `Read(${rule(FOOD)}/**)`]) {
+      `Read(${rule(path.join(D, 'users', 'robin'))}/**)`, `Read(${rule(BRAIN)})`, `Read(${rule(path.dirname(BRAIN))}/**)`]) {
       ok(deny.includes(want), `${label}: no deny for ${want}`)
     }
     ok(!deny.some(d => d.includes(rule(SAM_DIR))), `${label}: a rule denies Sam's own space`)
@@ -886,32 +868,29 @@ process.stdin.on('end', () => {
     ok(deny.includes('Bash'), `${label}: Sam's run has a shell`)
     ok(prompt.includes(path.join(SAM_DIR, 'state.json')), `${label}: the prompt does not point at Sam's log`)
     ok(prompt.includes('SAM-NOTES') && prompt.includes('Sam'), `${label}: Sam's About you is not in the prompt`)
-    for (const never of ['OWNER-NOTES', BRAIN, path.dirname(BRAIN), FOOD, 'digest.json', 'whoop.json', 'strava.json', path.join(D, 'state.json')]) {
+    for (const never of ['OWNER-NOTES', BRAIN, path.dirname(BRAIN), 'whoop.json', 'strava.json', path.join(D, 'state.json')]) {
       ok(!prompt.includes(never), `${label}: the prompt mentions ${never}`)
     }
   }
 
-  await step('ai for everyone: Sam has the coach and planners once a CLI is configured', async () => {
+  await step('ai for everyone: Sam has the workout planner once a CLI is configured', async () => {
     const me = await (await get(`${three.base}/api/auth/me`, samH())).json()
-    eq([me.features.ai, me.features.whoop, me.features.strava, me.features.goals, me.features.notifications],
-      [true, false, false, false, false], 'AI on, the owner\'s grants still off')
+    eq([me.features.ai, me.features.whoop, me.features.strava, me.features.notifications],
+      [true, false, false, false], 'AI on, the owner\'s grants still off')
+    ok(!('goals' in me.features), 'linked goals are still a feature')
   })
 
-  await step('ai for everyone: Sam\'s coach run reads only Sam\'s space and Sam\'s About you', async () => {
-    const r = await postAi('/api/coach/chat', { message: 'how was my week?' }, samH())
-    eq(r.status, 200)
-    assertSamRun(lastRun(), 'coach')
-    ok(fs.readdirSync(path.join(SAM_DIR, 'coach')).length === 1, 'Sam\'s thread is not in Sam\'s coach folder')
-    eq(fs.readdirSync(path.join(D, 'coach')), ['towner.json'], 'Sam\'s thread landed in the owner\'s coach folder')
-    eq((await (await get(`${three.base}/api/coach/threads`, samH())).json()).threads.map(t => t.id).includes('towner'), false,
-      'Sam was shown the owner\'s threads')
+  await step('ai for everyone: the removed AI routes answer 404, and the owner\'s old coach threads stay put', async () => {
+    for (const [p, body] of [['/api/coach/chat', { message: 'hi' }], ['/api/plan/week', { monday: '2026-10-12', message: 'x' }], ['/api/chat', { messages: [] }]]) {
+      eq((await postAi(p, body, ownerH())).status, 404, `${p} still answers`)
+    }
+    for (const p of ['/api/coach', '/api/coach/threads', '/api/goals']) eq((await get(`${three.base}${p}`, ownerH())).status, 404, `${p} still answers`)
+    eq(fs.readdirSync(path.join(D, 'coach')), ['towner.json'], 'the owner\'s old coach folder was touched')
   })
 
-  await step('ai for everyone: Sam\'s planner and week planner runs are Sam\'s too', async () => {
+  await step('ai for everyone: Sam\'s planner runs are Sam\'s too', async () => {
     eq((await postAi('/api/plan/workout', { kinds: ['legs'], minutes: 30 }, samH())).status, 200)
     assertSamRun(lastRun(), 'planner')
-    eq((await postAi('/api/plan/week', { monday: '2026-10-12', message: 'draft it' }, samH())).status, 200)
-    assertSamRun(lastRun(), 'week planner')
     eq((await postAi('/api/plan/workout', { kinds: ['legs'], minutes: 30, for: 'owner' }, samH())).status, 403, 'Sam planned for the owner')
     eq((await postAi('/api/plan/workout', { kinds: ['legs'], minutes: 30, for: 'robin' }, samH())).status, 403, 'Sam planned for someone else')
   })
@@ -921,26 +900,24 @@ process.stdin.on('end', () => {
     assertSamRun(lastRun(), 'owner planning for Sam')
     eq((await postAi('/api/plan/revise', { plan: { blocks: [] }, message: 'shorter', for: 'sam' }, ownerH())).status, 200)
     assertSamRun(lastRun(), 'owner revising for Sam')
-    eq((await postAi('/api/plan/week', { monday: '2026-10-12', message: 'x', for: 'sam' }, ownerH())).status, 200)
-    assertSamRun(lastRun(), 'owner planning Sam\'s week')
     // Acting as Sam, "for Sam" is just Sam's own run; for anyone else it is refused.
     const acting = await postAi('/api/plan/workout', { kinds: ['legs'], minutes: 30, for: 'robin' }, as('alex@example.com', { cookie: 'bushido_as=sam' }))
     eq(acting.status, 409, 'planned "for" someone else while acting as Sam')
   })
 
-  await step('ai for everyone: acting as Sam, the coach is Sam\'s', async () => {
-    eq((await postAi('/api/coach/chat', { message: 'hi' }, as('alex@example.com', { cookie: 'bushido_as=sam' }))).status, 200)
+  await step('ai for everyone: acting as Sam, the planner is Sam\'s', async () => {
+    eq((await postAi('/api/plan/workout', { kinds: ['legs'], minutes: 30 }, as('alex@example.com', { cookie: 'bushido_as=sam' }))).status, 200)
     assertSamRun(lastRun(), 'acting as Sam')
   })
 
-  await step('ai for everyone: the owner\'s own runs are unchanged (brain, food log, WHOOP, Strava, the owner\'s notes)', async () => {
-    eq((await postAi('/api/coach/chat', { message: 'hi' }, ownerH())).status, 200)
+  await step('ai for everyone: the owner\'s own runs are unchanged (brain, WHOOP, Strava, the owner\'s notes)', async () => {
+    eq((await postAi('/api/plan/workout', { kinds: ['legs'], minutes: 30 }, ownerH())).status, 200)
     const r = lastRun()
     const prompt = promptOf(r)
-    for (const want of ['OWNER-NOTES', BRAIN, path.join(FOOD, 'digest.json'), path.join(D, 'whoop.json'), path.join(D, 'state.json')]) {
-      ok(prompt.includes(want), `the owner's coach lost ${want}`)
+    for (const want of ['OWNER-NOTES', BRAIN, path.join(D, 'whoop.json'), path.join(D, 'state.json')]) {
+      ok(prompt.includes(want), `the owner's planner lost ${want}`)
     }
-    ok(argOf(r, '--allowedTools').includes(`Edit(${rule(path.dirname(BRAIN))}/**)`), 'the owner\'s coach lost the brain Write grant')
+    ok(!/Edit\(|Write\(/.test(argOf(r, '--allowedTools')), 'the owner\'s planner may write somewhere')
     ok(!argOf(r, '--disallowedTools').includes(`Read(${rule(D)}/state.json*)`), 'the owner\'s run is denied the owner\'s own log')
     ok(addDirsOf(r).includes(D), 'the owner\'s data dir is not readable')
   })
@@ -1131,6 +1108,83 @@ process.stdin.on('end', () => {
     eq((await settled(d.id)).pres.title, 'Slow legs')
   })
   await dv.stop()
+
+  /* ------------------------------------ an old log, with the removed features in it */
+  /*
+   * Issue #31 removed the check-in, the journal, achievements, linked goals,
+   * quotas and the week planner, and the AI coach. Stored data is NEVER deleted
+   * or rewritten: an old log carries their entries, and an old data dir carries
+   * coach.json, coach/ threads and goals.json. The server must boot on it, keep
+   * every one of those byte for byte through reads, writes, export and backup,
+   * and never treat any of them as a workout.
+   */
+  const LEGACY_ENTRIES = {
+    'daily-2026-09-01': { id: 'daily-2026-09-01', kind: 'daily', date: '2026-09-01', updatedAt: '2026-09-01T10:00:00Z',
+      data: { optId: 'log-workout', name: 'Run', level: 2, done: true, out: { activity: 'run', distance: 3 } } },
+    'checkin-2026-09-01': { id: 'checkin-2026-09-01', kind: 'checkin', date: '2026-09-01', updatedAt: '2026-09-01T07:00:00Z',
+      data: { fields: { weightLb: 150, feeling: 4 }, messages: [{ role: 'you', at: 'z', text: 'no gym tonight' }, { role: 'coach', at: 'z', text: 'crawls then' }] } },
+    'journal-2026-09-01': { id: 'journal-2026-09-01', kind: 'journal', date: '2026-09-01', updatedAt: '2026-09-01T22:00:00Z', data: { values: { caffeine: true } } },
+    'journal-custom': { id: 'journal-custom', kind: 'journal-custom', updatedAt: '2026-08-01T00:00:00Z', data: { metrics: [{ key: 'x-1', label: 'Sauna' }] } },
+    'quota-2026-08-31': { id: 'quota-2026-08-31', kind: 'quota', date: '2026-08-31', updatedAt: '2026-08-31T08:00:00Z',
+      data: { counts: { run: 3, pe: 2 }, why: 'three runs', plannedBy: { id: 'owner', name: 'Alex' } } },
+    'achievement-run-a-50k': { id: 'achievement-run-a-50k', kind: 'achievement', date: null, updatedAt: '2026-08-01T00:00:00Z',
+      data: { id: 'run-a-50k', name: 'Run a 50k', categories: ['run'] } },
+    'achievement-half-iron': { id: 'achievement-half-iron', kind: 'achievement', date: null, deleted: true, updatedAt: '2026-08-02T00:00:00Z', data: { id: 'half-iron', deleted: true } },
+    // Not legacy: an interval-timer preset (#36), undated. Nothing #31 removed may filter it out.
+    'timer-last': { id: 'timer-last', kind: 'timer', updatedAt: '2026-09-01T09:00:00Z', data: { name: 'Last', work: 30, rest: 15, rounds: 8 } },
+  }
+  const LEGACY_FILES = {
+    'coach.json': JSON.stringify({ version: 1, date: '2026-09-01', headline: 'old note', nudges: [] }),
+    'goals.json': JSON.stringify({ fetchedAt: '2026-09-01T00:00:00Z', goals: [{ id: 'g1', title: '50 Miles Biked' }] }),
+  }
+  const old = await boot({
+    env: { BUSHIDO_AUTH: 'proxy', BUSHIDO_COACH: '1' },
+    seed: {
+      'state.json': JSON.stringify({ version: 40, updatedAt: '2026-09-02T00:00:00Z', state: { entries: LEGACY_ENTRIES } }),
+      'settings.json': JSON.stringify({ version: 1, install: 'migrated', auth: { mode: 'proxy' },
+        totem: { goals: true }, links: { krakatoaDir: '/nowhere/food' } }),
+      ...LEGACY_FILES,
+    },
+  })
+  fs.mkdirSync(path.join(old.dataDir, 'coach'))
+  const THREAD = JSON.stringify({ id: 't1', title: 'old chat', messages: [{ role: 'user', text: 'hi' }] })
+  fs.writeFileSync(path.join(old.dataDir, 'coach', 't1.json'), THREAD)
+  const sameEntries = (got, what) => {
+    for (const [id, e] of Object.entries(LEGACY_ENTRIES)) eq(got[id], e, `${what}: ${id} was changed or dropped`)
+  }
+  await step('legacy data: an old log with check-ins, journal, quotas, achievements and coach files boots and reads back untouched', async () => {
+    const got = await (await get(`${old.base}/api/state`)).json()
+    eq(got.version, 40, 'the log was rewritten on boot')
+    sameEntries(got.state.entries, 'GET /api/state')
+    const health = await (await get(`${old.base}/api/health`)).json()
+    eq([health.ok, health.entries], [true, Object.keys(LEGACY_ENTRIES).length])
+    ok(!('coach' in health) && !('goals' in health) && !('chat' in health), 'health still reports a removed feature')
+    for (const p of ['/api/coach', '/api/goals', '/api/coach/threads']) eq((await get(`${old.base}${p}`)).status, 404, `${p} answers`)
+  })
+  await step('legacy data: writing a new workout keeps every old entry, and the export carries them all', async () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const fresh = { id: `daily-${today}`, kind: 'daily', date: today, data: { optId: 'log-workout', name: 'Ride', level: 2, done: true, out: { activity: 'bike' } } }
+    const put = await get(`${old.base}/api/state`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ state: { entries: { [fresh.id]: { ...fresh, updatedAt: new Date().toISOString() } } } }) })
+    eq(put.status, 200)
+    const doc = await put.json()
+    sameEntries(doc.state.entries, 'PUT /api/state')
+    ok(doc.state.entries[fresh.id], 'the new workout was not written')
+    const posted = await get(`${old.base}/api/entry`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entry: { ...fresh, id: `${fresh.id}-x`, updatedAt: new Date().toISOString() } }) })
+    eq(posted.status, 200)
+    sameEntries((await posted.json()).state.entries, 'POST /api/entry')
+    const exported = await (await get(`${old.base}/api/export`)).json()
+    sameEntries(exported.state.entries, 'GET /api/export')
+    const backups = fs.readdirSync(path.join(old.dataDir, 'backups'))
+    ok(backups.length >= 1, 'the write took no backup')
+  })
+  await step('legacy data: coach and goals files are left exactly as they were, and nothing logged an error', async () => {
+    for (const [f, body] of Object.entries(LEGACY_FILES)) eq(fs.readFileSync(path.join(old.dataDir, f), 'utf8'), body, `${f} was touched`)
+    eq(fs.readFileSync(path.join(old.dataDir, 'coach', 't1.json'), 'utf8'), THREAD, 'an old coach thread was touched')
+    // BUSHIDO_COACH=1 used to force the check-in coach on; it now does nothing.
+    eq((await get(`${old.base}/api/chat`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status, 404)
+    ok(!/error|failed|TypeError/i.test(old.log()), `the server logged an error:\n${old.log()}`)
+  })
+  await old.stop()
 
   /* ------------------------------------------------------- an existing install */
   const seed = {

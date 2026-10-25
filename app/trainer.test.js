@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
-  planPeople, placeEntries, plannedEntriesFor, plannedQuotaFor, keepPlanFor, plannedLine,
+  planPeople, placeEntries, plannedEntriesFor, keepPlanFor, plannedLine,
   applyOut, applyRun, applyDone, canStart, workoutSides, toneFor, dayOf, dayRow, runKind,
 } from './src/lib/trainer.js'
 import { splitPrescription } from './src/lib/prescription.js'
@@ -77,12 +77,6 @@ test('keeping for someone reads their day, then writes each part through the peo
   const kept = await keepPlanFor({ person: { id: 'sam' }, parts: splitPrescription(pres), menu, date: DATE, owner: { id: 'owner', name: 'Alex' }, api })
   assert.deepEqual(calls, [['day', 'sam', DATE], ['put', 'sam', `daily-${DATE}`], ['put', 'sam', `daily-${DATE}-planned`]])
   assert.deepEqual(kept, { ids: [`daily-${DATE}`, `daily-${DATE}-planned`], count: 2, first: `daily-${DATE}` })
-})
-
-test('a week planned for someone is their quota-<monday>, marked', () => {
-  const q = plannedQuotaFor('2026-10-12', { run: 2 }, { why: 'because' }, { id: 'owner', name: 'Alex' })
-  assert.deepEqual(q, { id: 'quota-2026-10-12', kind: 'quota', date: '2026-10-12',
-    data: { why: 'because', plannedBy: { id: 'owner', name: 'Alex' }, counts: { run: 2 } } })
 })
 
 test('"planned by": the owner\'s name for them, "you" for the owner, nothing on anything else', () => {

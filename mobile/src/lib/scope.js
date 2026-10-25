@@ -12,15 +12,14 @@
  * A SCOPE is the filter, and it is deliberately a plain object rather than a
  * component's state, so the whole thing can be tested as arithmetic:
  *
- *   { achievement, category, session, exercise, weeks }
+ *   { category, session, exercise, weeks }
  *
  * Every field is independent and every one is optional. Absent means "don't
  * narrow on this" rather than a default, so an empty scope is honestly "all of
  * it" rather than a hidden preference.
  *
- * The four narrowings nest naturally without
- * being a hierarchy: an ACHIEVEMENT owns categories, a CATEGORY holds sessions, a
- * SESSION is one card, and an EXERCISE is one movement inside a lift. Picking a session
+ * The three narrowings nest naturally without
+ * being a hierarchy: a CATEGORY holds sessions, a SESSION is one card, and an EXERCISE is one movement inside a lift. Picking a session
  * does not require picking its category first, because "show me just my mountain
  * biking" should be one tap and not three.
  *
@@ -33,21 +32,12 @@
 
 import { isDone } from './store.js'
 import { optFor } from './menu.js'
-import { categoryOf, disciplineOf, mondayOf, weekDays, shiftWeek } from './quota.js'
+import { categoryOf, disciplineOf } from './category.js'
+import { mondayOf, weekDays, shiftWeek } from './dates.js'
 import { loggedActivity } from './activities.js'
 import { liftsIn } from './lifts.js'
-import { achievements as mergeAchievements, achievementOf, categorySet } from './achievements.js'
 
-export const EMPTY_SCOPE = { achievement: null, category: null, session: null, exercise: null, weeks: 8 }
-
-/**
- * The merged achievements, unless the caller already has them.
- *
- * Passed in from the page, which has them anyway; computed here when a test or a
- * lone call does not. Target dates are irrelevant to scoping, so the profile
- * facts are not needed — only `categories` is read.
- */
-const listOf = (plan, entries, given) => given || mergeAchievements(plan, entries)
+export const EMPTY_SCOPE = { category: null, session: null, exercise: null, weeks: 8 }
 
 /** Which lift exercises this entry recorded. */
 function exercisesIn(entry) {
@@ -63,12 +53,11 @@ function exercisesIn(entry) {
  * day has no distance, no grade and no exercises and would drag every average it
  * touched toward zero.
  */
-export function resolveScope({ plan, entries = [], scope = EMPTY_SCOPE, today = null, achievements = null }) {
+export function resolveScope({ plan, entries = [], scope = EMPTY_SCOPE, today = null }) {
   const menu = plan?.dailyMenu || []
-  const achCats = categorySet(listOf(plan, entries, achievements), scope.achievement)
 
   // The window, as whole weeks back from this one, so the bars line up with the
-  // Week tab rather than cutting a week in half.
+  // calendar rather than cutting a week in half.
   let from = null
   if (scope.weeks) {
     const monday = mondayOf(today || new Date().toISOString().slice(0, 10))
@@ -88,7 +77,6 @@ export function resolveScope({ plan, entries = [], scope = EMPTY_SCOPE, today = 
     if (level === 0 || opt?.role === 'rest') { rests.push(e); continue }
 
     const cat = categoryOf(e, menu)
-    if (achCats && !achCats.has(cat)) continue
     if (scope.category && cat !== scope.category) continue
 
     // A session filter matches the CARD for a climbing session, and the ACTIVITY
@@ -140,10 +128,9 @@ export function resolveScope({ plan, entries = [], scope = EMPTY_SCOPE, today = 
  * nothing teaches you not to touch it. The counts ride along so each option can
  * say how much is behind it.
  */
-export function scopeOptions({ plan, entries = [], today = null, weeks = null, achievements = null }) {
+export function scopeOptions({ plan, entries = [], today = null, weeks = null }) {
   const menu = plan?.dailyMenu || []
-  const achs = listOf(plan, entries, achievements)
-  const base = resolveScope({ plan, entries, scope: { ...EMPTY_SCOPE, weeks }, today, achievements: achs })
+  const base = resolveScope({ plan, entries, scope: { ...EMPTY_SCOPE, weeks }, today })
 
   const count = (map, key) => { if (key) map.set(key, (map.get(key) || 0) + 1) }
   const cats = new Map(); const sess = new Map(); const exs = new Map()
@@ -173,23 +160,11 @@ export function scopeOptions({ plan, entries = [], today = null, weeks = null, a
   const byCount = (a, b) => b.n - a.n || String(a.label).localeCompare(String(b.label))
 
   return {
-    achievements: achs.map(a => ({
-      value: a.id,
-      label: a.short || a.name,
-      icon: a.icon,
-      n: [...cats.entries()]
-        .filter(([k]) => a.categories.includes(k))
-        .reduce((a2, [, v]) => a2 + v, 0),
-    })).filter(o => o.n > 0),
-
     categories: [...cats.entries()]
       .map(([k, n]) => ({
         value: k, n,
         label: catDefs.find(c => c.key === k)?.name || k,
         icon: catDefs.find(c => c.key === k)?.icon,
-        // Derived, not read off the category — plan.json's back-reference went
-        // when achievements became editable. See lib/achievements.js.
-        achievement: achievementOf(k, achs)?.id || null,
       }))
       .sort(byCount),
 
@@ -210,7 +185,6 @@ export function scopeOptions({ plan, entries = [], today = null, weeks = null, a
 export function describeScope({ plan, scope, options }) {
   const bits = []
   const find = (list, v) => (list || []).find(o => o.value === v)?.label
-  if (scope.achievement) bits.push(find(options?.achievements, scope.achievement) || scope.achievement)
   if (scope.category) bits.push(find(options?.categories, scope.category) || scope.category)
   if (scope.session) bits.push(find(options?.sessions, scope.session) || scope.session)
   if (scope.exercise) bits.push(find(options?.exercises, scope.exercise) || scope.exercise)

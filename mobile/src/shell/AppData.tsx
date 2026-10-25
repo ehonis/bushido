@@ -5,14 +5,13 @@
 // tabs are separate routes, so they read them from this context instead, and
 // pass them on as the same props the web components take.
 //
-// The providers App.jsx wraps everything in (prefs, plan, coach, WHOOP, Strava)
+// The providers App.jsx wraps everything in (prefs, plan, WHOOP, Strava)
 // are mounted here too, in the same order.
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { router } from 'expo-router'
 import { useStore, doneWhenPlaced } from '../lib/store.js'
 import { PrefsProvider } from '../lib/prefs.jsx'
 import { PlanProvider } from '../lib/planctx.jsx'
-import { CoachProvider } from '../lib/coachapi.jsx'
 import { WhoopProvider } from '../lib/whoop.jsx'
 import { StravaProvider } from '../lib/strava.jsx'
 import { localIso, fromIso } from '../lib/dates.js'
@@ -25,9 +24,9 @@ import * as peopleApi from '../lib/peopleapi.js'
 const { placeEntries, planPeople, keepPlanFor } = trainerLib as any
 import { onForeground } from '../lib/foreground'
 
-export type TabId = 'today' | 'week' | 'log' | 'progress' | 'achievements' | 'goals' | 'coach'
-/** null | 'menu' | 'plan' | 'log' | 'week' | 'rest' */
-export type Fab = null | 'menu' | 'plan' | 'log' | 'week' | 'rest'
+export type TabId = 'today' | 'log' | 'progress'
+/** null | 'menu' | 'plan' | 'log' | 'rest' */
+export type Fab = null | 'menu' | 'plan' | 'log' | 'rest'
 
 export interface AppData {
   store: ReturnType<typeof useStore>
@@ -54,7 +53,6 @@ export interface AppData {
   setTab: (t: TabId) => void
   placeAll: (items: { optId: string; data?: any }[], opts?: { open?: boolean; close?: boolean; date?: string }) => string[]
   placeToday: (optId: string, data?: any, opts?: { open?: boolean; close?: boolean; date?: string }) => string | null
-  placeFromCoach: (s: { optId: string; action?: string }) => void
   keepPlan: (pres: any) => { ids: string[]; count: number; first: string | null }
   startPlanned: (id: string) => void
   /** Who the owner can plan for (lib/trainer.js): nobody unless this is the owner, on the owner's own log, with someone else on the install. */
@@ -78,8 +76,7 @@ export function useApp(): AppData {
 
 /** Where each web tab lives in the app. */
 export const TAB_ROUTES: Record<TabId, string> = {
-  today: '/', week: '/week', log: '/log', progress: '/progress',
-  achievements: '/achievements', goals: '/goals', coach: '/coach',
+  today: '/', log: '/log', progress: '/progress',
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -98,25 +95,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { loadPlan(); return onForeground(loadPlan) }, [loadPlan])
 
   const setTab = useCallback((t: TabId) => { router.navigate(TAB_ROUTES[t] as any) }, [])
-
-  /*
-   * Taking a session the coach offered. The coach does not write this; the
-   * tap does, through an ordinary entry (done, because it lands on today).
-   */
-  const placeFromCoach = (s: { optId: string; action?: string }) => {
-    const opt = (plan?.dailyMenu || []).find((o: any) => o.id === s.optId)
-    if (!opt) return
-    const date = localIso()
-    const id = s.action === 'main' ? `daily-${date}` : `daily-${date}-${opt.id}`
-    store.upsertEntry({
-      id, kind: 'daily', date,
-      data: {
-        optId: opt.id, name: opt.name, minutes: opt.minutes, level: opt.level ?? 1,
-        done: doneWhenPlaced(date), out: {}, slot: s.action === 'main' ? 'main' : 'extra',
-      },
-    })
-    setTab('today')
-  }
 
   const [fab, setFab] = useState<Fab>(null)
   const [openEntryId, setOpenEntryId] = useState<string | null>(null)
@@ -224,20 +202,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const value: AppData = {
     store, plan, reloadPlan: loadPlan, me, fab, setFab, openMenu, menuFrom, viewDay, setViewDay,
     logAt, openLog, dayLabel, openEntryId, setOpenEntryId, setTab,
-    placeAll, placeToday, placeFromCoach, keepPlan, startPlanned, people, keepPlanFor: keepPlanForPerson,
+    placeAll, placeToday, keepPlan, startPlanned, people, keepPlanFor: keepPlanForPerson,
     restOpt, restOn, restDate, askRest, takeRest,
   }
 
   return (
     <PrefsProvider settings={store.settings} saveSettings={store.saveSettings}>
       <PlanProvider plan={plan}>
-        <CoachProvider>
-          <WhoopProvider>
-            <StravaProvider>
-              <Ctx.Provider value={value}>{children}</Ctx.Provider>
-            </StravaProvider>
-          </WhoopProvider>
-        </CoachProvider>
+        <WhoopProvider>
+          <StravaProvider>
+            <Ctx.Provider value={value}>{children}</Ctx.Provider>
+          </StravaProvider>
+        </WhoopProvider>
       </PlanProvider>
     </PrefsProvider>
   )

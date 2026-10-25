@@ -4,14 +4,14 @@
  *
  * Rebuilt 2026-09-15. The old page drew about twenty charts every time, nineteen
  * of them about climbing. The fix is not fewer charts, it is a QUESTION first:
- * pick an achievement, a category, a single sport or one lift, and the page draws
- * the charts that mean something for that — see lib/metrics.js, where each one
- * declares when it applies.
+ * pick a category, a single sport or one lift, and the page draws the charts that
+ * mean something for that — see lib/metrics.js, where each one declares when it
+ * applies. Climbing charts come LAST (issue #31): a workout log first.
  *
  * Everything here is presentation. The filter is `lib/scope.js` and the charts
  * are `lib/metrics.js`, both pure and tested as arithmetic on the web.
  */
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { colors } from '../theme'
 import { T } from '../ui/Text'
@@ -23,8 +23,6 @@ import { Blurb } from './blurb'
 import { localIso } from '../lib/dates.js'
 import { EMPTY_SCOPE, resolveScope, scopeOptions, describeScope } from '../lib/scope.js'
 import { metricsFor, totalsFor } from '../lib/metrics.js'
-import { achievements } from '../lib/achievements.js'
-import { profileFacts } from '../lib/profile.js'
 
 const RANGES = [
   { weeks: 4, label: '4 wk' },
@@ -52,32 +50,19 @@ export function ProgressView({ plan, entries }: any) {
    * narrowing the range empties the filter bar of the thing you are filtering by,
    * and the control you just used disappears under your finger.
    */
-  const achs = useMemo(
-    () => (achievements as any)(plan, entries, (profileFacts as any)(entries)), [plan, entries])
-
   const options = useMemo(
-    () => (scopeOptions as any)({ plan, entries, today, weeks: null, achievements: achs }),
-    [plan, entries, today, achs])
-
-  /*
-   * Drop a filter pointing at an achievement that no longer exists, rather than a
-   * permanently empty page headed by the name of something that is gone.
-   */
-  useEffect(() => {
-    if (scope.achievement && !achs.some((a: any) => a.id === scope.achievement)) {
-      setScope((sc: any) => ({ ...sc, achievement: null }))
-    }
-  }, [achs, scope.achievement])
+    () => (scopeOptions as any)({ plan, entries, today, weeks: null }),
+    [plan, entries, today])
 
   const resolved = useMemo(
-    () => (resolveScope as any)({ plan, entries, scope, today, achievements: achs }),
-    [plan, entries, scope, today, achs])
+    () => (resolveScope as any)({ plan, entries, scope, today }),
+    [plan, entries, scope, today])
 
   const groups = useMemo(() => (metricsFor as any)(plan, resolved), [plan, resolved])
   const totals = useMemo(() => (totalsFor as any)(plan, resolved), [plan, resolved])
 
   const set = (patch: any) => setScope((sc: any) => ({ ...sc, ...patch }))
-  const narrowed = Boolean(scope.achievement || scope.category || scope.session || scope.exercise)
+  const narrowed = Boolean(scope.category || scope.session || scope.exercise)
 
   // Bodyweight is not a workout, so it is not in the scope — but it is the one
   // series worth seeing next to the volume, and it belongs to no filter.
@@ -107,14 +92,7 @@ export function ProgressView({ plan, entries }: any) {
           )}
         </View>
 
-        <ScopeRow label="Achievement" options={options.achievements} value={scope.achievement}
-          onPick={(v: any) => set({ achievement: v, category: null, session: null, exercise: null })} />
-
-        <ScopeRow label="Category"
-          options={scope.achievement
-            ? options.categories.filter((c: any) => c.achievement === scope.achievement)
-            : options.categories}
-          value={scope.category}
+        <ScopeRow label="Category" options={options.categories} value={scope.category}
           onPick={(v: any) => set({ category: v, session: null, exercise: null })} />
 
         <ScopePick label="Just one thing" options={options.sessions} value={scope.session}
@@ -154,8 +132,6 @@ export function ProgressView({ plan, entries }: any) {
             {tile('h', <StatTile icon="Timer" label="Hours" value={totals.hours} />)}
             {totals.miles > 0 && tile('m', <StatTile icon="Route" label="Miles" value={totals.miles} />)}
             {totals.yards > 0 && tile('y', <StatTile icon="Waves" label="Yards swum" value={totals.yards} />)}
-            {totals.hardFingerDays > 0 && tile('f',
-              <StatTile icon="Hand" label="Hard finger days" value={totals.hardFingerDays} />)}
             {tile('l', <StatTile icon="Gauge" label="Load" value={totals.load.toLocaleString()}
               sub="RPE × minutes" />)}
           </View>
@@ -200,7 +176,7 @@ export function ProgressView({ plan, entries }: any) {
       <Blurb id="progress-how" title="Why these charts and not others" tone="card">
         <Sub style={{ margin: 0 }}>
           Each chart declares when it means anything, and the page draws the ones that do —
-          so filtering to the half iron drops every finger chart, and filtering to one lift
+          so filtering to running drops every climbing chart, and filtering to one lift
           brings up its top set. A line needs two points before it is a trend rather than a
           dot with an axis. The very specific climbing numbers — critical force, 4×4 rest,
           straddle reach — are declared by the sessions themselves in{' '}

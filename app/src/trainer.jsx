@@ -26,8 +26,7 @@ import { optFor } from './lib/menu.js'
 import { applyRun, applyOut, applyDone, canStart, dayOf, dayRow, runKind, plannedLine, toneFor } from './lib/trainer.js'
 import { isDone } from './lib/store.js'
 import { prescriptionSteps, runProgress, restLeft, itemLine, prescriptionLine } from './lib/prescription.js'
-import { mondayOf, weekDays, shiftWeek } from './lib/quota.js'
-import { fromIso, localIso } from './lib/dates.js'
+import { fromIso, localIso, mondayOf, weekDays, shiftWeek } from './lib/dates.js'
 import { currentMe } from './lib/whoami.js'
 
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).padStart(2, '0')}`
@@ -320,7 +319,7 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
         <details className="fold pday-about">
           <summary>About {person.name}</summary>
           <AboutForm load={() => peopleApi.getPersonAbout(person.id)} save={(doc) => peopleApi.putPersonAbout(person.id, doc)}
-            lead={`What ${person.name}'s coach and planners are told, and what yours are told when you plan for ${person.name}.`} />
+            lead={`What ${person.name}'s workout planner is told, and what yours is told when you plan for ${person.name}.`} />
         </details>
       </div>
 
@@ -436,9 +435,9 @@ export function AboutForm({ load, save, lead = null }) {
           onChange={ev => { setDoc({ ...doc, name: ev.target.value }); setStatus(null) }} />
       </label>
       <label className="field">
-        <span>Notes for the coach and planners</span>
+        <span>Notes for the workout planner</span>
         <textarea rows={5} value={doc.notes} maxLength={4000}
-          placeholder="Goals, injuries, the equipment you have, anything a coach should know."
+          placeholder="Goals, injuries, the equipment you have, anything a planner should know."
           onChange={ev => { setDoc({ ...doc, notes: ev.target.value }); setStatus(null) }} />
       </label>
       <div className="aboutform-acts">
@@ -459,8 +458,8 @@ export function MyAbout({ me = currentMe() }) {
     <div className="card">
       <h2>About you</h2>
       <AboutForm load={peopleApi.getMyAbout} save={peopleApi.putMyAbout}
-        lead={me.acting ? `What ${me.name}'s coach and planners are told about ${me.name}.`
-          : 'What your coach and planners are told about you. Only you and the owner of this install can see it.'} />
+        lead={me.acting ? `What ${me.name}'s workout planner is told about ${me.name}.`
+          : 'What your workout planner is told about you. Only you and the owner of this install can see it.'} />
     </div>
   )
 }

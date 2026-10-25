@@ -19,13 +19,11 @@ import { Blurb } from './blurb'
 import { SessionLog, PriorNote, DetailsSheet } from './sessionlog'
 import { sessionStats } from '../lib/stats.js'
 import { localIso, fromIso } from '../lib/dates.js'
-import { progress as quotaProgress, mondayOf, weekDays, shiftWeek, quotaCounts, quotaEntry, suggest, buildQuotaEntry } from '../lib/quota.js'
 import { isDone, isRepeatable, repeatLabel, extraEntryId, doneWhenPlaced, markDone } from '../lib/store.js'
 import { testEntryFor, testEntryId, testFor } from '../lib/tests.js'
 import { WorkoutMode } from './workout'
 import { openTimerAfterSheet, timerRequestFor } from './timer'
 import { WorkoutRunner } from './runner'
-import { QuotaBars } from './quotabars'
 import { PrescriptionEditor, PlanTalk, PlanWhy, liftFieldOf } from './planner'
 import { usePlan } from '../lib/planctx.jsx'
 import { optFor } from '../lib/menu.js'
@@ -35,10 +33,7 @@ import { minutesFor, resolveMinutes } from '../lib/minutes.js'
 import { levelFor } from '../lib/level.js'
 import { nameFor, titleFor, withCasualName } from '../lib/naming.js'
 import { disciplineFor } from '../lib/activities.js'
-import { Journal } from './journal'
 import { UnloggedWorkouts } from './unlogged'
-import { achievements, unclaimed } from '../lib/achievements.js'
-import { profileFacts } from '../lib/profile.js'
 import { WhoopReadiness, WhoopSleep } from './whoop'
 import { DayStepper } from './app'
 import { NumInput } from './numinput'
@@ -86,46 +81,33 @@ const AFTER_SHEET = 450
  * those was the app having an opinion about what the user should do, and none of
  * it is here, because a set schedule or recommended workouts do not get followed.
  *
- * So Today is two things and nothing else:
+ * So Today is one thing: WHAT IS ACTUALLY ON THE DAY — sessions the user planned
+ * or logged, and nothing the user did not. An empty day renders as an empty day.
  *
- *   1. WHERE THE WEEK STANDS — the quota bars. A reading, not an offer.
- *   2. WHAT IS ACTUALLY ON THE DAY — sessions the user planned or logged, and
- *      nothing the user did not. An empty day renders as an empty day.
- *
- * Adding to the day lives on the + button. `lib/recommend.js` is still on disk
- * and still tested; nothing on this screen reads it.
+ * Adding to the day lives on the + button. The quota bars that used to lead this
+ * screen, the journal beside it and the recommender behind both were removed on
+ * 2026-10-25 (issue #31); old quota and journal entries stay in the log, unread.
  */
 export function TodayTab({
   plan, entries, upsertEntry, deleteEntry,
-  settings = {}, saveSettings = () => {},
   openEntryId = null, onOpened = () => {},
-  onPlan = null, onLog = null, onRest = null, onSetWeek = null, onViewDay = null,
+  onPlan = null, onLog = null, onRest = null, onViewDay = null,
 }: {
   plan: any
   entries: any[]
   upsertEntry: (e: any) => void
   deleteEntry?: (id: string) => void
-  settings?: any
-  saveSettings?: (patch: any) => void
   openEntryId?: string | null
   onOpened?: () => void
   onPlan?: (() => void) | null
   onLog?: ((iso: string, opts?: { climb?: any }) => void) | null
   onRest?: ((iso?: string) => void) | null
-  onSetWeek?: (() => void) | null
   onViewDay?: ((iso: string) => void) | null
 }) {
   const today = todayIso()
   const [iso, setIso] = useState(today)
   // The + button logs onto the day being looked at, so it has to know which.
   useEffect(() => { onViewDay?.(iso) }, [iso])
-  /*
-   * An entry the WEEK asked to open, as opposed to one the + button just created.
-   * Kept apart from `openEntryId` because they want different screens: a session
-   * just planned opens straight into the runner, one tapped on a quota bar to
-   * look at opens its sheet.
-   */
-  const [openFromWeek, setOpenFromWeek] = useState<string | null>(null)
   const isFuture = iso > today
   const menu = plan?.dailyMenu || []
 
@@ -306,11 +288,6 @@ export function TodayTab({
     <>
       <DayNav viewIso={iso} today={today} onChange={setIso} plan={plan} />
 
-      {/* Where the week stands. A reading — nothing here is pressable into a
-          session. Pressing what filled a bar opens THAT session, on its own day. */}
-      <QuotaBars plan={plan} entries={entries} iso={iso} onSetWeek={onSetWeek}
-        onOpenEntry={(date: string, id: string) => { setIso(date); setOpenFromWeek(id) }} />
-
       <DaySessions plan={plan} entries={entries}
         mainEntry={mainEntry} extraEntries={extraEntries}
         onPickMain={pickMain} onAddExtra={addExtra} onRemove={removeSession}
@@ -318,9 +295,8 @@ export function TodayTab({
         onSetDone={setDone} onSetTraining={setTraining}
         onSaveEntry={upsertEntry}
         viewIso={iso} isFuture={isFuture}
-        openEntryId={openEntryId || openFromWeek}
-        openAs={openFromWeek ? 'sheet' : 'auto'}
-        onOpened={() => { onOpened(); setOpenFromWeek(null) }}
+        openEntryId={openEntryId}
+        onOpened={onOpened}
         onPlan={onPlan} onLog={onLog ? () => onLog(iso) : null} onRest={onRest} />
 
       {/* The owner's window onto someone else's days, to coach without acting as
@@ -339,11 +315,6 @@ export function TodayTab({
           onClimb={onLog ? (item: any) => onLog(iso, { climb: item }) : null}
           skipped={skippedWorkouts} onDismiss={dismissWorkout} onRestore={restoreWorkout}
           split={splitWorkouts} onSplit={splitWorkout} />
-      )}
-
-      {!isFuture && (
-        <Journal plan={plan} entries={entries} iso={iso} upsertEntry={upsertEntry}
-          settings={settings} saveSettings={saveSettings} />
       )}
 
       <Card style={{ marginBottom: 0 }}>
@@ -867,7 +838,7 @@ function DaySessions({
   plan, entries, mainEntry, extraEntries,
   onPickMain, onAddExtra, onRemove, onSaveOutputs, onSaveRun, onSavePlan,
   onSetDone, onSetTraining, viewIso, isFuture, onSaveEntry = null,
-  openEntryId = null, openAs = 'auto', onOpened = () => {},
+  openEntryId = null, onOpened = () => {},
   onPlan = null, onLog = null, onRest = null,
 }: any) {
   const [sheet, setSheet] = useState<string | null>(null)   // row key: 'main' | an extra entry id
@@ -887,7 +858,7 @@ function DaySessions({
    * Something just landed from the + button, so open it. Creating an entry and
    * leaving them to find it is a dead end: a blank row the user then has to spot
    * and press. The id round-trips through the app because the button lives
-   * beside the coach bubble rather than on this screen.
+   * floats over every tab rather than living on this screen.
    */
   useEffect(() => {
     if (!openEntryId) return
@@ -897,10 +868,10 @@ function DaySessions({
     // A planned session opens straight into the runner. The user pressed "plan a
     // workout" and then "put it on today"; a third tap to start it asks them to
     // confirm something they have already said twice.
-    const toRunner = openAs !== 'sheet' && hit.data?.plan && runnable(null, hit.data.plan)
+    const toRunner = hit.data?.plan && runnable(null, hit.data.plan)
     later(() => (toRunner ? setWorkout(key) : setSheet(key)))
     onOpened()
-  }, [openEntryId, openAs, mainEntry?.id, extraEntries.length])
+  }, [openEntryId, mainEntry?.id, extraEntries.length])
 
   const logged = optFor(menu, mainEntry?.data?.optId)
   const resting = logged?.role === 'rest'
@@ -1119,172 +1090,6 @@ function DaySessions({
           onClose={() => setSheet(null)}
         />
       )}
-    </>
-  )
-}
-
-/* ------------------------------------------------------------------- week */
-
-/*
- * The Week tab: where the quotas are written. It replaced the week-by-week plan
- * on 2026-09-14 — eleven dated weeks counting down to a trip that was not
- * happening. The week is something the user writes; the app's only jobs are to
- * copy last week forward and to show what filled it.
- *
- *   - The user writes them. `suggest()` offers; nothing is written without a tap.
- *   - Misses expire on Sunday. No debt, no carry-over, no guilt.
- *   - A quota counts WORKOUTS, not days. A day with a ride and a lift fills two.
- */
-export function WeekTab({ plan, entries, upsertEntry }: { plan: any; entries: any[]; upsertEntry: (e: any) => void }) {
-  const today = todayIso()
-  const [monday, setMonday] = useState(() => mondayOf(today))
-  const week: any = useMemo(() => (quotaProgress as any)({ plan, entries, iso: monday }), [plan, entries, monday])
-  const stored: any = useMemo(() => (quotaCounts as any)(entries, monday), [entries, monday])
-  // The reasoning, if this week was planned with the AI. A week set by hand has
-  // none, and shows none.
-  const planned: any = useMemo(() => (quotaEntry as any)(entries, monday)?.data || null, [entries, monday])
-  const offer: any = useMemo(() => (suggest as any)({ plan, entries, iso: monday }), [plan, entries, monday])
-
-  // What is in the boxes. Seeded from what the user has SET, never from the
-  // suggestion — a pre-filled number whose provenance is invisible gets
-  // confirmed without being read. Taking the offer is a tap.
-  const [draft, setDraft] = useState<Record<string, number> | null>(null)
-  const counts: Record<string, number> = draft ?? stored
-  const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(stored)
-
-  const set = (key: string, n: number) => {
-    const next = { ...counts }
-    if (n > 0) next[key] = n
-    else delete next[key]
-    setDraft(next)
-  }
-  // Keep the provenance the week planner wrote — moving one stepper by hand
-  // does not un-explain the rest of the week.
-  const save = () => {
-    const { counts: _c, ...extra } = planned || {}
-    upsertEntry((buildQuotaEntry as any)(monday, counts, extra))
-    setDraft(null)
-    success()
-  }
-  const shift = (n: number) => { setMonday((m: string) => (shiftWeek as any)(m, n)); setDraft(null) }
-
-  const isThisWeek = monday === mondayOf(today)
-  const label = `${fromIso(monday).toLocaleDateString([], { month: 'short', day: 'numeric' })} – ` +
-    `${fromIso((weekDays as any)(monday)[6]).toLocaleDateString([], { month: 'short', day: 'numeric' })}`
-
-  const achs: any[] = useMemo(
-    () => (achievements as any)(plan, entries, (profileFacts as any)(entries)), [plan, entries])
-  const catsOf = (a: any) => (plan?.quotaCategories || []).filter((c: any) => a.categories.includes(c.key))
-  const ungrouped: any[] = useMemo(() => (unclaimed as any)(plan, achs), [plan, achs])
-
-  // On a phone the category blurb is hidden: worth the room on a desktop, not
-  // the three lines it costs here.
-  const Row = (c: any) => {
-    const state = week.byKey[c.key] || { done: 0 }
-    const n = counts[c.key] || 0
-    return (
-      <View key={c.key} style={st.quotarow}>
-        <View style={{ width: 22 }}><Icon name={c.icon} size={16} color={colors.inkFaint} /></View>
-        <T size={14} weight={600} color={state.complete ? colors.good : colors.ink} numberOfLines={2} style={{ flex: 1, minWidth: 0 }}>{c.name}</T>
-        <T size={11} dim accessibilityLabel="what you have actually logged this week">
-          {state.done > 0 ? `${state.done} done` : ''}
-        </T>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-          <Press haptic onPress={() => set(c.key, Math.max(0, n - 1))} disabled={!n}
-            accessibilityRole="button" accessibilityLabel={`one fewer ${c.name}`} style={st.qbtn}>
-            <Icon name="Minus" size={14} />
-          </Press>
-          <T size={17} tabular align="center" style={{ minWidth: 30 }}>{n ? String(n) : '–'}</T>
-          <Press haptic onPress={() => set(c.key, n + 1)}
-            accessibilityRole="button" accessibilityLabel={`one more ${c.name}`} style={st.qbtn}>
-            <Icon name="Plus" size={14} />
-          </Press>
-        </View>
-      </View>
-    )
-  }
-
-  const group = (key: string, icon: string, name: string, blurb: string | null, rows: any[], first: boolean) => (
-    <View key={key} style={{ marginTop: first ? 8 : 18 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <Icon name={icon} size={15} />
-        <T size={14} weight={600} style={{ flex: 1 }}>{name}</T>
-      </View>
-      {blurb ? <T size={13} dim style={{ marginBottom: 10 }}>{blurb}</T> : null}
-      {rows.map(Row)}
-    </View>
-  )
-
-  return (
-    <>
-      <View style={st.daynav}>
-        <Press haptic onPress={() => shift(-1)} accessibilityRole="button" accessibilityLabel="previous week" style={st.daynavArrow}>
-          <T size={20} dim>‹</T>
-        </Press>
-        <T size={14} weight={600} align="center" style={{ flex: 1 }}>
-          {label}
-          {isThisWeek && <T size={14} dim style={{ fontStyle: 'italic' }}> · this week</T>}
-        </T>
-        <Press haptic onPress={() => shift(1)} accessibilityRole="button" accessibilityLabel="next week" style={st.daynavArrow}>
-          <T size={20} dim>›</T>
-        </Press>
-      </View>
-
-      <Card>
-        <H2>{planned?.title || 'What this week asks for'}</H2>
-        <T size={13} dim style={{ marginBottom: 14 }}>
-          {'A quota is a count of '}
-          <T size={13} weight={600} color={colors.ink}>workouts</T>
-          {', not days — a day you ride and lift fills two. Nothing is assigned to a weekday; you decide that as the week goes. Whatever is left on Sunday expires rather than carrying over.'}
-        </T>
-
-        {planned?.why && <PlanWhy text={planned.why} />}
-
-        {!week.isSet && offer.source !== 'empty' && (
-          <Press haptic onPress={() => setDraft(offer.counts)} accessibilityRole="button" style={st.restbtn}>
-            <Icon name="Repeat" size={17} color={colors.inkFaint} />
-            <T size={14} faint>
-              {offer.source === 'last-week'
-                ? 'Copy last week’s quotas forward'
-                : 'Start from what you actually did last week'}
-            </T>
-          </Press>
-        )}
-
-        {achs.map((a, i) => group(a.id, a.icon, a.name, a.blurb || null, catsOf(a), i === 0))}
-
-        {ungrouped.length > 0 && group('__none', 'Sparkles', 'Nothing in particular',
-          'Claimed by none of your achievements. It still counts and it still shows up.', ungrouped, !achs.length)}
-
-        <View style={st.quotafoot}>
-          <T size={13} dim style={{ flexShrink: 1 }}>
-            {`${Object.values(counts).reduce((a, b) => a + b, 0)} workouts asked for`}
-            {week.isSet && ` · ${week.doneTotal} of ${week.plannedTotal} filled`}
-          </T>
-          <Btn title={week.isSet ? 'Update the week' : 'Set the week'} onPress={save} disabled={!dirty} />
-        </View>
-      </Card>
-
-      {(plan?.rules || []).length > 0 && (
-        <Blurb id="rules" title="When life happens" tone="card">
-          <T size={13} dim style={{ marginBottom: 14 }}>The plan is supposed to bend. These are the rules for bending it.</T>
-          <View>
-            {plan.rules.map((r: any, i: number) => (
-              <View key={i} style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-                <T size={14} faint>•</T>
-                <T size={14} dim style={{ flex: 1 }}>
-                  <T size={14} weight={600} color={colors.ink}>{r.when}</T>
-                  {` — ${r.then}`}
-                </T>
-              </View>
-            ))}
-          </View>
-        </Blurb>
-      )}
-
-      <Blurb id="exposure" title={plan?.exposureBudget?.title || 'The finger budget'} tone="card">
-        <T size={13} dim>{plan?.exposureBudget?.body}</T>
-      </Blurb>
     </>
   )
 }
@@ -1603,18 +1408,6 @@ const st = StyleSheet.create({
   doneBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     borderWidth: 1, borderRadius: 8, paddingVertical: 11, paddingHorizontal: 16, minHeight: 44,
-  },
-  quotarow: {
-    flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10,
-    borderTopWidth: 1, borderTopColor: colors.line,
-  },
-  qbtn: {
-    width: 44, height: 44, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: colors.line, borderRadius: 10,
-  },
-  quotafoot: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
-    marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.line,
   },
   restbtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9,

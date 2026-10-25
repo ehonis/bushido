@@ -4,48 +4,26 @@ What each part of Bushido does and why it is built the way it is. Written while 
 was in daily use by one person, so it often says "you" and means him; the reasoning
 holds for anyone.
 
-## Achievements, quotas, and your day
+## Your day, and the + button
 
-**Achievements** are the standing things you are training for. Each owns a set of
-**quota categories**. Two come with the app; add, edit or delete your own on the
-**Achievements** tab, which also shows what this week asks of each. (They are not Totem's *goals*, which are a week or a quarter with metrics
-that expire — those show up on Today under their own card.)
+Three tabs: **Today**, **Log** and **Progress**. Today is **your day**: the sessions
+actually on it, and nothing you did not put there. An empty day says so and offers the
+three ways in.
 
-| 5.12a | Half iron | Neither |
-|---|---|---|
-| Power · Power-endurance · Endurance · Fingers · Fun | Run · Bike · Swim | Lift · Support · Anything else |
-
-A **quota** is a count of *workouts* for the current Monday-to-Sunday week — not days. A
-day you ride and lift fills two. Nothing is ever assigned to a weekday: you write the
-quotas on the **Week** tab, the app pre-fills next week from this one, and whatever is
-left on Sunday **expires** rather than following you around as debt.
-
-The Today tab leads with **the bars**: one per category, done over asked-for. **Press one and
-it opens onto the sessions behind the number** — what you actually did to fill it, by day,
-with the planned ones dotted like the bar; pressing one of those jumps the day nav to it. A
-bar with nothing behind it does not open, because an empty panel is a worse answer than no
-panel. A workout you have put on a day and not finished carries on from where the solid fill
-stops as a **dotted segment** — planned, not done — so "1 of 2, and the second is already written down" reads
-differently from "1 of 2, and I have not thought about it". It never counts as progress:
-the totals, what is owed and the green tick all ignore it. They are a reading and nothing
-else — there is nothing to tap and nothing being suggested. Under them
-is **your day**: the sessions actually on it, and nothing you did not put there.
-
-Everything gets onto the day through the **+ button**, bottom right next to the coach. It
-offers two ways to put a workout on the day, plus a rest day and planning the week:
+Everything gets onto the day through the **+ button**, bottom right:
 
 | | |
 |---|---|
-| **Plan a workout** | An agent writes the sets. See below. |
-| **Log a workout** | The plan's own cards first, as folders: **Bouldering** (the board, 4×4s, limit bouldering) and **Rock climbing** (max hangs, ARC laps, the load-cell tests, everything else the plan tags `rock-climbing`), each grouped by quota category with protocol, cues and timer included. Then all 91 activities, your six pinned sports first, with the quota each one fills in the right-hand column; pick one and the card opens already the right shape. One search box reaches both. It lands on the day you are looking at on Today, so a session you forgot can be logged on its own day. |
+| **Log a workout** | All 91 activities, your six pinned sports first, with the category each one files under in the right-hand column; pick one and the card opens already the right shape. After them, the plan's own climbing cards as folders under **Climbing**: **Bouldering** (the board, 4×4s, limit bouldering) and **Rock climbing** (max hangs, ARC laps, the load-cell tests), each with protocol, cues and timer included. One search box reaches both. It lands on the day you are looking at on Today, so a session you forgot can be logged on its own day. |
+| **Log a rest day** | A day off on purpose, with why (sick, travelling, planned recovery) and a note. |
+| **Plan a workout** | Build it yourself, or let an agent write the sets. See below. |
+| **Interval timer** | Work, rest and rounds, for any workout or none; also on every workout's sheet. |
 
 Nothing in it ranks anything. They are doors in the order the content file declares them,
-with a search box — the swap list they replaced is not coming back. Until 2026-09-17 Today also carried a quota board of eleven tappable lanes, a list
-of also-recommended blocks, a card explaining why today was what it was, a ranked swap list
-and a rest-day suggestion. All of it is gone, because the user does not follow recommended
-workouts and a screen that opens with an argument every morning is a screen you stop
-reading. `lib/recommend.js` is still there and still tested — the coach can reason with it,
-and it is where the two unbypassable finger rules live — but nothing on Today reads it.
+with a search box. Until 2026-09-17 Today also carried a quota board, also-recommended
+blocks, a "why today" card, a ranked swap list and a rest-day suggestion; on 2026-10-25 the
+quota bars and the journal that had stayed went too (see *What was removed on 2026-10-25*
+below). A screen that opens with an argument every morning is a screen you stop reading.
 
 ### Done by default
 
@@ -69,11 +47,12 @@ tapped them, against one time budget for the whole trip. The kinds are grouped u
 ungrouped they were a coin flip. The discipline follows you onto the next screen ("Climbing ·
 Power endurance"). The whole list is `plannerKinds` in `plan.json`, groups included, so it
 grows without a rebuild. Then say how long you have and what you want out of it, and an agent goes and reads your log, your athlete profile in
-Totem's brain (when one is configured) and last night's WHOOP recovery before writing a session with every set,
-load and rest in it.
+Totem's brain (when one is configured), what you logged in the last week and last night's
+WHOOP recovery before writing a session with every set, load and rest in it. A kind that
+names no sport ("Zone 2", "Tempo") picks the one you have done least lately.
 
 - **It is read-only.** `Read`, `Grep`, `Glob` and nothing else — no shell, no writes, not
-  even to the brain file the coach may append to.
+  even to the brain file.
 - **Nothing is stored until you keep it.** A session you do not want costs a model run and
   leaves no trace. Tapping *put it on today* is what writes an entry.
 - **Everything is editable, before and after.** The review screen is the same editor the
@@ -85,10 +64,10 @@ load and rest in it.
   happened. The runner pre-fills one from the other, so you can still see afterwards where
   you went off it.
 - **A multi-part trip lands as separate workouts.** Legs then a run home becomes *two*
-  entries, not one: each with its own log, its own quota and — the reason it matters — its
-  own slot for a WHOOP or Strava measurement to attach to. A pooled entry has one
-  `out.whoop`, so a lift and a ride would fight over it. A block's `counts toward` is what
-  decides the seams; a warm-up carries none and joins the workout beside it. The review
+  entries, not one: each with its own log and — the reason it matters — its own slot for a
+  WHOOP or Strava measurement to attach to. A pooled entry has one `out.whoop`, so a lift
+  and a ride would fight over it. Whether a block is *its own workout* (and which category)
+  is what decides the seams; a warm-up is *part of the workout beside it*. The review
   screen says what it will land as before you keep it.
 - **Every lifting movement shows what it works.** A front and back body beside the name,
   primary muscles bright and secondary dim, everywhere the name appears: the plan, the
@@ -105,45 +84,23 @@ load and rest in it.
   (*make it shorter*, *go easier on me*, *more volume*, *swap an exercise*) and a box for
   anything else. A revision returns the whole session rewritten and says in a sentence what
   it changed and what the trade-off was — and it keeps the numbers you edited by hand, and
-  the quota you chose. The conversation lives on the entry, so a session written at eight in
+  the categories you chose. The conversation lives on the entry, so a session written at eight in
   the morning can be argued with at six in the evening.
 
 Then **start the workout** — see the runner below.
 
-### What blocks, and what only advises
-
-Exactly two rules block, and they are the two that can injure you:
-
-- **No hard finger day the day after another** (48 hours, `hardMinGapDays`)
-- **No more than three hard finger days a week** (`hardCap`)
-
-Everything else is advisory, with the reason on the card and a tap straight through it:
-per-discipline spacing (a hard ride discourages another hard ride, not a board session),
-and a whole-body ceiling read off the trailing week's RPE × minutes against your own
-logged history.
-
 ### Hard finger days are what you SAY they were
 
-Every card that can load the fingers asks, pre-filled from what the session was planned
-as. **Your answer is what the budget counts.** A board session you took easy costs
-nothing and frees tomorrow; a social night you projected through costs a full exposure.
-Before this the plan's declaration was final, which made an easy board night as expensive
-as a hard one with no way to say otherwise.
+Every climbing card that can load the fingers asks, pre-filled from what the session was
+planned as, and **your answer is what is recorded**: a board session you took easy was
+not a hard finger day; a social night you projected through was. The Progress page's
+Climbing group counts hard finger days per week from those answers (`lib/fingers.js`).
 
-The budget is counted on what you **logged**, never on what you were offered — so a board
-that offers hard finger work in three lanes still costs one exposure, because you only do
-one of them.
-
-### Two gyms
-
-`Climbing gym` and `Gym` are separate answers in the check-in, because they are separate
-places: the board, the wall and the laps live at one, and the other is a weights room where
-what the app offers is a lift and the support blocks. Until 2026-09-14 `gym` meant the
-climbing gym, since it was the only one.
-
-Say where you are in the check-in and lanes that need somewhere else are struck through
-with the reason rather than vanishing, because a card that disappears reads as a bug —
-and they stay tappable, since you can say "home" at five and make the gym at eight.
+Until 2026-10-25 two rules were built on that count — no hard finger day the day after
+another, and no more than three a week — and the recommender and the coach checked them
+before offering anything. Both of those offered sessions; nothing does now, and placing a
+session never consulted the rules, so nothing enforces them today. The planner's prompt
+still tells it not to write a fourth hard finger day or one the day after another.
 
 ## Every sport gets a card
 
@@ -166,7 +123,7 @@ The old card gated incline on `activity: ["run","walk"]` and got both backwards.
 
 **Climbing is deliberately absent from the catalog.** It is logged on the climbing cards,
 which are what ask the hard-finger question — a second path in is a way for a hard finger
-day to land where the injury budget cannot see it. The Bouldering and Rock climbing folders
+day to land where nothing asks it. The Bouldering and Rock climbing folders
 are those cards, not catalog entries, and a climb WHOOP or Strava recorded shows on the
 unlogged card with a "Log it" that asks which climbing session it was.
 
@@ -186,7 +143,7 @@ rides, so the card pairs them on time overlap and offers one card, badged with b
 logs as a single entry carrying both snapshots — Strava answers distance, elevation and
 moving time (it has GPS), WHOOP contributes heart rate and strain. It says what it's
 claiming (`90 min in common — logged as one`) and **Not the same** splits them for good if
-it ever gets it wrong. Without this, one afternoon would fill two bike quotas and count
+it ever gets it wrong. Without this, one afternoon would count as two rides and count
 twice on the load chart.
 
 **…and when they don't arrive together, *Same as…* merges the late one in.** That pairing
@@ -209,15 +166,14 @@ against what WHOOP says you needed, the sleep score, efficiency and debt, bedtim
 wake, the stage split, and a two-week strip of hours asleep. Nothing is logged by hand.
 The nights come from WHOOP as `sleep[]` in the same pull as recovery (`sleepFor` and
 `sleepNights` in `server/whoop.js`). Nights are filed under the morning woken into, the
-same calendar as recovery. The coach reads them too (`whoopDigest`). A morning with no
-scored night shows no card.
+same calendar as recovery. A morning with no scored night shows no card.
 
 ## You, and your gear
 
 The header is your Strava name and picture (the sync state survives as the dot on it).
 Tapping it opens a panel anchored under it — a bottom sheet on a phone — which absorbed three tabs — **Gear**, **Testing** and **Why**
 — because none of them is touched mid-session and all three were taking room in a bottom bar
-used one-handed. The tab bar is now **Today · Week · Log · Progress**.
+used one-handed. The tab bar is now **Today · Log · Progress**.
 
 **Gear** is what you own and what it has done, not what to buy. Bikes and shoes arrive from
 Strava with their real odometers and stay read-only; ropes, harnesses, climbing shoes, plates
@@ -236,20 +192,21 @@ Strava.
 
 ## The log
 
-Every workout, newest first, grouped by day and filterable by quota category — with its
+Every workout, newest first, grouped by day and filterable by category — with its
 numbers, what it was done on, and which services recorded it. The charts moved to their own
 **Progress** tab; they were never history.
 
 The old climbing-only quick-log (edge mm, added lb, hang seconds) is gone rather than moved:
-bodyweight is on the profile and writes the same series the charts already use, and a max
-hang is logged by the session that *is* that test.
+bodyweight has its own quick log here, for any date, and writes the same series the
+charts already use; a max hang is logged by the session that *is* that test.
 
 ## Progress
 
-Ask a question first: filter by **achievement**, **category**, **one sport or session**, or **one
-lift exercise**, over 4 weeks / 8 weeks / 6 months / all time. The charts follow — filtering
-to the half iron drops every finger chart, filtering to bench press brings up its top set and
-volume.
+Ask a question first: filter by **category**, **one sport or session**, or **one lift
+exercise**, over 4 weeks / 8 weeks / 6 months / all time. The charts follow — filtering to
+running drops every climbing chart, filtering to bench press brings up its top set and
+volume. The headline tiles are workouts, hours, miles and load, and the **Climbing** group
+comes after Volume, Distance, Strength and Effort: a workout log first.
 
 This replaced about twenty hardcoded charts that were all on screen at once and nineteen of
 which were about climbing. Each chart now declares when it means anything, so the page draws
@@ -259,102 +216,6 @@ under **This session** when that session is in scope.
 
 The filter only offers what you've actually logged, with counts, because a dropdown of eleven
 categories when you've done five mostly returns empty charts.
-
-## The journal
-
-What the coach check-in became. 42 behaviours modelled on WHOOP's — sleep, intake, state,
-recovery — **all off until you turn them on**, because a journal with forty questions is a
-journal you answer once. You can add your own: toggle, 1–10 slider, number or note, and a
-custom metric correlates exactly like a catalogued one.
-
-**Patterns** compares each tracked behaviour against the **next morning's** recovery, because
-what you did Tuesday shows up in Wednesday's score. Below four days either side it says "not
-yet" rather than showing a number that will move twenty points next week.
-
-This is native rather than synced because it had to be: WHOOP's API has no journal, behaviour
-or survey endpoint, and is read-only for user data. Which is the better outcome — Bushido has
-your recovery *and* knows what you trained, so it can answer things WHOOP structurally can't.
-
-Where you are, how long you've got and how the fingers read survive as the top row: the
-recommender genuinely needs those, and they still write the same entry they always did.
-
-## Goals from Totem
-
-Optional, and only with a Totem bridge configured. Goals live in **Totem** — it has the
-schema, the MCP tools and the weekly review. Bushido shows the ones you link to it,
-read-only, with their progress. The host it matches is `VITE_BUSHIDO_HOST` at build time, or
-the host the page is open at when that is unset (see `docs/operations.md`):
-
-```
-goals__link_goal(<id>, kind: 'url', url: 'https://<your Bushido host>', label: 'Bushido')
-```
-
-That's an ordinary `goal_links` row, so marking a goal for Bushido needs no schema change and no
-new column. The numbers shown are Totem's own — including anything a Strava connector is
-feeding and any sub-goal rollup — because a number with two opinions will disagree with
-itself.
-
-## The AI coach
-
-Its own tab, plus a floating bubble on every other tab — **same threads, two views**, so a
-quick question is findable later. Threads are files under `data/coach/`, not log entries.
-
-It's an agent with tools: it can read your training log, the app's own content, the web,
-and — when configured in Settings — an athlete profile file and a food-log digest, and it
-goes and looks before it answers. With a profile file set it can append a dated memory
-beside it; without one it has no write access at all. It runs the Claude Code CLI headless
-(Settings → AI), and what you write under *About you* in Settings goes with every turn.
-
-What it cannot do is enforced by flags rather than by asking nicely: **no shell, no editing
-code or content, and it can never write to `data/state.json`** — the one file here with no
-upstream copy. It *offers* sessions as cards; they land on your day only when you tap one,
-through the same path your own taps use, and the two finger rules are enforced before any
-suggestion is read.
-
-## The old check-in
-
-> **The check-in coach is switched off.** `examples/coach/CHECKIN.md` and `server/chat.js` are written
-> around the eleven-week climbing block — its phases, its week focus, the trip it counted
-> down to — and all of that was deleted on 2026-09-14. Left running it would keep
-> confidently referencing a block that no longer exists, and fluent wrong advice is harder
-> to ignore than none. The `/api/chat` route has since been removed (the AI coach above
-> replaced it) and the hard fields still save. Bringing it back means rewriting the prompt
-> and restoring the route.
->
-> Everything below describes how it worked and how it should work again once CHECKIN.md
-> is rewritten for standing achievements and a quota week.
-
-The first card on the Today tab. Two halves:
-
-- **Hard fields** — bodyweight, how you feel out of ten, how you slept, how the fingers
-  are, how long you've got, where you are. They save as you touch them; bodyweight goes
-  into the same series it always has, so the chart is unbroken.
-- **A message box.** Tell the coach the thing the fields can't hold — *"can't get to the
-  gym tonight, going Sunday instead"* — and it answers, having read your last three weeks
-  of sessions, your own notes on them, your athlete profile, and what WHOOP has on you:
-  a fortnight of recovery, HRV and resting HR against your own baselines, your recent
-  workouts, and the heart rate on the sessions you attached one to — and what Strava has: four
-  weeks of riding/running totals, the recent activities, each bike's mileage, and the ride on any
-  session you attached one to. On the *Other training* card, attaching a ride fills in its
-  distance, time, speed and elevation for you.
-
-The reply can lean on today's recommendation with a capped, dated, explained nudge, and
-it can offer sessions — cards with buttons, under the reply, that don't move your day
-until you press one. It **cannot** edit the plan, and it cannot break the two rules that
-can injure you — no hard finger day the day after another, and the weekly cap — because
-nudges are read after those blocks have already returned.
-
-A turn is one headless Claude run and takes about twenty seconds; the card counts while
-it waits. What you typed is saved *before* the coach is asked, so with the box unreachable
-you lose the reply and never the note. Nothing schedules anything: telling it on Thursday
-that the gym moved to Sunday works because every check-in is in the context of the next
-one, so Sunday's coach is reading Thursday's message.
-
-The WHOOP digest is built server-side from `data/whoop.json`, never posted by the browser
-— the coach's view of your physiology isn't something a phone gets to write.
-
-Configure with `BUSHIDO_CHAT_MODEL` (default `claude-sonnet-5`), `BUSHIDO_CHAT_EFFORT`
-(default `low`) and `BUSHIDO_CHAT_TIMEOUT_MS`.
 
 ## The runner — a planned workout, set by set
 
@@ -419,6 +280,27 @@ Two browser APIs it leans on need the **HTTPS address** to work:
 The wake lock is the one that matters. Use the HTTPS name below if you're running
 intervals off it.
 
+## What was removed on 2026-10-25
+
+Bushido became a plain workout log (issue #31). Measured from the live log, the month before
+was free-form workouts, rest days, planned and shared workouts, with WHOOP and Strava
+attached; nothing else was being used. Removed from the app, the server and the iPhone app:
+
+| gone | was |
+|---|---|
+| the check-in, `/api/chat`, `CHECKIN.md` | the daily card of hard fields and a message to a (long dormant) coach |
+| the journal | behaviours compared against the next morning's recovery |
+| achievements | standing goals, each owning categories; their tab and the Progress filter |
+| linked goals, `/api/goals` | Totem's goals shown read-only, and the goal-pace notifications |
+| quotas, the Week tab, *Plan the week* | counts of workouts per category per week, their bars on Today, and the agent that proposed them |
+| the AI coach | threaded conversations, the coach note and its nudges |
+| the recommender | `lib/recommend.js`, except `lib/fingers.js`, which the Climbing charts read |
+
+**Nothing stored was deleted.** Old check-in, journal, quota and achievement entries stay
+in the log and are simply not read; `coach.json`, `coach/` and `goals.json` stay in the data
+directory. The settings that only those features used (the goals toggle, the nutrition
+digest) are dropped from `settings.json` the next time Settings is saved.
+
 ## What was removed on 2026-09-14
 
 Alongside the pivot, five things came out of `plan.json` and the app rather than being
@@ -434,8 +316,8 @@ migrated — the dates were stale and it was already being used as a generic tra
 
 The week template's failure was structural rather than cosmetic: Thursday *was* the board
 day, so a Thursday you couldn't make cost the board session instead of moving it, and
-`templateDebt` only ever half-papered over it. Quotas say how many of each kind the week
-wants and leave the days alone.
+`templateDebt` only ever half-papered over it. Weekly quotas replaced it, and went
+themselves on 2026-10-25.
 
 ## Colours
 

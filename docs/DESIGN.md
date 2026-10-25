@@ -84,6 +84,8 @@ contradict this file, say so in the issue before writing it.
 
 ### D6. A workout log, not a climbing tool: what goes
 
+*Implemented by #31 (2026-10-25).*
+
 The owner's direction (2026-10-25): Bushido is now a plain, very easy to use workout logging app.
 Measured from the live log, the last 30 days were free-form workouts, rest days, planned
 workouts and shared workouts, with WHOOP/Strava attached. These features are **removed from the
@@ -101,9 +103,11 @@ stays on disk untouched and is simply no longer shown:
   me" workout planning STAYS.
 - Climbing-specific prominence: force/MVC tests, the critical-force ceiling and climbing-only
   charts no longer lead any screen. Climbing cards stay pickable (grouped under Climbing, after
-  the general ways to log), and their history still reads. The hard-finger blocks may stay in
-  `lib/` where they guard placement, but nothing climbing-specific is shown above ordinary
-  workout logging.
+  the general ways to log), and their history still reads. Nothing climbing-specific is shown
+  above ordinary workout logging. The two hard-finger rules were never enforced on placing a
+  session: only the removed check-in's offer cards (and the recommender behind them) refused a
+  hard day, so they went with them. `lib/fingers.js` keeps `isHardEntry` for history only
+  (AGENTS.md §6.1); do not re-add the blocks believing they once guarded placement.
 
 Stays: Today, Log, Progress (general charts), Log a workout, Pick a session, Plan a workout (by
 hand or AI), rest days, the runner, shared workouts / people, WHOOP, Strava, gear, body weight,
@@ -258,7 +262,7 @@ one line, at most about 40 characters, no sentence, no full stop, no dash. Loggi
 before planning doors, and tools last. #36's door currently carries two sentences ("Work, rest,
 rounds. Starts in one tap; change anything first if you like."); whichever of #29/#36 lands second
 cuts it to the line above. #29 already orders the doors this way and shortens the lines;
-#31 removes Plan the week.
+#31 removed Plan the week (doors 1, 3 and 4 are live; 2 and 5 are still to come).
 
 ### Logging in two taps (D7)
 
@@ -288,7 +292,7 @@ Screenshots at 390px from a throwaway server seeded with four weeks of runs, rid
 climbs and a rest day, compared against #31's branch for what it already changes; the iPhone
 screens read from `mobile/src/features`. Judged by D7: one primary action, plain words, two taps
 for the common case. Removed screens (check-in, journal, achievements, goals, quotas, Week, Plan
-the week, coach) are not audited, and nothing #31 already does is listed as work.
+the week, coach) are not audited (#31 removed them), and nothing #31 already does is listed as work.
 
 Problems that are on every screen, so every batch fixes them in its own files:
 
@@ -317,7 +321,7 @@ Problems that are on every screen, so every batch fixes them in its own files:
 | **Runner** (batch B; read from code) | Small-caps set labels, its own clock sizes and button styles, a second segmented style. | The absolute-instant rest clock (§6.5); one writer; add-a-set copies the last. | Big current set, one primary (**Done set**), the set list as rows, the side switcher as `Segmented`. Its clock sizes stay its own, documented. |
 | **Workout mode** (batch B; read from code) | The climbing cards' clock face, styled apart from the runner and from #36's new timer. | The clock rules. | The same face as #36's interval timer where they overlap; it reads `timer.css` rather than copying it. |
 | **Log** (batch C) | Date headers in capitals with "1 workout" on the right of every day. Each workout is a card with a chevron that expands in place (a second way to read a session beside the sheet). Untitled free-form workouts are named "Log a workout" (the button's name). Filter chips scroll off the right with counts that read as part of the label. | Newest first; filters by category; opening the sheet by id. | One card per day, workouts as rows; header "Fri 23 Oct", no count. A row opens the sheet (no in-place expansion). An untitled workout is named by its activity. Filters: "All" plus the categories you actually log, as chips that fit. |
-| **Progress** (batch C) | #31 removes the achievement filter and the hard-finger tile. Left: a filter card leads (Category, Just one thing, Since) before any number; tiles are a 2-up grid with a lone third; "Volume" explains sRPE in a sentence. | Charts declare when they apply (§6.8); the noise band; the table toggle. | Lead with workouts and time this period, two numbers in one card. Period as `Segmented` (4 wk · 8 wk · 6 mo · All) under the title; category chips only when more than one is logged; "Just one thing" behind a row. Charts titled in plain words ("Time per week", "Effort per week"). |
+| **Progress** (batch C) | #31 removed the achievement filter and the hard-finger tile, and moved the Climbing group last. Left: a filter card leads (Category, Just one thing, Since) before any number; tiles are a 2-up grid with a lone third; "Volume" explains sRPE in a sentence. | Charts declare when they apply (§6.8); the noise band; the table toggle. | Lead with workouts and time this period, two numbers in one card. Period as `Segmented` (4 wk · 8 wk · 6 mo · All) under the title; category chips only when more than one is logged; "Just one thing" behind a row. Charts titled in plain words ("Time per week", "Effort per week"). |
 | **Profile** (batch D) | Six sections in a sideways strip that cuts off ("Alerts" half hidden). The avatar button has no accessible name on a phone (only a `title`). Testing and Why are climbing-only and sit beside You and Gear. Every field has a helper line; values and placeholders look alike. | Popover on desktop, sheet on the phone; the sync dot on the avatar; gear's two origins (§6.9). | A list of sections (You, Gear, Notifications, Connections, Climbing, Settings), each opening its page; Testing and Why under the one "Climbing" row (D6). `aria-label` on the avatar. Helper text only where a field is not obvious. |
 | **WHOOP, Strava, unlogged workouts** (batch D) | Each has its own card, chart and button style; the unlogged card's row actions are several small buttons. | Suggested, never applied, matching (§8.2); snapshots on the entry. | Rows with one action ("Log it") and the rest behind the row; charts on the viz tokens via `lib/viz`. |
 | **Settings, sign-in, setup, Connect** (batch D) | Server-rendered with their own inline CSS, not on the tokens. | Working before the app is built (§3). | Copy the token values into the pages' inline style block (no shared file: the pages must work without `dist/`). Connect uses the kit. |

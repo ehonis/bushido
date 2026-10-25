@@ -102,7 +102,7 @@ export function NotificationsSection() {
         <h2>Notifications</h2>
         <p className="sub">
           Bushido tells you about training: a session logged, your morning recovery,
-          a goal within reach. Totem handles everything personal — they're
+          a workout your watch recorded. Totem handles everything personal — they're
           separate apps on your phone on purpose.
         </p>
 

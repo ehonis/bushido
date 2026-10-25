@@ -22,3 +22,29 @@ export function localIso(d = new Date()) {
 export function fromIso(iso) {
   return new Date(`${iso}T12:00:00`)
 }
+
+/* ------------------------------------------------------------------ the week */
+
+/** The Monday of the week containing `iso`. Weeks start Monday, not Sunday. */
+export function mondayOf(iso) {
+  const d = fromIso(iso)
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+  return localIso(d)
+}
+
+/** The seven dates of that week, Monday first. */
+export function weekDays(mondayIso) {
+  const d = fromIso(mondayIso)
+  return Array.from({ length: 7 }, (_, i) => {
+    const x = new Date(d)
+    x.setDate(d.getDate() + i)
+    return localIso(x)
+  })
+}
+
+/** The Monday `n` weeks AFTER this one; negative walks back (-1 is last week). */
+export function shiftWeek(mondayIso, n) {
+  const d = fromIso(mondayIso)
+  d.setDate(d.getDate() + n * 7)
+  return localIso(d)
+}

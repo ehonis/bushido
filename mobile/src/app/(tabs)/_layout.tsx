@@ -1,4 +1,4 @@
-// The signed-in app: the web's seven tabs (App.jsx TABS, filtered by tabsFor),
+// The signed-in app: the web's three tabs (App.jsx TABS: Today, Log, Progress),
 // with the phone layout's floating glass bar and the + row drawn by TabBar, and
 // the + menu's sheets mounted once over all of them.
 import React from 'react'
@@ -17,12 +17,8 @@ function Inner() {
     <>
       <Tabs tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: colors.bg } }}>
         <Tabs.Screen name="index" options={{ title: 'Today' }} />
-        <Tabs.Screen name="week" options={{ title: 'Week' }} />
         <Tabs.Screen name="log" options={{ title: 'Log' }} />
         <Tabs.Screen name="progress" options={{ title: 'Progress' }} />
-        <Tabs.Screen name="achievements" options={{ title: 'Achievements' }} />
-        <Tabs.Screen name="goals" options={{ title: 'Goals' }} />
-        <Tabs.Screen name="coach" options={{ title: 'Coach' }} />
       </Tabs>
       <Overlays />
       {/* The interval timer, and a run that was going when the app went away. */}

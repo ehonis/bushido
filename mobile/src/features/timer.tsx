@@ -247,7 +247,7 @@ function TimerSetup({ title, presets, onStart, onSave, onDelete, onClose }: {
           <View style={st.rows}>
             <Stepper label="Get ready" value={orNone(config.countIn)} {...secs('countIn')} />
             <Stepper label="Sets" value={String(config.sets)} {...count('sets')} first={false} />
-            {config.sets > 1 || config.repeat ? (
+            {config.sets > 1 ? (
               <Stepper label="Rest between sets" value={orNone(config.setRest)} {...secs('setRest')} first={false} />
             ) : null}
             {!config.repeat ? (

@@ -8,14 +8,13 @@ import { FabMenu, RestPrompt } from '../features/app'
 import { ActivityChooser, activityFieldOf } from '../features/picker'
 import { outWith } from '../lib/unlogged.js'
 import { PlanFlow } from '../features/planner'
-import { WeekPlanFlow } from '../features/weekplanner'
 import { PersonDay } from '../features/trainer'
 import { openTimerAfterSheet } from '../features/timer'
 import * as trainerLib from '../lib/trainer.js'
 
 export function Overlays() {
   const {
-    store, plan, me, fab, setFab, placeAll, keepPlan, startPlanned,
+    store, plan, fab, setFab, placeAll, keepPlan, startPlanned,
     menuFrom, viewDay, logAt, openLog, dayLabel,
     restOpt, restOn, restDate, askRest, takeRest, people, keepPlanFor,
   } = useApp()
@@ -37,18 +36,8 @@ export function Overlays() {
         onPlan={() => setFab('plan')}
         onLog={() => openLog(menuFrom === 'today' ? viewDay : null)}
         onRest={restOpt ? () => askRest() : null}
-        onPlanWeek={me.features.ai ? () => setFab('week') : null}
         onTimer={() => { setFab(null); openTimerAfterSheet() }}
       />
-    )
-  }
-  // The week's quotas, talked through. Writes the same `quota-<monday>` entry
-  // the Week tab's steppers write, and only on their tap.
-  if (fab === 'week') {
-    return (
-      <WeekPlanFlow plan={plan} entries={store.entries} iso={localIso()}
-        upsertEntry={store.upsertEntry} onPlan={() => setFab('plan')} onClose={close}
-        people={people} owner={{ id: me.real.id, name: me.real.name }} />
     )
   }
   // Log a workout: the one door for something already done. The plan's cards

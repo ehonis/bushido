@@ -4,24 +4,28 @@
  * There used to be two, *Log a workout* over the sports catalog and *Pick a
  * session* over the plan's cards, sharing one screen. Two lists for one act meant
  * knowing which list a thing lived in before finding it, so on 2026-10-14 the
- * plan's cards moved INSIDE the workout picker, as two folders at the top:
- * Bouldering and Rock climbing (see lib/folders.js for what goes where and why the
- * folders are not catalog activities).
+ * plan's cards moved INSIDE the workout picker, as folders: Bouldering and Rock
+ * climbing (see lib/folders.js for what goes where and why the folders are not
+ * catalog activities).
  *
- *   FOLDERS    the plan's own cards — the board, 4×4s, max hangs, ARC, the
- *              load-cell tests — grouped inside each folder by the quota category
- *              each declares. Picking one puts it on the day with its protocol,
- *              cues, timer and the hard-finger question.
  *   ACTIVITIES the 91-sport catalog, grouped as the catalog groups itself, with
  *              their six pinned sports first. Picking one puts the workout card on
  *              the day with the activity already answered.
+ *   FOLDERS    the plan's own cards — the board, 4×4s, max hangs, ARC, the
+ *              load-cell tests — grouped inside each folder by the category each
+ *              declares. Picking one puts it on the day with its protocol, cues,
+ *              timer and the hard-finger question.
+ *
+ * The activities come FIRST and the Climbing group after them (2026-10-25, issue
+ * #31): this is a workout log, and the general ways to log lead. Ordered here in
+ * code, not in content, because the owner's plan file is not in the repository.
  *
  * NOTHING RANKS. A list of doors, in the order the content file declares them,
  * with a search box that reaches both. The user already knows what they did;
  * they need somewhere to press.
  *
- * The right-hand column says what each row COSTS or FILLS: minutes for a card,
- * the quota category for an activity, the card count for a folder.
+ * The right-hand column says what each row COSTS or IS: minutes for a card,
+ * the category for an activity, the card count for a folder.
  */
 
 import { useMemo, useState } from 'react'
@@ -139,9 +143,8 @@ function defaultSearch(groups, q) {
  * activitypicker.jsx, which has offered them as one-tap chips inside the form
  * since the day the catalog landed.
  *
- * `meta` is the QUOTA CATEGORY, not the group. The group is already the heading
- * above the row, and "which of these fills my bike quota" is the question the
- * right-hand column can actually answer.
+ * `meta` is the CATEGORY, not the group. The group is already the heading above
+ * the row, so the right-hand column says what it files under instead.
  */
 export function activityGroups(field, plan) {
   if (!field) return []
@@ -181,7 +184,7 @@ const cardRow = (m, folderName = null) => ({
   search: m.dose,
 })
 
-/** The folder rows that lead the chooser: one per folder with any cards in it. */
+/** The folder rows, after the activities: one per folder with any cards in it. */
 export function folderGroup(plan) {
   const folders = climbingFolders(plan)
   if (!folders.length) return null
@@ -197,7 +200,7 @@ export function folderGroup(plan) {
   }
 }
 
-/** One folder's cards, grouped by quota category, as picker rows. */
+/** One folder's cards, grouped by category, as picker rows. */
 export function folderRows(plan, key) {
   const f = climbingFolders(plan).find(x => x.key === key)
   if (!f) return []
@@ -225,8 +228,8 @@ export function ActivityChooser({
   const [folder, setFolder] = useState(initialFolder)
   const climbing = useMemo(() => (onPickCard ? folderGroup(plan) : null), [plan, onPickCard])
   const groups = useMemo(() => [
-    ...(climbing ? [climbing] : []),
     ...(climbingOnly ? [] : activityGroups(field, plan)),
+    ...(climbing ? [climbing] : []),
   ], [climbing, climbingOnly, field, plan])
   const n = activityCatalog(field).activities.length
   const cards = onPickCard ? folderCards(plan) : []
@@ -264,12 +267,11 @@ export function ActivityChooser({
       title={climbingOnly ? 'Log the climb' : 'Log a workout'}
       sub={sub.filter(Boolean).join(' · ')}
       icon={climbingOnly ? 'Mountain' : 'NotebookPen'}
-      placeholder={climbingOnly ? 'board, 4×4, ARC, crag day…' : 'bouldering, mountain bike, max hangs, erg…'}
+      placeholder={climbingOnly ? 'board, 4×4, ARC, crag day…' : 'run, mountain bike, bench press, erg…'}
       lead={climbingOnly
         ? 'Which session was it? WHOOP recorded the climb; the card asks the hard-finger question.'
-        : 'Something you already did. The plan\'s own sessions are in the folders at the top; '
-          + 'pick anything else and the form arrives the right shape: a ride asks for distance, '
-          + 'a swim for yards, a lift for the exercises.'}
+        : 'Something you already did. Pick it and the form arrives the right shape: a ride '
+          + 'asks for distance, a swim for yards, a lift for the exercises.'}
       groups={groups}
       /* The catalog has its own ranked search, and it is better than a substring
          match: "ru" has to return Run before Ruck. Cards follow, matched on every

@@ -124,6 +124,11 @@ function dropTrailingRest(items) {
  * rest for. With `repeat`, the end of the last set behaves like the end of any
  * other and the run goes back to `loopFrom` (the first segment after the
  * count-in), so a lap never counts you in twice.
+ *
+ * The rest between sets exists only where there ARE sets. With one set there
+ * is nothing to rest between, so a repeating timer runs lap into lap on the
+ * round's own rest: Tabata on repeat is 20/10 forever, not 20/10 ×8 and then a
+ * minute nobody asked for (the stored `setRest` keeps its default either way).
  */
 export function compile(config) {
   const c = normalizeConfig(config)
@@ -145,7 +150,7 @@ export function compile(config) {
 
   for (let set = 1; set <= c.sets; set++) {
     const lastSet = set === c.sets && !c.repeat
-    const setGap = !lastSet && c.setRest > 0
+    const setGap = !lastSet && c.sets > 1 && c.setRest > 0
     for (let r = 1; r <= c.rounds; r++) {
       const items = r === c.rounds && (lastSet || setGap) ? dropTrailingRest(round) : round
       for (const item of items) push(item, { round: r, rounds: c.rounds, set, sets: c.sets })
@@ -258,7 +263,8 @@ export function skip(program, run, now) {
 /**
  * A music player's back button: the first few seconds of a segment go to the
  * one before it, any later restarts this one. From the finish it returns to the
- * last segment.
+ * last segment, and the time spent looking at Done is not time worked: it is
+ * booked like a pause.
  */
 export const BACK_GRACE = 3
 export function back(program, run, now) {
@@ -266,7 +272,8 @@ export function back(program, run, now) {
   const n = program.segments.length
   if (!n) return r
   if (r.finishedAt != null) {
-    return { ...r, index: n - 1, at: now, extra: 0, finishedAt: null, pausedAt: null }
+    const idle = Math.max(0, now - r.finishedAt)
+    return { ...r, index: n - 1, at: now, extra: 0, finishedAt: null, pausedAt: null, pausedMs: r.pausedMs + idle }
   }
   const t = clockOf(r, now)
   const into = (t - r.at) / 1000

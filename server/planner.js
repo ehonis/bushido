@@ -6,21 +6,17 @@
  * days' data, current health and vitals), and writes a workout that can be
  * followed set by set.
  *
- * It is a SEPARATE agent from `coach.js` and that is deliberate, for three
- * reasons rather than one:
+ * It is the only AI run left in the app (the coach, the check-in and the week
+ * planner were removed on 2026-10-25, issue #31), and its shape is the reason:
  *
- *   1. Different output. The coach returns prose with optional offers; this
- *      returns a prescription with a strict schema, and the runner walks that
- *      schema set by set. Sharing one schema would make both worse.
- *   2. Different latency budget. The coach is a conversation the user is having; this
- *      is a button the user pressed while changing into gym shorts. It runs at low
- *      effort against Sonnet and it is told to stop researching and answer.
- *   3. Different write permissions. The coach may append a memory. This one
- *      writes NOTHING — it is `Read`, `Grep`, `Glob` and nothing else. A planner
- *      that can also edit files is a planner with a failure mode nobody asked
- *      for.
+ *   1. A prescription with a strict schema, which the runner walks set by set.
+ *   2. A button the user pressed while changing into gym shorts. It runs at low
+ *      effort and it is told to stop researching and answer.
+ *   3. It writes NOTHING — it is `Read`, `Grep`, `Glob` and nothing else. A
+ *      planner that can also edit files is a planner with a failure mode nobody
+ *      asked for.
  *
- * It reads the same places the coach does: the brain file for who the user is, the log
+ * It reads the brain file for who the user is, the log
  * for what the user actually did, the WHOOP cache for how the user slept. Those paths are in
  * the prompt rather than the payload, because "be thorough, go and look" is the
  * whole point — the alternative is handing it a digest and hoping the digest
@@ -78,7 +74,7 @@ const BLOCK = {
   properties: {
     name: { type: 'string', description: 'Warm-up, Main, Accessory, Cool-down — whatever the session actually has.' },
     note: { type: 'string', description: 'What this block is for, in one sentence. Anything without sets goes here rather than becoming an item.' },
-    category: { type: 'string', description: 'Which quota category THIS BLOCK fills — exact key from the list below. A block with a category BECOMES ITS OWN WORKOUT on the day: a trip that is lifting then a run lands as a lift entry and a run entry, each with its own log and its own quota. A warm-up or cool-down that belongs to the block beside it must leave this out, or it becomes a third workout nobody did.' },
+    category: { type: 'string', description: 'Which category THIS BLOCK is — exact key from the list below. A block with a category BECOMES ITS OWN WORKOUT on the day: a trip that is lifting then a run lands as a lift entry and a run entry, each with its own log. A warm-up or cool-down that belongs to the block beside it must leave this out, or it becomes a third workout nobody did.' },
     activity: { type: 'string', description: 'The activity key for THIS BLOCK, from the list below — it decides what the block\'s own log form asks for. `run` on a run block, `lift` on a lifting block. Leave it out on a block with no category.' },
     items: { type: 'array', items: ITEM },
   },
@@ -90,7 +86,7 @@ const PLAN_SCHEMA = {
   type: 'object',
   properties: {
     title: { type: 'string', description: 'Short and in their words — "Legs", "2,000 yd threshold", "Push day". Not a sentence.' },
-    category: { type: 'string', description: 'The quota category key this fills. Exact key from the list below.' },
+    category: { type: 'string', description: 'The category key of the session. Exact key from the list below.' },
     activity: { type: 'string', description: 'The activity catalog key, which decides the log form. Exact key from the list below.' },
     focus: { type: 'string', description: 'What they said they wanted to accomplish, in a few words.' },
     minutes: { type: 'number', description: 'How long this will actually take, including rest. Must fit the budget they gave.' },
@@ -163,7 +159,7 @@ function categoryList(plan) {
   const cats = (plan?.quotaCategories || [])
     .map(c => `  ${c.key} — ${c.name}: ${String(c.blurb || '').split('.')[0]}.`)
     .join('\n')
-  return `QUOTA CATEGORIES — \`category\` must be one of these keys:\n${cats}\n`
+  return `CATEGORIES — \`category\` must be one of these keys:\n${cats}\n`
 }
 
 function systemPrompt({ repoRoot, dataDir, logDir, brainFile, today, plan, name, notes, measurements = true }) {
@@ -234,9 +230,9 @@ warm-up and cool-down honest and easy.
   max heart rate, conversational the whole way; say the number you are using and say
   it is an estimate unless the notes give a lab-tested zone.
 - A KIND THAT NAMES NO SPORT ("Zone 2", "Long & easy", "Tempo", "Brick"…) means YOU
-  choose swim, bike or run. Choose from what the week still owes (in the context
-  below), then from what they have NOT done in the last two days, then from what
-  they said they want. Name the choice and the reason in \`why\`, set \`activity\`
+  choose swim, bike or run. Choose what they have done LEAST in the last week (the
+  context below lists what they logged), then avoid what they did in the last two
+  days, then follow what they said they want. Name the choice and the reason in \`why\`, set \`activity\`
   and \`category\` to match, and write the session in that sport's language.
 - WRITE A RIDE OR RUN AS \`interval\` ITEMS: a warm-up piece, the main pieces, a
   cool-down piece. Every set has \`seconds\` (or \`distance\` + \`unit\`) and a \`note\`
@@ -254,8 +250,7 @@ warm-up and cool-down honest and easy.
 
 EVERY BLOCK WITH A \`category\` BECOMES ITS OWN WORKOUT ON THE DAY. A gym trip that is
 legs then twenty minutes running lands as TWO entries — a lift and a run — each with
-its own log, its own quota and its own place for the watch to attach a measurement
-to. So give a \`category\` and an \`activity\` to every block that is genuinely a
+its own log and its own place for the watch to attach a measurement to. So give a \`category\` and an \`activity\` to every block that is genuinely a
 separate workout, and give neither to a warm-up, a cool-down or an accessory block
 that belongs to the one beside it. Getting this wrong in either direction is worse
 than coarse: a split warm-up is a workout nobody did, and a lift and a run pooled
@@ -312,8 +307,8 @@ function userPrompt({ kinds = [], minutes, goal, context }) {
  * and would need its own parser, its own failure modes and its own tests, and the
  * thing being revised is a hundred lines of JSON that the model is already
  * perfectly able to re-emit. `changed` is what it says it did, and that is what
- * the screen shows them — a revision the user cannot see is the same problem the coach's
- * silent plan edits had.
+ * the screen shows them — a revision the user cannot see is one they confirm
+ * without reading.
  */
 function revisePrompt({ plan, message, thread = [], name }) {
   const said = thread

@@ -61,12 +61,12 @@ export function Header() {
 
 /**
  * A tab. `scroll={false}` hands the body to a screen that scrolls itself (a
- * list, the coach thread) and must pad its own foot by FAB_CLEAR.
+ * list) and must pad its own foot by FAB_CLEAR.
  */
 export function Screen({ children, scroll = true, fabs = true, contentStyle, scrollProps }: {
   children: React.ReactNode
   scroll?: boolean
-  /** Whether the + row floats over this tab (not on Coach). */
+  /** Whether the + row floats over this tab. */
   fabs?: boolean
   contentStyle?: ScrollViewProps['contentContainerStyle']
   scrollProps?: ScrollViewProps

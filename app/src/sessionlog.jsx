@@ -407,7 +407,7 @@ export function SessionDetails({ session, entry, entries, onSave, training, onTr
             onChange={e => onTraining(!e.target.checked)} />
           <span>
             Just miles — not a workout
-            <em>Counts the distance and the streak. Not the quota, not the training load.</em>
+            <em>Counts the distance and the streak. Not the training load.</em>
           </span>
         </label>
       )}

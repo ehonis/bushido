@@ -257,8 +257,7 @@ export const activityFieldOf = (card) =>
  * What the services recorded on `iso` that the log has no entry for.
  *
  * Pure and here rather than in the component, the same way `lifts.js` sits under
- * `liftlog.jsx`: the rules above are the part worth testing as arithmetic, and
- * `app/quota.test.js` runs them against their real `data/whoop.json`.
+ * `liftlog.jsx`: the rules above are the part worth testing as arithmetic.
  */
 export function unloggedWorkouts({ plan, entries = [], iso, whoop = null, strava = null, skipped = [], split = [] }) {
   const card = logCardOf(plan)

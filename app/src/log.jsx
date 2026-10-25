@@ -32,7 +32,7 @@ import { Modal } from './modal.jsx'
 import { isDone, isTraining } from './lib/store.js'
 import { minutesFor } from './lib/minutes.js'
 import { fromIso, localIso } from './lib/dates.js'
-import { categoryOf, disciplineOf } from './lib/quota.js'
+import { categoryOf, disciplineOf } from './lib/category.js'
 import { gearOn, gearUsage } from './lib/gear.js'
 import { loggedActivity } from './lib/activities.js'
 import { useStrava } from './lib/strava.jsx'
@@ -273,7 +273,7 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry }) {
             onRename={() => setEditing(true)}
             onDelete={() => { deleteEntry?.(open.entry.id); setOpenId(null) }}
             deleteLabel="Delete this workout"
-            deleteBody="It goes out of the log, out of the week's quotas, out of your training load and off the streak. The measurement it carries goes with it.">
+            deleteBody="It goes out of the log, out of your training load and off the streak. The measurement it carries goes with it.">
             <SessionLog session={open.opt} entry={open.entry} entries={entries} bare
               onSave={save} />
 

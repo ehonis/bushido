@@ -3,13 +3,13 @@
  *
  * The risk here is not a crash, it is a notification that is WRONG or merely
  * empty — "nice workout" with nothing after it, a readiness nudge on a day WHOOP
- * was still calibrating, a goal nudge built on a Strava metric nobody could read.
+ * was still calibrating.
  * Each of those spends trust that is hard to get back, so what is pinned below is
  * mostly restraint.
  */
 
 import {
-  workoutLoggedFact, readinessFacts, unloggedFacts, goalPaceFacts, bodyWarningFacts,
+  workoutLoggedFact, readinessFacts, unloggedFacts, bodyWarningFacts,
   collectScheduledFacts, completedDailyEntries, isRestEntry,
 } from './notify-facts.js'
 
@@ -29,56 +29,17 @@ const entry = (over = {}) => ({
   ...over,
 })
 
-const goal = (over = {}) => ({
-  id: 'g1', title: '50 Miles Biked', complete: false, periodState: 'active', daysLeft: 5,
-  progress: { fraction: 0.58, percent: 58 },
-  metrics: [{ label: 'Miles Biked', value: 29.2, targetValue: 50, unit: 'miles', available: true }],
-  ...over,
-})
-
 console.log('\nworkout logged')
 
-check('a logged ride names what it moved toward a goal', () => {
-  const fact = workoutLoggedFact({ entry: entry(), goals: [goal()], now: NOW })
+check('a logged ride says what was logged, short and true', () => {
+  // It used to name the linked Totem goal the ride moved; linked goals were
+  // removed on 2026-10-25 (issue #31), and an old goals cache must not bring it back.
+  const fact = workoutLoggedFact({ entry: entry(), goals: [{ title: '50 Miles Biked' }], now: NOW })
   eq(fact.category, 'workout.logged')
   eq(fact.title, 'Nice session — Zone 2 Ride')
-  ok(/29.2 of 50 miles on 50 Miles Biked/.test(fact.body), fact.body)
-  ok(/20.8 to go with 5 days left/.test(fact.body), fact.body)
-})
-
-check('with no matching goal it still says something true and short', () => {
-  const fact = workoutLoggedFact({ entry: entry(), goals: [], now: NOW })
   eq(fact.body, 'Logged. RPE 6.')
-})
-
-check('a run does not claim credit against a cycling goal', () => {
   const run = entry({ data: { name: 'Easy Run', family: 'run', done: true, out: {} } })
-  const fact = workoutLoggedFact({ entry: run, goals: [goal()], now: NOW })
-  eq(fact.body, 'Logged.')
-})
-
-check('the nearest goal is the one named, not the first', () => {
-  const far = goal({ id: 'g2', title: '3600 Miles Biked', metrics: [{ label: 'Miles Biked', value: 260, targetValue: 3600, unit: 'miles', available: true }] })
-  const fact = workoutLoggedFact({ entry: entry(), goals: [far, goal()], now: NOW })
-  ok(/50 Miles Biked/.test(fact.body), fact.body)
-})
-
-check('a goal he has already hit is not what the ride is measured against', () => {
-  // Totem leaves completion to them, so a goal at 100% stays active and
-  // `complete: false` — and since the nearest goal is the one named, a finished
-  // one would win every sort. "0 to go with 14 days left" is arithmetic about a
-  // question the user answered last week.
-  const done = goal({ id: 'g3', title: 'Go for one mountain bike ride', progress: { fraction: 1, percent: 100 }, daysLeft: 14, metrics: [{ label: 'amount of mtn bike rides', value: 1, targetValue: 1, unit: 'times', available: true }] })
-  const fact = workoutLoggedFact({ entry: entry(), goals: [done, goal()], now: NOW })
-  ok(/50 Miles Biked/.test(fact.body), fact.body)
-  ok(!/0 to go/.test(fact.body), fact.body)
-  // And with nothing left to say, it says nothing rather than reading out a 100%.
-  eq(workoutLoggedFact({ entry: entry(), goals: [done], now: NOW }).body, 'Logged. RPE 6.')
-})
-
-check('a metric Strava could not read is not counted as zero progress', () => {
-  const unreadable = goal({ metrics: [{ label: 'Miles Biked', value: 0, targetValue: 50, unit: 'miles', available: false }] })
-  eq(workoutLoggedFact({ entry: entry(), goals: [unreadable], now: NOW }).body, 'Logged. RPE 6.')
+  eq(workoutLoggedFact({ entry: run, now: NOW }).body, 'Logged.')
 })
 
 check('an entry not marked done is not announced', () => {
@@ -345,61 +306,6 @@ check('a planned session on a day that has arrived is not chased as unlogged', (
   eq(skipped.length, 1, 'one marked undone leaves the ride unlogged')
 })
 
-console.log('\ngoal pace')
-
-check('a goal within reach gets a concrete ask, not a percentage', () => {
-  const near = goal({ progress: { fraction: 0.8, percent: 80 }, metrics: [{ label: 'Miles Biked', value: 40, targetValue: 50, unit: 'miles', available: true }] })
-  const [fact] = goalPaceFacts({ goals: [near], now: NOW })
-  eq(fact.title, '10 miles from 50 Miles Biked')
-  ok(/one session/i.test(fact.body), fact.body)
-})
-
-check('a goal behind with the window closing says what per day it needs', () => {
-  const behind = goal({ daysLeft: 2, progress: { fraction: 0.2, percent: 20 }, metrics: [{ label: 'Miles Biked', value: 10, targetValue: 50, unit: 'miles', available: true }] })
-  const [fact] = goalPaceFacts({ goals: [behind], now: NOW })
-  eq(fact.title, '50 Miles Biked needs 20 miles a day')
-})
-
-check('a goal that is merely in progress says nothing', () => {
-  eq(goalPaceFacts({ goals: [goal()], now: NOW }).length, 0)
-})
-
-check('completed, expired and unreadable goals are all silent', () => {
-  eq(goalPaceFacts({ goals: [goal({ complete: true })], now: NOW }).length, 0)
-  eq(goalPaceFacts({ goals: [goal({ periodState: 'expired' })], now: NOW }).length, 0)
-  eq(goalPaceFacts({ goals: [goal({ progress: { fraction: null, percent: null } })], now: NOW }).length, 0)
-  eq(goalPaceFacts({ goals: null, now: NOW }).length, 0)
-})
-
-check('a goal whose numbers are on its steps is still read', () => {
-  // The shape this exists for: "complete cardio goals", with "2 bike rides (10+
-  // miles)" under it. Reading `goal.metrics` alone made the goals most worth saying
-  // something about the ones that never had anything said.
-  const cardio = goal({
-    title: 'Complete cardio goals', daysLeft: 2, progress: { fraction: 0.25, percent: 25 },
-    metrics: [],
-    subGoals: [{
-      id: 's1', title: '2 bike rides (10+ miles)', complete: false, abandoned: false,
-      metrics: [{ label: 'bike miles', value: 5, targetValue: 20, unit: 'miles', available: true }],
-    }],
-  })
-  const [fact] = goalPaceFacts({ goals: [cardio], now: NOW })
-  eq(fact.title, 'Complete cardio goals needs 7.5 miles a day')
-
-  // And a ride announces itself against it, naming the step's number.
-  const moved = workoutLoggedFact({ entry: entry(), goals: [cardio], now: NOW })
-  ok(/5 of 20 miles on Complete cardio goals/.test(moved.body), moved.body)
-})
-
-check('a step already done, or decided against, is not something to chase', () => {
-  const withSteps = (over) => goal({
-    metrics: [], daysLeft: 2, progress: { fraction: 0.2, percent: 20 },
-    subGoals: [{ id: 's1', title: 'ride', metrics: [{ label: 'bike miles', value: 5, targetValue: 20, unit: 'miles', available: true }], ...over }],
-  })
-  eq(goalPaceFacts({ goals: [withSteps({ abandoned: true })], now: NOW }).length, 0)
-  eq(goalPaceFacts({ goals: [withSteps({ complete: true })], now: NOW }).length, 0)
-})
-
 console.log('\nbody warning')
 
 check('three days under 40% is worth interrupting for; two is not', () => {
@@ -417,11 +323,11 @@ check('the scheduled collection never includes the workout-logged fact', () => {
   const facts = collectScheduledFacts({
     state: stateWith([entry()]),
     whoop: { recovery: [{ date: TODAY, recovery: 72 }] },
-    goals: [goal()],
     now: NOW,
   })
   ok(!facts.some((f) => f.category === 'workout.logged'))
   ok(facts.some((f) => f.category === 'readiness.morning'))
+  ok(!facts.some((f) => /^goal\./.test(f.category)), 'goal pace is back')
 })
 
 check('an empty box produces no facts rather than an error', () => {

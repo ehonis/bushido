@@ -153,13 +153,8 @@ export function Icon({ name, size = 16, color = colors.ink, strokeWidth = 1.75, 
 
 export const TAB_ICONS: Record<string, string> = {
   today: 'CalendarDays',
-  week: 'Target',
   log: 'NotebookPen',
   progress: 'Gauge',
-  // A finish line for the standing things, waypoints for the ones Totem writes.
-  achievements: 'Flag',
-  goals: 'Waypoints',
-  coach: 'Sparkles',
 }
 
 export const VERDICT_ICONS: Record<string, string> = {
