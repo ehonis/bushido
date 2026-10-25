@@ -109,7 +109,7 @@ function denyReads({ repoRoot, dataDir }) {
  */
 const OWNER_FILES = ['state.json*', 'coach.json*', 'plan.json*', 'whoop.json*', 'whoop-oauth.json*', 'strava.json*', 'goals.json*',
   'users.json*', 'about.json*']
-const OWNER_DIRS = ['coach', 'backups', 'users']
+const OWNER_DIRS = ['coach', 'backups', 'drafts', 'users']
 
 function denyOthersReads({ repoRoot, dataDir, person, ownerSources = [], home = os.homedir() }) {
   if (!person?.dir) return []

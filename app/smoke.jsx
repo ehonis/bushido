@@ -8,7 +8,9 @@ import { TodayTab, WeekTab, TestingTab, WhyTab, SessionSheet } from './src/tabs.
 import { QuotaBars } from './src/quotabars.jsx'
 import {
   PlanFlow, PrescriptionEditor, KeptStep, PlanTalk, BuildStep, groupedKinds, liftFieldOf,
+  DraftList, Working,
 } from './src/planner.jsx'
+import { draftStep, draftPres, draftLine } from './src/lib/drafts.js'
 import { WorkoutRunner } from './src/runner.jsx'
 import { WeekPlanFlow, defaultMonday } from './src/weekplanner.jsx'
 import { FabMenu, RestPrompt, ActingBanner, tabsFor } from './src/App.jsx'
@@ -2407,6 +2409,74 @@ const cases = [
       if (!/class="plantalk-n"/.test(html)) throw new Error('nothing marks that it has been revised')
       if (!/aria-expanded="false"/.test(html)) throw new Error('a revised plan should still open folded')
     }],
+  /*
+   * AI WORKOUT DRAFTS (#28). "Write it for me" is a draft the server keeps, and
+   * the run is the draft's, not the screen's. What SSR can pin: the list says
+   * what each draft is doing and offers a retry only where there is something to
+   * retry; the wait no longer says leaving cancels it; a revision being written
+   * when the page was left is still shown as being written; and each draft
+   * reopens at the step it is on.
+   */
+  ['DraftList(being written, ready and failed, each says which)',
+    <DraftList now={Date.parse('2026-10-25T12:01:00Z')} onOpen={noop} onRetry={noop} onDiscard={noop} drafts={[
+      { id: 'da', status: 'working', ask: { label: 'Legs', minutes: 45 }, run: { kind: 'write', startedAt: '2026-10-25T12:00:20Z' }, createdAt: '3' },
+      { id: 'db', status: 'ready', ask: { label: 'Swim', minutes: 30 }, pres: { title: '2,000 yd threshold', minutes: 30 }, updatedAt: '2026-10-25T11:00:00Z', createdAt: '2', for: { id: 'sam', name: 'Sam' } },
+      { id: 'dc', status: 'failed', error: 'the planner took too long', ask: { label: 'Core', minutes: 20 }, pres: null, createdAt: '1' },
+    ]} />,
+    (html) => {
+      const t = text(html)
+      for (const want of ['Drafts — not on your day yet', 'Legs', 'Being written… 40s', '2,000 yd threshold',
+        'For Sam · Ready · 30 min · 1 h ago', 'Core', 'Did not finish: the planner took too long']) {
+        if (!t.includes(want)) throw new Error(`no "${want}"`)
+      }
+      if ((t.match(/Try again/g) || []).length !== 1) throw new Error('a retry is offered on a draft that did not fail, or not on the one that did')
+      if ((html.match(/aria-label="Discard /g) || []).length !== 3) throw new Error('not every draft can be thrown away')
+    }],
+  ['DraftList(no drafts, no list)', <DraftList drafts={[]} onOpen={noop} onRetry={noop} onDiscard={noop} />,
+    (html) => { if (html) throw new Error('an empty list rendered something') }],
+  ['PlanFlow(no draft list until there is a draft)', <PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />,
+    (html) => { if (/Drafts — not on your day/.test(text(html))) throw new Error('a draft list with nothing in it') }],
+  ['Working(leaving the wait cancels nothing, and it says so)',
+    <Working label="Legs" minutes={45} since={null} onDiscard={noop} />,
+    (html) => {
+      const t = text(html)
+      if (/cancels it/.test(t)) throw new Error('the wait still says leaving cancels the run')
+      if (!/You can leave/.test(t)) throw new Error('the wait does not say the draft carries on')
+      if (!/Stop and throw it away/.test(t)) throw new Error('no way to stop a draft from the wait')
+    }],
+  ['PlanTalk(a draft\'s revision still being written is open and says so)',
+    <PlanTalk pres={{ ...PRESCRIPTION, thread: [{ role: 'you', text: 'Make it shorter', at: 'z' }] }} onChange={noop}
+      draft={{ busy: true, error: null, onAsk: noop }} />,
+    (html) => {
+      const t = text(html)
+      if (!/aria-expanded="true"/.test(html)) throw new Error('a revision in progress is folded away')
+      if (!/Rewriting it…/.test(t)) throw new Error('it does not say it is rewriting')
+      if (!t.includes('Make it shorter')) throw new Error('the message is not on the thread')
+    }],
+  ['PlanTalk(a draft\'s failed revision shows its error)',
+    <PlanTalk pres={PRESCRIPTION} onChange={noop} draft={{ busy: false, error: 'box busy', failedMessage: 'More volume', onAsk: noop }} />,
+    (html) => {
+      if (!/box busy — your session is unchanged/.test(text(html))) throw new Error('the failure is not shown')
+    }],
+  ['drafts(each reopens at the step it is on)', null, () => {
+    const pres = { title: 'Legs', minutes: 40, blocks: PRESCRIPTION.blocks, thread: [{ role: 'you', text: 'x' }], ask: { kinds: ['Legs'] } }
+    const table = [
+      [{ status: 'working', run: { kind: 'write' }, pres: null }, 'working'],
+      [{ status: 'working', run: { kind: 'revise' }, pres }, 'review'],
+      [{ status: 'ready', pres }, 'review'],
+      [{ status: 'failed', run: { kind: 'write' }, pres: null }, 'failed'],
+      [{ status: 'failed', run: { kind: 'revise' }, pres }, 'review'],
+      [null, 'kind'],
+    ]
+    for (const [d, want] of table) {
+      if (draftStep(d) !== want) throw new Error(`${JSON.stringify(d?.status)}/${d?.run?.kind} reopened at ${draftStep(d)}, not ${want}`)
+    }
+    const shown = draftPres({ pres }, liftFieldOf(plan))
+    if (!shown || shown.thread.length !== 1 || shown.ask?.kinds?.[0] !== 'Legs') throw new Error('the thread or the ask was lost on the way to the editor')
+    if (!/Rewriting it/.test(draftLine({ status: 'working', run: { kind: 'revise', startedAt: new Date().toISOString() } }))) {
+      throw new Error('a revision in progress reads as a new draft')
+    }
+  }],
   ['KeptStep(three doors, and nothing started)',
     <KeptStep pres={PRESCRIPTION} onStart={noop} onAnother={noop} onDone={noop} />,
     (html) => {

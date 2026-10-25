@@ -1,11 +1,11 @@
 /*
  * Asking the box to write a workout.
  *
- * A fetch layer and nothing more — deliberately not a context like the coach's,
- * because a planning run is one request with one answer and no history. What
- * comes back is a prescription that has been stored NOWHERE: it exists in the
- * component that asked for it until the user taps "put it on today", at which point it
- * becomes an ordinary entry and joins the synced log like everything else.
+ * A fetch layer and nothing more — deliberately not a context like the coach's.
+ * "Write it for me" is a DRAFT the server keeps beside the log (see the draft
+ * calls at the end, and lib/drafts.js), so a run outlives the screen that asked
+ * for it. A draft is still not the log: it becomes an ordinary entry, joining
+ * the synced log like everything else, only when the user taps "put it on today".
  *
  * That is the same rule the coach's session offers follow, and it is worth
  * stating once more because this is the first thing in the app that produces a
@@ -144,3 +144,70 @@ export async function reviseWorkout({ plan, message, thread = [], signal, forId 
   if (!body?.plan) throw new Error('the planner returned nothing usable')
   return body.plan
 }
+
+/*
+ * Drafts: "Write it for me" kept on the server (server/drafts.js, lib/drafts.js).
+ *
+ * Creating one starts the model run and answers at once with the draft, still
+ * working; the server writes the plan or the error onto it when the run ends.
+ * Every call answers with the draft as it now is, so the screen can show it
+ * without waiting for the next poll.
+ */
+async function draftCall(path, { method = 'GET', body, signal } = {}) {
+  const r = await fetch(path, {
+    method,
+    headers: body ? { 'content-type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+    signal,
+  })
+  const out = await r.json().catch(() => ({}))
+  if (!r.ok) throw Object.assign(new Error(out?.error || `The server could not do that (error ${r.status}).`), { status: r.status, code: out?.code || null })
+  return out
+}
+
+export async function listDrafts() {
+  const out = await draftCall('/api/plan/drafts')
+  return Array.isArray(out?.drafts) ? out.drafts : []
+}
+
+/** `picked` is the kinds as the first screen holds them; the server keeps them to resume and retry. */
+export async function createDraft({ picked, minutes, goal, context, forId = null }) {
+  const out = await draftCall('/api/plan/drafts', {
+    method: 'POST',
+    body: { picked, minutes, goal, context, ...(forId ? { for: forId } : {}) },
+  })
+  return out.draft
+}
+
+export const reviseDraft = async (id, { message, pres }) =>
+  (await draftCall(`/api/plan/drafts/${encodeURIComponent(id)}/revise`, { method: 'POST', body: { message, pres } })).draft
+
+export const retryDraft = async (id) =>
+  (await draftCall(`/api/plan/drafts/${encodeURIComponent(id)}/retry`, { method: 'POST', body: {} })).draft
+
+export const saveDraft = async (id, pres) =>
+  (await draftCall(`/api/plan/drafts/${encodeURIComponent(id)}`, { method: 'PUT', body: { pres } })).draft
+
+/**
+ * Claim a draft before it is placed, so it is kept once (server/drafts.js `keep`).
+ * `claimed`, or `refused` with the server's reason (`code: 'kept'` when another
+ * device kept it or threw it away), or `offline` when the server could not be
+ * asked in a few seconds: then it is placed anyway, stamped with its id, and the
+ * entry retires the draft when it syncs. `release` hands a claim back.
+ */
+export async function claimDraft(id, { release = false, timeoutMs = 5000 } = {}) {
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    await draftCall(`/api/plan/drafts/${encodeURIComponent(id)}/keep`, { method: 'POST', body: release ? { release: true } : {}, signal: ctrl.signal })
+    return { state: 'claimed' }
+  } catch (e) {
+    if (!e.status || e.status >= 500) return { state: 'offline' }
+    return { state: 'refused', code: e.code, error: e.message }
+  } finally {
+    clearTimeout(t)
+  }
+}
+
+export const discardDraft = (id) =>
+  draftCall(`/api/plan/drafts/${encodeURIComponent(id)}`, { method: 'DELETE' })

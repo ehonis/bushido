@@ -69,6 +69,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | `server/prompting.js` | Shared prompt pieces: the athlete's name and notes (the owner's from Settings, anyone else's from their `about.json`), gender-neutral fallbacks. |
 | `server/coach.js` | The AI coach: an agent with read-only tools, threads in `data/coach/`. |
 | `server/planner.js` | Plan a workout (`/api/plan/workout`, `/api/plan/revise`). |
+| `server/drafts.js` | "Write it for me" drafts: the run belongs to a draft file in the person's `drafts/`, written by the server when the run ends (`/api/plan/drafts`, §7). |
 | `server/weekplanner.js` | Plan the week (`/api/plan/week`). |
 | `server/chat.js` | The old check-in coach (`/api/chat`). Switched off (§7). |
 | `server/whoop.js`, `server/strava.js` | Pure matching, snapshot and card-filling logic for each service. |
@@ -93,7 +94,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Prescriptions | `app/src/lib/prescription.js` | The model under planning and the runner. Pure; `now` is an argument. |
 | Runner | `app/src/runner.jsx` | Set-by-set screen for a planned session. One writer. |
 | Workout mode | `app/src/workout.jsx`, `app/src/lib/workout.js` | The climbing cards' interval timer. |
-| Planner UI | `app/src/planner.jsx`, `app/src/lib/plannerapi.js` | + → Plan a workout; `BuildStep` (by hand) and `AskStep`/`ReviewStep` (by model). |
+| Planner UI | `app/src/planner.jsx`, `app/src/lib/plannerapi.js`, `app/src/lib/drafts.js` | + → Plan a workout; `BuildStep` (by hand) and `AskStep`/`ReviewStep` (by model); `DraftList` reopens a draft at its step. |
 | Week planner UI | `app/src/weekplanner.jsx` | + → Plan the week. |
 | Pickers | `app/src/picker.jsx`, `app/src/lib/folders.js` | `PickerScreen`, `ActivityChooser` (Log a workout: the plan's cards in folders by `sched.discipline`, then the sports catalog). Declaration order, no ranking. |
 | Unlogged workouts | `app/src/lib/unlogged.js`, `app/src/unlogged.jsx` | What WHOOP/Strava saw that the log lacks; `pairUp`, `mergeTargets`, `outWith()`. |
@@ -414,7 +415,8 @@ override, and its absence must render exactly like the app before it existed.
 - **Nothing rewrites history to suit a component.** Old shapes are read as they are
   (positional lift sets, `out.notes` on old entries, `out.intensity`/`out.effort`, the
   retired `hard-home` card id). New code adapts to stored data, not the reverse.
-- Non-log state lives beside the log: `data/coach/` (coach threads, not entries),
+- Non-log state lives beside the log: `data/drafts/` (AI workout drafts, not entries;
+  at most eight per person, a week old at most), `data/coach/` (coach threads, not entries),
   `data/coach.json` (dated coach note), `data/whoop.json`, `data/strava.json`,
   `data/goals.json` (caches), `data/vapid.json` (push identity — **deleting it silently
   breaks every subscription**), `data/push-subscriptions.json` (a secret: endpoint + keys
@@ -614,6 +616,15 @@ with no rebuild.
   produce the same object (`blankPrescription()` matches `normalizePrescription`), the
   same editor, the same entry. `BuildStep` has nothing that claims a model reasoned about
   it; the revise panel on the entry still works for either.
+- **"Write it for me" is a draft on the server** (`server/drafts.js`, `lib/drafts.js`),
+  in the requester's space, never an entry. The run belongs to the draft, so leaving the
+  page loses nothing; the first screen lists drafts and reopens one at its step
+  (`draftStep`); keeping one places it as always and then discards it. A draft whose run
+  is not in this process (a restart) reads as failed with a retry, never "working".
+- **A draft is kept once.** "Put it on today" claims it first (`POST …/keep`; a second
+  device is refused and sent back to the list), and the placed plan carries
+  `data.plan.draftId`. A draft whose id is on an entry is on a day: the app does not offer
+  it and the server deletes it, which is what retires a draft kept offline.
 - **Kinds are a list**; the seam is the BLOCK, not the author. `splitPrescription()` cuts
   at block categories (consecutive same-category blocks merge; uncategorised blocks join
   a neighbour) and `placeAll()` writes one entry per part, so each part gets its own WHOOP
@@ -708,7 +719,7 @@ that a rule rather than a request (`person` and `ownerSources` in `agentflags.js
 | | Their run |
 |---|---|
 | Can read | their own space (`data/users/<id>/`: log, coach threads, coach note, plan, About you), passed as the only `--add-dir`; the repo (the starter content, README, docs) from the cwd |
-| Is denied by rule | everything else directly in the data dir (enumerated when the run is spawned, plus the owner's file names whether or not they exist yet: `state.json`, `coach.json`, `plan.json`, `whoop.json`, `strava.json`, `goals.json`, `users.json`, `about.json`, `coach/`, `backups/`), every other person's folder, the owner's brain file and its directory, the nutrition digest dir, the owner's own plan file when it is not the starter, and the usual secrets |
+| Is denied by rule | everything else directly in the data dir (enumerated when the run is spawned, plus the owner's file names whether or not they exist yet: `state.json`, `coach.json`, `plan.json`, `whoop.json`, `strava.json`, `goals.json`, `users.json`, `about.json`, `coach/`, `backups/`, `drafts/`), every other person's folder, the owner's brain file and its directory, the nutrition digest dir, the owner's own plan file when it is not the starter, and the usual secrets |
 | Never gets | the brain file or its Write grant (`Write`/`Edit` denied outright), the nutrition digest, WHOOP/Strava digests or cache paths, the owner's About you |
 | Prompt | their name and notes; `logDir` is their space, so every path in it is theirs; no brain, food-log, WHOOP or Strava section at all (`measurements: false`), exactly as on an install that never configured them |
 
@@ -721,7 +732,9 @@ that their own space is never denied; `prompts.test.js` pins the absent sections
 Rules that apply to all of them:
 
 - **Nothing is written until the user taps.** `/api/plan/workout`, `/api/plan/revise` and
-  `/api/plan/week` return a proposal and store it nowhere. The coach's suggested sessions
+  `/api/plan/week` return a proposal and store it nowhere. `/api/plan/drafts` stores the
+  proposal on a draft beside the log (the SERVER writes it from the run's stdout; the run
+  still has no Write), and the log only on the tap. The coach's suggested sessions
   render as cards whose buttons go through the same `pickMain`/`addExtra`/`dropEntry`
   paths as the day list; which buttons exist is decided live on every render
   (`placeable()`/`offers()`), and a card the day cannot take shows the reason where its
