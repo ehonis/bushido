@@ -47,7 +47,8 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
 - `src/shell/` is the frame: `Screen` (the header with the mark, streak and profile button, and a
   body that clears the dock), `TabBar` (the floating glass capsule, with the + beside it when there
   are four tabs or fewer, `compactDock()`, and above it otherwise), `Overlays`
-  (what the + opens: Log a workout, Log a rest day, Plan a workout, the interval timer), `reload.ts`, `accessReauth.ts`, `ScreenError`.
+  (what the + opens: Log a workout with the quick-log rows under it, Log a rest day, Plan a
+  workout, the interval timer), `reload.ts`, `accessReauth.ts`, `ScreenError`.
 - `src/app/` holds routes only: `(tabs)/` is one file per web tab (`index` is Today, then `log`
   and `progress`; the web's `tabsFor` decides which show); `connect.tsx` is sign-in.
 - **`src/features/<name>.tsx` is `app/src/<name>.jsx`**, one file per web file, with the same
@@ -58,11 +59,22 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
   the CSS's `color-mix` tints and `cssColor()` for `var(--x)` strings that arrive in content. The
   tokens and components are the visual system in `../docs/DESIGN.md`; take values from here, not
   raw numbers.
-- `src/ui/` holds the building blocks: `T` (text), `kit.tsx` (Btn, IconBtn, Card, H2, Sub,
-  SectionHeader, Chip, Segmented, Input, Field, NoteField, Toggle, Empty, Spinner, Row), `Sheet.tsx` (`Modal`,
-  `FullScreen`, `Popover` with `modal.jsx`'s props), `Fold.tsx` (`<details>`), `menu.ts` (system
-  action sheets, `confirm`, `prompt`), `haptics.ts`, `ToastHost`, `NotYet`, `Person.tsx` (each
-  person's colour and name pill: the web's `[data-tone]` and `.side-who`).
+- `src/ui/` holds the building blocks: `T` (text; it has no `caps`: nothing in the app is
+  uppercase), `kit.tsx` (Btn, IconBtn, Card, H2, Sub, SectionHeader, Chip, Segmented, Input,
+  Field, NoteField, Toggle, Empty, Spinner, Row), `Sheet.tsx` (`Modal`, `FullScreen`, `Popover`
+  with `modal.jsx`'s props), `DayStepper.tsx` (the day switcher: Today, a rest day, gear
+  dates), `Fold.tsx` (`<details>`), `menu.ts` (system action sheets, `confirm`, `prompt`),
+  `haptics.ts`, `ToastHost`, `NotYet`, `Person.tsx` (each person's colour and name pill: the
+  web's `[data-tone]` and `.side-who`). Sizes come from `font`, `space` and `radius` in
+  `theme.ts`; a raw number in a style is drift to fix, not a pattern to copy.
+- **One list of recent activities.** `lib/quicklog.js` (`recentActivities`, `quickEntry`) feeds
+  the + menu's rows (`FabMenu`), Today's empty day (`EmptyDay`, given `<QuickLog …/>` by
+  `TodayTab`) and Log a workout's Recent (`ActivityChooser`, which must be given `entries`).
+  `features/quicklog.tsx` renders them as kit `Row`-sized rows.
+- **AI on or off** is `aiOffered(currentMe().features)` from `lib/plannerapi.js`: the server's
+  `features.ai` (true only while its CLI actually runs), less an `ai-not-configured` refusal
+  since the app started. Plan a workout and the + menu's Plan line both read it; with it off,
+  nothing mentions a model.
 - **A workout with more than one side** (`features/trainer.tsx` `SidesWorkout`) presents ONE
   full-screen modal and renders each side's runner or workout mode inside it with `embedded`,
   because iOS presents one modal at a time; the hidden sides stay mounted so their clocks run.
@@ -87,8 +99,9 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
   per-icon imports) for anything lucide lacks. Bespoke art the web already ships (the exercise
   figures, the body map, the logo) is rendered from the web's own data, never redrawn.
 - Browser-only things and their native forms: `<select>` → `showMenu` (system action sheet);
-  `window.confirm` → `await confirm()`; `<input type="date">` → `DayStepper` (`features/app.tsx`);
-  `<details>` → `Fold`; hover → nothing; `document`/`window.location` → never.
+  `window.confirm` → `await confirm()`; `<input type="date">` → `DayStepper` (`ui/DayStepper.tsx`);
+  `<input type="checkbox" role="switch" class="switch">` → `Toggle`; `<details>` → `Fold`;
+  hover → nothing; `document`/`window.location` → never.
 - Haptics (`ui/haptics.ts`): `tap` for toggles and selection, `impact` for a primary action,
   `success` when something is done (a set logged, a session completed), `warn` before a destructive
   confirm. The workout timer's and the interval timer's cues are `lib/cues.ts` (haptics only:

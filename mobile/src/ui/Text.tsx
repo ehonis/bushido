@@ -15,16 +15,10 @@ export interface TProps extends TextProps {
   lineHeight?: number
   /** font-variant-numeric: tabular-nums, for clocks and counters. */
   tabular?: boolean
-  /**
-   * The small uppercase label the CSS used for tags and section heads. Being
-   * retired: the visual system titles a group in sentence case (`SectionHeader`
-   * in ./kit). Wave 2 moves each screen off it; do not add new uses.
-   */
-  caps?: boolean
   mono?: boolean
 }
 
-export function T({ size = 15, weight, color, dim, faint, align, lineHeight, tabular, caps, mono, style, ...rest }: TProps) {
+export function T({ size = 15, weight, color, dim, faint, align, lineHeight, tabular, mono, style, ...rest }: TProps) {
   const flat = StyleSheet.flatten(style) || {}
   const fontSize = (flat.fontSize as number | undefined) ?? size
   return (
@@ -39,7 +33,6 @@ export function T({ size = 15, weight, color, dim, faint, align, lineHeight, tab
           fontWeight: weight ? (String(weight) as TextStyle['fontWeight']) : undefined,
         },
         tabular && { fontVariant: ['tabular-nums'] },
-        caps && { textTransform: 'uppercase', letterSpacing: fontSize * 0.07 },
         mono && { fontFamily: 'Menlo' },
         style,
       ]}

@@ -220,6 +220,7 @@ Each is a base class in `styles.css` and a component in `mobile/src/ui/`. Bold n
 | Button | `button.btn` + `.secondary`, `.ghost`, `.quiet`, `.bad` | `Btn kind=` `primary`/`secondary`/`ghost`/`quiet`/`bad` | 44px, one line, a verb. One `primary` per screen or sheet. `ghost` backs out (Cancel, Keep it). `bad` only in a confirm. |
 | Icon button | `.iconbtn` (= `.modal-btn`); bordered: `.qbtn` | `IconBtn`; `IconBtn bordered` | 44px round, quiet until pressed, an `aria-label`/`label` always. Close is last in a header. The bordered form is a rounded square for a control that must read as one on its own (the ± beside a number). Never the only way to a feature (D7): an action you need to find has a word. |
 | Chip | `.chip`, `.chip.on`, `.chip.ghost`; `.out-chip` | `Chip`, `Chip out` | Filters 36px in a row with an 8px gap; an answer to a question 44px. Selected = accent-soft fill + accent-line border. |
+| Switch | `input.switch[role=switch]` (`styles.css`, #55) | `Toggle` | An on/off setting: the words on the left, the switch on the right, the whole row its label. Never a bare checkbox. |
 | Segmented | `.seg`; full tap height: `.seg.tap` | `Segmented`; `Segmented tap` | Two to four views of the same thing. Selected is a raised `--panel-3` segment. More than four is a list. `tap` makes each segment 44px, for one pressed on its own (the sleep range, #44). |
 | Input / field | `input`, `label.field` | `Input`, `Field`, `NoteField` | Label above (13px, `--ink-dim`), helper or error under, never a placeholder as a label. A guessed number is a placeholder (`AGENTS.md` §6.4) and must look like one: placeholder colour is `--ink-faint`, a value is `--ink`. |
 | Stepper | `.stepper` (exercises.jsx) | `features/exercises` | A number you nudge: 44px − and +, the value between them. Today it is a 9.5px label under the number; wave 2 brings it onto the tokens. |
@@ -253,7 +254,7 @@ After #31 (Plan the week gone) and #36 (the interval timer's door), the + menu i
 1. **Log a workout** · "Something you already did" (the accent icon well; the only one)
 2. Up to three **recent activities**, one tap each (batch B, see "Logging in two taps")
 3. **Log a rest day** · "A day off on purpose"
-4. **Plan a workout** · "Build it yourself, or have it written for you"
+4. **Plan a workout** · "Build it yourself, or have it written for you" (with AI off, "Build it yourself": nothing mentions a model, #55)
 5. **Interval timer** · "Work, rest and rounds"
 6. Cancel (a real button)
 

@@ -89,7 +89,7 @@ function GearRow({ row, kind, first, onOpen }: any) {
     row.primary && 'Default',
     row.retired && 'Retired',
     row.lastUsed ? `Last used ${row.lastUsed}` : row.acquired ? `Since ${row.acquired}` : row.source === 'local' && 'Not used yet',
-    row.sessions > 0 && `${row.sessions} session${row.sessions === 1 ? '' : 's'}`,
+    row.sessions > 0 && `${row.sessions} workout${row.sessions === 1 ? '' : 's'}`,
   ].filter(Boolean)
   return (
     <Press haptic onPress={onOpen} style={[st.row, !first && st.rowRule]} accessibilityRole="button"

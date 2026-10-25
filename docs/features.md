@@ -1,26 +1,31 @@
 # Features
 
 What each part of Bushido does and why it is built the way it is. Written while the app
-was in daily use by one person, so it often says "you" and means him; the reasoning
-holds for anyone.
+was in daily use by one person, so "you" often means its owner; the reasoning holds for
+anyone.
 
 ## Your day, and the + button
 
 Three tabs: **Today**, **Log** and **Progress**. Today is **your day**: the day is the
 title, with ‹ › to move between days, and under it one list of the workouts actually on
-it, each with one line of what it was (time · distance) and a tick when it is done.
-Nothing you did not put there. An empty day says "Nothing logged today" and offers **Log a
-workout** and a quiet **Rest day**. Tapping a workout opens its sheet: the form is open,
-everything saves as you type, and **Close** is the button at the foot. Removing one shows
-an **Undo** for a few seconds.
+it, each with one line of what it was (time · distance, as typed or measured, never the
+card's guess) and its leading icon saying whether it is done. Nothing you did not put there.
+
+An empty day says "Nothing logged today" and offers your **three most recent activities**
+as one-tap rows (a fresh install offers the catalog's pinned sports), then **Log a
+workout** for anything else and a quiet **Rest day**. Tapping Run puts a run on the day you
+are looking at, done, and opens it: logging the common case is two taps. Tapping a workout
+opens its sheet, headed by its name, the day and the time: the form is open, everything
+saves as you type, and **Close** is the button at the foot. Removing one shows an **Undo**
+for a few seconds.
 
 Everything gets onto the day through the **+ button**, bottom right:
 
 | | |
 |---|---|
-| **Log a workout** | All 91 activities, your six pinned sports first, with the category each one files under in the right-hand column; pick one and the card opens already the right shape. After them, the plan's own climbing cards as folders under **Climbing**: **Bouldering** (the board, 4×4s, limit bouldering) and **Rock climbing** (max hangs, ARC laps, the load-cell tests), each with protocol, cues and timer included. One search box reaches both. It lands on the day you are looking at on Today, so a session you forgot can be logged on its own day. |
+| **Log a workout** | The same three recent activities sit right under it in the menu, one tap each. Behind it: a search box, **Recent** (that same list), then all 91 activities under section heads (Running, Cycling, …); pick one and the card opens already the right shape. Last, the plan's own climbing cards as folders under **Climbing**: **Bouldering** (the board, 4×4s, limit bouldering) and **Rock climbing** (max hangs, ARC laps, the load-cell tests), each with protocol, cues and timer included. One search box reaches both. It lands on the day you are looking at on Today, so a workout you forgot can be logged on its own day. |
 | **Log a rest day** | A day off on purpose, with why (sick, travelling, planned recovery) and a note. |
-| **Plan a workout** | Build it yourself, or let an agent write the sets. See below. |
+| **Plan a workout** | Build it yourself, or (when AI is set up) have it written for you. See below. |
 | **Interval timer** | Work, rest and rounds, for any workout or none; also on every workout's sheet. |
 
 Nothing in it ranks anything. They are doors in the order the content file declares them,
@@ -43,22 +48,34 @@ lands, and a planned day arriving at midnight never is.
 
 ## Plan a workout
 
-**+ → Plan a workout.** Pick what — **as many as you like**. A gym trip that is legs, then
-core, then ten minutes on the bike is *one* session with three blocks, in the order you
-tapped them, against one time budget for the whole trip. The kinds are grouped under
-**Lifting**, **Support**, **Swim, bike, run** and **Climbing**, because "Power" and
-"Endurance" are climbing categories in this app and ordinary words everywhere else, and
-ungrouped they were a coin flip. The discipline follows you onto the next screen ("Climbing ·
-Power endurance"). The whole list is `plannerKinds` in `plan.json`, groups included, so it
-grows without a rebuild. Then say how long you have and what you want out of it, and an agent goes and reads your log, your athlete profile in
-Totem's brain (when one is configured), what you logged in the last week and last night's
-WHOOP recovery before writing a session with every set, load and rest in it. A kind that
-names no sport ("Zone 2", "Tempo") picks the one you have done least lately.
+**+ → Plan a workout.** Pick what, **as many as you like**, as rows with a check that
+shows the order you tapped them. A gym trip that is legs, then core, then ten minutes on the
+bike is *one* session with three blocks against one time budget for the whole trip. The
+kinds are grouped under section heads (**Lifting**, **Support**, **Endurance** by intent, the
+Swim, Bike and Run catalogs folded, and **Climbing**), because "Power" and "Endurance" are
+climbing categories in this app and ordinary words everywhere else. The whole list is
+`plannerKinds` in `plan.json`, groups included, so it grows without a rebuild. The owner
+can also plan **for** someone else on the install (*For: You / Sam*); it lands in their log.
 
-- **It is read-only.** `Read`, `Grep`, `Glob` and nothing else — no shell, no writes, not
-  even to the brain file.
-- **Nothing is stored until you keep it.** A session you do not want costs a model run and
-  leaves no trace. Tapping *put it on today* is what writes an entry.
+Once something is picked, two buttons appear:
+
+- **Build it myself** opens the same editor with the blocks you picked and nothing in them.
+- **Write it for me** (only when the server has a working Claude Code CLI) asks how long you
+  have and what you want out of it, then an agent reads your log, your athlete profile (when
+  a brain file is configured), what you logged in the last week and last night's WHOOP
+  recovery before writing a session with every set, load and rest in it. A kind that names no
+  sport ("Zone 2", "Tempo") picks the one you have done least lately. The run is a **draft**
+  on the server, so leaving the page, locking the phone or switching devices loses nothing:
+  the planner lists drafts being written and drafts ready to keep, and a draft is kept once.
+
+With no AI set up (a fresh install, or a CLI that will not run), Build it myself is the only
+button and nothing on the screen or in the + menu mentions a model. The server says
+`ai-not-configured` for everyone, the owner included; Settings → AI says why.
+
+- **The agent is read-only.** `Read`, `Grep`, `Glob` and nothing else: no shell, no writes,
+  not even to the brain file.
+- **Nothing is in the log until you keep it.** A draft you do not want costs a model run and
+  is discarded. Tapping *put it on today* is what writes an entry.
 - **Everything is editable, before and after.** The review screen is the same editor the
   session sheet shows afterwards: steppers on every rep, load and rest, exercises
   removable, more addable out of the 207-movement catalog.
@@ -70,7 +87,7 @@ names no sport ("Zone 2", "Tempo") picks the one you have done least lately.
 - **A multi-part trip lands as separate workouts.** Legs then a run home becomes *two*
   entries, not one: each with its own log and — the reason it matters — its own slot for a
   WHOOP or Strava measurement to attach to. A pooled entry has one `out.whoop`, so a lift
-  and a ride would fight over it. Whether a block is *its own workout* (and which category)
+  and a ride would fight over it. Whether a block is *a separate workout* (and which category)
   is what decides the seams; a warm-up is *part of the workout beside it*. The review
   screen says what it will land as before you keep it.
 - **Every lifting movement shows what it works.** A front and back body beside the name,
@@ -92,6 +109,22 @@ names no sport ("Zone 2", "Tempo") picks the one you have done least lately.
   the morning can be argued with at six in the evening.
 
 Then **start the workout** — see the runner below.
+
+## Shared workouts, and other people
+
+An install can hold more than one person (Settings → People, behind Cloudflare Access).
+Each has their own log; one device never shows two.
+
+- **With …** on a workout's sheet adds someone to it. Their copy lands in their log, done
+  from its day like anything else, with your exercises and none of your numbers.
+- **Sync exercises with Sam** (on when someone is added) keeps the workout's structure the
+  same on both sides: an exercise or set added, removed or reordered on either side reaches
+  the other. Numbers never cross: reps, weights, effort, notes, gear and WHOOP/Strava stay in
+  the log they were written in. Off, each side stays as it is.
+- The sheet's **You / Sam** bar stays at the top while you scroll and remembers which side
+  you were on. Their side shows what *they* did last time, from their log.
+- **Sam's day**, under your day on Today, is a read-only week of their log; a workout opens
+  from their side, and Start runs it there.
 
 ### Hard finger days are what you SAY they were
 
@@ -264,8 +297,9 @@ still workout mode's job.
 
 ## Workout mode — the climbing timer
 
-The older full-screen timer, still what the **climbing cards** use: a rep clock, a row of
-pips that fills as the reps go by, and the how-to on screen between sets. A session with a
+What the **climbing cards** use: the interval timer's face (the phase in its colour, the
+clock, "Max hangs · Set 1 of 3") with a set log behind it, and the how-to on screen between
+sets. A session with a
 prescription gets the runner instead. You mark the **set**, not the rep.
 
 - Numbers arrive pre-filled from the prescription, so a session you did as written is

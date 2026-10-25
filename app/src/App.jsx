@@ -12,6 +12,7 @@ import { streakDays } from './lib/streak.js'
 import { ProfileMenu } from './profile.jsx'
 import { PlanProvider } from './lib/planctx.jsx'
 import { PlanFlow } from './planner.jsx'
+import { aiOffered } from './lib/plannerapi.js'
 import { splitPrescription } from './lib/prescription.js'
 import { ActivityChooser, activityFieldOf } from './picker.jsx'
 import { QuickLog } from './quicklog.jsx'
@@ -88,7 +89,11 @@ export function ActingBanner({ me }) {
  * last few activities, one tap each, so "I did a run" is + → Run (docs/DESIGN.md,
  * "Logging in two taps").
  */
-export function FabMenu({ onClose, onPlan, onLog, onRest, onTimer = null, quick = null }) {
+/*
+ * `ai`: whether "Write it for me" is on offer (lib/plannerapi.js). Without it the
+ * Plan door says only what is there, the same rule as Plan a workout itself (#55).
+ */
+export function FabMenu({ onClose, onPlan, onLog, onRest, onTimer = null, quick = null, ai = aiOffered(currentMe().features) }) {
   return (
     <div className="fabmenu-scrim" onClick={onClose} role="presentation">
       <div className="fabmenu" onClick={e => e.stopPropagation()} role="dialog" aria-label="Add a workout">
@@ -113,10 +118,10 @@ export function FabMenu({ onClose, onPlan, onLog, onRest, onTimer = null, quick 
           </button>
         )}
         <button className="fabmenu-row" onClick={onPlan}>
-          <span className="fabmenu-ico plan"><Icon name="Sparkles" size={22} /></span>
+          <span className="fabmenu-ico plan"><Icon name="ClipboardCheck" size={22} /></span>
           <span className="fabmenu-body">
             <strong>Plan a workout</strong>
-            <span className="sub">Build it yourself, or have it written for you</span>
+            <span className="sub">{ai ? 'Build it yourself, or have it written for you' : 'Build it yourself'}</span>
           </span>
         </button>
         {/* A timer on its own, for a workout nobody is logging yet. See timer.jsx. */}

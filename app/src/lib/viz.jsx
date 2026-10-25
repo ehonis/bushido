@@ -289,7 +289,7 @@ export function LoadCalendar({ days, start, end }) {
       <div className="viz-head">
         <div>
           <div className="viz-title">Daily habit</div>
-          <div className="viz-hero">{counted}<span className="viz-unit">days on</span></div>
+          <div className="viz-hero">{counted}<span className="viz-unit">{counted === 1 ? 'day on' : 'days on'}</span></div>
         </div>
         <div className="viz-legend" aria-hidden="true">
           <span className="viz-tick">less</span>

@@ -76,8 +76,9 @@
 .slider.unset::-moz-range-thumb { background: var(--panel-3); box-shadow: inset 0 0 0 2px var(--ink-faint); }
 .slider:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 6px; }
 
-.out-toggle { display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer; min-height: 40px; }
-.out-toggle input { width: 20px; height: 20px; min-height: 20px; flex: 0 0 auto; accent-color: var(--accent); }
+/* A yes/no on the form: the words, then the switch on the right (the iPhone's ToggleRow). */
+.out-toggle { display: flex; align-items: center; gap: var(--sp-3); font-size: var(--fs-body); cursor: pointer; min-height: var(--tap); }
+.out-toggle > span { flex: 1; min-width: 0; }
 .out-num { flex: 1 1 100%; }
 
 /* ---------------------------------------------------------- time spent */
@@ -442,22 +443,22 @@ button.btn.how-got {
 .prior {
   background: color-mix(in oklab, var(--series-1) 7%, var(--panel-2));
   border: 1px solid color-mix(in oklab, var(--series-1) 26%, var(--line));
-  border-radius: 8px; padding: 12px 13px; margin: 14px 0;
+  border-radius: var(--r-card); padding: var(--sp-3); margin: var(--sp-3) 0;
 }
 /* What the session WAS, not only what the user wrote about it. A repeaters night with
    no note is still a night with three sets and a load on it. */
-.prior-work { margin: 3px 0 0; font-size: 12.5px; color: var(--ink-dim); }
+.prior-work { margin: 2px 0 0; font-size: var(--fs-small); color: var(--ink-dim); }
 .prior-head {
-  display: flex; align-items: center; gap: 6px; margin-bottom: 9px;
+  display: flex; align-items: center; gap: 6px; margin-bottom: var(--sp-2);
   font-size: var(--fs-small); font-weight: 600; color: var(--load-3);
 }
-.prior-item + .prior-item { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+.prior-item + .prior-item { margin-top: var(--sp-3); border-top: 1px solid var(--line); padding-top: var(--sp-3); }
 .prior-when {
-  font-size: 11px; color: var(--ink-faint); margin-bottom: 4px;
+  font-size: var(--fs-caption); color: var(--ink-faint); margin-bottom: var(--sp-1);
   font-variant-numeric: tabular-nums;
 }
-.prior-felt { margin: 0; font-size: 13px; color: var(--ink-dim); line-height: 1.5; }
-.prior-improve { margin: 6px 0 0; font-size: 13px; color: var(--ink); line-height: 1.5; }
+.prior-felt { margin: 0; font-size: var(--fs-small); color: var(--ink-dim); line-height: var(--lh-body); }
+.prior-improve { margin: var(--sp-1) 0 0; font-size: var(--fs-small); color: var(--ink); line-height: var(--lh-body); }
 .prior-improve strong { color: var(--load-3); }
 .notes .prior { margin-bottom: 0; }
 
@@ -541,6 +542,8 @@ button.btn.how-got {
 .dl-empty { margin-bottom: var(--sp-3); }
 .dl-empty-title { margin: 0; font-size: var(--fs-title); font-weight: 600; color: var(--ink); }
 .dl-empty-acts { display: flex; flex-direction: column; gap: var(--sp-2); width: 100%; max-width: 320px; }
+/* The quick rows span the same width as the buttons under them, not their text's. */
+.dl-empty .quicklog { width: 100%; max-width: 320px; }
 
 /* ------------------------------------------------------- the sheet's foot
 

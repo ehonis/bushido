@@ -1074,7 +1074,7 @@ export function BuildStep({ pres, setPres, liftField, entries = [], categories =
         </button>
       </div>
 
-      {!sets && <p className="sub plan-fine">Add an exercise or a piece to keep it</p>}
+      {!sets && <p className="sub plan-fine">Add an exercise or an interval to keep it</p>}
     </>
   )
 }
@@ -1106,7 +1106,7 @@ function PieceAdder({ unit, onAdd }) {
   if (!open) {
     return (
       <button className="presc-add" onClick={() => setOpen(true)}>
-        <Icon name="Timer" size={15} /> <span>Add a piece — a swim set, an interval, a hold</span>
+        <Icon name="Timer" size={15} /> <span>Add a swim set, interval or hold</span>
       </button>
     )
   }
@@ -1207,13 +1207,13 @@ function BlockQuota({ categories, value, onChange }) {
       <summary>
         <Icon name="Target" size={12} />
         <span>
-          {picked ? <>its own workout: <strong>{picked.name}</strong></> : 'part of the workout beside it'}
+          {picked ? <>A separate <strong>{picked.name}</strong> workout</> : 'Part of the workout beside it'}
         </span>
       </summary>
       <div className="blockquota-chips">
         <button className={`implchip ${!value ? 'on' : ''}`}
           onClick={() => onChange(null)} aria-pressed={!value}>
-          Nothing — part of the workout beside it
+          Part of the workout beside it
         </button>
         {categories.map(c => (
           <button key={c.key} className={`implchip ${value === c.key ? 'on' : ''}`}

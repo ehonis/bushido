@@ -437,7 +437,7 @@ export function ExerciseSection({
               accessibilityState={{ selected: ordering }} hitSlop={6}
               style={[st.reorderBtn, ordering && { borderColor: colors.accent }]}>
               <Icon name={ordering ? 'Check' : 'ArrowUpDown'} size={13} color={ordering ? colors.accent : colors.inkFaint} />
-              <T size={font.small} color={ordering ? colors.accent : colors.inkFaint}>{ordering ? 'done' : 'reorder'}</T>
+              <T size={font.small} color={ordering ? colors.accent : colors.inkFaint}>{ordering ? 'Done' : 'Reorder'}</T>
             </Press>
           )}
         </View>

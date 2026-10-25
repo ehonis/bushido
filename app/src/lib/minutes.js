@@ -116,6 +116,27 @@ export function minutesFor(opt, out) {
 }
 
 /**
+ * The minutes a logged workout SHOWS on a row or a sheet header: what was typed
+ * or measured, never the card's own estimate (a guess the app made is not
+ * something the user said, AGENTS.md §6.4). A correction stored before
+ * `out.minutesSpent` existed still wins, as in `resolveMinutes`. Null when the
+ * estimate is all there is.
+ *
+ * Today's rows, the sheet's header and the Log feed all read this, so one run
+ * cannot say 45 min on one screen and 30 on another (#55: the feed used to show
+ * the estimate the day list hid).
+ */
+export function loggedMinutes(entry, opt) {
+  const d = entry?.data || {}
+  const out = d.out || {}
+  if (stated(out.minutesSpent) === null && d.minutesSource === 'typed') {
+    const saved = Number(d.minutes)
+    if (Number.isFinite(saved) && saved >= 0) return Math.round(saved)
+  }
+  return minutesSourceOf(opt, out) === 'estimate' ? null : minutesFor(opt, out)
+}
+
+/**
  * Does this session ask for its own duration, and therefore not get the generic
  * "time spent" box? `minutesFrom` is that declaration.
  */

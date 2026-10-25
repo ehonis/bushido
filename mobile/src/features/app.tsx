@@ -13,7 +13,8 @@ import { Modal } from '../ui/Sheet'
 import { DayStepper } from '../ui/DayStepper'
 import { Icon } from '../lib/icons'
 import { localIso } from '../lib/dates.js'
-import { actAs } from '../lib/whoami.js'
+import { actAs, currentMe } from '../lib/whoami.js'
+import { aiOffered } from '../lib/plannerapi.js'
 import { reloadApp } from '../shell/reload'
 import { impact } from '../ui/haptics'
 import { useApp } from '../shell/AppData'
@@ -67,7 +68,8 @@ const FAB_ROWS = [
   // A rest day used to be a link at the foot of the old session picker, under
   // thirty cards, which is to say nowhere.
   { key: 'rest', icon: 'Sunset', tint: null, title: 'Log a rest day', sub: 'A day off on purpose' },
-  { key: 'plan', icon: 'Sparkles', tint: null, title: 'Plan a workout', sub: 'Build it yourself, or have it written for you' },
+  // Its line says the model only while it is on offer (FabMenu's `ai`, #55).
+  { key: 'plan', icon: 'ClipboardCheck', tint: null, title: 'Plan a workout', sub: 'Build it yourself, or have it written for you' },
   { key: 'timer', icon: 'Timer', tint: null, title: 'Interval timer', sub: 'Work, rest and rounds' },
 ] as const
 
@@ -83,13 +85,14 @@ const FAB_ROWS = [
  * Left out, the menu builds them from the app's own state, as App.jsx's call
  * site does on the web.
  */
-export function FabMenu({ onClose, onPlan, onLog, onRest, onTimer = null, quick }: {
+export function FabMenu({ onClose, onPlan, onLog, onRest, onTimer = null, quick, ai = (aiOffered as any)(currentMe().features) }: {
   onClose: () => void
   onPlan: () => void
   onLog: () => void
   onRest: (() => void) | null
   onTimer?: (() => void) | null
   quick?: React.ReactNode
+  ai?: boolean
 }) {
   const insets = useSafeAreaInsets()
   const handlers: Record<string, (() => void) | null> = { plan: onPlan, log: onLog, rest: onRest, timer: onTimer }
@@ -106,7 +109,7 @@ export function FabMenu({ onClose, onPlan, onLog, onRest, onTimer = null, quick 
                 </View>
                 <View style={{ flex: 1, gap: 2 }}>
                   <T size={font.body} weight={600}>{r.title}</T>
-                  <T size={font.small} dim>{r.sub}</T>
+                  <T size={font.small} dim>{r.key === 'plan' && !ai ? 'Build it yourself' : r.sub}</T>
                 </View>
               </Press>
               {r.key === 'log' ? (quick === undefined ? <FabQuickLog /> : quick) : null}

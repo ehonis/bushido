@@ -83,22 +83,24 @@ function priorWork(out: any) {
  * for before a hangboard session is what they hung last time, and that is on the
  * entry whether or not they also had something to say.
  */
+/** "Last time you did this", "The last 5 times Sam did this": plain words, no "sessions" (#55). */
+export const priorTitle = (n: number, whose: string | null = null) =>
+  n === 1 ? `Last time ${whose || 'you'} did this` : `The last ${n} times ${whose || 'you'} did this`
+
 export function PriorNote({ entries, session, excludeId, all = false, style, whose = null }: any) {
   const prior = priorSessions(entries, session, excludeId)
   if (!prior.length) return null
   const shown = all ? prior.slice(0, 5) : prior.slice(0, 1)
-  const noted = prior.filter((e) =>
-    String(e.data?.out?.notes || '').trim() || String(e.data?.out?.improve || '').trim())
 
   return (
     <View style={[st.prior, style]}>
       <View style={st.priorHead}>
         <Icon name="Repeat" size={13} color={colors.load3} />
-        <T size={13} weight={600} color={colors.load3} style={{ flex: 1 }}>
+        <T size={font.small} weight={600} color={colors.load3} style={{ flex: 1 }}>
           {/* `whose`: someone else's log, on their side of a shared workout (sharedwith.tsx). */}
           {all
-            ? `${whose ? `${whose}’s` : 'Your'} last ${shown.length} session${shown.length === 1 ? '' : 's'}${noted.length ? '' : ' — nothing written down yet'}`
-            : `Last time ${whose || 'you'} did this`}
+            ? priorTitle(shown.length, whose)
+            : priorTitle(1, whose)}
         </T>
       </View>
       {shown.map((e, i) => {
@@ -106,16 +108,16 @@ export function PriorNote({ entries, session, excludeId, all = false, style, who
         const work = priorWork(o)
         return (
           <View key={e.id} style={i > 0 ? st.priorNext : null}>
-            <T size={11} faint tabular style={{ marginBottom: 4 }}>
+            <T size={font.caption} faint tabular style={{ marginBottom: space[1] }}>
               {dayLabel(e.date)
                 + (Number.isFinite(o?.rpe) ? ` · how hard ${o.rpe}` : '')
                 + (Number.isFinite(o?.fingers) ? ` · fingers ${o.fingers}/5` : '')}
             </T>
-            {work ? <T size={12.5} dim style={{ marginTop: 3 }}>{work}</T> : null}
-            {o?.notes ? <T size={13} dim lineHeight={19}>{o.notes}</T> : null}
+            {work ? <T size={font.small} dim style={{ marginTop: 2 }}>{work}</T> : null}
+            {o?.notes ? <T size={font.small} dim lineHeight={19}>{o.notes}</T> : null}
             {o?.improve ? (
-              <T size={13} lineHeight={19} style={{ marginTop: 6 }}>
-                <T size={13} weight={700} color={colors.load3}>To improve:</T>{` ${o.improve}`}
+              <T size={font.small} lineHeight={19} style={{ marginTop: space[1] }}>
+                <T size={font.small} weight={600} color={colors.load3}>To improve:</T>{` ${o.improve}`}
               </T>
             ) : null}
           </View>
@@ -584,8 +586,8 @@ const st = StyleSheet.create({
   prior: {
     backgroundColor: mix(colors.series1, 7, colors.panel2),
     borderWidth: 1, borderColor: mix(colors.series1, 26, colors.line),
-    borderRadius: radius.sm, paddingVertical: 12, paddingHorizontal: 13, marginVertical: 14,
+    borderRadius: radius.card, padding: space[3], marginVertical: space[3],
   },
-  priorHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 9 },
-  priorNext: { marginTop: 12, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 12 },
+  priorHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: space[2] },
+  priorNext: { marginTop: space[3], borderTopWidth: 1, borderTopColor: colors.line, paddingTop: space[3] },
 })

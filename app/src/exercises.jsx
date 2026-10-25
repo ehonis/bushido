@@ -302,7 +302,7 @@ function ReorderRow({ item, liftField, first, last, moved, onSettled, onUp, onDo
         {muscles && <span className="presc-muscles">{muscleWords(muscles)}</span>}
       </span>
       <button className="reorder-arrow" onClick={onUp} disabled={first} aria-label={`move ${item.name} up`}>
-        <Icon name="ChevronDown" size={18} style={{ transform: 'rotate(180deg)' }} />
+        <Icon name="ChevronUp" size={18} />
       </button>
       <button className="reorder-arrow" onClick={onDown} disabled={last} aria-label={`move ${item.name} down`}>
         <Icon name="ChevronDown" size={18} />
@@ -382,7 +382,7 @@ export function ExerciseSection({
               onClick={() => { setOrdering(v => !v); setMoved(null) }}
               aria-pressed={ordering}>
               <Icon name={ordering ? 'Check' : 'ArrowUpDown'} size={13} />
-              <span>{ordering ? 'done' : 'reorder'}</span>
+              <span>{ordering ? 'Done' : 'Reorder'}</span>
             </button>
           )}
         </span>

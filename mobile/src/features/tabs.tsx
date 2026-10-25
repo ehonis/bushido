@@ -29,10 +29,10 @@ import { usePlan } from '../lib/planctx.jsx'
 import { optFor } from '../lib/menu.js'
 import { prescriptionLine, prescriptionSteps, runProgress, isLiftOnly } from '../lib/prescription.js'
 import { hasWorkout } from '../lib/workout.js'
-import { minutesFor, minutesSourceOf, resolveMinutes } from '../lib/minutes.js'
+import { minutesFor, loggedMinutes, resolveMinutes } from '../lib/minutes.js'
 import { levelFor } from '../lib/level.js'
 import { nameFor, titleFor, withCasualName } from '../lib/naming.js'
-import { disciplineFor } from '../lib/activities.js'
+import { disciplineFor, loggedActivity } from '../lib/activities.js'
 import { UnloggedWorkouts } from './unlogged'
 import { WhoopReadiness, WhoopSleep } from './whoop'
 import { currentMe } from '../lib/whoami.js'
@@ -340,9 +340,13 @@ export function TodayTab({
           them. Nothing for anyone else, while acting, or with one person. */}
       <PeopleDays people={planPeople(currentMe())} date={iso} plan={plan} />
 
-      <Card style={{ marginBottom: 0 }}>
-        <LoadCalendar days={calendar} start={firstLogged || iso} end={iso} />
-      </Card>
+      {/* Nothing logged yet, nothing to chart: a fresh install's calendar was
+          one empty square under "0 days on" (#55). */}
+      {firstLogged ? (
+        <Card style={{ marginBottom: 0 }}>
+          <LoadCalendar days={calendar} start={firstLogged} end={iso} />
+        </Card>
+      ) : null}
     </>
   )
 }
@@ -646,8 +650,8 @@ export function SessionSheet({
    * tier ("any sport · counts anyway"). A planned session not yet timed says what
    * it holds.
    */
-  const out = entry?.data?.out
-  const timed = planned && (minutesSourceOf as any)(opt, out) !== 'estimate' ? `${_minutesFor(opt, out)} min` : null
+  const mins = planned ? (loggedMinutes as any)(entry, opt) : null
+  const timed = mins !== null ? `${mins} min` : null
   const subLine = metaText([
     entry?.date ? dayWords(entry.date) : null,
     timed || (pres ? prescriptionLine(pres) : null),
@@ -716,7 +720,8 @@ export function SessionSheet({
           <PersonSwitch on={on} side={sidePerson?.id || null} onSide={setSide} />
         </View>
       ) : subLine || undefined}
-      icon={opt.icon}
+      // The activity's own icon, as its row in the Log feed shows it (#55).
+      icon={(loggedActivity as any)(opt, entry?.data?.out)?.icon || opt.icon}
       tone={tone}
       dismissable={!dirty}
       onClose={onClose}
@@ -939,13 +944,13 @@ function DaySessions({
     if (!isDone(entry)) bits.push(viewIso > localIso() ? 'Planned' : 'Not done')
     if (opt.role === 'rest') bits.push(...(restStats as any)(entry, opt))
     else {
-      const measured = (minutesSourceOf as any)(opt, out) !== 'estimate'
+      const mins = (loggedMinutes as any)(entry, opt)
       const sets = totalSets(out)
       const work = Number(out.distance) > 0 ? `${out.distance} mi`
         : (liftsLine as any)(out) || (sets ? `${sets} set${sets === 1 ? '' : 's'}` : null)
       // A planned session nothing has been logged on yet says what it holds.
-      if (!measured && !work && entry.data?.plan) bits.push(prescriptionLine(entry.data.plan))
-      else bits.push(measured ? `${_minutesFor(opt, out)} min` : null, work)
+      if (mins === null && !work && entry.data?.plan) bits.push(prescriptionLine(entry.data.plan))
+      else bits.push(mins !== null ? `${mins} min` : null, work)
     }
     // "with Sam" (lib/shared.js), or "planned by Alex" (lib/trainer.js).
     bits.push((withLine as any)(entry, me.people), plannedLine(entry, me))

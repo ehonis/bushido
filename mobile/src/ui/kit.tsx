@@ -128,7 +128,7 @@ export function Sub({ children, style, size = font.small }: { children: React.Re
 
 /**
  * .section-head: a group's title in sentence case, with an optional count or
- * action at the right. Replaces `<T caps>` labels (wave 2 moves screens over).
+ * action at the right. Replaced every `<T caps>` label; `T` no longer has `caps` (#55).
  */
 export function SectionHeader({ title, right, style }: { title: string; right?: React.ReactNode; style?: StyleProp<ViewStyle> }) {
   return (

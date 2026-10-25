@@ -1102,7 +1102,7 @@ export function BuildStep({ pres, setPres, liftField, entries = [], categories =
   return (
     <StepPage
       foot={<Btn icon="Plus" title={forName ? `Put it on ${forName}’s day` : 'Put it on today'} disabled={!sets} onPress={onKeep} />}
-      after={!sets ? <T style={st.fine}>Add an exercise or a piece to keep it</T> : null}
+      after={!sets ? <T style={st.fine}>Add an exercise or an interval to keep it</T> : null}
     >
       {head}
       <SplitNote parts={(splitPrescription as any)((dropEmptyBlocks as any)(pres))} />
@@ -1140,7 +1140,7 @@ function PieceAdder({ unit, onAdd }: { unit: string; onAdd: (name: string, by: s
     return (
       <Press haptic onPress={() => setOpen(true)} style={st.addPiece}>
         <Icon name="Timer" size={15} color={colors.inkFaint} />
-        <T size={13} faint>Add a piece — a swim set, an interval, a hold</T>
+        <T size={font.small} faint>Add a swim set, interval or hold</T>
       </Press>
     )
   }
@@ -1240,16 +1240,16 @@ function BlockQuota({ categories, value, onChange }: any) {
       summary={
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Icon name="Target" size={12} color={colors.inkFaint} />
-          <T size={11.5} faint>
+          <T size={font.small} faint>
             {picked
-              ? <>its own workout: <T size={11.5} weight={600} color={colors.accent}>{picked.name}</T></>
-              : 'part of the workout beside it'}
+              ? <>A separate <T size={font.small} weight={600} color={colors.accent}>{picked.name}</T> workout</>
+              : 'Part of the workout beside it'}
           </T>
         </View>
       }
     >
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8, marginBottom: 2 }}>
-        <ImplChip label="Nothing — part of the workout beside it" on={!value} onPress={() => onChange(null)} />
+        <ImplChip label="Part of the workout beside it" on={!value} onPress={() => onChange(null)} />
         {categories.map((c: any) => (
           <ImplChip key={c.key} icon={c.icon} label={c.name} on={value === c.key} onPress={() => onChange(c.key)} />
         ))}

@@ -219,7 +219,7 @@ export function TimerSetup({ title, presets, onStart, onSave = null, onDelete = 
             )}
             <label className="it-row it-toggle">
               <span className="it-label">Repeat until I stop</span>
-              <input type="checkbox" checked={config.repeat} onChange={e => set('repeat', e.target.checked)} />
+              <input type="checkbox" role="switch" className="switch" checked={config.repeat} onChange={e => set('repeat', e.target.checked)} />
             </label>
 
             <Intervals config={config} planSequence={planSequence}

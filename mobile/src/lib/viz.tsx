@@ -353,7 +353,7 @@ export function LoadCalendar({ days, start, end }: { days: Map<string, any>; sta
           <T size={font.body} weight={600} lineHeight={19}>Daily habit</T>
           <View style={st.hero}>
             <T size={font.heading} weight={600} lineHeight={28} tabular>{String(counted)}</T>
-            <T size={font.small} dim>days on</T>
+            <T size={font.small} dim>{counted === 1 ? 'day on' : 'days on'}</T>
           </View>
         </View>
         <View style={st.legend} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>

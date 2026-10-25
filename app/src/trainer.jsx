@@ -338,8 +338,7 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
       <div className="pday-wrap" data-tone={person.tone ?? 1}>
         <div className="pday-nav">
           <button type="button" className="iconbtn" onClick={() => setMonday(m => shiftWeek(m, -1))} aria-label="Previous week">
-            {/* lib/icons.jsx (the shell's) has no ChevronLeft; the right one, mirrored. */}
-            <Icon name="ChevronRight" size={20} style={{ transform: 'scaleX(-1)' }} />
+            <Icon name="ChevronLeft" size={20} />
           </button>
           <span className="pday-nav-label">{thisWeek ? 'This week' : label}</span>
           <button type="button" className="iconbtn" onClick={() => setMonday(m => shiftWeek(m, 1))} aria-label="Next week">

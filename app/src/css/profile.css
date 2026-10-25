@@ -10,23 +10,6 @@
  * went with that pass.
  */
 
-/* ----------------------------------------------------------------- chips */
-
-/* Chip: a filter or a short answer, pill-shaped. 36px tall in a filter row
-   (the row's gap keeps a miss from landing on a neighbour); an answer to a
-   question is `.out-chip`, the same pill at 44px. Selected is the accent tint,
-   never colour alone: the border and fill change too. The base rule, kept here
-   by the split (#39) and used by every screen. */
-.chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  font: inherit; font-size: var(--fs-small); color: var(--ink-dim); background: var(--panel-2);
-  border: 1px solid var(--line); border-radius: var(--r-pill); padding: 0 var(--sp-3);
-  cursor: pointer; min-height: 36px; white-space: nowrap;
-}
-.chip:hover { color: var(--ink); }
-.chip.on { color: var(--ink); border-color: var(--accent-line); background: var(--accent-soft); }
-.chip.ghost { border-style: dashed; background: transparent; }
-
 code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: var(--fs-small); }
 
 /* Which service a logged workout came from, on the Log feed (log.jsx). */
@@ -48,11 +31,6 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 /* A row that only states something: no press, no chevron. */
 .prof-static { cursor: default; }
 .prof-dot { flex: none; width: 20px; display: grid; place-items: center; }
-/* A switch-like row: the label on the left, the box on the right, the whole row the target. */
-.prof-check input[type="checkbox"] {
-  flex: none; width: 22px; height: 22px; min-height: 0; margin: 0 2px;
-  accent-color: var(--accent);
-}
 .prof-danger .list-row-title, .prof-danger > svg:first-child { color: var(--viz-crit); }
 .prof-on { color: var(--viz-good); flex: none; }
 

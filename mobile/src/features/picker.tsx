@@ -70,7 +70,7 @@ export function PickerScreen({
   return (
     <FullScreen title={title} sub={sub} icon={icon} onBack={onClose}>
       <View style={st.search}>
-        <Icon name="Target" size={16} color={colors.inkFaint} />
+        <Icon name="Search" size={16} color={colors.inkFaint} />
         <Input value={q} onChangeText={setQ} placeholder={placeholder}
           accessibilityLabel={`Search ${title}`} returnKeyType="search" autoCorrect={false}
           style={st.searchInput} />
@@ -183,7 +183,7 @@ export function folderGroup(plan: any) {
     key: '_climbing', name: climbing ? 'Climbing' : 'Your plan',
     items: folders.map(f => ({
       key: `folder:${f.key}`, name: f.name, icon: f.icon,
-      meta: `${f.count} session${f.count === 1 ? '' : 's'}`,
+      meta: `${f.count} workout${f.count === 1 ? '' : 's'}`,
     })),
   }
 }
@@ -256,7 +256,7 @@ export function ActivityChooser({
       title={climbingOnly ? 'Log the climb' : 'Log a workout'}
       sub={dayLabel}
       icon={climbingOnly ? 'Mountain' : 'NotebookPen'}
-      placeholder={climbingOnly ? 'Search sessions' : 'Search'}
+      placeholder={climbingOnly ? 'Search climbing' : 'Search'}
       groups={groups}
       /* The catalog has its own ranked search: "ru" has to return Run before Ruck.
          Cards follow, matched on every word, so "max hangs" finds its card

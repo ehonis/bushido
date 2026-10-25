@@ -25,10 +25,10 @@ import { liftFieldOf } from './planner.jsx'
 import { optFor } from './lib/menu.js'
 import { prescriptionLine, prescriptionSteps, runProgress, isLiftOnly } from './lib/prescription.js'
 import { hasWorkout } from './lib/workout.js'
-import { minutesFor, minutesSourceOf, resolveMinutes } from './lib/minutes.js'
+import { minutesFor, loggedMinutes, resolveMinutes } from './lib/minutes.js'
 import { levelFor } from './lib/level.js'
 import { nameFor, titleFor, withCasualName } from './lib/naming.js'
-import { disciplineFor } from './lib/activities.js'
+import { disciplineFor, loggedActivity } from './lib/activities.js'
 import { UnloggedWorkouts } from './unlogged.jsx'
 import { currentMe } from './lib/whoami.js'
 import { applyOut, applyRun, canStart, workoutSides, planPeople, plannedLine, toneFor } from './lib/trainer.js'
@@ -351,9 +351,13 @@ export function TodayTab({
               as them. Nothing for anyone else, while acting, or with one person. */}
           <PeopleDays people={planPeople(currentMe())} date={iso} plan={plan} />
 
-          <div className="card">
-            <LoadCalendar days={calendar} start={firstLogged || iso} end={iso} />
-          </div>
+          {/* Nothing logged yet, nothing to chart: a fresh install's calendar
+              was one empty square under "0 days on" (#55). */}
+          {firstLogged && (
+            <div className="card">
+              <LoadCalendar days={calendar} start={firstLogged} end={iso} />
+            </div>
+          )}
         </aside>
       </div>
     </>
@@ -376,7 +380,6 @@ export function dayWords(iso, today = localIso()) {
   return fromIso(iso).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
-const chevron = (deg) => <Icon name="ChevronDown" size={20} style={{ transform: `rotate(${deg}deg)` }} />
 
 /**
  * The day switcher (docs/DESIGN.md, "Components"): ‹ day › with the day in
@@ -399,9 +402,9 @@ export function DaySwitcher({ value, today = localIso(), onChange, min = null, m
   const arrows = (
     <>
       <button type="button" className="iconbtn" onClick={() => onChange(prev)} disabled={!canPrev}
-        aria-label="Previous day">{chevron(90)}</button>
+        aria-label="Previous day"><Icon name="ChevronLeft" size={20} /></button>
       <button type="button" className="iconbtn" onClick={() => onChange(next)} disabled={!canNext}
-        aria-label="Next day">{chevron(-90)}</button>
+        aria-label="Next day"><Icon name="ChevronRight" size={20} /></button>
     </>
   )
 
@@ -422,13 +425,13 @@ export function DaySwitcher({ value, today = localIso(), onChange, min = null, m
   return (
     <div className="dayswitch">
       <button type="button" className="iconbtn" onClick={() => onChange(prev)} disabled={!canPrev}
-        aria-label="Previous day">{chevron(90)}</button>
+        aria-label="Previous day"><Icon name="ChevronLeft" size={20} /></button>
       <div className="dayswitch-words" aria-live="polite">
         <span>{words}</span>
         {date && <span className="sub">{date}</span>}
       </div>
       <button type="button" className="iconbtn" onClick={() => onChange(next)} disabled={!canNext}
-        aria-label="Next day">{chevron(-90)}</button>
+        aria-label="Next day"><Icon name="ChevronRight" size={20} /></button>
     </div>
   )
 }
@@ -506,7 +509,7 @@ function DayList({ rows, onOpen, isFuture, viewIso, onLog = null, onRest = null,
                 <span className="list-row-title">{r.name}</span>
                 {metaParts(r.meta).length > 0 && <span className="list-row-meta"><MetaLine bits={r.meta} /></span>}
               </span>
-              <span className="list-row-chev">{chevron(-90)}</span>
+              <span className="list-row-chev"><Icon name="ChevronRight" size={16} /></span>
             </button>
           )
         })}
@@ -674,8 +677,8 @@ export function SessionSheet({
    * card's own estimate or its tier ("any sport · counts anyway"): neither is
    * something the user said. A planned session not yet timed says what it holds.
    */
-  const out = entry?.data?.out
-  const timed = planned && minutesSourceOf(opt, out) !== 'estimate' ? `${minutesFor(opt, out)} min` : null
+  const mins = planned ? loggedMinutes(entry, opt) : null
+  const timed = mins !== null ? `${mins} min` : null
   const subBits = [
     entry?.date ? dayWords(entry.date) : null,
     timed || (pres ? prescriptionLine(pres) : null),
@@ -742,7 +745,9 @@ export function SessionSheet({
        */
       title={titleFor(opt, entry?.data?.out, pres)}
       sub={sub}
-      icon={opt.icon}
+      // The activity's own icon (a run's footprints), as its row in the Log feed
+      // shows it; the workout card's generic one only until an activity is picked.
+      icon={loggedActivity(opt, entry?.data?.out)?.icon || opt.icon}
       tone={tone}
       dismissable={!dirty}
       onClose={onClose}
@@ -849,7 +854,7 @@ export function SessionSheet({
           <button type="button" className="list-row" onClick={() => openTimer(timerRequestFor(opt, entry))}>
             <Icon name="Timer" size={20} />
             <span className="list-row-main"><span className="list-row-title">Interval timer</span></span>
-            <span className="list-row-chev">{chevron(-90)}</span>
+            <span className="list-row-chev"><Icon name="ChevronRight" size={16} /></span>
           </button>
         </div>
       )}
@@ -989,14 +994,14 @@ function DaySessions({
     if (!isDone(entry)) bits.push(viewIso > localIso() ? 'Planned' : 'Not done')
     if (opt.role === 'rest') bits.push(...restStats(entry, opt))
     else {
-      const measured = minutesSourceOf(opt, out) !== 'estimate'
+      const mins = loggedMinutes(entry, opt)
       const sets = totalSets(out)
       const work = Number(out.distance) > 0 ? `${out.distance} mi`
         : liftsLine(out) || (sets ? `${sets} set${sets === 1 ? '' : 's'}` : null)
       // A planned session nothing has been logged on yet says what it holds
       // ("3 exercises · 9 sets · about 45 min"), which is also what says it has sets to run.
-      if (!measured && !work && entry.data?.plan) bits.push(prescriptionLine(entry.data.plan))
-      else bits.push(measured ? `${minutesFor(opt, out)} min` : null, work)
+      if (mins === null && !work && entry.data?.plan) bits.push(prescriptionLine(entry.data.plan))
+      else bits.push(mins !== null ? `${mins} min` : null, work)
     }
     // Who else was on it ("with Sam", lib/shared.js), or who planned it for this
     // person ("planned by Alex", lib/trainer.js).

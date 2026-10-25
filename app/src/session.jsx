@@ -308,12 +308,12 @@ export function SessionView({ session, entries, variant = 'compact', showEvidenc
       {variant === 'full' && sections.length > 1 && (
         <div className="sect-step">
           <button className="btn ghost" disabled={idx === 0} onClick={() => setActive(sections[idx - 1].key)}>
-            <Icon name="ChevronDown" size={16} style={{ transform: 'rotate(90deg)' }} /> Back
+            <Icon name="ChevronLeft" size={16} /> Back
           </button>
           <span className="sect-count">{idx + 1} / {sections.length}</span>
           <button className="btn ghost" disabled={idx === sections.length - 1}
             onClick={() => setActive(sections[idx + 1].key)}>
-            Next <Icon name="ChevronDown" size={16} style={{ transform: 'rotate(-90deg)' }} />
+            Next <Icon name="ChevronRight" size={16} />
           </button>
         </div>
       )}
