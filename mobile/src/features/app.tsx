@@ -6,7 +6,7 @@ import React, { useEffect, useState } from 'react'
 import { Modal as RNModal, Pressable, StyleSheet, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { colors, mix } from '../theme'
+import { colors, elevation, font, radius, space } from '../theme'
 import { T } from '../ui/Text'
 import { Btn, Chip, Field, Input, NoteField, Press } from '../ui/kit'
 import { Modal } from '../ui/Sheet'
@@ -50,40 +50,31 @@ export function ActingBanner({ me }: { me: any }) {
   if (!me?.acting) return null
   return (
     <View style={st.acting} accessibilityRole="alert">
-      <Icon name="Users" size={15} color={colors.ink} />
-      <T size={14} style={{ flex: 1, minWidth: 0 }}>
-        Logging for <T size={14} weight={700}>{me.name}</T>
+      <Icon name="Users" size={15} color={colors.accent} />
+      <T size={font.small} style={{ flex: 1, minWidth: 0 }}>
+        Logging for <T size={font.small} weight={700}>{me.name}</T>
       </T>
       <Press
         disabled={busy}
         style={st.actingBack}
         onPress={() => { setBusy(true); (actAs as any)(null, { reload: reloadApp }).catch(() => setBusy(false)) }}
       >
-        <T size={14}>{busy ? 'Switching…' : `Back to ${me.real.name || 'me'}`}</T>
+        <T size={font.small} weight={600}>{busy ? 'Switching…' : `Back to ${me.real.name || 'me'}`}</T>
       </Press>
     </View>
   )
 }
 
+// Log a workout leads and is the only door in the accent: it is what the + is
+// pressed for most (docs/DESIGN.md D7). Logging doors, then planning, then tools;
+// one line under each door, not a paragraph.
 const FAB_ROWS = [
-  {
-    key: 'plan', icon: 'Sparkles', tint: colors.accent, title: 'Plan a workout',
-    sub: 'Say what you are doing, then build it yourself — the exercises, sets and weights — or let the model read your log and write it for you.',
-  },
-  {
-    key: 'log', icon: 'NotebookPen', tint: null, title: 'Log a workout',
-    sub: 'Something you already did: a climbing session from the plan, or any of 91 activities, and the form arrives the right shape.',
-  },
+  { key: 'log', icon: 'NotebookPen', tint: colors.accent, title: 'Log a workout', sub: 'Something you already did' },
   // A rest day used to be a link at the foot of the old session picker, under
   // thirty cards, which is to say nowhere.
-  {
-    key: 'rest', icon: 'Sunset', tint: null, title: 'Log a rest day',
-    sub: 'A day off on purpose. It counts as chosen rather than missed, and does not mark Move Every Day.',
-  },
-  {
-    key: 'week', icon: 'CalendarRange', tint: colors.series2, title: 'Plan the week',
-    sub: 'Talk the quotas through. It reads what you set and what you actually did, how you are recovering, and proposes the counts — you set them.',
-  },
+  { key: 'rest', icon: 'Sunset', tint: null, title: 'Log a rest day', sub: 'A day off on purpose' },
+  { key: 'plan', icon: 'Sparkles', tint: null, title: 'Plan a workout', sub: 'Build it yourself, or have it written for you' },
+  { key: 'week', icon: 'CalendarRange', tint: null, title: 'Plan the week', sub: 'Talk this week’s counts through' },
 ] as const
 
 /**
@@ -105,20 +96,20 @@ export function FabMenu({ onClose, onPlan, onLog, onPlanWeek, onRest }: {
     <RNModal visible transparent animationType="slide" onRequestClose={onClose}>
       <GestureHandlerRootView style={{ flex: 1 }}>
       <Pressable style={st.scrim} onPress={onClose} accessibilityLabel="Close">
-        <Pressable style={[st.fabmenu, { marginBottom: Math.max(16, insets.bottom) }]} onPress={() => {}} accessibilityLabel="Add a workout">
+        <Pressable style={[st.fabmenu, { marginBottom: Math.max(space[2], insets.bottom) }]} onPress={() => {}} accessibilityLabel="Add a workout">
           {FAB_ROWS.filter((r) => handlers[r.key]).map((r) => (
             <Press key={r.key} haptic style={st.row} onPress={() => handlers[r.key]?.()}>
-              <View style={[st.rowIco, { backgroundColor: r.tint ? mix(r.tint, 16, colors.panel2) : colors.panel }]}>
+              <View style={[st.rowIco, { backgroundColor: r.tint ? colors.accentSoft : colors.panel3 }]}>
                 <Icon name={r.icon} size={22} color={r.tint || colors.inkDim} />
               </View>
-              <View style={{ flex: 1, gap: 3 }}>
-                <T size={15} weight={700}>{r.title}</T>
-                <T size={12.5} dim lineHeight={18}>{r.sub}</T>
+              <View style={{ flex: 1, gap: 2 }}>
+                <T size={font.body} weight={600}>{r.title}</T>
+                <T size={font.small} dim>{r.sub}</T>
               </View>
             </Press>
           ))}
           <Press onPress={onClose} style={st.cancel}>
-            <T size={14} faint>Cancel</T>
+            <T size={font.body} weight={600}>Cancel</T>
           </Press>
         </Pressable>
       </Pressable>
@@ -197,25 +188,23 @@ export function DayStepper({ value, max, onChange }: { value: string; max?: stri
 }
 
 const st = StyleSheet.create({
+  // The visual system's acting banner and + menu (styles.css .acting, .fabmenu).
   acting: {
-    flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 8,
-    paddingVertical: 6, paddingRight: 6, paddingLeft: 12,
-    borderWidth: 1, borderColor: colors.accent, borderRadius: 10, backgroundColor: colors.panel,
+    flexDirection: 'row', alignItems: 'center', gap: space[2], marginHorizontal: space.gutter, marginBottom: space[2],
+    padding: space[1], paddingLeft: space[3],
+    borderWidth: 1, borderColor: colors.accentLine, borderRadius: radius.card, backgroundColor: colors.accentSoft,
   },
   actingBack: {
-    minHeight: 44, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.line,
+    minHeight: 44, paddingHorizontal: space[3], borderRadius: radius.control, borderWidth: 1, borderColor: colors.lineStrong,
     backgroundColor: colors.panel2, justifyContent: 'center',
   },
-  scrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end', paddingHorizontal: 16 },
+  scrim: { flex: 1, backgroundColor: colors.scrim, justifyContent: 'flex-end', paddingHorizontal: space[2] },
   fabmenu: {
-    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: 16, padding: 10, gap: 8,
-    shadowColor: '#000', shadowOpacity: 0.6, shadowRadius: 24, shadowOffset: { width: 0, height: 18 },
+    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.sheet, padding: space[2], gap: 2,
+    ...elevation[3],
   },
-  row: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 14, borderRadius: 12,
-    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line,
-  },
-  rowIco: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  cancel: { minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 10 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: 64, paddingVertical: space[2], paddingHorizontal: space[3], borderRadius: radius.card },
+  rowIco: { width: 44, height: 44, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center' },
+  cancel: { minHeight: 44, marginTop: space[1], alignItems: 'center', justifyContent: 'center', borderRadius: radius.card, backgroundColor: colors.panel2 },
   dayBtn: { width: 44, height: 44, borderRadius: 8, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
 })

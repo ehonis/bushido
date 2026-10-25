@@ -23,7 +23,7 @@ import React, { useState } from 'react'
 import { Dimensions, KeyboardAvoidingView, Modal as RNModal, Platform, ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { colors, mix } from '../theme'
+import { colors, font, mix, radius, space } from '../theme'
 import { Icon } from '../lib/icons'
 import { T } from './Text'
 import { Btn, IconBtn, Press } from './kit'
@@ -42,7 +42,7 @@ export const TONES: Record<string, string> = {
 function TitleIcon({ icon, tone }: { icon: string; tone?: string }) {
   const c = (tone && TONES[tone]) || colors.accent
   return (
-    <View style={[st.ico, { backgroundColor: mix(c, 14, colors.panel2) }]}>
+    <View style={[st.ico, { backgroundColor: c === colors.accent ? colors.accentSoft : mix(c, 14, colors.panel2) }]}>
       <Icon name={icon} size={20} color={c} />
     </View>
   )
@@ -102,8 +102,8 @@ export function Modal({
         <View style={[st.head, tone && TONES[tone] ? { borderTopWidth: 3, borderTopColor: TONES[tone] } : null]}>
           {icon ? <TitleIcon icon={icon} tone={tone} /> : null}
           <View style={{ flex: 1, minWidth: 0 }}>
-            <T size={16} weight={600} lineHeight={20} numberOfLines={2}>{title}</T>
-            {sub ? (typeof sub === 'string' ? <T size={12} faint style={{ marginTop: 2 }}>{sub}</T> : sub) : null}
+            <T size={font.title} weight={600} lineHeight={22} numberOfLines={2}>{title}</T>
+            {sub ? (typeof sub === 'string' ? <T size={font.small} dim style={{ marginTop: 2 }}>{sub}</T> : sub) : null}
           </View>
           {onRename ? <IconBtn icon="Pencil" size={16} label="Edit this workout" onPress={onRename} /> : null}
           {onDelete ? <IconBtn icon="Trash2" size={16} label={deleteLabel} onPress={() => { warn(); setConfirming(true) }} /> : null}
@@ -150,8 +150,8 @@ export function FullScreen({ title, sub, icon, tone, onBack, tabs, active, onTab
           <IconBtn icon="ChevronLeft" size={20} label="Back" onPress={onBack} />
           {icon ? <TitleIcon icon={icon} tone={tone} /> : null}
           <View style={{ flex: 1, minWidth: 0 }}>
-            <T size={16} weight={600} lineHeight={20} numberOfLines={2}>{title}</T>
-            {sub ? (typeof sub === 'string' ? <T size={12} faint style={{ marginTop: 2 }}>{sub}</T> : sub) : null}
+            <T size={font.title} weight={600} lineHeight={22} numberOfLines={2}>{title}</T>
+            {sub ? (typeof sub === 'string' ? <T size={font.small} dim style={{ marginTop: 2 }}>{sub}</T> : sub) : null}
           </View>
         </View>
         {tabs && tabs.length > 1 ? (
@@ -160,8 +160,8 @@ export function FullScreen({ title, sub, icon, tone, onBack, tabs, active, onTab
               const on = t.key === active
               return (
                 <Press key={t.key} haptic onPress={() => onTab?.(t.key)} style={[st.fsTab, on && st.fsTabOn]}>
-                  <Icon name={t.icon} size={15} color={on ? colors.ink : colors.inkFaint} />
-                  <T size={13} weight={500} color={on ? colors.ink : colors.inkFaint}>{t.label}</T>
+                  <Icon name={t.icon} size={15} color={on ? colors.ink : colors.inkDim} />
+                  <T size={font.small} weight={500} color={on ? colors.ink : colors.inkDim}>{t.label}</T>
                 </Press>
               )
             })}
@@ -193,27 +193,30 @@ export function Popover({ label, onClose, children }: { label?: string; onClose:
   )
 }
 
+// The sheet frame (styles.css .modal, .modal-head, .modal-foot, .fs): the
+// header's title is the largest text in the sheet, the close is a quiet 44pt
+// round button, and the footer holds the one primary action.
 const st = StyleSheet.create({
   sheet: { flex: 1, backgroundColor: colors.panel },
   head: {
-    flexDirection: 'row', alignItems: 'center', gap: 11,
-    paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.line,
+    flexDirection: 'row', alignItems: 'center', gap: space[3],
+    paddingLeft: space[4], paddingRight: space[2], paddingVertical: space[3], borderBottomWidth: 1, borderBottomColor: colors.line,
   },
-  ico: { width: 38, height: 38, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  ico: { width: 40, height: 40, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center' },
   foot: {
-    flexDirection: 'row', gap: 9, paddingHorizontal: 16, paddingTop: 12,
+    flexDirection: 'row', gap: space[2], paddingHorizontal: space[4], paddingTop: space[3],
     borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.panel,
   },
   confirm: { paddingTop: 18, paddingHorizontal: 4, paddingBottom: 8, alignItems: 'center' },
   fs: { flex: 1, backgroundColor: colors.bg },
   fsHead: {
-    flexDirection: 'row', alignItems: 'center', gap: 11,
-    paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.line,
+    flexDirection: 'row', alignItems: 'center', gap: space[3],
+    paddingLeft: space[2], paddingRight: space[4], paddingVertical: space[2], borderBottomWidth: 1, borderBottomColor: colors.line,
   },
-  fsTabs: { flexDirection: 'row', gap: 4, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.line },
+  fsTabs: { flexDirection: 'row', gap: 4, paddingHorizontal: space[4], paddingVertical: space[2], borderBottomWidth: 1, borderBottomColor: colors.line },
   fsTab: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    borderWidth: 1, borderColor: 'transparent', borderRadius: 8, paddingVertical: 9, paddingHorizontal: 6, minHeight: 44,
+    borderWidth: 1, borderColor: 'transparent', borderRadius: radius.control, paddingHorizontal: 6, minHeight: 44,
   },
-  fsTabOn: { backgroundColor: colors.panel2, borderColor: colors.line },
+  fsTabOn: { backgroundColor: colors.panel3, borderColor: colors.lineStrong },
 })

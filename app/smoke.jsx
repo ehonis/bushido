@@ -3102,6 +3102,8 @@ const cases = [
         if (!t.includes(door)) throw new Error(`no "${door}" door`)
       }
       if (/Pick a session/.test(t)) throw new Error('the separate session door is back')
+      // The common case leads (docs/DESIGN.md D7).
+      if (t.indexOf('Log a workout') > t.indexOf('Plan a workout')) throw new Error('Log a workout is not the first door')
     }],
   // It asks WHY before it logs — the reasons are the rest card's own output, so
   // they must render here and the answer must be the same field the sheet edits.

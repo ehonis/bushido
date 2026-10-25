@@ -44,16 +44,20 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
   write paths (`placeAll`, `placeToday`, `keepPlan`, `takeRest`) and the providers. Screens read it
   with `useApp()` and pass the same props the web components take.
 - `src/shell/` is the frame: `Screen` (the header with the mark, streak and profile button, and a
-  body that clears the dock), `TabBar` (the floating glass capsule and the + row), `Overlays`
+  body that clears the dock), `TabBar` (the floating glass capsule, with the + beside it when there
+  are four tabs or fewer, `compactDock()`, and above it otherwise), `Overlays`
   (what the + opens), `reload.ts`, `accessReauth.ts`, `ScreenError`.
 - `src/app/` holds routes only: `(tabs)/` is one file per web tab; `connect.tsx` is sign-in.
 - **`src/features/<name>.tsx` is `app/src/<name>.jsx`**, one file per web file, with the same
   export names and the same props. `features/app.tsx` is the components in `App.jsx`;
   `features/screens/` wraps each tab in its frame.
-- `src/theme.ts` is the web's `:root` (`--ink-dim` → `colors.inkDim`), plus `mix()` for the CSS's
-  `color-mix` tints and `cssColor()` for `var(--x)` strings that arrive in content.
-- `src/ui/` holds the building blocks: `T` (text), `kit.tsx` (Btn, IconBtn, Card, H2, Sub, Chip,
-  Segmented, Input, Field, NoteField, Toggle, Empty, Spinner, Row), `Sheet.tsx` (`Modal`,
+- `src/theme.ts` is the web's `:root` (`--ink-dim` → `colors.inkDim`, `--fs-title` → `font.title`,
+  `--sp-4` → `space[4]`, `--r-card` → `radius.card`, `--elev-2` → `elevation[2]`), plus `mix()` for
+  the CSS's `color-mix` tints and `cssColor()` for `var(--x)` strings that arrive in content. The
+  tokens and components are the visual system in `../docs/DESIGN.md`; take values from here, not
+  raw numbers.
+- `src/ui/` holds the building blocks: `T` (text), `kit.tsx` (Btn, IconBtn, Card, H2, Sub,
+  SectionHeader, Chip, Segmented, Input, Field, NoteField, Toggle, Empty, Spinner, Row), `Sheet.tsx` (`Modal`,
   `FullScreen`, `Popover` with `modal.jsx`'s props), `Fold.tsx` (`<details>`), `menu.ts` (system
   action sheets, `confirm`, `prompt`), `haptics.ts`, `ToastHost`, `NotYet`, `Person.tsx` (each
   person's colour and name pill: the web's `[data-tone]` and `.side-who`).
