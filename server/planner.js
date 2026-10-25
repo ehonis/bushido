@@ -57,6 +57,7 @@ const SET = {
 const ITEM = {
   type: 'object',
   properties: {
+    uid: { type: 'string', description: 'REVISIONS: copy it UNCHANGED from the session you were given whenever this is the same exercise, even renamed, moved or with different sets. Leave it out on a new one. Never invent one.' },
     kind: { type: 'string', enum: ['lift', 'interval'], description: 'lift = a movement out of the exercise catalog. interval = anything else: a swim piece, a run rep, a bike block, a carry, a hold.' },
     name: { type: 'string', description: 'What it is called on screen. For a lift this is overwritten by the catalog name, so put the plain name here.' },
     exercise: { type: 'string', description: 'REQUIRED for kind=lift: an exact key from the exercise catalog listed below. An invented key loses the row its history.' },
@@ -72,6 +73,7 @@ const ITEM = {
 const BLOCK = {
   type: 'object',
   properties: {
+    uid: { type: 'string', description: 'REVISIONS: copy it UNCHANGED from the session you were given whenever this is the same block, even renamed, moved or with different sets. Leave it out on a new one. Never invent one.' },
     name: { type: 'string', description: 'Warm-up, Main, Accessory, Cool-down — whatever the session actually has.' },
     note: { type: 'string', description: 'What this block is for, in one sentence. Anything without sets goes here rather than becoming an item.' },
     category: { type: 'string', description: 'Which category THIS BLOCK is — exact key from the list below. A block with a category BECOMES ITS OWN WORKOUT on the day: a trip that is lifting then a run lands as a lift entry and a run entry, each with its own log. A warm-up or cool-down that belongs to the block beside it must leave this out, or it becomes a third workout nobody did.' },
@@ -325,7 +327,9 @@ function revisePrompt({ plan, message, thread = [], name }) {
     `${speaker(name)} now says:\n${message}`,
     '',
     'Return the WHOLE session again, revised. Keep everything they did not ask you to',
-    'change — including their own edits to the numbers. Put what you changed and why in',
+    'change — including their own edits to the numbers. Every block and exercise that is',
+    'still the same one (renamed, moved or with different sets included) keeps its `uid`',
+    'exactly as given; a new one has none. Put what you changed and why in',
     '`changed`, addressed to them, in one or two sentences. If what they asked for is a bad',
     'idea say so in `changed` and do it anyway, unless it breaks one of the rules above,',
     'in which case do not do it and say which rule.',

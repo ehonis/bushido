@@ -90,7 +90,7 @@ function priorWork(out) {
  * all. What the user is looking for before a hangboard session is what the user hung last
  * time, and that is on the entry whether or not the user also had something to say.
  */
-export function PriorNote({ entries, session, excludeId, all = false }) {
+export function PriorNote({ entries, session, excludeId, all = false, whose = null }) {
   const prior = priorSessions(entries, session, excludeId)
   if (!prior.length) return null
   const shown = all ? prior.slice(0, 5) : prior.slice(0, 1)
@@ -101,9 +101,10 @@ export function PriorNote({ entries, session, excludeId, all = false }) {
     <div className="prior">
       <div className="prior-head">
         <Icon name="Repeat" size={13} />
+        {/* `whose`: someone else's log, on their side of a shared workout (sharedwith.jsx). */}
         {all
-          ? `Your last ${shown.length} session${shown.length === 1 ? '' : 's'}${noted.length ? '' : ' — nothing written down yet'}`
-          : 'Last time you did this'}
+          ? `${whose ? `${whose}’s` : 'Your'} last ${shown.length} session${shown.length === 1 ? '' : 's'}${noted.length ? '' : ' — nothing written down yet'}`
+          : `Last time ${whose || 'you'} did this`}
       </div>
       {shown.map(e => {
         const work = priorWork(e.data?.out)
@@ -462,7 +463,7 @@ export function DetailsSheet({
  */
 export function SessionLog({
   session, entry, entries, onSave, bare = false,
-  defaultOpen = false, hints = null, measured = true,
+  defaultOpen = false, hints = null, measured = true, whose = null,
 }) {
   const declared = session?.outputs || []
   const hasSets = Boolean(session?.logSpec?.exercises?.length)
@@ -685,7 +686,7 @@ export function SessionLog({
               value={out.improve}
               onCommit={v => set('improve', v.trim() || undefined)}
             />
-            <PriorNote entries={entries} session={session} excludeId={entry?.id} all />
+            <PriorNote entries={entries} session={session} excludeId={entry?.id} all whose={whose} />
           </div>
         </div>
       )}

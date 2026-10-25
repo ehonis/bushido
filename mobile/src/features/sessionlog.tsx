@@ -83,7 +83,7 @@ function priorWork(out: any) {
  * for before a hangboard session is what they hung last time, and that is on the
  * entry whether or not they also had something to say.
  */
-export function PriorNote({ entries, session, excludeId, all = false, style }: any) {
+export function PriorNote({ entries, session, excludeId, all = false, style, whose = null }: any) {
   const prior = priorSessions(entries, session, excludeId)
   if (!prior.length) return null
   const shown = all ? prior.slice(0, 5) : prior.slice(0, 1)
@@ -95,9 +95,10 @@ export function PriorNote({ entries, session, excludeId, all = false, style }: a
       <View style={st.priorHead}>
         <Icon name="Repeat" size={13} color={colors.load3} />
         <T size={11} caps color={colors.load3} style={{ flex: 1 }}>
+          {/* `whose`: someone else's log, on their side of a shared workout (sharedwith.tsx). */}
           {all
-            ? `Your last ${shown.length} session${shown.length === 1 ? '' : 's'}${noted.length ? '' : ' — nothing written down yet'}`
-            : 'Last time you did this'}
+            ? `${whose ? `${whose}’s` : 'Your'} last ${shown.length} session${shown.length === 1 ? '' : 's'}${noted.length ? '' : ' — nothing written down yet'}`
+            : `Last time ${whose || 'you'} did this`}
         </T>
       </View>
       {shown.map((e, i) => {
@@ -399,7 +400,7 @@ export function DetailsSheet({
  */
 export function SessionLog({
   session, entry, entries, onSave, bare = false,
-  defaultOpen = false, hints = null, measured = true,
+  defaultOpen = false, hints = null, measured = true, whose = null,
 }: any) {
   const declared = session?.outputs || []
   const hasSets = Boolean(session?.logSpec?.exercises?.length)
@@ -584,7 +585,7 @@ export function SessionLog({
               value={out.improve}
               onCommit={(v) => set('improve', v.trim() || undefined)}
             />
-            <PriorNote entries={entries} session={session} excludeId={entry?.id} all style={{ marginBottom: 0 }} />
+            <PriorNote entries={entries} session={session} excludeId={entry?.id} all whose={whose} style={{ marginBottom: 0 }} />
           </View>
         </View>
       )}

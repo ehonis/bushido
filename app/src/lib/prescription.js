@@ -118,6 +118,17 @@ export function normalizePrescription(raw, { liftField = null } = {}) {
   }
 }
 
+/**
+ * A block's or item's `uid`, kept as given. A shared workout's sync matches by it
+ * (server/sharedsync.js), so a revision that renames an exercise must hand it back
+ * or the rename reads as a removal plus an addition on the other person's side.
+ * Absent stays absent: the server mints one when it first syncs the plan.
+ */
+const uidOf = (v) => {
+  const u = typeof v === 'string' ? v.trim() : ''
+  return /^[\w.-]{1,64}$/.test(u) ? { uid: u } : {}
+}
+
 function normalizeBlock(b, bi, liftField) {
   const id = `b${bi}`
   const items = (Array.isArray(b?.items) ? b.items : [])
@@ -125,7 +136,7 @@ function normalizeBlock(b, bi, liftField) {
     .map((it, ii) => normalizeItem(it, `${id}i${ii}`, liftField))
     .filter(Boolean)
   return {
-    id,
+    id, ...uidOf(b?.uid),
     name: str(b?.name, 60) || `Block ${bi + 1}`,
     note: str(b?.note, 300),
     // Which quota THIS block fills, and what its log form asks for. Null on a
@@ -186,7 +197,7 @@ function normalizeItem(it, id, liftField) {
   if (!sets.length) return null
 
   return {
-    id, kind, name, note: str(it.note, 300),
+    id, ...uidOf(it.uid), kind, name, note: str(it.note, 300),
     exercise, group, implement,
     implementLabel: implementLbl, weightLabel: weightLbl,
     unit, sets,

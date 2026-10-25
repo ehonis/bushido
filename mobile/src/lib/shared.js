@@ -11,13 +11,18 @@
  *
  * What is copied is what the two of them SHARED: the session, the day, the
  * activity, the name, how long it took and how far it went, and the owner's
- * EXERCISES (the plan's items and set counts, or the logged lifts) as they were
- * when the person was added. Exercises the owner adds later are copied over only
- * when the owner asks (`copyExercises`, "Copy my exercises" on their side). What
- * each of them DID (reps, weights, grades, effort, how it felt, notes, gear,
- * done, the owner's WHOOP and Strava) is theirs: the copy leaves it blank and the
- * owner's numbers appear only as placeholders (AGENTS.md §6.4: a number the app
- * could guess is a placeholder, never a value).
+ * EXERCISES (the plan's items and set counts, or the logged lifts). What each of
+ * them DID (reps, weights, grades, effort, how it felt, notes, gear, done, the
+ * owner's WHOOP and Strava) is theirs: the copy leaves it blank and the owner's
+ * numbers appear only as placeholders (AGENTS.md §6.4: a number the app could
+ * guess is a placeholder, never a value).
+ *
+ * SYNC. Someone is added with `sync: true` on their link. While it is on, the
+ * server keeps the exercises the same on both sides, whichever side changes
+ * them (server/sharedsync.js); nothing here merges. Turned off, each side stays
+ * as it is, and "Copy my exercises" (`copyExercises`) is the way to bring the
+ * owner's over by hand. A link without the flag (shared before sync existed)
+ * is off.
  *
  * Pure: no fetch, no React. The sheet (sharedwith.jsx) does the I/O.
  */
@@ -51,7 +56,9 @@ export function sharedWithOf(entry) {
     const id = typeof r === 'string' ? r : r?.id
     if (!id || seen.has(id)) continue
     seen.add(id)
-    out.push({ id: String(id), entryId: String((typeof r === 'object' && r?.entryId) || entry.id) })
+    const link = { id: String(id), entryId: String((typeof r === 'object' && r?.entryId) || entry.id) }
+    if (typeof r === 'object' && r?.sync === true) link.sync = true
+    out.push(link)
   }
   return out
 }
@@ -118,10 +125,22 @@ function keyed(pres) {
 /** One of the owner's exercises on their side: the target, not the owner's weight. */
 const theirItem = (item) => ({ ...item, sets: (item.sets || []).map(s => ({ ...s, weight: null })) })
 
+/**
+ * The owner's plan as the start of theirs: the exercises, never the owner's
+ * numbers, never the owner's `draftId` (lib/drafts.js reads every draftId in a
+ * log as a draft already placed THERE, and the draft is the owner's), and never
+ * the owner's conversation with the planner or its reasoning about the owner's
+ * log (`thread`, `why`, `notes`, `changed`).
+ */
+function theirPlan(mine) {
+  const { draftId: _d, thread: _t, why: _w, notes: _n, changed: _c, ...plan } = mine
+  return { ...plan, why: '', notes: [], blocks: mine.blocks.map(b => ({ ...b, items: (b.items || []).map(theirItem) })) }
+}
+
 /** Their plan with every exercise and set of the owner's that it lacks. Never takes anything out. */
 function copyPlan(theirs, mine) {
   if (!mine?.blocks?.length) return theirs
-  if (!theirs?.blocks?.length) return { ...mine, blocks: mine.blocks.map(b => ({ ...b, items: (b.items || []).map(theirItem) })) }
+  if (!theirs?.blocks?.length) return theirPlan(mine)
   const have = new Map(keyed(theirs).map(x => [x.key, x.item]))
   const blocks = theirs.blocks.map(b => ({ ...b, items: [...(b.items || [])] }))
   let changed = false
@@ -232,15 +251,37 @@ export function sharedCopy(ownerEntry, { id, session = null, owner = null } = {}
   return copyExercises({ id: copyId, kind: 'daily', date: ownerEntry.date, data }, ownerEntry)
 }
 
-/** The owner's entry with someone added to it (or, `remove`, taken off it). */
+/** Are this workout's exercises kept the same on this person's side? */
+export const isSynced = (entry, personId) => sharedWithOf(entry).some(s => s.id === personId && s.sync === true)
+
+/** The owner's entry with someone added to it, synced (or, `remove`, taken off it). */
 export function withSharedPerson(ownerEntry, personId, entryId, { remove = false } = {}) {
   const rest = sharedWithOf(ownerEntry).filter(s => s.id !== personId)
-  const next = remove ? rest : [...rest, { id: personId, entryId }]
+  const next = remove ? rest : [...rest, { id: personId, entryId, sync: true }]
   const data = { ...(ownerEntry.data || {}) }
   if (next.length) data.sharedWith = next
   else delete data.sharedWith
   return { ...ownerEntry, data }
 }
+
+/** The owner's entry with sync for one person switched on or off. Their place in the list stays. */
+export function withSync(ownerEntry, personId, on) {
+  const links = sharedWithOf(ownerEntry)
+  if (!links.some(s => s.id === personId)) return ownerEntry
+  const sharedWith = links.map(s => {
+    if (s.id !== personId) return s
+    const { sync: _sync, ...link } = s
+    return on ? { ...link, sync: true } : link
+  })
+  return { ...ownerEntry, data: { ...(ownerEntry.data || {}), sharedWith } }
+}
+
+/**
+ * Which side a shared workout's sheet opens on: the one last viewed on this
+ * device (`saved`, a person id or null for the owner's), if that person is still
+ * on it. `on` is `sharedPeopleOn(entry, …)`.
+ */
+export const openSide = (saved, on = []) => (saved && on.some(p => p.id === saved) ? saved : null)
 
 /** A tombstone for their copy, the same shape the store writes. */
 export const tombstoneOf = (entry, now = new Date().toISOString()) => ({ ...entry, deleted: true, updatedAt: now })

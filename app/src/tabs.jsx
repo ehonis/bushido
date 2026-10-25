@@ -33,11 +33,11 @@ import { nameFor, titleFor, withCasualName } from './lib/naming.js'
 import { disciplineFor } from './lib/activities.js'
 import { UnloggedWorkouts } from './unlogged.jsx'
 import { currentMe } from './lib/whoami.js'
-import { applyOut, applyRun, canStart, workoutSides, planPeople, plannedLine } from './lib/trainer.js'
-import { sharePeople, sharedPeopleOn, withLine, addPerson, removePerson, withSharedPerson, copyExercises, hasExercises } from './lib/shared.js'
+import { applyOut, applyRun, canStart, workoutSides, planPeople, plannedLine, toneFor } from './lib/trainer.js'
+import { sharePeople, sharedPeopleOn, withLine, addPerson, removePerson, withSharedPerson, copyExercises, hasExercises, isSynced, withSync } from './lib/shared.js'
 import * as peopleApi from './lib/peopleapi.js'
-import { WithControl, PersonSwitch, SharedNote, TheirSide, usePersonCopy } from './sharedwith.jsx'
-import { SidesWorkout, PeopleDays } from './trainer.jsx'
+import { WithControl, PersonSwitch, SyncToggle, SharedNote, TheirSide, usePersonCopy, useSide, rememberSide } from './sharedwith.jsx'
+import { SidesWorkout, PeopleDays, usePersonLog } from './trainer.jsx'
 
 import { WhoopReadiness, WhoopSleep } from './whoop.jsx'
 
@@ -564,13 +564,16 @@ export function SessionSheet({
    * could add, empty for anyone else, while acting as someone and on a
    * one-person install. `on` is who is on this entry, re-derived every render;
    * `side` is the person whose copy the sheet is filling in, by id, or null for
-   * the owner's own.
+   * the owner's own, remembered per entry on this device. On their side the
+   * history is THEIR log (`theirLog`), never the owner's.
    */
   const people = planned && onSaveEntry ? sharePeople(me) : []
-  const on = people.length ? sharedPeopleOn(entry, me.people) : []
-  const [side, setSide] = useState(null)
+  const on = people.length ? sharedPeopleOn(entry, me.people).map(p => ({ ...p, tone: toneFor(people, p.id) })) : []
+  const [side, setSide] = useSide(entry?.id, on)
   const sidePerson = (side && on.find(p => p.id === side)) || null
   const theirs = usePersonCopy(sidePerson?.id, sidePerson?.entryId, sidePerson?.name)
+  const theirLog = usePersonLog(sidePerson?.id || null)
+  const synced = Boolean(sidePerson && isSynced(entry, sidePerson.id))
   const [sharing, setSharing] = useState({ busy: null, error: null })
   // The entry as of the latest render: an add or a removal awaits the server, and
   // must name the person on what the entry is THEN, not on what it was when tapped.
@@ -608,8 +611,10 @@ export function SessionSheet({
   const saveTheirPlan = (next) => { setDirty(true); theirs.update(cur => ({ ...cur, data: {
     ...cur.data, plan: next, name: next.title || cur.data?.name } })) }
   const theirPres = theirs.entry?.data?.plan || null
-  /* Your exercises onto their side, when you ask: added, never their numbers replaced. */
-  const canCopy = Boolean(theirs.entry && copyExercises(theirs.entry, entry) !== theirs.entry)
+  /* Your exercises onto their side, when you ask (sync off only): added, never their numbers replaced. */
+  const canCopy = Boolean(!synced && theirs.entry && copyExercises(theirs.entry, entry) !== theirs.entry)
+  /* Sync lives on the owner's link; the server does the keeping-the-same (server/sharedsync.js). */
+  const setSync = (person, v) => onSaveEntry(withSync(latestEntry.current, person.id, v))
   const copyMine = () => { setDirty(true); theirs.update(cur => copyExercises(cur, latestEntry.current)) }
   const theirDone = Boolean(theirs.entry && isDone(theirs.entry))
 
@@ -685,8 +690,9 @@ export function SessionSheet({
         </div>
       )}
     >
-      {/* Whose copy this sheet is filling in. Only on a shared workout. */}
+      {/* Whose copy this sheet is filling in, pinned while the sheet scrolls. Only on a shared workout. */}
       <PersonSwitch on={on} side={sidePerson?.id || null} onSide={setSide} />
+      {on.map(p => <SyncToggle key={p.id} person={p} on={isSynced(entry, p.id)} onChange={(v) => setSync(p, v)} />)}
 
       {/* Who else is on it, and the way to add someone. Owner-only; see sharedwith.jsx. */}
       {!sidePerson && (
@@ -703,13 +709,12 @@ export function SessionSheet({
 
       {sidePerson ? (
         <TheirSide session={opt} copy={theirs.entry} loading={theirs.loading} error={theirs.error}
-          person={sidePerson} ownerOut={entry?.data?.out} onSave={saveTheirs}
-          onCopyMine={canCopy ? copyMine : null} ownerHasExercises={hasExercises(entry)}
+          person={sidePerson} ownerOut={entry?.data?.out} onSave={saveTheirs} entries={theirLog.entries}
+          onCopyMine={canCopy ? copyMine : null} ownerHasExercises={hasExercises(entry)} synced={synced}
           /* A planned session is its plan, on their side as on the owner's: the same
-             exercises, with their own numbers. Their history is not the owner's, so
-             no "last time" from the owner's log. */
+             exercises, with their own numbers, and "last time" from THEIR log. */
           plan={theirPres && (
-            <PrescriptionEditor pres={theirPres} liftField={liftField} entries={[]} entryId={theirs.entry?.id}
+            <PrescriptionEditor pres={theirPres} liftField={liftField} entries={theirLog.entries} entryId={theirs.entry?.id}
               categories={thePlan?.quotaCategories || []} onChange={saveTheirPlan} compact />
           )} />
       ) : (<>
@@ -1044,14 +1049,14 @@ function DaySessions({
   const sides = training?.entry ? workoutSides(training.entry, currentMe()) : []
   if (sides.length > 1 && training.entry.data?.plan && runnable(null, training.entry.data.plan)) {
     return (
-      <SidesWorkout kind="runner" session={training.opt} sides={sides} ownerEntry={training.entry} entries={entries} initialSide={workoutSide}
+      <SidesWorkout kind="runner" session={training.opt} sides={sides} ownerEntry={training.entry} onSwitch={(id) => rememberSide(training.entry.id, id)} entries={entries} initialSide={workoutSide}
         onOwnerRun={(run, opts) => onSaveRun(training.entry, run, opts)}
         onExit={() => setWorkout(null)} />
     )
   }
   if (sides.length > 1 && !training.entry.data?.plan && hasWorkout(training.opt)) {
     return (
-      <SidesWorkout kind="mode" session={training.opt} sides={sides} ownerEntry={training.entry} initialSide={workoutSide}
+      <SidesWorkout kind="mode" session={training.opt} sides={sides} ownerEntry={training.entry} onSwitch={(id) => rememberSide(training.entry.id, id)} initialSide={workoutSide}
         onOwnerSave={(out) => onSaveOutputs(training.entry, out)}
         onOwnerDone={(v) => onSetDone(training.entry, v)}
         onExit={() => setWorkout(null)} />

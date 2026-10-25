@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   sharePeople, sharedWithOf, sharedPeopleOn, withLine, sharedOut, hasOwnMarks, copyIdFor,
   sharedCopy, withSharedPerson, addPerson, removePerson, copyExercises, hasExercises,
+  isSynced, withSync, openSide,
 } from './src/lib/shared.js'
 
 const tests = []
@@ -70,13 +71,50 @@ test('the copy takes the owner\'s id unless they logged something of their own t
 
 test('sharedWith is a clean list, and the line on a row names them', () => {
   const e = withSharedPerson(ride, 'sam', ride.id)
-  assert.deepEqual(sharedWithOf(e), [{ id: 'sam', entryId: ride.id }])
-  assert.deepEqual(sharedWithOf(withSharedPerson(e, 'sam', ride.id)), [{ id: 'sam', entryId: ride.id }], 'added twice')
+  assert.deepEqual(sharedWithOf(e), [{ id: 'sam', entryId: ride.id, sync: true }])
+  assert.deepEqual(sharedWithOf(withSharedPerson(e, 'sam', ride.id)), [{ id: 'sam', entryId: ride.id, sync: true }], 'added twice')
   assert.equal(sharedPeopleOn(e, PEOPLE)[0].name, 'Sam')
   assert.equal(withLine(e, PEOPLE), 'with Sam')
   assert.equal(withLine({ data: { sharedFrom: { id: 'owner', name: 'Alex' } } }), 'with Alex')
   assert.equal(withLine(ride, PEOPLE), null)
   assert.equal(withSharedPerson(e, 'sam', null, { remove: true }).data.sharedWith, undefined)
+})
+
+test('sync: on when someone is added, off for a share made before it existed, and switchable', () => {
+  const added = withSharedPerson(ride, 'sam', ride.id)
+  assert.equal(isSynced(added, 'sam'), true, 'someone added is not synced')
+  const older = { ...ride, data: { ...ride.data, sharedWith: [{ id: 'sam', entryId: ride.id }] } }
+  assert.equal(isSynced(older, 'sam'), false, 'an older share was read as synced')
+  const off = withSync(added, 'sam', false)
+  assert.deepEqual(off.data.sharedWith, [{ id: 'sam', entryId: ride.id }])
+  assert.equal(isSynced(withSync(off, 'sam', true), 'sam'), true)
+  assert.equal(withSync(ride, 'sam', true), ride, 'switched sync on for someone not on it')
+})
+
+test('a shared copy never carries the owner\'s draftId', () => {
+  const pres = { title: 'Legs', draftId: 'd-owner-1', blocks: [{ id: 'b0', items: [{ id: 'b0i0', kind: 'lift', name: 'Squat', sets: [{ id: 'b0i0s0', reps: 5, weight: 100 }] }] }] }
+  const mine = { ...ride, data: { ...ride.data, optId: 'planned', plan: pres } }
+  const copy = sharedCopy(mine, { owner: PEOPLE[0] })
+  assert.equal(copy.data.plan.title, 'Legs')
+  assert.equal('draftId' in copy.data.plan, false, 'the owner\'s draft id went into Sam\'s log')
+  const later = copyExercises({ ...copy, data: { ...copy.data, plan: undefined } }, mine)
+  assert.equal('draftId' in later.data.plan, false, 'copying exercises onto a plan-less copy carried the draft id')
+  assert.equal(mine.data.plan.draftId, 'd-owner-1', 'the owner\'s own plan lost its draft id')
+})
+
+test('a shared copy never carries the owner\'s planner conversation or reasoning', () => {
+  const pres = { title: 'Legs', why: 'your recovery was low', notes: ['yours'], changed: 'swapped', thread: [{ role: 'you', text: 'too much' }],
+    blocks: [{ id: 'b0', items: [{ id: 'b0i0', kind: 'lift', name: 'Squat', sets: [{ id: 'b0i0s0', reps: 5, weight: 100 }] }] }] }
+  const copy = sharedCopy({ ...ride, data: { ...ride.data, optId: 'planned', plan: pres } }, { owner: PEOPLE[0] })
+  assert.deepEqual([copy.data.plan.title, copy.data.plan.why, copy.data.plan.notes], ['Legs', '', []])
+  assert.equal('thread' in copy.data.plan || 'changed' in copy.data.plan, false, 'the owner\'s planner conversation went into Sam\'s log')
+})
+
+test('the sheet reopens on the side last viewed, while that person is still on it', () => {
+  const on = [{ id: 'sam', name: 'Sam' }]
+  assert.equal(openSide('sam', on), 'sam')
+  assert.equal(openSide('robin', on), null, 'opened on someone no longer on the workout')
+  assert.equal(openSide(null, on), null)
 })
 
 test('their own marks: done, a set, effort or a note count; the shared facts do not', () => {
@@ -93,7 +131,7 @@ test('adding someone writes their copy, then names them on the owner\'s entry; a
   const { copy, ownerEntry } = await addPerson({ ownerEntry: ride, person: PEOPLE[1], session: workoutCard, owner: PEOPLE[0], api })
   assert.equal(copy.id, ride.id)
   assert.equal(api.log.get(ride.id).data.done, false)
-  assert.deepEqual(sharedWithOf(ownerEntry), [{ id: 'sam', entryId: ride.id }])
+  assert.deepEqual(sharedWithOf(ownerEntry), [{ id: 'sam', entryId: ride.id, sync: true }])
   // She marks a set; the owner (or another device) adds her again: her marks stay.
   api.log.set(ride.id, { ...api.log.get(ride.id), data: { ...api.log.get(ride.id).data, out: { rpe: 4 } } })
   const again = await addPerson({ ownerEntry: ride, person: PEOPLE[1], session: workoutCard, api })

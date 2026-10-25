@@ -36,6 +36,14 @@ const schemas = {
   'planner revise schema': planner.REVISE_SCHEMA,
 }
 
+check('a revision can hand back each block\'s and exercise\'s uid, and is told to', () => {
+  const item = planner.REVISE_SCHEMA.properties.blocks.items.properties.items.items
+  const block = planner.REVISE_SCHEMA.properties.blocks.items
+  if (item.properties.uid?.type !== 'string' || block.properties.uid?.type !== 'string') throw new Error('the reply schema has no uid, so a revision cannot keep one')
+  if (item.required.includes('uid') || block.required.includes('uid')) throw new Error('uid must be optional: a new exercise has none')
+  if (!/keeps its `uid`/.test(planner.revisePrompt({ plan: { blocks: [] }, message: 'shorter', thread: [] }))) throw new Error('the revise prompt does not ask for the uid back')
+})
+
 check('no prompt assumes a gender or names the original user', () => {
   const bad = []
   for (const [k, text] of Object.entries(prompts('', ''))) {

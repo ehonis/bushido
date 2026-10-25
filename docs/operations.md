@@ -195,12 +195,15 @@ configured them. Without a CLI nothing changes for them: no "Write it for me".
   switcher with the name and colour in the header. Each side is that person's own entry with
   its own sets, weights, rest clock, done state and writer; the owner's goes through the
   owner's store, theirs through `/api/people/<id>/entry`. Only the side on screen makes a sound.
-- a shared workout's exercises: the plan's exercises and set counts (or the logged lifts,
-  blank) are in the other person's copy when they are added, and "Copy my exercises to …"
-  under their side brings over anything the owner added since. Numbers never are: their
-  reps, weights and marks are their own (a new exercise arrives with no weight), and a copy
-  only adds. Their side of a planned session shows their plan and can start the shared
-  runner on their side.
+- a shared workout's exercises: "Sync exercises with <name>" is on when someone is added.
+  While it is on, adding, removing, renaming or reordering exercises, or changing how many
+  sets one has, on either side shows up on the other; the server does the merge, so it works
+  from the other person's own phone too. Numbers never cross: their reps, weights and marks
+  are their own, and anything that arrives is blank. With it off, each side stays as it is
+  and "Copy my exercises to …" under their side brings over anything the owner added since.
+  Their side shows their own last time for every exercise, and the You / <name> bar stays at
+  the top of the sheet. Their side of a planned session shows their plan and can start the
+  shared runner on their side.
 
 ## API
 
