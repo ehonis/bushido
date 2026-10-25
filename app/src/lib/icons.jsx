@@ -25,6 +25,8 @@ import {
   BatteryLow, Thermometer, Plane, Briefcase, Bandage,
   // Copying the owner's exercises to someone on a shared workout, 2026-10-13.
   Copy,
+  // The interval timer's back button, 2026-10-25.
+  SkipBack,
   // Aliased: an unaliased `Infinity` import shadows the global inside this
   // module, which is a trap for whoever next edits it.
   Infinity as InfinityIcon,
@@ -46,6 +48,7 @@ const REGISTRY = {
   ListPlus,
   BatteryLow, Thermometer, Plane, Briefcase, Bandage,
   Copy,
+  SkipBack,
   Infinity: InfinityIcon,
 }
 

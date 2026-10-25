@@ -86,7 +86,11 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
   `<details>` → `Fold`; hover → nothing; `document`/`window.location` → never.
 - Haptics (`ui/haptics.ts`): `tap` for toggles and selection, `impact` for a primary action,
   `success` when something is done (a set logged, a session completed), `warn` before a destructive
-  confirm. The workout timer's cues are `lib/cues.ts`.
+  confirm. The workout timer's and the interval timer's cues are `lib/cues.ts` (haptics only:
+  nothing installed can beep without a native change).
+- **The interval timer** (`features/timer.tsx`, `lib/timer.js` copied byte for byte) is mounted
+  once as `TimerHost` in `app/(tabs)/_layout.tsx`. iOS presents one modal at a time, so the
+  session sheet and the + menu close first and call `openTimerAfterSheet`.
 - Scrolling screens pad their foot by `FAB_CLEAR` (or `DOCK_CLEAR` with no + row) so nothing ends
   up under the floating bar.
 

@@ -75,6 +75,7 @@ const FAB_ROWS = [
   { key: 'rest', icon: 'Sunset', tint: null, title: 'Log a rest day', sub: 'A day off on purpose' },
   { key: 'plan', icon: 'Sparkles', tint: null, title: 'Plan a workout', sub: 'Build it yourself, or have it written for you' },
   { key: 'week', icon: 'CalendarRange', tint: null, title: 'Plan the week', sub: 'Talk this week’s counts through' },
+  { key: 'timer', icon: 'Timer', tint: null, title: 'Interval timer', sub: 'Work, rest and rounds' },
 ] as const
 
 /**
@@ -83,15 +84,16 @@ const FAB_ROWS = [
  * A sheet from the bottom, because the button is at the bottom and a menu that
  * opens away from your thumb is one you reach across for.
  */
-export function FabMenu({ onClose, onPlan, onLog, onPlanWeek, onRest }: {
+export function FabMenu({ onClose, onPlan, onLog, onPlanWeek, onRest, onTimer = null }: {
   onClose: () => void
   onPlan: () => void
   onLog: () => void
   onPlanWeek: (() => void) | null
   onRest: (() => void) | null
+  onTimer?: (() => void) | null
 }) {
   const insets = useSafeAreaInsets()
-  const handlers: Record<string, (() => void) | null> = { plan: onPlan, log: onLog, rest: onRest, week: onPlanWeek }
+  const handlers: Record<string, (() => void) | null> = { plan: onPlan, log: onLog, rest: onRest, week: onPlanWeek, timer: onTimer }
   return (
     <RNModal visible transparent animationType="slide" onRequestClose={onClose}>
       <GestureHandlerRootView style={{ flex: 1 }}>

@@ -73,6 +73,7 @@ import ArrowUpDown from 'lucide-react-native/icons/arrow-up-down'
 import Play from 'lucide-react-native/icons/play'
 import Pause from 'lucide-react-native/icons/pause'
 import SkipForward from 'lucide-react-native/icons/skip-forward'
+import SkipBack from 'lucide-react-native/icons/skip-back'
 import Minus from 'lucide-react-native/icons/minus'
 import Flag from 'lucide-react-native/icons/flag'
 import Volume2 from 'lucide-react-native/icons/volume-2'
@@ -126,7 +127,7 @@ import Weight from 'lucide-react-native/icons/weight'
 import Vibrate from 'lucide-react-native/icons/vibrate'
 
 const REGISTRY: Record<string, React.ComponentType<any>> = {
-  CalendarDays, Map, Gauge, NotebookPen, ShoppingBag, FlaskConical, Feather, Shield, Dumbbell, Mountain, Moon, LogOut, Flame, Target, Timer, Check, Circle, ChevronDown, TriangleAlert, CircleCheck, CircleSlash, Info, ExternalLink, Eye, EyeOff, X, Pencil, Footprints, Hand, Sunrise, RotateCw, ClipboardCheck, PersonStanding, Move, Sunset, Umbrella, Repeat, Grid2x2, Sprout, Users, Route, Plus, Layers, Expand, Activity, Bike, Sparkles, Waypoints, MoveHorizontal, ArrowUpDown, Play, Pause, SkipForward, Minus, Flag, Volume2, VolumeX, HeartPulse, House, GitBranch, Bell, BellOff, Send, ThumbsUp, ThumbsDown, Zap, Wind, TrendingUp, Droplets, CalendarRange, MessagesSquare, ListPlus, BatteryLow, Thermometer, Plane, Briefcase, Bandage, Infinity: InfinityIcon,
+  CalendarDays, Map, Gauge, NotebookPen, ShoppingBag, FlaskConical, Feather, Shield, Dumbbell, Mountain, Moon, LogOut, Flame, Target, Timer, Check, Circle, ChevronDown, TriangleAlert, CircleCheck, CircleSlash, Info, ExternalLink, Eye, EyeOff, X, Pencil, Footprints, Hand, Sunrise, RotateCw, ClipboardCheck, PersonStanding, Move, Sunset, Umbrella, Repeat, Grid2x2, Sprout, Users, Route, Plus, Layers, Expand, Activity, Bike, Sparkles, Waypoints, MoveHorizontal, ArrowUpDown, Play, Pause, SkipForward, SkipBack, Minus, Flag, Volume2, VolumeX, HeartPulse, House, GitBranch, Bell, BellOff, Send, ThumbsUp, ThumbsDown, Zap, Wind, TrendingUp, Droplets, CalendarRange, MessagesSquare, ListPlus, BatteryLow, Thermometer, Plane, Briefcase, Bandage, Infinity: InfinityIcon,
   Waves, Trash2,
   // Native chrome.
   History,

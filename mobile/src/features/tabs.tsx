@@ -23,6 +23,7 @@ import { progress as quotaProgress, mondayOf, weekDays, shiftWeek, quotaCounts, 
 import { isDone, isRepeatable, repeatLabel, extraEntryId, doneWhenPlaced, markDone } from '../lib/store.js'
 import { testEntryFor, testEntryId, testFor } from '../lib/tests.js'
 import { WorkoutMode } from './workout'
+import { openTimerAfterSheet, timerRequestFor } from './timer'
 import { WorkoutRunner } from './runner'
 import { QuotaBars } from './quotabars'
 import { PrescriptionEditor, PlanTalk, PlanWhy, liftFieldOf } from './planner'
@@ -705,6 +706,12 @@ export function SessionSheet({
           <DoneButton opt={opt} planned={planned} done={done}
             onLog={() => { setDirty(true); onLog(opt) }}
             onSetDone={(v) => { setDirty(true); onSetDone?.(entry, v) }} />
+          {/* Any workout can use a clock. A card that declares one offers it as a
+              preset. One modal at a time on iOS: the sheet goes, then the timer comes. */}
+          {opt.role !== 'rest' && (
+            <Btn icon="Timer" kind="secondary" title="Interval timer" style={st.action}
+              onPress={() => { const req = timerRequestFor(opt, entry); onClose(); openTimerAfterSheet(req) }} />
+          )}
         </View>
       )}
     >
