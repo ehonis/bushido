@@ -49,6 +49,7 @@
  */
 
 import { localIso } from './dates.js'
+import { isDone } from './store.js'
 
 export const CHECKIN_VERSION = 1
 
@@ -293,7 +294,7 @@ export function dayContext({ rec, mainEntry, extraEntries = [], menu = [], iso =
     optId: e.data?.optId || null,
     name: e.data?.name || name(e.data?.optId),
     slot: e.data?.slot === 'extra' ? 'extra' : 'main',
-    done: e.data?.done !== false,
+    done: isDone(e),
   }))
   return {
     iso,

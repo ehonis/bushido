@@ -367,6 +367,28 @@ async function writeAtomic(space, doc) {
   await fsp.rename(tmp, space.stateFile)
 }
 
+/*
+ * An old client's untick, kept as one.
+ *
+ * Before 2026-10-25 "Done — tap to undo" wrote a bare `done: false`. Under the
+ * done-by-default rule (AGENTS.md §4) that reads as done again on any day that
+ * has arrived, so an old phone or a cached web bundle would untick and nothing
+ * would change. New code never writes done to not-done without `undone: true`
+ * (`markDone`), so a bare `done: false` landing on an entry stored as done can
+ * only be that old toggle, and it gets the marker here. It also keeps a marker
+ * the stored copy already has, or the old device re-sending its copy at the same
+ * `updatedAt` would strip it. An entry stored as `done: false` with no marker (a
+ * plan, or a legacy one) is left exactly as it is.
+ */
+function keepUntick(mine, theirs) {
+  if (!mine || mine.deleted || theirs.deleted || (theirs.kind || mine.kind) !== 'daily') return theirs
+  const was = mine.data || {}
+  const now = theirs.data || {}
+  if (now.done !== false || now.undone === true) return theirs
+  if (was.done === false && was.undone !== true) return theirs
+  return { ...theirs, data: { ...now, undone: true } }
+}
+
 /** Last-write-wins merge, per entry id and per settings blob. */
 function mergeState(base, incoming) {
   const out = {
@@ -378,7 +400,7 @@ function mergeState(base, incoming) {
     if (!entry || typeof entry !== 'object') continue
     const mine = out.entries[id]
     const theirs = { ...entry, id, updatedAt: entry.updatedAt || new Date().toISOString() }
-    if (!mine || String(theirs.updatedAt) >= String(mine.updatedAt || '')) out.entries[id] = theirs
+    if (!mine || String(theirs.updatedAt) >= String(mine.updatedAt || '')) out.entries[id] = keepUntick(mine, theirs)
   }
   if (incoming.settings && String(incoming.settingsUpdatedAt || '') > String(out.settingsUpdatedAt)) {
     out.settings = incoming.settings
@@ -557,13 +579,15 @@ function totemSecret() {
   return config.totem().secret()
 }
 
-/**
- * A session only counts once you have said you did it. Putting one on the day —
- * swapping your main, adding an extra — is planning, not completing, and must
- * never mark the habit. Entries written before `done` existed have no flag and
- * were only ever created by pressing "log this", so they count.
+/*
+ * Done once its day has arrived, unless marked undone (AGENTS.md §4). The ONE
+ * server definition is in server/notify-facts.js, word for word the app's, so the
+ * habit and the "nice session" push cannot disagree about it. It takes today as
+ * a date, and the server's today is the configured timezone's, not the machine's.
  */
-const isDone = (entry) => !entry?.deleted && entry?.data?.done !== false
+const isDone = notifyFacts.isDone
+const todayKey = (now = new Date()) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: config.tz(), year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
 
 /**
  * Everything except a deliberate rest day marks the habit — the Totem habit is
@@ -595,10 +619,16 @@ function describeSession(entry, withNote) {
  * One habit record per DAY, not per session. A day can hold a main session plus
  * any number of extras; syncing them individually made the last one written win
  * and silently discard the rest.
+ *
+ * A session planned for a later day is not in that day's record until the day
+ * arrives (`isDone`). Nothing wakes at midnight to send it then: the next write
+ * after that does, because every sync re-sends the record of every day the
+ * payload holds (`syncDailyEntries`), and the record is rebuilt whole each time,
+ * so sending it again is harmless.
  */
-function habitBodyForDay(dateIso, state) {
+function habitBodyForDay(dateIso, state, today = todayKey()) {
   const done = Object.values(state?.entries || {})
-    .filter(e => e?.kind === 'daily' && e.date === dateIso && isDone(e))
+    .filter(e => e?.kind === 'daily' && e.date === dateIso && isDone(e, today))
     .sort((a, b) =>
       Number(a.data?.slot === 'extra') - Number(b.data?.slot === 'extra') ||
       String(a.id).localeCompare(String(b.id)))
@@ -1016,7 +1046,7 @@ function syncDailyEntries(incoming, state, before) {
   // only thing that knows the session was already done before this write touched
   // it. Fire-and-forget for the same reason the habit push is: a notification
   // failing must never fail the log.
-  for (const entry of notifyFacts.completedDailyEntries(incoming, before)) {
+  for (const entry of notifyFacts.completedDailyEntries(incoming, before, todayKey())) {
     notifyWorkoutLogged(entry).catch(() => {})
   }
 }
@@ -1623,8 +1653,9 @@ function proxySettingsRefusal(mode, req, p) {
  *     Both markers are stamped here from users.json, never taken from the request.
  *   - A planned week is their `quota-<monday>` entry, the same id their own Week
  *     tab writes; a planned session is a daily entry with a derivable id.
- *   - Creating is planning, not completing (AGENTS.md §4): a new daily entry is
- *     `done: false` whatever the request said.
+ *   - A new daily entry is `done: false` whatever the request said, so it never
+ *     looks like their own tick (`hasOwnMarks` in lib/shared.js). `isDone` still
+ *     reads it as done from its day on, like any planned session (AGENTS.md §4).
  */
 const DAILY_ID_RE = /^daily-(\d{4}-\d{2}-\d{2})(?:-[\w.-]{1,80})?$/
 const QUOTA_ID_RE = /^quota-(\d{4}-\d{2}-\d{2})$/

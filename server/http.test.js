@@ -1161,6 +1161,85 @@ process.stdin.on('end', () => {
   })
   await forced.stop()
 
+  /* --------------------------------------------------- done by default (#27) */
+  {
+    // A notify core that records what it would have sent, and a Totem bridge
+    // that records the habit records. Nothing leaves the machine.
+    const core = mkdtemp('bushido-fakecore-')
+    const pushLog = path.join(core, 'sent.jsonl')
+    const files = {
+      'push.mjs': "export const generateVapidKeys = () => ({ publicKey: 'p', privateKey: 'k' })\n",
+      'store.mjs': 'export const createNotifyStore = () => ({ applyPlan: async () => {} })\n',
+      'notifier.mjs': "import fs from 'node:fs'\nexport const createNotifier = () => ({ deliver: async (m) => fs.appendFileSync(process.env.FAKE_PUSH_LOG, JSON.stringify(m) + '\\n') })\n",
+      'http.mjs': 'export const createPushHttpHandler = () => async () => false\nexport const PUSH_PUBLIC_PATHS = []\n',
+      'plan.mjs': 'export const planDay = () => ({ entries: [] })\n',
+      'schedule.mjs': 'export {}\n',
+    }
+    for (const [f, body] of Object.entries(files)) fs.writeFileSync(path.join(core, f), body)
+    const habit = []
+    const bridge = require('http').createServer((q, r) => {
+      let b = ''
+      q.on('data', c => { b += c })
+      q.on('end', () => { if (q.url === '/api/habits/log') habit.push(JSON.parse(b)); r.writeHead(200, { 'content-type': 'application/json' }); r.end('{}') })
+    })
+    await new Promise(r => bridge.listen(0, '127.0.0.1', r))
+    const T = new Date().toISOString().slice(0, 10) // BUSHIDO_TZ=UTC below
+    const settings = { auth: { mode: 'proxy' },
+      totem: { url: `http://127.0.0.1:${bridge.address().port}`, secret: 'bridge-secret-for-tests', habitSync: true, goals: false } }
+    const d = await boot({ seed: { 'settings.json': JSON.stringify(settings) },
+      env: { BUSHIDO_AUTH: 'proxy', BUSHIDO_TZ: 'UTC', BUSHIDO_NOTIFY_CORE: core, FAKE_PUSH_LOG: pushLog } })
+    await waitFor(() => /notifications ready/.test(d.log()), 'the fake notify core')
+    const sent = () => (fs.existsSync(pushLog) ? fs.readFileSync(pushLog, 'utf8').trim().split('\n').filter(Boolean) : [])
+    const settle = () => new Promise(r => setTimeout(r, 400))
+    const id = `daily-${T}`
+    const at = (h) => `${T}T${String(h).padStart(2, '0')}:00:00.000Z`
+    const run = (h, data) => ({ id, kind: 'daily', date: T, updatedAt: at(h), data: { optId: 'log-workout', name: 'Run', slot: 'main', ...data } })
+    const postEntry = (entry) => get(`${d.base}/api/entry`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entry }) })
+    const putState = (entries) => get(`${d.base}/api/state`, { method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ state: { entries: Object.fromEntries(entries.map(e => [e.id, e])) } }) })
+    const stored = async () => (await (await get(`${d.base}/api/state`)).json()).state.entries[id]
+
+    try {
+      await step('done by default: picking a session for today counts for the habit, and sends no push yet', async () => {
+        eq((await postEntry(run(1, { done: true, out: { activity: 'run' } }))).status, 200)
+        await settle()
+        eq(habit.at(-1)?.count, 1, 'the habit did not count a session done by default')
+        eq(sent().length, 0, 'a "nice session" went out before anything was logged')
+      })
+      await step('done by default: the first thing logged on it is the one push', async () => {
+        await postEntry(run(2, { done: true, out: { activity: 'run', distance: 5 } }))
+        await settle()
+        eq(sent().length, 1, 'logging a distance did not announce it')
+        await postEntry(run(3, { done: true, out: { activity: 'run', distance: 5, rpe: 6 } }))
+        await settle()
+        eq(sent().length, 1, 'an edit after that announced it again')
+      })
+      await step('an old client\'s untick (a bare done: false) reads as not done: marker added, habit 0, no push', async () => {
+        // What "Done — tap to undo" wrote before #27, through a full-log PUT.
+        const untick = run(4, { done: false, out: { activity: 'run', distance: 5, rpe: 6 } })
+        eq((await putState([untick])).status, 200)
+        await settle()
+        const e = await stored()
+        eq([e.data.done, e.data.undone, e.updatedAt], [false, true, at(4)], 'the untick was not kept as one')
+        eq(habit.at(-1)?.count, 0, 'the habit still counted a session the user unticked')
+        eq(sent().length, 1, 'an untick sent a push')
+        // The old device re-sends its copy at the same updatedAt: the marker stays.
+        await putState([untick])
+        eq((await stored()).data.undone, true, 'a same-stamp re-send stripped the marker')
+      })
+      await step('a planned or legacy done: false is never given the marker', async () => {
+        const later = `daily-${T}-planned`
+        await postEntry({ id: later, kind: 'daily', date: T, updatedAt: at(5), data: { optId: 'planned', done: false } })
+        await postEntry({ id: later, kind: 'daily', date: T, updatedAt: at(6), data: { optId: 'planned', done: false, out: { notes: 'x' } } })
+        const e = (await (await get(`${d.base}/api/state`)).json()).state.entries[later]
+        eq('undone' in e.data, false, 'a plan was turned into an untick')
+      })
+    } finally {
+      await d.stop()
+      bridge.close()
+    }
+  }
+
   if (failed) { console.log(`\n${failed} failed`); process.exit(1) }
   console.log('\nhttp ok')
 })().catch((e) => { console.error(e); process.exit(1) })

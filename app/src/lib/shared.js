@@ -210,9 +210,10 @@ export function copyIdFor(ownerEntry, theirDay = []) {
 }
 
 /**
- * The other person's copy of the owner's entry. `done: false` (planning is not
- * completing); the session, the shared facts and the owner's exercises without
- * the owner's weights; none of the owner's numbers, effort or notes.
+ * The other person's copy of the owner's entry. `done: false`, which `isDone` reads
+ * as done from its day on (AGENTS.md §4) without it counting as their own mark;
+ * the session, the shared facts and the owner's exercises without the owner's
+ * weights; none of the owner's numbers, effort or notes.
  */
 export function sharedCopy(ownerEntry, { id, session = null, owner = null } = {}) {
   const d = ownerEntry?.data || {}

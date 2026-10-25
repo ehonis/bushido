@@ -204,10 +204,19 @@ check('a social day logged at intensity 4 counts as a hard finger day', () => {
   ok(scoreSession(opt('board'), ctx).blocked, 'and it must block the next day')
 })
 
-check('planning something is not doing it', () => {
+check('a session marked undone does not spend the budget', () => {
+  const skipped = { ...day('2026-08-12', 'board'), data: { slot: 'main', optId: 'board', level: 4, done: false, undone: true, out: {} } }
+  const ctx = buildContext({ plan, entries: [skipped], iso: '2026-08-13' })
+  eq(ctx.hardThisWeek, 0, 'a session the user said they did not do must not spend the budget')
+})
+
+check('a session planned on a day that has arrived does spend it (done by default)', () => {
+  // `done: false` with no undo is a plan, and a plan is done once its day comes
+  // (AGENTS.md §4). Every stored entry like this reads the same way.
   const planned = { ...day('2026-08-12', 'board'), data: { slot: 'main', optId: 'board', level: 4, done: false, out: {} } }
   const ctx = buildContext({ plan, entries: [planned], iso: '2026-08-13' })
-  eq(ctx.hardThisWeek, 0, 'an unfinished session must not spend the budget')
+  eq(ctx.hardThisWeek, 1, 'yesterday\'s planned board session is a hard day now')
+  eq(ctx.hardGap, 1, 'and it blocks today like one')
 })
 
 /* -------------------------------------------------- everything else counts */
@@ -804,9 +813,12 @@ check('nothing un-logs training he has already done', () => {
   ok(!b.remove.ok, 'no take-it-off button')
   ok(/already marked/.test(b.remove.why), b.remove.why)
 
+  const undone = { ...done, data: { ...done.data, done: false, undone: true } }
+  ok(buttons('max-hangs', { entries: [undone, ...checkin({})] }).remove.ok,
+    'but one marked undone can come off')
   const planned = { ...done, data: { ...done.data, done: false } }
-  ok(buttons('max-hangs', { entries: [planned, ...checkin({})] }).remove.ok,
-    'but one he only planned can come off')
+  ok(!buttons('max-hangs', { entries: [planned, ...checkin({})] }).remove.ok,
+    'one only planned is done once its day has come, so it stays')
 })
 
 check('an extra that would overrun the evening has no add button', () => {

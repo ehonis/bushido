@@ -20,7 +20,7 @@ import { SessionLog, PriorNote, DetailsSheet } from './sessionlog'
 import { sessionStats } from '../lib/stats.js'
 import { localIso, fromIso } from '../lib/dates.js'
 import { progress as quotaProgress, mondayOf, weekDays, shiftWeek, quotaCounts, quotaEntry, suggest, buildQuotaEntry } from '../lib/quota.js'
-import { isDone, isRepeatable, repeatLabel, extraEntryId } from '../lib/store.js'
+import { isDone, isRepeatable, repeatLabel, extraEntryId, doneWhenPlaced, markDone } from '../lib/store.js'
 import { testEntryFor, testEntryId, testFor } from '../lib/tests.js'
 import { WorkoutMode } from './workout'
 import { WorkoutRunner } from './runner'
@@ -50,7 +50,7 @@ import { SidesWorkout, PeopleDays } from './trainer'
 import * as trainerLib from '../lib/trainer.js'
 
 // Default parameters in the ported JS narrow TypeScript's inference (mobile/AGENTS.md).
-const { applyOut, applyRun, workoutSides, planPeople, plannedLine } = trainerLib as any
+const { applyOut, applyRun, canStart, workoutSides, planPeople, plannedLine } = trainerLib as any
 
 // The lib is the web's JS; its default-parameter destructuring makes TypeScript
 // infer narrower types than the functions take, so they are called through these.
@@ -198,8 +198,9 @@ export function TodayTab({
     return dates[0] || null
   }, [entries])
 
-  // Putting a session on the day does NOT complete it — that is a separate tap.
-  // A rest day is the exception: choosing it is the whole action.
+  // A session put on today or an earlier day is done; on a later day it is
+  // planned, and done from its day on (`isDone`). What an existing entry says is
+  // kept, a "Mark undone" included. A rest day is done whenever it is chosen.
   const sessionData = (opt: any, prev: any) => {
     const out = prev?.data?.out || {}
     return {
@@ -208,7 +209,7 @@ export function TodayTab({
       name: _titleFor(opt, out, prev?.data?.plan),
       minutes: _minutesFor(opt, out),
       level: _levelFor(opt, out),
-      done: opt.role === 'rest' ? true : (prev?.data?.done ?? false),
+      done: opt.role === 'rest' ? true : (prev ? prev.data?.done ?? true : (doneWhenPlaced as any)(iso)),
       out,
     }
   }
@@ -248,8 +249,7 @@ export function TodayTab({
    */
   const removeSession = (entry: any) => dropEntry(entry)
 
-  const setDone = (entry: any, done: boolean) =>
-    upsertEntry({ ...entry, data: { ...entry.data, done } })
+  const setDone = (entry: any, done: boolean) => upsertEntry(markDone(entry, done))
 
   /*
    * "Just miles", from the day's own sheet. Same write as the Log feed's:
@@ -639,7 +639,7 @@ export function SessionSheet({
   const setTheirsDone = (v: boolean) => {
     setDirty(true)
     if (v) success(); else tap()
-    theirs.update((cur: any) => ({ ...cur, data: { ...cur.data, done: v } }))
+    theirs.update((cur: any) => markDone(cur, v))
   }
   const theirDone = Boolean(theirs.entry && isDone(theirs.entry))
   /* Their plan, edited from their side: the same write `savePlan` makes on the owner's. */
@@ -680,12 +680,12 @@ export function SessionSheet({
           : theirs.entry && !theirs.entry.deleted ? (
             <View style={st.sheetActions}>
               {/* Their side starts the same shared workout, on their side of the switcher. */}
-              {onStartWorkout && pres && theirPres && runnable(opt, theirPres) && !theirDone && (
+              {onStartWorkout && pres && theirPres && runnable(opt, theirPres) && canStart(theirs.entry) && (
                 <Btn icon="Play" title="Start the workout" style={st.action}
                   onPress={() => { setDirty(true); onStartWorkout(opt, sidePerson.id) }} />
               )}
               <Btn kind={theirDone ? 'ghost' : 'primary'} icon={theirDone ? 'CircleCheck' : 'Circle'} style={st.action}
-                title={theirDone ? `Done for ${sidePerson.name} — tap to undo` : `Mark done for ${sidePerson.name}`}
+                title={theirDone ? `Done for ${sidePerson.name} · Mark undone` : `Mark done for ${sidePerson.name}`}
                 onPress={() => setTheirsDone(!theirDone)} />
             </View>
           ) : null
@@ -696,8 +696,9 @@ export function SessionSheet({
       ) : (
         <View style={st.sheetActions}>
           {/* A planned session always offers the runner, whether or not the CARD
-              declares a timer — what it walks is the prescription on the entry. */}
-          {onStartWorkout && runnable(opt, pres) && !done && (
+              declares a timer — what it walks is the prescription on the entry.
+              Not "while not done": today's session is done before it starts. */}
+          {onStartWorkout && runnable(opt, pres) && (!planned || canStart(entry)) && (
             <Btn icon="Play" title={pres ? 'Start the workout' : 'Start workout'} style={st.action}
               onPress={() => { setDirty(true); onStartWorkout(opt) }} />
           )}
@@ -805,9 +806,10 @@ export function SessionSheet({
 }
 
 /**
- * Completion, made explicit. Adding a session to the day and completing it are
- * two different acts — conflating them silently marked the habit done for
- * workouts that were only ever swapped in.
+ * Done, and the way to say it was not. A session on today or an earlier day is
+ * done by default (AGENTS.md §4), so the control's job is mostly "Mark undone":
+ * a workout the user skipped, which then stays undone however many days pass.
+ * "Mark done" puts it back.
  */
 function DoneButton({ opt, planned, done, onLog, onSetDone }: {
   opt: any
@@ -829,7 +831,7 @@ function DoneButton({ opt, planned, done, onLog, onSetDone }: {
         ? { backgroundColor: 'transparent', borderColor: mix(colors.vizGood, 40, colors.line) }
         : { backgroundColor: colors.accent, borderColor: colors.accent }]}>
       <Icon name={done ? 'CircleCheck' : 'Circle'} size={16} color={fg} />
-      <T size={15} weight={600} color={fg}>{done ? 'Done — tap to undo' : 'Mark as done'}</T>
+      <T size={15} weight={600} color={fg}>{done ? 'Done · Mark undone' : 'Mark done'}</T>
     </Press>
   )
 }

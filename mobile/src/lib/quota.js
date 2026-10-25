@@ -193,24 +193,23 @@ const weekDaily = (entries, days) => {
     isTraining(e))                 // nor is a commute
 }
 
-const doneDaily = (entries, days) => weekDaily(entries, days).filter(isDone)
+const doneDaily = (entries, days, today) => weekDaily(entries, days).filter(e => isDone(e, today))
 
 /*
  * On the week, not done yet.
  *
- * A session the user has PUT on a day and not finished — the planner's output sitting
- * on tonight, a card the user added this morning. It is not progress and it must never
- * be counted as any, but it is not nothing either: "1 of 2, and the second one is
- * already written down" is a different week from "1 of 2, and I have not thought
- * about it". On the bars it is a dotted continuation of the fill, showing that it
- * is planned, just not done.
+ * A session the user has put on a day still to come — the planner's output sitting
+ * on Saturday. It is not progress and it must never be counted as any, but it is
+ * not nothing either: "1 of 2, and the second one is already written down" is a
+ * different week from "1 of 2, and I have not thought about it". On the bars it is
+ * a dotted continuation of the fill, showing that it is planned, just not done.
  *
- * Deliberately spans the WHOLE week rather than today onward. A session planned
- * for Saturday is planned; a session planned for Tuesday and never done is the
- * honest thing for the bar to keep showing, because it is still on the log as
- * something the user said the user would do.
+ * Since 2026-10-25 a session is done once its day arrives (`isDone`), so what is
+ * left here is the days still to come, plus anything on an earlier day the user
+ * marked undone: still on the log as something they meant to do, which is the
+ * honest thing for the bar to keep showing.
  */
-const pendingDaily = (entries, days) => weekDaily(entries, days).filter(e => !isDone(e))
+const pendingDaily = (entries, days, today) => weekDaily(entries, days).filter(e => !isDone(e, today))
 
 /**
  * Where the week stands, per category.
@@ -220,13 +219,15 @@ const pendingDaily = (entries, days) => weekDaily(entries, days).filter(e => !is
  * with `done: 2` is a real and uninteresting state — the user rode twice in a week that
  * did not ask them to, which is allowed and always was.
  */
-export function progress({ plan, entries = [], iso }) {
+export function progress({ plan, entries = [], iso, today }) {
   const monday = mondayOf(iso)
   const days = weekDays(monday)
   const menu = plan?.dailyMenu || []
   const counts = quotaCounts(entries, monday)
-  const logged = doneDaily(entries, days)
-  const waiting = pendingDaily(entries, days)
+  // `today` is the real one (`isDone`'s default), not the day being viewed: a
+  // future week's sessions are planned, whichever week the screen is on.
+  const logged = doneDaily(entries, days, today)
+  const waiting = pendingDaily(entries, days, today)
 
   /*
    * One entry can land in more than one bucket — see `categoriesOf`. It is still

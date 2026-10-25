@@ -42,16 +42,37 @@ check('nothing logged at all is zero, and the header renders nothing', () => {
   eq(streakDays([], '2026-09-15'), 0)
 })
 
-check('a session put on the day but not finished does not count', () => {
-  // Putting a session on the day is planning; completing it is a separate act.
-  // Today's counts as the grace day, so the chain behind it still stands.
+check('DONE BY DEFAULT: a session planned for today counts today', () => {
+  // `done: false` with no undo is a plan, done once its day arrives (AGENTS.md §4).
   eq(streakDays([day('2026-09-15', { done: false }), day('2026-09-14'), day('2026-09-13')],
+    '2026-09-15'), 3)
+})
+
+check('DONE BY DEFAULT: a session planned for tomorrow is not part of the streak yet', () => {
+  const tomorrow = day('2026-09-16', { done: false })
+  eq(streakDays([tomorrow, day('2026-09-15')], '2026-09-15'), 1)
+  eq([...trainedDates([tomorrow], '2026-09-15')], [], 'not done the day before')
+  eq([...trainedDates([tomorrow], '2026-09-16')], ['2026-09-16'], 'done on the day, with nothing written')
+})
+
+check('DONE BY DEFAULT: an old entry stored done: false on a past day counts', () => {
+  // Never rewritten, read as the plan it was. The owner's call; see the PR for #27.
+  eq(streakDays([day('2026-09-14', { done: false }), day('2026-09-13')], '2026-09-15'), 2)
+})
+
+check('marked undone does not count today', () => {
+  // Today's counts as the grace day, so the chain behind it still stands.
+  eq(streakDays([day('2026-09-15', { done: false, undone: true }), day('2026-09-14'), day('2026-09-13')],
     '2026-09-15'), 2)
 })
 
-check('an unfinished day in the middle breaks the chain outright', () => {
+check('a day marked undone in the middle breaks the chain outright, however long ago', () => {
   // Not "skipped" — it is a gap, and everything before it is behind a gap.
-  eq(streakDays([day('2026-09-14', { done: false }), day('2026-09-13')], '2026-09-15'), 0)
+  eq(streakDays([day('2026-09-14', { done: false, undone: true }), day('2026-09-13')], '2026-09-15'), 0)
+})
+
+check('"Mark done" after "Mark undone" counts again, whatever an older client left', () => {
+  eq(streakDays([day('2026-09-14', { done: true, undone: true }), day('2026-09-13')], '2026-09-15'), 2)
 })
 
 check('a deleted entry is a gap like any other', () => {

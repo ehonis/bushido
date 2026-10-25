@@ -28,7 +28,8 @@ reasons behind the design, and the things that have been removed on purpose.
 5. **AI runs are constrained by `--allowedTools` / `--disallowedTools`, not by prompt
    text.** No AI run can write `data/state.json` or the plan file.
 6. **Resolve an entry's session with `optFor`, never a raw `menu.find`.**
-7. **`data.done` is the only thing that means "I did this."** Use `isDone()`.
+7. **`isDone()` is the only thing that means "I did this."** A session is done once its
+   day arrives unless marked undone (§4); never read the raw `data.done` flag.
 8. **WHOOP/Strava caches are disposable; the snapshot on an entry is the user's log.**
 9. **Every integration is optional and off on a fresh install.** Code must work with no
    bridge, no notify core, no brain file, no AI CLI, and the starter content.
@@ -80,7 +81,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Thing | Path | Notes |
 |---|---|---|
 | Render smoke suite | `app/smoke.jsx` | `npm run smoke` in `app/`. Mounts every tab and session viewer against real content. |
-| Store, merge, `isDone`, `isTraining`, entry ids | `app/src/lib/store.js` | The server has a matching copy of `isDone` in `server/server.js`. |
+| Store, merge, `isDone`, `markDone`, `doneWhenPlaced`, `isTraining`, entry ids | `app/src/lib/store.js` | The server's word-for-word copy of `isDone` is in `server/notify-facts.js` (§4). |
 | Session lookup | `app/src/lib/menu.js` | `optFor(menu, optId)`; renamed cards declare old ids as `aka`. |
 | Quotas | `app/src/lib/quota.js`, `app/src/quotabars.jsx` | The week. Quota set = entry `quota-<monday>`. |
 | Recommendation engine | `app/src/lib/recommend.js` | Pure. Not shown on Today any more (§10), but it is where the two finger rules live. |
@@ -282,7 +283,8 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
 - **Shared workouts** (`lib/shared.js`, `sharedwith.jsx`, `peopleRoute` in `server.js`):
   the owner adds someone to one workout from the sheet ("With …") without acting as
   them. Their copy is an ordinary entry in THEIR log (same derivable id unless they
-  logged something of their own there, then an `extraEntryId` extra), `done: false`,
+  logged something of their own there, then an `extraEntryId` extra), `done: false` (done
+  from its day on by §4, never their own tick, which is what `hasOwnMarks` reads),
   carrying the workout's shared facts (`SHARED_OUT_KEYS`) and the owner's EXERCISES,
   never the owner's numbers: reps, weights, effort, feel, notes, gear and WHOOP/Strava
   show only as placeholders on their side. The exercises are copied when they are added,
@@ -314,7 +316,7 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     readiness is left out. Nothing is written until the tap (§0.4). Keeping it writes into
     THEIR log through `/api/people/:id/entry`: their day is read first and `placeEntries`
     mints the ids their own + would have, one entry per part (`plannedEntriesFor`), each
-    `done: false` with `data.plannedBy: { id, name }` stamped by the server. A week is their
+    `done: false` (done from its day on, §4) with `data.plannedBy: { id, name }` stamped by the server. A week is their
     `quota-<monday>` with `plannedBy`; a week they set themselves is a `409` and is left as
     it is. The server accepts only `daily-…` entries carrying `sharedFrom` or `plannedBy` and
     `quota-…` entries carrying `plannedBy`, and refuses any live entry without one of them.
@@ -408,10 +410,35 @@ override, and its absence must render exactly like the app before it existed.
   `-2`, `-3`… (`extraEntryId` in `lib/store.js` is the only thing that mints one, and only
   on an explicit "log another"). Two offline devices doing the same act compute the same
   id, so the merge has something to agree about.
-- **Planning is not completing.** Creating an entry writes `done: false`; only an explicit
-  tap sets `done: true`. Use `isDone()` — never entry existence — for streaks, load,
-  hard-day counts, charts, habit sync and notifications. An absent `done` means true
-  (older entries predate the flag). Getting this wrong once wrote false training history.
+- **Done once its day arrives, unless marked undone** (since 2026-10-25, docs/DESIGN.md D2).
+  An entry created for today or an earlier day is written `done: true` (`doneWhenPlaced`);
+  one for a later day is written `done: false` and `isDone()` reads it as done from its
+  day on. That is a READ rule: nothing wakes at midnight and nothing is rewritten. The
+  sheet's **Mark undone** writes `done: false` plus `undone: true` (`markDone`, the only
+  writer of `undone`), which no date ever flips back; **Mark done** writes `done: true` and
+  drops the marker. `done: true` beats everything; an absent `done` means true (older
+  entries predate the flag). A `done: false` with no marker on a day that has arrived is
+  done, and that includes every entry stored before the rule: a session once planned and
+  never ticked now counts. Use `isDone()` — never entry existence, never the raw flag —
+  for streaks, load, hard-day counts, charts, habit sync and notifications. It has three
+  copies, kept word for word by `app/done.test.js`: `lib/store.js`, `server/notify-facts.js`
+  (the server's; it takes the configured timezone's today) and `mobile/src/lib/store.js`.
+  - **Transitions are about writes, not dates.** The "logged" push fires once, when a
+    write first makes an entry `announceable` (`completedDailyEntries`): marked done AND
+    its run ended, a done tap (`doneAt`, stamped by `markDone`), something logged in `out`,
+    or an earlier day's date. So picking a session for today counts for the habit at once
+    but is announced when the first set or effort is logged; a workout logged after the
+    fact is announced as it lands; a planned session's day arriving is never announced.
+    The habit record for a day leaves out sessions still to come and picks them up on the
+    next write after their day arrives, because every sync re-sends every day's record whole.
+  - **An old client's untick is kept as one.** Before this rule, unticking wrote a bare
+    `done: false`, which now reads as done. New code never does that, so the server's merge
+    (`keepUntick` in `server.js`) adds `undone: true` when a bare `done: false` replaces an
+    entry stored as done, and keeps a marker the stored copy already has. An entry already
+    stored as `done: false` without one (a plan, a legacy entry) is never touched.
+  - **"Done" no longer means "finished running".** Today's session is done before it
+    starts, so "Start" asks `canStart()` (run not ended; on an earlier day, only once
+    undone) and the sides runner hands over by what was finished on screen.
 - **Nothing rewrites history to suit a component.** Old shapes are read as they are
   (positional lift sets, `out.notes` on old entries, `out.intensity`/`out.effort`, the
   retired `hard-home` card id). New code adapts to stored data, not the reverse.
@@ -891,9 +918,9 @@ path (`BUSHIDO_NOTIFY_CORE` / Settings), deliberately not copied — a fix to on
 would leave the other broken silently. Without a core there are no notifications and no
 timer.
 
-- A logged workout notifies **exactly once, when it becomes done**
-  (`completedDailyEntries` compares against the previous state), never on re-sync or
-  edit, and names a linked goal only if that goal still has something left on it.
+- A logged workout notifies **exactly once, when a write marks it done**
+  (`completedDailyEntries` compares against the previous state), never on re-sync, an
+  edit, or a planned session's day arriving (§4), and names a linked goal only if that goal still has something left on it.
 - Scheduled facts (readiness, unlogged workouts, goal pace) are planned once a day,
   drained on a 30s tick, and revalidated just before sending.
 - **A notifier that cannot start must never stop a workout being saved.**

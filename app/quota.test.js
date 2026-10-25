@@ -242,7 +242,7 @@ check('something he did that nothing asked for is shown, not hidden or counted',
  * showing that it is planned but not yet done.
  */
 
-check('a session on a day and not done counts as planned, never as progress', () => {
+check('a session on a day still to come counts as planned, never as progress', () => {
   const entries = [
     buildQuotaEntry('2026-09-14', { bike: 3 }),
     { id: 'a', kind: 'daily', date: '2026-09-15', updatedAt: 'z',
@@ -250,7 +250,7 @@ check('a session on a day and not done counts as planned, never as progress', ()
     { id: 'b', kind: 'daily', date: '2026-09-17', updatedAt: 'z',
       data: { optId: 'log-workout', level: 2, done: false, out: { activity: 'bike' } } },
   ]
-  const bike = progress({ plan, entries, iso: '2026-09-15' }).byKey.bike
+  const bike = progress({ plan, entries, iso: '2026-09-15', today: '2026-09-15' }).byKey.bike
   eq(bike.done, 1, 'only the finished one is progress')
   eq(bike.pending, 1)
   eq(bike.pendingShown, 1)
@@ -268,7 +268,7 @@ check('the dotted part never runs past the end of the track', () => {
       data: { optId: 'log-workout', level: 2, done: false, out: { activity: 'bike' } },
     })),
   ]
-  const bike = progress({ plan, entries, iso: '2026-09-15' }).byKey.bike
+  const bike = progress({ plan, entries, iso: '2026-09-15', today: '2026-09-15' }).byKey.bike
   eq(bike.pending, 4)
   eq(bike.pendingShown, 3)
 })
@@ -285,7 +285,7 @@ check('...and it stops where the solid fill stops, not where the quota does', ()
     { id: 'd', kind: 'daily', date: '2026-09-18', updatedAt: 'z',
       data: { optId: 'log-workout', level: 2, done: false, out: { activity: 'bike' } } },
   ]
-  const bike = progress({ plan, entries, iso: '2026-09-15' }).byKey.bike
+  const bike = progress({ plan, entries, iso: '2026-09-15', today: '2026-09-15' }).byKey.bike
   // One done leaves two of the track; three are planned, so two may be drawn.
   eq(bike.done, 1)
   eq(bike.pendingShown, 2)
@@ -297,7 +297,7 @@ check('a planned rest day is not a planned workout', () => {
     { id: 'r', kind: 'daily', date: '2026-09-16', updatedAt: 'z',
       data: { optId: 'off', level: 0, done: false, out: {} } },
   ]
-  const week = progress({ plan, entries, iso: '2026-09-15' })
+  const week = progress({ plan, entries, iso: '2026-09-15', today: '2026-09-15' })
   eq(week.pendingTotal, 0)
 })
 
@@ -307,11 +307,44 @@ check('a plan in a category nothing asked for shows nothing on the totals', () =
     { id: 'p', kind: 'daily', date: '2026-09-16', updatedAt: 'z',
       data: { optId: 'log-workout', level: 2, done: false, out: { activity: 'swim' } } },
   ]
-  const week = progress({ plan, entries, iso: '2026-09-15' })
+  const week = progress({ plan, entries, iso: '2026-09-15', today: '2026-09-15' })
   eq(week.byKey.swim.pending, 1, 'the category still knows about it')
   // ...but there is no track to draw it on, and it is not owed against anything.
   eq(week.byKey.swim.pendingShown, 0)
   eq(week.pendingTotal, 0)
+})
+
+check('DONE BY DEFAULT: a planned session counts as progress once its day arrives', () => {
+  // The same entry, read on two days. Nothing is written in between: `isDone`
+  // is a read rule (AGENTS.md §4).
+  const entries = [
+    buildQuotaEntry('2026-09-14', { bike: 3 }),
+    { id: 'b', kind: 'daily', date: '2026-09-17', updatedAt: 'z',
+      data: { optId: 'log-workout', level: 2, done: false, out: { activity: 'bike' } } },
+  ]
+  const before = progress({ plan, entries, iso: '2026-09-15', today: '2026-09-16' }).byKey.bike
+  eq([before.done, before.pending], [0, 1], 'the day before, it is planned')
+  const on = progress({ plan, entries, iso: '2026-09-15', today: '2026-09-17' }).byKey.bike
+  eq([on.done, on.pending, on.remaining], [1, 0, 2], 'on its day it is done')
+})
+
+check('DONE BY DEFAULT: marked undone is never progress, and stays on the bar as pending', () => {
+  const entries = [
+    buildQuotaEntry('2026-09-14', { bike: 3 }),
+    { id: 'u', kind: 'daily', date: '2026-09-15', updatedAt: 'z',
+      data: { optId: 'log-workout', level: 2, done: false, undone: true, out: { activity: 'bike' } } },
+  ]
+  const bike = progress({ plan, entries, iso: '2026-09-15', today: '2026-09-20' }).byKey.bike
+  eq([bike.done, bike.pending, bike.remaining], [0, 1, 3], 'days later, still not done')
+})
+
+check('DONE BY DEFAULT: an old entry stored done: false on a past day is progress, unrewritten', () => {
+  const old = { id: 'o', kind: 'daily', date: '2026-09-15', updatedAt: 'z',
+    data: { optId: 'log-workout', level: 2, done: false, out: { activity: 'bike' } } }
+  const entries = [buildQuotaEntry('2026-09-14', { bike: 1 }), old]
+  const snapshot = JSON.stringify(old)
+  eq(progress({ plan, entries, iso: '2026-09-15' }).byKey.bike.done, 1)
+  eq(JSON.stringify(old), snapshot, 'reading it changed nothing')
 })
 
 check('a deliberate rest day is not a workout', () => {
@@ -985,8 +1018,8 @@ check('JUST MILES: a commute on a day is not a PENDING quota either', () => {
   // The dotted segment means "written down, not done yet". A commute not yet
   // marked done is still not a session the week is waiting on.
   const entries = [buildQuotaEntry('2026-09-14', { bike: 1 }),
-    commuteOn('2026-09-14', { done: false })]
-  const bike = progress({ plan, entries, iso: '2026-09-14' }).byKey.bike
+    commuteOn('2026-09-15', { done: false })]
+  const bike = progress({ plan, entries, iso: '2026-09-14', today: '2026-09-14' }).byKey.bike
   eq(bike.pending, 0)
   eq(bike.pendingShown, 0)
 })

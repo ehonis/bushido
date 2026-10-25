@@ -52,8 +52,9 @@ export function Overlays() {
   // Log a workout: the one door for something already done. The plan's cards
   // are in it as the climbing folders; anything else is the sports catalog,
   // answered before the form opens. A climb from the unlogged card lands on its
-  // card with the measurement attached, NOT done: the hard-finger question is the
-  // reason it goes through a climbing card at all, so the sheet opens to ask it.
+  // card with the measurement attached, and the sheet opens: the hard-finger
+  // question is the reason it goes through a climbing card at all. Done like
+  // anything on a day that has arrived; until answered, `fingerLoad` stands in.
   if (fab === 'log') {
     const date = logAt.date || localIso()
     return (

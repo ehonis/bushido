@@ -20,11 +20,11 @@
 import { localIso, fromIso } from './dates.js'
 import { isDone } from './store.js'
 
-/** Every date with something completed on it. */
-export function trainedDates(entries) {
+/** Every date with something done on it, as of `today` (`isDone`). */
+export function trainedDates(entries, today = localIso()) {
   const out = new Set()
   for (const e of entries || []) {
-    if (e.kind !== 'daily' || !e.date || !isDone(e)) continue
+    if (e.kind !== 'daily' || !e.date || !isDone(e, today)) continue
     out.add(e.date)
   }
   return out
@@ -37,7 +37,7 @@ export function trainedDates(entries) {
  * streak is a fact about their training, not about what the user is looking at.
  */
 export function streakDays(entries, today = localIso()) {
-  const dates = trainedDates(entries)
+  const dates = trainedDates(entries, today)
   let n = 0
   const d = fromIso(today)
   for (;;) {
