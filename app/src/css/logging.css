@@ -1010,7 +1010,6 @@ button.btn.danger:hover { border-color: var(--bad); }
 /* The quick-log rows (quicklog.jsx). In the + menu they hang under Log a
    workout, their icons lined up with its title, so they read as its shortcuts. */
 .fabmenu .quicklog { margin: 0 0 var(--sp-1); padding-left: calc(var(--sp-3) + 44px + var(--sp-3)); padding-right: var(--sp-3); }
-.fabmenu .quicklog-row { min-height: 48px; }
 .quicklog-row:active { background: var(--panel-2); }
 
 /* ------------------------------------------------- planned, but not started */

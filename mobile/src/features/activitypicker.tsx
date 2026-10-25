@@ -137,7 +137,7 @@ export function ActivityPicker({ field, value, onChange, out = null }: any) {
           <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
             <T size={font.body} weight={500} numberOfLines={1}>{name}</T>
             <View style={{ flexDirection: 'row', gap: space[2], alignItems: 'center' }}>
-              <T size={font.small} dim>{picked ? picked.group : 'No longer in the catalog'}</T>
+              <T size={font.small} dim>{picked ? 'Activity' : 'No longer in the catalog'}</T>
               {picked && source ? <T size={font.small} color={colors.accent}>{`from ${source}`}</T> : null}
             </View>
           </View>

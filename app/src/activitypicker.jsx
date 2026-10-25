@@ -82,8 +82,10 @@ export function ActivityPicker({ field, value, onChange, out = null }) {
         <Icon name={picked.icon} size={20} />
         <span className="list-row-main">
           <span className="list-row-title">{picked.name}</span>
+          {/* What the row is, as the sheet's own activity row says it: the group
+              ("Run" over "Running") only repeated the name (#55). */}
           <span className="list-row-meta">
-            {picked.group}
+            Activity
             {source && <span className="out-from">from {source}</span>}
           </span>
         </span>

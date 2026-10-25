@@ -27,6 +27,10 @@ import {
   Copy,
   // The interval timer's back button, 2026-10-25.
   SkipBack,
+  // Back and up, so nothing turns a ChevronDown or mirrors a ChevronRight (#55).
+  ChevronLeft, ChevronUp,
+  // The picker's search box, which had borrowed Target (#55).
+  Search,
   // Aliased: an unaliased `Infinity` import shadows the global inside this
   // module, which is a trap for whoever next edits it.
   Infinity as InfinityIcon,
@@ -48,6 +52,7 @@ const REGISTRY = {
   ListPlus,
   BatteryLow, Thermometer, Plane, Briefcase, Bandage,
   Copy,
+  ChevronLeft, ChevronUp, Search,
   SkipBack,
   Infinity: InfinityIcon,
 }

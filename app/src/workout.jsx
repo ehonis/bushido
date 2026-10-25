@@ -331,7 +331,7 @@ function WoHead({ session, elapsed, onExit, muted, onMute, who = null }) {
   return (
     <header className="wo-head">
       <button className="modal-btn" onClick={onExit} aria-label="Leave workout">
-        <Icon name="ChevronDown" size={19} style={{ transform: 'rotate(90deg)' }} />
+        <Icon name="ChevronLeft" size={19} />
       </button>
       <div className="wo-title">
         <div className="wo-name">

@@ -278,7 +278,7 @@ export function FactsForm({ groups, entries, strava, upsertEntry }: any) {
                      * not silently become theirs the next time anything saves.
                      * Failing that, a short example.
                      */
-                    placeholder={source !== 'own' && value !== null ? String(value) : (f.eg || '')}
+                    placeholder={source !== 'own' && value !== null ? String(value) : ''}
                     onEndEditing={(e) => {
                       const v = e.nativeEvent.text
                       if (f.writes === 'bodyweight') saveWeight(v)

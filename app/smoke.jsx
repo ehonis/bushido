@@ -544,6 +544,9 @@ const cases = [
     const bare = renderToString(<TodayTab plan={{ ...plan, dailyMenu: plan.dailyMenu.filter(m => m.id !== 'log-workout') }}
       entries={[]} upsertEntry={noop} deleteEntry={noop} onLog={noop} />)
     if (/quicklog-row/.test(bare) || !/>Log a workout</.test(bare)) throw new Error('rows with no card, or Log a workout went with them')
+    // A log with nothing in it has no calendar to show (one empty square under "0 days on").
+    if (/Daily habit/.test(bare)) throw new Error('an empty log shows the habit calendar')
+    if (!/Daily habit/.test(t)) throw new Error('a log with workouts lost its habit calendar')
   }],
   /*
    * THE DAY IS THE TITLE (#41). The day switcher used to be a whole card for two
@@ -639,6 +642,31 @@ const cases = [
         /linkbtn extra-rm/.test(html)) {
       throw new Error('the footer remove link survived')
     }
+  }],
+  /*
+   * ONE NUMBER FOR HOW LONG (#55). The same run said 45 min in the Log feed (the
+   * card's estimate) and 30 on Today (what was typed). Today's row, the sheet's
+   * header and the feed now read `loggedMinutes`: typed or measured, never the
+   * estimate, and an old `minutesSource: 'typed'` correction still wins.
+   */
+  ['loggedMinutes(Today, the sheet and Log agree: typed or measured, never the estimate)', null, () => {
+    const opt = plan.dailyMenu.find(m => m.id === 'log-workout')
+    const run = (out, extra = {}) => ({ id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { slot: 'main', optId: opt.id, level: 2, name: 'Run', minutes: 45, done: true, out: { activity: 'run', ...out }, ...extra } })
+    const shown = (entry) => {
+      const today = text(renderToString(<TodayTab plan={plan} entries={[entry]} upsertEntry={noop} deleteEntry={noop} />))
+      const head = text(renderToString(<SessionSheet opt={opt} entry={entry} tone="rec" entries={[entry]} isFuture={false}
+        onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop} />))
+      const log = text(renderToString(<LogTab plan={plan} entries={[entry]} upsertEntry={noop} deleteEntry={noop} />))
+      const mins = (t) => (t.match(/(\d+) min\b/) || [])[1] || null
+      return [mins(today), mins(head.slice(0, head.indexOf('Activity'))), mins(log)]
+    }
+    const typed = shown(run({ duration: 30, minutesSpent: 30, distance: 3.1 }))
+    if (typed.join() !== '30,30,30') throw new Error(`a typed 30 reads ${typed.join(' / ')} on Today / sheet / Log`)
+    const guess = shown(run({ distance: 3.1 }))
+    if (guess.some(Boolean)) throw new Error(`the card's estimate shows as a time: ${guess.join(' / ')}`)
+    const legacy = shown(run({}, { minutes: 25, minutesSource: 'typed' }))
+    if (legacy.join() !== '25,25,25') throw new Error(`an old typed correction reads ${legacy.join(' / ')}`)
   }],
   // An extra whose optId no longer exists in the menu must be skipped, not crash.
   ['TodayTab(orphan extra)', <TodayTab plan={plan} entries={[
@@ -1932,8 +1960,9 @@ const cases = [
         if (!t.includes(name)) throw new Error(`the ${name} block is not on the screen`)
       }
       if (!/Add an exercise here/.test(t)) throw new Error('no way into the exercise catalogue')
-      if (!/Add a piece/.test(t)) throw new Error('no way to add work that is not a lift')
-      if (!/its own workout|part of the workout beside it/.test(t)) throw new Error('a block does not say whether it is its own workout')
+      if (!/Add a swim set, interval or hold/.test(t)) throw new Error('no way to add work that is not a lift')
+      if (/Add a piece|its own workout:/.test(t)) throw new Error('the planner\u2019s jargon is back ("a piece", "its own workout:")')
+      if (!/A separate .*workout|Part of the workout beside it/.test(t)) throw new Error('a block does not say whether it is its own workout')
       if (!/Put it on today/.test(t)) throw new Error('no way to keep it')
       // Nothing in it yet is not a workout, and the button says so by being off.
       if (!/<button class="btn big" disabled=""/.test(html)) {
@@ -2133,10 +2162,10 @@ const cases = [
 
       // 3. A category per block, not per session: where the session splits into
       //    workouts. Said in plain words; the quotas it used to fill are gone.
-      if (!/its own workout/i.test(t)) throw new Error('no per-block split control')
+      if (!/A separate .*workout/.test(t)) throw new Error('no per-block split control')
       if (!/Lift/.test(t) || !/Run/.test(t)) throw new Error('the two blocks do not name their own categories')
       // The warm-up is not a workout in its own right.
-      if (!/part of the workout beside it/.test(t)) throw new Error('the warm-up claims to be a workout')
+      if (!/Part of the workout beside it/.test(t)) throw new Error('the warm-up claims to be a workout')
       if (/counts toward|quota/i.test(html.replace(/<[^>]*>/g, ' '))) throw new Error('quota language is back on the planner')
     }],
   ['BodyMap(a movement the catalog has no muscles for renders nothing)', null, () => {
@@ -2373,6 +2402,13 @@ const cases = [
       if (t.indexOf('Log a workout') > t.indexOf('Plan a workout')) throw new Error('Log a workout is not the first door')
       if (/quota|Move Every Day/i.test(t)) throw new Error('the + still talks about quotas or a habit name')
     }],
+  // With AI off the Plan door says only what is behind it (#55), as Plan a workout does.
+  ['FabMenu(AI off: the Plan door does not mention the model)', null, () => {
+    const off = text(renderToString(<FabMenu onClose={noop} onPlan={noop} onLog={noop} onRest={noop} ai={false} />))
+    if (!/Build it yourself/.test(off) || /written for you|Sparkles/.test(off)) throw new Error('the Plan door offers the model with AI off')
+    const on = text(renderToString(<FabMenu onClose={noop} onPlan={noop} onLog={noop} onRest={noop} ai />))
+    if (!/have it written for you/.test(on)) throw new Error('the Plan door lost the model with AI on')
+  }],
   /*
    * LOGGING IN TWO TAPS (quicklog.jsx, docs/DESIGN.md). + → Run: up to three recent
    * activities right under Log a workout, before every other door, each one tap that
@@ -2436,6 +2472,8 @@ const cases = [
     const picked = renderToString(<ActivityPicker field={field} value="run" onChange={noop} />)
     if (!/<button type="button" class="list-row actpick picked"/.test(picked)) throw new Error('the picked activity is not a row you can tap')
     if (!/>Change</.test(picked) || /actpick-change/.test(picked)) throw new Error('"Change" is not on the row, or the old link is back')
+    // The row says its name once (#55): "Run" over "Activity", not over "Running".
+    if (/>Running</.test(picked) || !/>Activity</.test(text(picked))) throw new Error('the picked row echoes its group instead of saying what it is')
     const open = renderToString(<ActivityPicker field={field} value={null} onChange={noop} />)
     if ((open.match(/class="out-chip /g) || []).length !== field.activities.filter(a => a.pinned).length) {
       throw new Error('the pinned sports are not answer chips')
@@ -2841,6 +2879,12 @@ const cases = [
         const you = text(panel({ initialPage: 'you' }))
         if (!/Bodyweight/.test(you)) throw new Error('bodyweight is missing from You')
         if (/Redpoint grade/.test(you)) throw new Error('climbing grades are still on You')
+        // No example numbers in placeholder grey, which read as their own (#55).
+        const youHtml = panel({ initialPage: 'you' }) + panel({ initialPage: 'climbing' })
+        if (/placeholder="(186|71|48|190|220|5\.11c|V6|\+2)"/.test(youHtml)) throw new Error('an example number is back as a placeholder')
+        // Yes/no settings are switches, as on the iPhone (Toggle), not bare checkboxes.
+        const settings = panel({ initialPage: 'settings' })
+        if (!/role="switch"/.test(settings) || /type="checkbox"(?![^>]*role="switch")/.test(settings)) throw new Error('Show explanations is not a switch')
       }],
       ['ProfilePanel(nothing to connect, nothing behind Testing)', null, () => {
         // No Strava or WHOOP app on the server: no Connections row at all, as before.
@@ -3546,7 +3590,9 @@ const cases = [
         const t = draw(theirs).replace(/<[^>]+>/g, '')
         if (!/last time \(2026-01-02\): 1 × 8 @ 40 lb/.test(t)) throw new Error(`no last time from Sam's log: ${t.slice(0, 300)}`)
         if (/@ 100 lb/.test(t)) throw new Error('your weight shown as Sam\'s last time')
-        if (!/Sam’s last 1 session/.test(t) || /Your last/.test(t)) throw new Error('the session history is not labelled as Sam\'s')
+        if (!/Last time Sam did this/.test(t) || /Last time you did/.test(t)) throw new Error('the session history is not labelled as Sam\'s')
+        // Plain words (#55): no "last 5 sessions", no "nothing written down yet".
+        if (/last \d+ sessions?|nothing written down/i.test(t)) throw new Error('the history header is back to "sessions"')
         if (/last time \(/.test(draw([]).replace(/<[^>]+>/g, ''))) throw new Error('a last time with no history')
       }],
       ['SessionSheet("With" is a section head, and each person on the workout a person chip with their initial)', null, () => {

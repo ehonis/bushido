@@ -32,7 +32,7 @@ import { Icon } from './lib/icons.jsx'
 import { SessionLog, DetailsSheet } from './sessionlog.jsx'
 import { Modal } from './modal.jsx'
 import { isDone, isTraining } from './lib/store.js'
-import { minutesFor } from './lib/minutes.js'
+import { loggedMinutes } from './lib/minutes.js'
 import { fromIso, localIso } from './lib/dates.js'
 import { categoryOf, disciplineOf } from './lib/category.js'
 import { loggedActivity } from './lib/activities.js'
@@ -70,9 +70,10 @@ export function dayLabel(iso, today) {
 export function statsOf(entry, opt) {
   const out = entry.data?.out || {}
   const s = []
-  const mins = minutesFor(opt, out)
+  // Typed or measured only, as Today's rows (lib/minutes.js); never the card's estimate.
+  const mins = loggedMinutes(entry, opt)
 
-  if (mins > 0) s.push(`${Math.round(mins)} min`)
+  if (mins !== null) s.push(`${mins} min`)
   if (Number(out.distance) > 0) s.push(`${fmt1(Number(out.distance))} mi`)
   if (Number(out.poolDistance) > 0) s.push(`${Math.round(Number(out.poolDistance))} yd`)
   const lifts = Array.isArray(out.lifts) ? out.lifts.length : 0

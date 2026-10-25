@@ -135,7 +135,7 @@ export function ProfilePanel({
           <>
             <button className="iconbtn prof-back" onClick={() => setPage(sec.parent || null)}
               aria-label={`Back to ${sec.parent ? PAGES[sec.parent].label : 'your profile'}`}>
-              <Icon name="ChevronRight" size={20} style={{ transform: 'rotate(180deg)' }} />
+              <Icon name="ChevronLeft" size={20} />
             </button>
             <span className="pop-who"><strong>{sec.label}</strong></span>
           </>
@@ -277,9 +277,11 @@ function FactsForm({ groups, entries, strava, upsertEntry }) {
                  * A number the app is only SHOWING on their behalf goes in the
                  * placeholder, never the value: it reads the same, and it does
                  * not silently become theirs the next time anything saves. Same
-                 * rule as a derived average speed. Failing that, a short example.
+                 * rule as a derived average speed. Failing that, nothing: an
+                 * example ("186 lb") in placeholder grey read as their own
+                 * number, the reason the sheet dropped its examples in #41 (#55).
                  */
-                placeholder={source !== 'own' && value !== null ? String(value) : (f.eg || '')}
+                placeholder={source !== 'own' && value !== null ? String(value) : ''}
                 onBlur={e => (f.writes === 'bodyweight'
                   ? saveWeight(e.target.value)
                   : save(f.key, f.type === 'number'
@@ -491,7 +493,7 @@ export function SettingsSection({ status, lastSync, who = currentMe() }) {
             <span className="list-row-main">
               <span className="list-row-title">Show explanations</span>
             </span>
-            <input type="checkbox" checked={!allHidden} onChange={() => setAllHidden(!allHidden)} />
+            <input type="checkbox" role="switch" className="switch" checked={!allHidden} onChange={() => setAllHidden(!allHidden)} />
           </label>
           {who.real.admin && (
             <a className="list-row" href="/settings">

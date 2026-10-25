@@ -739,8 +739,8 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
 - **Kinds are a list**; the seam is the BLOCK, not the author. `splitPrescription()` cuts
   at block categories (consecutive same-category blocks merge; uncategorised blocks join
   a neighbour) and `placeAll()` writes one entry per part, so each part gets its own WHOOP
-  and Strava slot. The block control says it in plain words: *its own workout: Run* or
-  *part of the workout beside it*.
+  and Strava slot. The block control says it in plain words: *A separate Run workout* or
+  *Part of the workout beside it*.
 - **`blockSurvives` has a `keep` arm**: picked-but-empty blocks survive edits, and
   `dropEmptyBlocks` runs on the way out in `keep()`. Both pinned in
   `prescription.test.js`.
@@ -866,7 +866,7 @@ Rules the planner keeps:
   left in the prompt. Do not write a person's facts into a prompt.
 - **The endurance kinds leave `category`/`activity` null** so the planner picks the sport
   it has seen least in the last week's log; the planner prompt explains how. The builder
-  never guesses on the user's behalf ("part of the workout beside it" until a chip is
+  never guesses on the user's behalf ("Part of the workout beside it" until a chip is
   tapped).
 
 **Nothing schedules an AI run, and nothing but a person edits the plan.** There was once a
@@ -1077,7 +1077,7 @@ workouts; `priorIds` for history.
 **The log form and the planner's editor are the same component** (`exercises.jsx`).
 `liftlog.jsx` adapts the positional stored shape (index as set id) rather than migrating
 history; a blank is `''` there and `null` on a prescription via one `blank` prop.
-`BlockQuota` (the per-block "its own workout" control) stays in `planner.jsx`. `.exlog-*` styles stay for the climbing set log,
+`BlockQuota` (the per-block "A separate … workout" control) stays in `planner.jsx`. `.exlog-*` styles stay for the climbing set log,
 which is a genuinely different form. `SessionLog(other training, a lift)` and
 `Sheet(a planned session)` pin the same one-open-card shape from opposite sides; if they
 disagree, someone has grown a second copy.

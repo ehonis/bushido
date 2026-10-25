@@ -91,12 +91,14 @@ function priorWork(out) {
  * all. What the user is looking for before a hangboard session is what the user hung last
  * time, and that is on the entry whether or not the user also had something to say.
  */
+/** "Last time you did this", "The last 5 times Sam did this": plain words, no "sessions" (#55). */
+export const priorTitle = (n, whose = null) =>
+  n === 1 ? `Last time ${whose || 'you'} did this` : `The last ${n} times ${whose || 'you'} did this`
+
 export function PriorNote({ entries, session, excludeId, all = false, whose = null }) {
   const prior = priorSessions(entries, session, excludeId)
   if (!prior.length) return null
   const shown = all ? prior.slice(0, 5) : prior.slice(0, 1)
-  const noted = prior.filter(e =>
-    String(e.data?.out?.notes || '').trim() || String(e.data?.out?.improve || '').trim())
 
   return (
     <div className="prior">
@@ -104,8 +106,8 @@ export function PriorNote({ entries, session, excludeId, all = false, whose = nu
         <Icon name="Repeat" size={13} />
         {/* `whose`: someone else's log, on their side of a shared workout (sharedwith.jsx). */}
         {all
-          ? `${whose ? `${whose}’s` : 'Your'} last ${shown.length} session${shown.length === 1 ? '' : 's'}${noted.length ? '' : ' — nothing written down yet'}`
-          : `Last time ${whose || 'you'} did this`}
+          ? priorTitle(shown.length, whose)
+          : priorTitle(1, whose)}
       </div>
       {shown.map(e => {
         const work = priorWork(e.data?.out)
@@ -411,12 +413,12 @@ export function SessionDetails({ session, entry, entries, onSave, training, onTr
         */}
       {onTraining && (
         <label className="out-toggle out-casual">
-          <input type="checkbox" checked={training === false}
-            onChange={e => onTraining(!e.target.checked)} />
           <span>
             Just miles, not a workout
             <em>Counts the miles and the streak, not the effort charts.</em>
           </span>
+          <input type="checkbox" role="switch" className="switch" checked={training === false}
+            onChange={e => onTraining(!e.target.checked)} />
         </label>
       )}
 
@@ -494,7 +496,7 @@ function ActivityRow({ field, value, out, onChange }) {
             {picked ? 'Activity' : 'No longer in the catalog'}{source ? ` · from ${source}` : ''}
           </span>
         </span>
-        <span className="list-row-chev"><Icon name="ChevronDown" size={16} style={{ transform: 'rotate(-90deg)' }} /></span>
+        <span className="list-row-chev"><Icon name="ChevronRight" size={16} /></span>
       </button>
     </div>
   )
@@ -572,8 +574,8 @@ export function SessionLog({
             if (f.type === 'toggle') {
               return (
                 <label key={f.key} className="out-toggle">
-                  <input type="checkbox" checked={Boolean(out[f.key])} onChange={e => set(f.key, e.target.checked)} />
                   <span>{f.label}<Yours value={hints?.[f.key]} /></span>
+                  <input type="checkbox" role="switch" className="switch" checked={Boolean(out[f.key])} onChange={e => set(f.key, e.target.checked)} />
                 </label>
               )
             }

@@ -139,4 +139,4 @@
 
 /* An activity rather than training, in the session form. */
 .out-casual span { display: grid; gap: 2px; }
-.out-casual em { font-style: normal; font-size: 11px; color: var(--ink-faint); }
+.out-casual em { font-style: normal; font-size: var(--fs-small); color: var(--ink-faint); }

@@ -82,7 +82,7 @@ function GearRow({ row, kind, onOpen }) {
     row.primary && 'Default',
     row.retired && 'Retired',
     row.lastUsed ? `Last used ${row.lastUsed}` : row.acquired ? `Since ${row.acquired}` : row.source === 'local' && 'Not used yet',
-    row.sessions > 0 && `${row.sessions} session${row.sessions === 1 ? '' : 's'}`,
+    row.sessions > 0 && `${row.sessions} workout${row.sessions === 1 ? '' : 's'}`,
   ].filter(Boolean)
   return (
     <button type="button" className={`list-row gear-row ${row.retired ? 'retired' : ''}`} onClick={onOpen}
@@ -205,14 +205,14 @@ function GearForm({ plan, row, onSave, onCancel, onDelete }) {
           <span className="list-row-main">
             <span className="list-row-title">Default for {kindOf(plan, kind)?.name?.toLowerCase() || 'this kind'}</span>
           </span>
-          <input type="checkbox" checked={primary} onChange={e => setPrimary(e.target.checked)} />
+          <input type="checkbox" role="switch" className="switch" checked={primary} onChange={e => setPrimary(e.target.checked)} />
         </label>
         <label className="list-row prof-check">
           <span className="list-row-main">
             <span className="list-row-title">Retired</span>
             <span className="list-row-meta">Keeps its history, stops being offered</span>
           </span>
-          <input type="checkbox" checked={retired} onChange={e => setRetired(e.target.checked)} />
+          <input type="checkbox" role="switch" className="switch" checked={retired} onChange={e => setRetired(e.target.checked)} />
         </label>
       </div>
 

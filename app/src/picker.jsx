@@ -74,7 +74,7 @@ export function PickerScreen({
   return (
     <FullScreen title={title} sub={sub} icon={icon} onBack={onClose}>
       <div className="spick-search">
-        <Icon name="Target" size={16} />
+        <Icon name="Search" size={16} />
         <input value={q} onChange={e => setQ(e.target.value)}
           placeholder={placeholder} aria-label={`Search ${title}`} />
         {q && (
@@ -185,7 +185,7 @@ export function folderGroup(plan) {
     key: '_climbing', name: climbing ? 'Climbing' : 'Your plan',
     items: folders.map(f => ({
       key: `folder:${f.key}`, name: f.name, icon: f.icon,
-      meta: `${f.count} session${f.count === 1 ? '' : 's'}`,
+      meta: `${f.count} workout${f.count === 1 ? '' : 's'}`,
     })),
   }
 }
@@ -250,7 +250,7 @@ export function ActivityChooser({
       title={climbingOnly ? 'Log the climb' : 'Log a workout'}
       sub={dayLabel}
       icon={climbingOnly ? 'Mountain' : 'NotebookPen'}
-      placeholder={climbingOnly ? 'Search sessions' : 'Search'}
+      placeholder={climbingOnly ? 'Search climbing' : 'Search'}
       groups={groups}
       /* The catalog has its own ranked search, and it is better than a substring
          match: "ru" has to return Run before Ruck. Cards follow, matched on every

@@ -180,7 +180,7 @@ export function FullScreen({ title, sub, icon, tone, onBack, tabs, active, onTab
     <div className={`fs ${tone ? `t-${tone}` : ''}`} role="dialog" aria-modal="true" aria-label={title}>
       <header className="fs-head">
         <button className="modal-btn" onClick={onBack} aria-label="Back">
-          <Icon name="ChevronDown" size={19} style={{ transform: 'rotate(90deg)' }} />
+          <Icon name="ChevronLeft" size={19} />
         </button>
         {icon && <span className="fs-ico"><Icon name={icon} size={20} /></span>}
         <div className="modal-titles">

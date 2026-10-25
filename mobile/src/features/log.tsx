@@ -30,7 +30,7 @@ import { restStats } from '../lib/stats.js'
 import { optFor } from '../lib/menu.js'
 import { SessionLog, DetailsSheet } from './sessionlog'
 import { isDone, isTraining } from '../lib/store.js'
-import { minutesFor } from '../lib/minutes.js'
+import { loggedMinutes } from '../lib/minutes.js'
 import { fromIso, localIso } from '../lib/dates.js'
 import { categoryOf, disciplineOf } from '../lib/category.js'
 import { loggedActivity } from '../lib/activities.js'
@@ -71,9 +71,10 @@ function dayLabel(iso: string, today: string) {
 function statsOf(entry: any, opt: any) {
   const out = entry.data?.out || {}
   const st: string[] = []
-  const mins = (minutesFor as any)(opt, out)
+  // Typed or measured only, as Today's rows (lib/minutes.js); never the card's estimate.
+  const mins = (loggedMinutes as any)(entry, opt)
 
-  if (mins > 0) st.push(`${Math.round(mins)} min`)
+  if (mins !== null) st.push(`${mins} min`)
   if (Number(out.distance) > 0) st.push(`${fmt1(Number(out.distance))} mi`)
   if (Number(out.poolDistance) > 0) st.push(`${Math.round(Number(out.poolDistance))} yd`)
   const lifts = Array.isArray(out.lifts) ? out.lifts.length : 0
