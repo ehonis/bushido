@@ -15,6 +15,28 @@ import { fromIso, localIso } from './dates.js'
 import { isDone, isTraining } from './store.js'
 import { categoryOf } from './category.js'
 
+/*
+ * "AI is not set up", remembered for the life of the page (or of the app on the
+ * phone). Once the server has refused a run with `ai-not-configured`, Plan a
+ * workout offers the hand-built route alone, even if the screen is closed and
+ * opened again, until the next load reads /api/auth/me afresh. Kept in memory
+ * only, so setting AI up in Settings and coming back offers it again.
+ */
+let aiRefused = false
+
+/** Whether "Write it for me" is on offer: the server's word, less a refusal since. */
+export const aiOffered = (features) => Boolean(features?.ai) && !aiRefused
+
+/** Note a refusal (any error carrying `code: 'ai-not-configured'`); returns whether it was one. */
+export function noteAiRefusal(e) {
+  if (e?.code !== 'ai-not-configured') return false
+  aiRefused = true
+  return true
+}
+
+/** For tests: forget a refusal. */
+export const resetAiRefusal = () => { aiRefused = false }
+
 /**
  * What was logged in the last `days` days, one line per workout, newest first.
  *
@@ -78,7 +100,7 @@ export async function requestWorkout({ kinds, minutes, goal, context, signal, fo
     signal,
   })
   const body = await r.json().catch(() => ({}))
-  if (!r.ok) throw new Error(body?.error || `the box said ${r.status}`)
+  if (!r.ok) throw refused(body, r.status)
   if (!body?.plan) throw new Error('the planner returned nothing usable')
   return body.plan
 }
@@ -98,7 +120,7 @@ export async function reviseWorkout({ plan, message, thread = [], signal, forId 
     signal,
   })
   const body = await r.json().catch(() => ({}))
-  if (!r.ok) throw new Error(body?.error || `the box said ${r.status}`)
+  if (!r.ok) throw refused(body, r.status)
   if (!body?.plan) throw new Error('the planner returned nothing usable')
   return body.plan
 }
@@ -111,6 +133,13 @@ export async function reviseWorkout({ plan, message, thread = [], signal, forId 
  * Every call answers with the draft as it now is, so the screen can show it
  * without waiting for the next poll.
  */
+/** The error for a refused call, noting an `ai-not-configured` for the session. */
+function refused(body, status) {
+  const e = Object.assign(new Error(body?.error || `The server could not do that (error ${status}).`), { status, code: body?.code || null })
+  noteAiRefusal(e)
+  return e
+}
+
 async function draftCall(path, { method = 'GET', body, signal } = {}) {
   const r = await fetch(path, {
     method,
@@ -119,7 +148,7 @@ async function draftCall(path, { method = 'GET', body, signal } = {}) {
     signal,
   })
   const out = await r.json().catch(() => ({}))
-  if (!r.ok) throw Object.assign(new Error(out?.error || `The server could not do that (error ${r.status}).`), { status: r.status, code: out?.code || null })
+  if (!r.ok) throw refused(out, r.status)
   return out
 }
 

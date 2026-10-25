@@ -41,10 +41,11 @@ import * as peopleApi from '../lib/peopleapi.js'
 import { confirm } from '../ui/menu'
 import { WithControl, PersonSwitch, SyncToggle, SharedNote, TheirSide, usePersonCopy, useSide, rememberSide } from './sharedwith'
 import { SidesWorkout, PeopleDays, usePersonLog } from './trainer'
+import { QuickLog } from './quicklog'
 import * as trainerLib from '../lib/trainer.js'
 
 // Default parameters in the ported JS narrow TypeScript's inference (mobile/AGENTS.md).
-const { applyOut, applyRun, canStart, workoutSides, planPeople, plannedLine, placeEntries } = trainerLib as any
+const { applyOut, applyRun, canStart, workoutSides, planPeople, plannedLine } = trainerLib as any
 
 // The lib is the web's JS; its default-parameter destructuring makes TypeScript
 // infer narrower types than the functions take, so they are called through these.
@@ -247,18 +248,8 @@ export function TodayTab({
     })
   }
 
-  /*
-   * One tap from the empty day: a workout of that activity on the day being
-   * looked at, opened. The same write as + → Log a workout (`placeEntries`).
-   */
+  // The entry a quick-log row on the empty day just placed, opened like the +'s.
   const [placed, setPlaced] = useState<string | null>(null)
-  const quickLog = (activity: string) => {
-    const [entry] = placeEntries({ menu, onDay: entries, date: iso,
-      items: [{ optId: 'log-workout', data: { out: { activity } } }] })
-    if (!entry) return
-    upsertEntry(entry)
-    setPlaced(entry.id)
-  }
 
   const setDone = (entry: any, done: boolean) => upsertEntry(markDone(entry, done))
 
@@ -325,7 +316,10 @@ export function TodayTab({
         viewIso={iso} isFuture={isFuture}
         openEntryId={openEntryId || placed}
         onOpened={() => { setPlaced(null); onOpened() }}
-        onQuickLog={menu.some((m: any) => m.id === 'log-workout') ? quickLog : null}
+        // The same rows as the + menu (quicklog.tsx), placing on the day being
+        // looked at and opening what they placed.
+        quick={<QuickLog plan={plan} entries={entries} upsertEntry={upsertEntry} date={iso} onPlaced={setPlaced}
+          style={{ alignSelf: 'stretch' }} />}
         onLog={onLog ? () => onLog(iso) : null} onRest={onRest} />
 
       {/* Below the day, and compact: how the user arrived, what the services
@@ -448,17 +442,17 @@ const ROW_STATE: Record<string, { icon: string; label: string; color: string }> 
  * beside the chevron, the "planned" chip and the dashed "Log another workout",
  * which said what the + beside the dock already does.
  */
-function DayList({ rows, onOpen, isFuture, viewIso, onLog = null, onRest = null, onQuickLog = null }: {
+function DayList({ rows, onOpen, isFuture, viewIso, onLog = null, onRest = null, quick = null }: {
   rows: any[]
   onOpen: (key: string) => void
   isFuture: boolean
   viewIso: string
   onLog?: (() => void) | null
   onRest?: (() => void) | null
-  onQuickLog?: ((activity: string) => void) | null
+  quick?: React.ReactNode
 }) {
   if (!rows.length) {
-    return <EmptyDay isFuture={isFuture} viewIso={viewIso} onLog={onLog} onRest={onRest} onQuickLog={onQuickLog} />
+    return <EmptyDay isFuture={isFuture} viewIso={viewIso} onLog={onLog} onRest={onRest} quick={quick} />
   }
   return (
     <Card style={{ paddingVertical: space[1] }}>
@@ -482,27 +476,17 @@ function DayList({ rows, onOpen, isFuture, viewIso, onLog = null, onRest = null,
   )
 }
 
-/*
- * STUB(#42): batch B's quick-log rows (`features/quicklog.tsx`, "Logging in two
- * taps" in docs/DESIGN.md): up to three recent activities, one tap each. Until it
- * lands this renders nothing; the slot, the order and `onPick(activityKey)`
- * (which places the workout on this day and opens it) are wired.
- */
-function QuickLogSlot(_props: { onPick: (activity: string) => void }) {
-  return null
-}
-
 /**
  * An empty day: what goes here, and the ways to put it there. The quick-log rows
  * first, Log a workout as the one primary for anything else, a rest day as a
  * quiet button. No paragraph: the + is on screen, and planning lives behind it.
  */
-function EmptyDay({ isFuture, viewIso, onLog, onRest, onQuickLog }: {
+function EmptyDay({ isFuture, viewIso, onLog, onRest, quick }: {
   isFuture: boolean
   viewIso: string
   onLog: (() => void) | null
   onRest: (() => void) | null
-  onQuickLog: ((activity: string) => void) | null
+  quick: React.ReactNode
 }) {
   if (isFuture) {
     return <Empty style={{ marginBottom: space[3] }}><T size={font.title} weight={600}>Nothing planned yet</T></Empty>
@@ -512,7 +496,7 @@ function EmptyDay({ isFuture, viewIso, onLog, onRest, onQuickLog }: {
   return (
     <Empty style={{ marginBottom: space[3] }}>
       <T size={font.title} weight={600} align="center">{`Nothing logged ${when}`}</T>
-      {onQuickLog ? <QuickLogSlot onPick={onQuickLog} /> : null}
+      {quick}
       {onLog || onRest ? (
         <View style={{ alignSelf: 'stretch', gap: space[2] }}>
           {onLog ? <Btn title="Log a workout" onPress={onLog} /> : null}
@@ -875,7 +859,7 @@ function DaySessions({
   onPickMain, onAddExtra, onRemove, onSaveOutputs, onSaveRun, onSavePlan,
   onSetDone, onSetTraining, viewIso, isFuture, onSaveEntry = null,
   openEntryId = null, onOpened = () => {},
-  onLog = null, onRest = null, onQuickLog = null,
+  onLog = null, onRest = null, quick = null,
 }: any) {
   const [sheet, setSheet] = useState<string | null>(null)   // row key: 'main' | an extra entry id
   const [workout, setWorkout] = useState<string | null>(null) // same key, training in front of it
@@ -1087,7 +1071,7 @@ function DaySessions({
   return (
     <>
       <DayList rows={rows} onOpen={openRow} isFuture={isFuture} viewIso={viewIso}
-        onLog={onLog} onQuickLog={onQuickLog}
+        onLog={onLog} quick={quick}
         // The day the user is LOOKING at, so a forgotten rest day can be logged
         // from the day it belongs to. Not a future one — resting is not a plan.
         onRest={onRest && viewIso <= localIso() ? () => onRest(viewIso) : null} />

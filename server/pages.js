@@ -237,7 +237,7 @@ function render() {
   // AI
   h += '<div class="card" id="c-ai"><h2>AI</h2>' +
     '<p class="sub">The workout planner (Plan a workout → Write it for me) runs the <a href="https://docs.claude.com/en/docs/claude-code/overview" target="_blank" rel="noopener">Claude Code CLI</a> headless. It is the only backend the code supports. Without it the app works and you build workouts yourself.</p>' +
-    '<p>' + pill(e.ai.installed, 'CLI found', 'CLI not found') + ' ' + pill(e.ai.apiKeySet, 'API key set', 'no API key') +
+    '<p>' + pill(e.ai.installed && Boolean(st.aiVersion), 'CLI found', e.ai.installed ? 'CLI found, but it will not run' : 'CLI not found') + ' ' + pill(e.ai.apiKeySet, 'API key set', 'no API key') +
     (st.aiVersion ? ' <span class="faint">' + esc(st.aiVersion) + '</span>' : '') + '</p>' +
     field('ai', 'bin', 'Path to the claude binary', { readonly: true, value: e.ai.bin, source: e.ai.binSource }) +
     field('ai', 'apiKey', 'Anthropic API key (optional)', { secret: true, source: e.ai.apiKeySource, note: 'Passed to the CLI as ANTHROPIC_API_KEY. Leave empty to use the CLI\'s own sign-in (run claude once and log in).' }) +

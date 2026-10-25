@@ -21,7 +21,7 @@ import { ActivityPicker } from './src/activitypicker.jsx'
 import { recentActivities, quickEntry } from './src/lib/quicklog.js'
 import { _setMe } from './src/lib/whoami.js'
 import { hasIcon } from './src/lib/icons.jsx'
-import { plannerContext } from './src/lib/plannerapi.js'
+import { plannerContext, aiOffered, noteAiRefusal, resetAiRefusal } from './src/lib/plannerapi.js'
 import { ScreenCard, describeScreen } from './src/screeninfo.jsx'
 import { ActivityChooser, activityGroups, activityFieldOf } from './src/picker.jsx'
 import { climbingFolders } from './src/lib/folders.js'
@@ -522,6 +522,29 @@ const cases = [
       if (/still owes|Why .*? today/.test(t)) throw new Error('the recommendation card is back')
       if (/Not done/.test(t)) throw new Error('something he never chose reads as a missed session')
     }],
+  /*
+   * THE QUICK ROWS ON THE EMPTY DAY (#55). Batch A left a stub where batch B's
+   * rows go; this pins the real ones there: the same three as the + menu, between
+   * "Nothing logged" and Log a workout (a future day's "Nothing planned yet"
+   * offers none: a quick row is "I did this"). (The tap itself, placing a done workout on the day shown and
+   * opening its sheet, is quickEntry's case below and the #55 screenshot tour.)
+   */
+  ['TodayTab(the empty day offers the quick rows, between "Nothing logged" and Log a workout)', null, () => {
+    const html = renderToString(<TodayTab plan={plan} entries={QUICK_LOG.filter(e => e.date < '2026-10-22')}
+      upsertEntry={noop} deleteEntry={noop} onLog={noop} onRest={noop} />)
+    const t = text(html)
+    if ((html.match(/class="list-row quicklog-row"/g) || []).length !== 3) throw new Error('the empty day has no quick rows')
+    if (/STUB|QuickLogSlot/.test(html)) throw new Error('the stub is back')
+    const order = ['Nothing logged today', 'aria-label="Log Run"', 'aria-label="Log Mountain bike"', '>Log a workout<', '>Rest day<']
+    const at = order.map(x => t.indexOf(x))
+    if (at.some(x => x < 0)) throw new Error(`missing: ${order.filter((x, i) => at[i] < 0).join(', ')}`)
+    if (at.some((x, i) => i && x < at[i - 1])) throw new Error(`out of order: ${order.join(' < ')}`)
+    if (!/Nothing logged today/.test(t)) throw new Error('no empty title')
+    // No workout card in the plan: no rows, and Log a workout still stands.
+    const bare = renderToString(<TodayTab plan={{ ...plan, dailyMenu: plan.dailyMenu.filter(m => m.id !== 'log-workout') }}
+      entries={[]} upsertEntry={noop} deleteEntry={noop} onLog={noop} />)
+    if (/quicklog-row/.test(bare) || !/>Log a workout</.test(bare)) throw new Error('rows with no card, or Log a workout went with them')
+  }],
   /*
    * THE DAY IS THE TITLE (#41). The day switcher used to be a whole card for two
    * arrows; now the day, in words, is the screen's heading with ‹ › beside it.
@@ -2309,6 +2332,25 @@ const cases = [
     const owner = text(renderToString(<KindStep plan={plan} custom="" setCustom={noop} setPicked={noop}
       onNext={noop} onBuild={noop} picked={one} />))
     if (!/Write it for me/.test(owner)) throw new Error('the owner lost "Write it for me"')
+  }],
+  /*
+   * A refusal lasts the session (#55). Once a run comes back `ai-not-configured`,
+   * closing Plan a workout and opening it again must not offer the model a second
+   * time, whatever the cached features said; the next page load asks the server.
+   */
+  ['PlanFlow(after ai-not-configured, reopening offers Build it myself alone)', null, () => {
+    const one = [plan.plannerKinds.kinds[0]]
+    const kind = () => text(renderToString(<KindStep plan={plan} custom="" setCustom={noop} setPicked={noop}
+      onNext={noop} onBuild={noop} picked={one} />))
+    try {
+      if (!aiOffered({ ai: true }) || !/Write it for me/.test(kind())) throw new Error('the model is not offered before any refusal')
+      if (noteAiRefusal({ code: 'not-shared' })) throw new Error('another error counted as a refusal')
+      if (!noteAiRefusal(Object.assign(new Error('x'), { code: 'ai-not-configured' }))) throw new Error('the refusal was not noted')
+      if (aiOffered({ ai: true })) throw new Error('a refused session still offers the model')
+      if (/Write it for me/.test(kind())) throw new Error('reopening Plan a workout offers the model again')
+      const flow = text(renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />))
+      if (/Write it for me|Drafts/.test(flow)) throw new Error('the reopened flow offers the model or its drafts')
+    } finally { resetAiRefusal() }
   }],
   // The rest day is a door of its own: as a footer link under the old session
   // picker it was technically reachable and the user could not find it. "Pick a

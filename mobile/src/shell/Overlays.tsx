@@ -49,7 +49,7 @@ export function Overlays() {
   if (fab === 'log') {
     const date = logAt.date || localIso()
     return (
-      <ActivityChooser plan={plan} field={activityFieldOf(plan)}
+      <ActivityChooser plan={plan} field={activityFieldOf(plan)} entries={store.entries}
         dayLabel={dayLabel(logAt.date)} climbingOnly={Boolean(logAt.climb)}
         onPick={(activity: string) => placeAll([{ optId: 'log-workout', data: { out: { activity } } }], { date })}
         onPickCard={(optId: string) => {

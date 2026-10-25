@@ -202,6 +202,14 @@ function createConfig({ root, dataDir, env = process.env }) {
     return { value: null, source: 'not found' }
   }
 
+  function isExecutable(file) {
+    try {
+      if (!fs.statSync(file).isFile()) return false
+      fs.accessSync(file, fs.constants.X_OK)
+      return true
+    } catch { return false }
+  }
+
   function ai() {
     const s = read().ai
     const bin = aiBin()
@@ -213,6 +221,8 @@ function createConfig({ root, dataDir, env = process.env }) {
       bin: bin.value,
       binSource: bin.source,
       installed,
+      /* Found AND something this process may run: a file with the execute bit for us. */
+      executable: installed && isExecutable(bin.value),
       apiKeySet: Boolean(key.value),
       apiKeySource: key.source,
       model: src(null, s.model, DEFAULT_MODEL),

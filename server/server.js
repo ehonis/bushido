@@ -141,17 +141,17 @@ const OWNER_SPACE = spaceFor({ id: OWNER })
  * up. Strava is the exception: everyone connects their own account here once
  * Settings has a Strava API app.
  *
- * AI is everyone's once a CLI is configured: each run is built from the person's
- * own space, About you and plan (`aiRun`), and a run for anyone but the owner is
- * denied the owner's files by flag (agentflags.js). The owner keeps "Write it for
- * me" with no CLI so the "set AI up" answer has somewhere to appear; nobody else
- * should be shown a setup they cannot do.
+ * AI is everyone's once a CLI is configured and runs (`aiUsable`): each run is
+ * built from the person's own space, About you and plan (`aiRun`), and a run for
+ * anyone but the owner is denied the owner's files by flag (agentflags.js).
+ * Without one it is off for everyone, the owner included (#55): Plan a workout is
+ * the hand-built route alone, and setting AI up is Settings → AI's to say.
  */
 function featuresFor(space) {
   const t = config.totem()
   const own = space.owner
   return {
-    ai: own || config.ai().installed,
+    ai: aiUsable(),
     // The owner's grant, held here (whoopLinked); and a WHOOP app to connect it through.
     whoop: own && whoopLinked(),
     whoopConnect: own && config.whoop().configured,
@@ -1164,12 +1164,15 @@ async function authRoutes(req, res, url) {
 }
 
 let aiVersionCache = { at: 0, bin: null, value: null }
+let aiVersionRun = null
+const aiVersionFresh = (bin) => aiVersionCache.bin === bin && Date.now() - aiVersionCache.at < 60_000
 /** `claude --version`, cached for a minute. Null when it will not run. */
 function aiVersion() {
   const ai = config.ai()
-  if (!ai.installed) return Promise.resolve(null)
-  if (aiVersionCache.bin === ai.bin && Date.now() - aiVersionCache.at < 60_000) return Promise.resolve(aiVersionCache.value)
-  return new Promise((resolve) => {
+  if (!ai.executable) return Promise.resolve(null)
+  if (aiVersionFresh(ai.bin)) return Promise.resolve(aiVersionCache.value)
+  if (aiVersionRun?.bin === ai.bin) return aiVersionRun.promise
+  const promise = new Promise((resolve) => {
     const child = spawn(ai.bin, ['--version'], { env: ai.spawnEnv(), stdio: ['ignore', 'pipe', 'pipe'] })
     let out = ''
     const timer = setTimeout(() => child.kill('SIGKILL'), 5000)
@@ -1181,7 +1184,22 @@ function aiVersion() {
       aiVersionCache = { at: Date.now(), bin: ai.bin, value }
       resolve(value)
     })
-  })
+  }).finally(() => { if (aiVersionRun?.promise === promise) aiVersionRun = null })
+  aiVersionRun = { bin: ai.bin, promise }
+  return promise
+}
+
+/*
+ * Whether the configured CLI can be run: found, executable, and not a binary
+ * whose last `--version` failed. Sync, because featuresFor asks on every
+ * request, so it reads the cached probe and starts a fresh one when it is stale;
+ * until the first probe answers, an executable file is taken at its word.
+ */
+function aiUsable() {
+  const ai = config.ai()
+  if (!ai.executable) return false
+  if (!aiVersionFresh(ai.bin)) aiVersion()
+  return !(aiVersionCache.bin === ai.bin && aiVersionCache.at && aiVersionCache.value === null)
 }
 
 /** One tiny request through the configured CLI, for the Test button. */
@@ -2054,17 +2072,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     /*
-     * AI is everyone's when a CLI is configured (featuresFor), and every run is
-     * built from ONE person's space (aiRun): their log, About you and plan, and
-     * for anyone but the owner none of the owner's sources. Without a CLI anyone
-     * but the owner gets the answer a fresh install gives, and their app does not
-     * offer it at all.
+     * AI is everyone's when a CLI is configured and runs (featuresFor), and every
+     * run is built from ONE person's space (aiRun): their log, About you and plan,
+     * and for anyone but the owner none of the owner's sources. Without one the
+     * answer is `ai-not-configured` for everyone (the owner is told where to set it
+     * up), and no app offers it.
      */
     const aiRoute = p === '/api/plan/workout' || p === '/api/plan/revise'
       || p === '/api/plan/drafts' || p.startsWith('/api/plan/drafts/')
     if (aiRoute && !features.ai) {
       if (p === '/api/plan/drafts' && req.method === 'GET') return send(res, 200, { drafts: [] }, { 'Cache-Control': 'no-cache' })
-      return send(res, 503, { error: 'The workout planner is not available on this account yet.', code: 'ai-not-configured' })
+      return send(res, 503, { error: space.owner ? AI_MISSING : 'The workout planner is not available on this account yet.', code: 'ai-not-configured' })
     }
 
     /*

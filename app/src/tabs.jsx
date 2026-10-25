@@ -31,7 +31,7 @@ import { nameFor, titleFor, withCasualName } from './lib/naming.js'
 import { disciplineFor } from './lib/activities.js'
 import { UnloggedWorkouts } from './unlogged.jsx'
 import { currentMe } from './lib/whoami.js'
-import { applyOut, applyRun, canStart, workoutSides, planPeople, plannedLine, toneFor, placeEntries } from './lib/trainer.js'
+import { applyOut, applyRun, canStart, workoutSides, planPeople, plannedLine, toneFor } from './lib/trainer.js'
 import { sharePeople, sharedPeopleOn, withLine, addPerson, removePerson, withSharedPerson, copyExercises, hasExercises, isSynced, withSync } from './lib/shared.js'
 import * as peopleApi from './lib/peopleapi.js'
 import { WithControl, PersonSwitch, SyncToggle, SharedNote, TheirSide, usePersonCopy, useSide, rememberSide } from './sharedwith.jsx'
@@ -39,6 +39,7 @@ import { SidesWorkout, PeopleDays, usePersonLog } from './trainer.jsx'
 
 import { WhoopReadiness, WhoopSleep } from './whoop.jsx'
 import { ToastHost } from './toast.jsx'
+import { QuickLog } from './quicklog.jsx'
 import { pushToast, dismissToast } from './lib/toast.js'
 import { Undo2 } from 'lucide-react'
 
@@ -238,19 +239,8 @@ export function TodayTab({
     })
   }
 
-  /*
-   * One tap from the empty day: a workout of that activity on the day being
-   * looked at, opened. The same write as + → Log a workout (`placeEntries`, which
-   * App's `placeAll` runs too), so the two cannot mint different ids.
-   */
+  // The entry a quick-log row on the empty day just placed, opened like the +'s.
   const [placed, setPlaced] = useState(null)
-  const quickLog = (activity) => {
-    const [entry] = placeEntries({ menu, onDay: entries, date: iso,
-      items: [{ optId: 'log-workout', data: { out: { activity } } }] })
-    if (!entry) return
-    upsertEntry(entry)
-    setPlaced(entry.id)
-  }
 
   const setDone = (entry, done) => upsertEntry(markDone(entry, done))
 
@@ -336,7 +326,9 @@ export function TodayTab({
             viewIso={iso} isFuture={isFuture}
             openEntryId={openEntryId || placed}
             onOpened={() => { setPlaced(null); onOpened() }}
-            onQuickLog={menu.some(m => m.id === 'log-workout') ? quickLog : null}
+            // The same rows as the + menu (quicklog.jsx), placing on the day
+            // being looked at and opening what they placed.
+            quick={<QuickLog plan={plan} entries={entries} upsertEntry={upsertEntry} date={iso} onPlaced={setPlaced} />}
             onLog={onLog ? () => onLog(iso) : null} onRest={onRest} />
         </div>
 
@@ -496,9 +488,9 @@ const ROW_STATE = {
  * for one fact), and the dashed "Log another workout" under the list, which
  * looked like an empty slot and said what the + beside the dock already does.
  */
-function DayList({ rows, onOpen, isFuture, viewIso, onLog = null, onRest = null, onQuickLog = null }) {
+function DayList({ rows, onOpen, isFuture, viewIso, onLog = null, onRest = null, quick = null }) {
   if (!rows.length) {
-    return <EmptyDay isFuture={isFuture} viewIso={viewIso} onLog={onLog} onRest={onRest} onQuickLog={onQuickLog} />
+    return <EmptyDay isFuture={isFuture} viewIso={viewIso} onLog={onLog} onRest={onRest} quick={quick} />
   }
   return (
     <div className="card daylist">
@@ -523,23 +515,13 @@ function DayList({ rows, onOpen, isFuture, viewIso, onLog = null, onRest = null,
   )
 }
 
-/*
- * STUB(#42): batch B's quick-log rows (`app/src/quicklog.jsx`, "Logging in two
- * taps" in docs/DESIGN.md): up to three recent activities, one tap each. Until it
- * lands this renders nothing; the slot, the order and `onPick(activityKey)`
- * (which places the workout on this day and opens it) are wired.
- */
-function QuickLogSlot() {
-  return null
-}
-
 /**
  * An empty day: what goes here, and the ways to put it there (docs/DESIGN.md,
  * "Today, first run"). The quick-log rows first, Log a workout as the one
  * primary for anything else, and a rest day as a quiet button. No paragraph:
  * the + is on screen, and planning lives behind it.
  */
-function EmptyDay({ isFuture, viewIso, onLog, onRest, onQuickLog }) {
+function EmptyDay({ isFuture, viewIso, onLog, onRest, quick }) {
   if (isFuture) {
     return <div className="empty dl-empty"><p className="dl-empty-title">Nothing planned yet</p></div>
   }
@@ -548,7 +530,7 @@ function EmptyDay({ isFuture, viewIso, onLog, onRest, onQuickLog }) {
   return (
     <div className="empty dl-empty">
       <p className="dl-empty-title">Nothing logged {when}</p>
-      {onQuickLog && <QuickLogSlot onPick={onQuickLog} />}
+      {quick}
       {(onLog || onRest) && (
         <div className="dl-empty-acts">
           {onLog && <button type="button" className="btn" onClick={onLog}>Log a workout</button>}
@@ -923,7 +905,7 @@ function DaySessions({
   onPickMain, onAddExtra, onRemove, onSaveOutputs, onSaveRun, onSavePlan,
   onSetDone, onSetTraining, viewIso, isFuture, onSaveEntry = null,
   openEntryId = null, onOpened = () => {},
-  onLog = null, onRest = null, onQuickLog = null,
+  onLog = null, onRest = null, quick = null,
 }) {
   const [sheet, setSheet] = useState(null)   // row key: 'main' | an extra entry id
   const [workout, setWorkout] = useState(null) // same key, but training in front of it
@@ -1146,7 +1128,7 @@ function DaySessions({
   return (
     <>
       <DayList rows={rows} onOpen={openRow} isFuture={isFuture} viewIso={viewIso}
-        onLog={onLog} onQuickLog={onQuickLog}
+        onLog={onLog} quick={quick}
         // The day the user is LOOKING at, so a forgotten rest day can be logged from
         // the day it belongs to. Not a future one — resting is not a plan.
         onRest={onRest && viewIso <= localIso() ? () => onRest(viewIso) : null} />
