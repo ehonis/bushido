@@ -377,6 +377,21 @@ above it, two thumb-sized steppers, and one big button. Built for a phone and no
 - Skipping is recorded as *skipped*, never as a zero. Finishing writes the lift rows into
   `out.lifts`, where the ordinary lift editor and the volume charts read them.
 
+## The interval timer
+
+A timer app inside the log: **Interval timer** on any workout's sheet, and in the **+**
+menu on its own. The setup screen opens on the last timer you ran (or a sensible preset
+the first time) with **Start** as the biggest thing on it; work, rest and rounds are
+steppers right under it, and **More** has sets, rest between sets, get ready, cool-down,
+named intervals and repeat. Presets you save are yours and follow you between devices.
+
+The run screen is one huge number in the colour of what you are doing (work, rest, get
+ready, cool-down), the round and set, and what comes next. Tap anywhere to pause; back,
+skip and ±10s are along the bottom. It beeps on the web and buzzes on the iPhone, keeps
+the screen awake, and picks up at the right second after the phone was locked or the page
+reloaded. A climbing card that declares a timer offers it as a preset; logging its sets is
+still workout mode's job.
+
 ## Workout mode — the climbing timer
 
 The older full-screen timer, still what the **climbing cards** use: a rep clock, a row of

@@ -51,6 +51,8 @@ import { StravaProvider } from './src/lib/strava.jsx'
 import { StravaActivities } from './src/strava.jsx'
 import { UnloggedWorkouts } from './src/unlogged.jsx'
 import { hasWorkout, buildSteps } from './src/lib/workout.js'
+import { TimerHost, TimerSetup, TimerRun, openTimer, closeTimer, timerRequestFor } from './src/timer.jsx'
+import { compile, startRun, presetList, sessionTimer, buildTimerEntry, buildLastTimerEntry, BUILT_INS } from './src/lib/timer.js'
 
 const plan = JSON.parse(readFileSync(new URL('../test/fixtures/plan.json', import.meta.url), 'utf8'))
 /* What a fresh install runs on: the catalogs, no programme. See app/starter.build.mjs. */
@@ -3105,6 +3107,83 @@ const cases = [
       // The common case leads (docs/DESIGN.md D7).
       if (t.indexOf('Log a workout') > t.indexOf('Plan a workout')) throw new Error('Log a workout is not the first door')
     }],
+  /*
+   * The interval timer (timer.jsx, issue #32). It used to exist only inside
+   * workout mode, which only the climbing cards with a declared timer reach.
+   * Now any workout's sheet has the door, and the + menu has one of its own.
+   */
+  ['FabMenu(an interval timer door)', null, () => {
+    const t = text(renderToString(<FabMenu onClose={noop} onPlan={noop} onLog={noop} onRest={noop} onPlanWeek={noop} onTimer={noop} />))
+    if (!t.includes('Interval timer')) throw new Error('no timer in the + menu')
+    if (text(renderToString(<FabMenu onClose={noop} onPlan={noop} onLog={noop} />)).includes('Interval timer')) {
+      throw new Error('a timer door with nothing behind it')
+    }
+  }],
+  ['SessionSheet(an ordinary workout opens the interval timer)', null, () => {
+    const opt = plan.dailyMenu.find(m => m.id === 'log-workout')
+    if (hasWorkout(opt)) throw new Error('the test card is supposed to have no timer of its own')
+    const entry = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      // Done, as today's entries are by default since #34: the timer must not hang off `!done`.
+      data: { slot: 'main', optId: opt.id, level: 2, name: 'Run', minutes: 30, done: true, out: { activity: 'run' } } }
+    const sheet = text(renderToString(
+      <SessionSheet opt={opt} entry={entry} tone="rec" entries={[]} isFuture={false}
+        onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop} onStartWorkout={noop} />))
+    if (!sheet.includes('Interval timer')) throw new Error('no timer on an ordinary workout\'s sheet')
+    // What the button asks for, answered by the host the app mounts.
+    const req = timerRequestFor(opt, entry)
+    if (req.title !== 'Run') throw new Error(`the timer is titled ${req.title}`)
+    if (req.presets.some(Boolean)) throw new Error('an ordinary card invented a plan timer')
+    openTimer(req)
+    try {
+      const html = renderToString(<TimerHost entries={[]} upsertEntry={noop} deleteEntry={noop} />)
+      const t = text(html)
+      for (const w of ['Interval timer', 'Run', 'Start', 'Work', 'Rest', 'Rounds', BUILT_INS[0].name]) {
+        if (!t.includes(w)) throw new Error(`the timer opened without "${w}"`)
+      }
+    } finally { closeTimer() }
+    if (renderToString(<TimerHost entries={[]} upsertEntry={noop} deleteEntry={noop} />) !== '') {
+      throw new Error('the host shows a timer nobody asked for')
+    }
+  }],
+  ['SessionSheet(no interval timer on a rest day)', null, () => {
+    const opt = plan.dailyMenu.find(m => m.role === 'rest')
+    const entry = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { slot: 'main', optId: opt.id, level: 1, name: 'Rest day', minutes: 0, done: true, out: {} } }
+    const t = text(renderToString(
+      <SessionSheet opt={opt} entry={entry} tone="rest" entries={[]} isFuture={false}
+        onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop} />))
+    if (t.includes('Interval timer')) throw new Error('a timer for resting')
+  }],
+  ['TimerSetup(the default first, saved presets after, a climbing card\'s timer offered as one)', null, () => {
+    const card = plan.dailyMenu.find(m => m.id === 'max-hangs')
+    const entries = [
+      { ...buildLastTimerEntry('Tabata', BUILT_INS[1].config), updatedAt: 'z' },
+      { ...buildTimerEntry('timer-a', 'Hill reps', { work: 45, rest: 15, rounds: 6 }), updatedAt: 'z' },
+    ]
+    const plain = text(renderToString(<TimerSetup presets={presetList(entries)} onStart={noop} onClose={noop} onSave={noop} onDelete={noop} />))
+    if (plain.indexOf('Last used') < 0 || plain.indexOf('Last used') > plain.indexOf('Hill reps')) {
+      throw new Error('the last timer run is not the one-tap default')
+    }
+    if (!plain.includes('Hill reps')) throw new Error('a saved preset is missing')
+    const climbing = text(renderToString(<TimerSetup title={card.name}
+      presets={presetList(entries, timerRequestFor(card).presets)} onStart={noop} onClose={noop} />))
+    if (!climbing.includes(card.name) || climbing.indexOf(card.name) > climbing.indexOf('Last used')) {
+      throw new Error('the card\'s own timer is not offered first')
+    }
+    if (!sessionTimer(card)) throw new Error('the climbing card has no timer preset')
+  }],
+  ['TimerRun(huge time, phase, round, next up)', null, () => {
+    const config = { countIn: 0, work: 30, rest: 15, rounds: 8, sets: 2, setRest: 60 }
+    const t0 = Date.parse('2026-10-25T09:00:00Z')
+    const run = startRun(compile(config), t0)
+    const html = renderToString(<TimerRun name="30 on, 15 off" config={config} initialRun={run}
+      now={t0 + 37_000} onAgain={noop} onClose={noop} />)
+    const t = text(html)
+    for (const w of ['Rest', '0:08', 'Round 1 of 8', 'Set 1 of 2', 'Next:', 'Work', 'Pause', 'Skip', 'Back']) {
+      if (!t.includes(w)) throw new Error(`no "${w}" on the run screen`)
+    }
+    if (!/class="it it-run k-rest"/.test(html)) throw new Error('the screen is not coloured for rest')
+  }],
   // It asks WHY before it logs — the reasons are the rest card's own output, so
   // they must render here and the answer must be the same field the sheet edits.
   ['RestPrompt(asks why before logging)',

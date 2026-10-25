@@ -20,6 +20,7 @@ import { progress as quotaProgress, mondayOf, weekDays, shiftWeek, quotaCounts, 
 import { isDone, isRepeatable, repeatLabel, extraEntryId, doneWhenPlaced, markDone } from './lib/store.js'
 import { testEntryFor, testEntryId, testFor } from './lib/tests.js'
 import { WorkoutMode } from './workout.jsx'
+import { openTimer, timerRequestFor } from './timer.jsx'
 import { WorkoutRunner } from './runner.jsx'
 import { QuotaBars } from './quotabars.jsx'
 import { PrescriptionEditor, PlanTalk, PlanWhy } from './planner.jsx'
@@ -715,6 +716,12 @@ export function SessionSheet({
           <DoneButton opt={opt} entry={entry} planned={planned} done={done}
             onLog={() => { setDirty(true); onLog(opt) }}
             onSetDone={(v) => { setDirty(true); onSetDone(entry, v) }} />
+          {/* Any workout can use a clock. A card that declares one offers it as a preset. */}
+          {opt.role !== 'rest' && (
+            <button className="btn secondary wo-cta" onClick={() => openTimer(timerRequestFor(opt, entry))}>
+              <Icon name="Timer" size={17} /> Interval timer
+            </button>
+          )}
         </div>
       )}
     >

@@ -94,7 +94,8 @@ reasons behind the design, and the things that have been removed on purpose.
 | Grades | `app/src/lib/grades.js` | The only grade scales in the app. |
 | Prescriptions | `app/src/lib/prescription.js` | The model under planning and the runner. Pure; `now` is an argument. |
 | Runner | `app/src/runner.jsx` | Set-by-set screen for a planned session. One writer. |
-| Workout mode | `app/src/workout.jsx`, `app/src/lib/workout.js` | The climbing cards' interval timer. |
+| Workout mode | `app/src/workout.jsx`, `app/src/lib/workout.js` | The climbing cards' rep clock and set log. |
+| Interval timer | `app/src/timer.jsx`, `app/src/timer.css`, `app/src/lib/timer.js` | The general timer: from any workout's sheet and the + menu. Pure model, `now` as an argument; presets are `kind: 'timer'` entries (§6.5). |
 | Planner UI | `app/src/planner.jsx`, `app/src/lib/plannerapi.js`, `app/src/lib/drafts.js` | + → Plan a workout; `BuildStep` (by hand) and `AskStep`/`ReviewStep` (by model); `DraftList` reopens a draft at its step. |
 | Week planner UI | `app/src/weekplanner.jsx` | + → Plan the week. |
 | Pickers | `app/src/picker.jsx`, `app/src/lib/folders.js` | `PickerScreen`, `ActivityChooser` (Log a workout: the plan's cards in folders by `sched.discipline`, then the sports catalog). Declaration order, no ranking. |
@@ -631,6 +632,19 @@ with no rebuild.
   entry; everything subtracts, nothing counts down. That is how it survives the app
   closing or switching devices, and why `prescription.js` takes `now`.
 - **`data.plan` is what was asked for; `out` is what happened.** Never the same field.
+- **The interval timer is a clock, not a log** (`lib/timer.js`, `timer.jsx`, D8 in
+  `docs/DESIGN.md`). A config compiles to a flat list of segments; a run is instants
+  (`at`, `pausedAt`, …) and `settle(program, run, now)` steps over every segment that
+  ran out, each starting where the last ENDED, so backgrounding and a reload (the run is
+  kept on the device under `bushido:timer-run`) land on the right second. A segment with
+  `seconds: null` counts up and waits for a tap. It writes nothing to a workout.
+- **The climbing cards' timers are presets of it.** `sessionTimer()` walks workout mode's
+  own `startOf`/`advancePhase`/`afterSet` and drops only the review (where a set is
+  logged), so the same card runs the same sequence from either door;
+  `workout.test.js` pins that for every timed card. Workout mode keeps the set log.
+- **Timer presets are entries**: one undated `kind: 'timer'` entry per preset (like gear),
+  plus `timer-last`, the one-tap default, rewritten only when Start runs something
+  different. Per person, synced, merged per preset, deleted by tombstone.
 - **A lift always offers a weight box**, even when the prescription has no load
   (`setFieldsFor()` decides for both editor and runner).
 - **Lift-only planned sessions are not runnable** (`runnable(opt, pres)`, `isLiftOnly`,

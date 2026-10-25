@@ -25,6 +25,7 @@ import { PersonDay } from './trainer.jsx'
 import * as peopleApi from './lib/peopleapi.js'
 import { Modal } from './modal.jsx'
 import { currentMe, actAs } from './lib/whoami.js'
+import { TimerHost, openTimer } from './timer.jsx'
 
 /*
  * Four tabs, down from six on 2026-09-15.
@@ -109,7 +110,7 @@ export function ActingBanner({ me }) {
  * then tools. Each door says what it is in one line; the paragraphs that used to
  * sit under each one made the menu something to read rather than to press.
  */
-export function FabMenu({ onClose, onPlan, onLog, onPlanWeek, onRest }) {
+export function FabMenu({ onClose, onPlan, onLog, onPlanWeek, onRest, onTimer = null }) {
   return (
     <div className="fabmenu-scrim" onClick={onClose} role="presentation">
       <div className="fabmenu" onClick={e => e.stopPropagation()} role="dialog" aria-label="Add a workout">
@@ -145,6 +146,16 @@ export function FabMenu({ onClose, onPlan, onLog, onPlanWeek, onRest }) {
             <span className="fabmenu-body">
               <strong>Plan the week</strong>
               <span className="sub">Talk this week&rsquo;s counts through</span>
+            </span>
+          </button>
+        )}
+        {/* A timer on its own, for a workout nobody is logging yet. See timer.jsx. */}
+        {onTimer && (
+          <button className="fabmenu-row" onClick={onTimer}>
+            <span className="fabmenu-ico"><Icon name="Timer" size={22} /></span>
+            <span className="fabmenu-body">
+              <strong>Interval timer</strong>
+              <span className="sub">Work, rest and rounds</span>
             </span>
           </button>
         )}
@@ -624,7 +635,8 @@ export default function App() {
           onPlan={() => setFab('plan')}
           onLog={() => openLog(tab === 'today' ? viewDay : null)}
           onRest={restOpt ? () => askRest() : null}
-          onPlanWeek={me.features.ai ? () => setFab('week') : null} />
+          onPlanWeek={me.features.ai ? () => setFab('week') : null}
+          onTimer={() => { setFab(null); openTimer() }} />
       )}
 
       {/*
@@ -683,6 +695,10 @@ export default function App() {
         <PersonDay person={personView.person} date={localIso()} plan={plan} openId={personView.entryId}
           onClose={() => setPersonView(null)} />
       )}
+
+      {/* The interval timer, from the + menu or any session sheet, and a run that
+          was going when the page went away. See timer.jsx. */}
+      <TimerHost entries={store.entries} upsertEntry={store.upsertEntry} deleteEntry={store.deleteEntry} />
     </div>
     </StravaProvider>
     </WhoopProvider>

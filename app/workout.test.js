@@ -30,6 +30,13 @@ import {
   minutesFor, minutesOf, dayMinutes, resolveMinutes, asksItsOwnDuration, minutesSourceOf,
 } from './src/lib/minutes.js'
 import { levelFor } from './src/lib/level.js'
+import {
+  compile, normalizeConfig, startRun, settle, pause, resume, skip, back, bump, view, cueFor, moved,
+  totalSeconds, stepSeconds, describe, sessionTimer, DEFAULT_CONFIG, BUILT_INS, BACK_GRACE,
+  buildTimerEntry, buildLastTimerEntry, savedTimers, lastTimer, presetList, newTimerId, sameConfig,
+  TIMER_KIND, LAST_TIMER_ID, runKeyFor, saveRun, loadRun,
+} from './src/lib/timer.js'
+import { mergeState } from './src/lib/store.js'
 
 const plan = JSON.parse(readFileSync(new URL('../test/fixtures/plan.json', import.meta.url), 'utf8'))
 const menu = plan.dailyMenu
@@ -1476,6 +1483,273 @@ check('workout mode steps through the doubles carrying the grade field', () => {
   // counts up and nothing counts down to an invented number.
   eq(steps[0].timing.work, null)
   eq(steps[0].timing.reps, 1, 'a lap is not something a clock can end')
+})
+
+
+/* ------------------------------------------------------- the interval timer */
+
+/* lib/timer.js: the general interval timer. Every case below runs on `now`
+ * passed in, so "the phone was in a pocket for ten minutes" is a number. */
+
+const T0 = Date.parse('2026-10-25T09:00:00Z')
+const sec = (n) => T0 + n * 1000
+const kinds = (program) => program.segments.map(s => `${s.kind}:${s.seconds}`)
+
+check('timer: work and rest alternate, with no rest after the last round', () => {
+  const p = compile({ countIn: 5, work: 30, rest: 15, rounds: 3, sets: 1, coolDown: 0 })
+  eq(kinds(p).join(' '), 'countin:5 work:30 rest:15 work:30 rest:15 work:30')
+  eq(totalSeconds(p), 5 + 30 * 3 + 15 * 2)
+  eq(p.segments[3].round, 2, 'the second work is round 2')
+  eq(p.segments[3].rounds, 3)
+})
+
+check('timer: sets get the rest between sets instead of the round rest, and the cool-down comes last', () => {
+  const p = compile({ countIn: 0, work: 20, rest: 10, rounds: 2, sets: 2, setRest: 60, coolDown: 120 })
+  eq(kinds(p).join(' '), 'work:20 rest:10 work:20 setrest:60 work:20 rest:10 work:20 cooldown:120')
+  eq(p.segments[4].set, 2, 'set 2 starts after the set rest')
+  eq(p.segments[4].round, 1, 'and its round count starts again')
+})
+
+check('timer: with no rest between sets, the round rest still separates them', () => {
+  const p = compile({ countIn: 0, work: 20, rest: 10, rounds: 1, sets: 2, setRest: 0 })
+  eq(kinds(p).join(' '), 'work:20 rest:10 work:20')
+})
+
+check('timer: a rest of zero is back-to-back work, not a zero-second segment', () => {
+  const p = compile({ countIn: 0, work: 60, rest: 0, rounds: 3 })
+  eq(kinds(p).join(' '), 'work:60 work:60 work:60')
+})
+
+check('timer: named intervals replace work/rest as the round', () => {
+  const p = compile({
+    countIn: 0, rounds: 2, sets: 1,
+    intervals: [{ name: 'Squat', kind: 'work', seconds: 40 }, { name: 'Lunge', kind: 'work', seconds: 40 }, { kind: 'rest', seconds: 20 }],
+  })
+  eq(p.segments.map(s => s.name).join(','), 'Squat,Lunge,Rest,Squat,Lunge', 'last round drops its trailing rest')
+  eq(p.segments[2].kind, 'rest')
+})
+
+check('timer: a run steps through on its own, by the clock alone', () => {
+  const p = compile({ countIn: 5, work: 30, rest: 15, rounds: 2 })
+  let r = startRun(p, T0)
+  eq(settle(p, r, sec(4.9)), r, 'nothing moves inside a segment, and the same run comes back')
+  r = settle(p, r, sec(5))
+  eq(p.segments[r.index].kind, 'work', 'the count-in ends at exactly five seconds')
+  eq(r.at, sec(5), 'and work starts at the instant it ended')
+  r = settle(p, r, sec(36))
+  eq(p.segments[r.index].kind, 'rest')
+  eq(Math.round(view(p, r, sec(36)).left), 14)
+  r = settle(p, r, sec(80))
+  eq(r.finishedAt, sec(80), 'finished at the end of the last work, not when it was looked at')
+  eq(view(p, r, sec(500)).finished, true)
+  eq(view(p, r, sec(500)).elapsed, 80, 'elapsed stops at the finish')
+})
+
+check('timer: a time jump (the phone in a pocket) lands where the clock would be', () => {
+  const p = compile({ countIn: 10, work: 20, rest: 10, rounds: 8 })
+  const r = settle(p, startRun(p, T0), sec(10 + 30 * 3 + 5)) // three rounds and 5s into round 4
+  eq(p.segments[r.index].kind, 'work')
+  eq(p.segments[r.index].round, 4)
+  eq(Math.round(view(p, r, sec(105)).left), 15)
+})
+
+check('timer: pause holds the clock across a jump, and resume carries on from the same second', () => {
+  const p = compile({ countIn: 0, work: 30, rest: 15, rounds: 2 })
+  let r = startRun(p, T0)
+  r = pause(p, r, sec(12))
+  // Ten minutes away while paused: nothing advances.
+  r = settle(p, r, sec(612))
+  eq(r.index, 0, 'still the first work')
+  eq(Math.round(view(p, r, sec(612)).left), 18, 'with the same 18 seconds left')
+  ok(view(p, r, sec(612)).paused, 'and it says so')
+  r = resume(p, r, sec(612))
+  eq(Math.round(view(p, r, sec(620)).left), 10)
+  r = settle(p, r, sec(630))
+  eq(p.segments[r.index].kind, 'rest', 'the work ends 18s after resuming')
+  eq(r.at, sec(630))
+  eq(Math.round(view(p, r, sec(630)).elapsed), 30, 'paused time is not worked time')
+})
+
+check('timer: skip goes to the next segment with its full time, and stays paused if paused', () => {
+  const p = compile({ countIn: 5, work: 30, rest: 15, rounds: 2 })
+  let r = skip(p, startRun(p, T0), sec(2))
+  eq(p.segments[r.index].kind, 'work')
+  eq(view(p, r, sec(2)).left, 30)
+  r = pause(p, r, sec(4))
+  r = skip(p, r, sec(6))
+  eq(p.segments[r.index].kind, 'rest')
+  eq(view(p, r, sec(100)).left, 15, 'a skip while paused does not start the clock')
+  r = resume(p, r, sec(100))
+  eq(view(p, r, sec(105)).left, 10)
+})
+
+check('timer: back restarts the segment, or inside the first seconds goes to the one before', () => {
+  const p = compile({ countIn: 0, work: 30, rest: 15, rounds: 2 })
+  let r = settle(p, startRun(p, T0), sec(40)) // 10s into the rest
+  r = back(p, r, sec(40))
+  eq(p.segments[r.index].kind, 'rest', `more than ${BACK_GRACE}s in: restart`)
+  eq(view(p, r, sec(40)).left, 15)
+  r = back(p, r, sec(41))
+  eq(r.index, 0, 'straight away again: the segment before')
+  eq(view(p, r, sec(41)).left, 30)
+  const fin = settle(p, r, sec(1000))
+  ok(fin.finishedAt != null)
+  const again = back(p, fin, sec(1000))
+  eq(again.index, p.segments.length - 1, 'back from the finish is the last segment')
+  eq(again.finishedAt, null)
+})
+
+check('timer: +/- moves the end of the segment, never below a second left', () => {
+  const p = compile({ countIn: 0, work: 30, rest: 15, rounds: 1 })
+  let r = startRun(p, T0)
+  r = bump(p, r, sec(10), 15)
+  eq(Math.round(view(p, r, sec(10)).left), 35)
+  r = bump(p, r, sec(10), -60)
+  eq(Math.round(view(p, r, sec(10)).left), 1, 'clamped to one second')
+  r = settle(p, r, sec(11))
+  ok(r.finishedAt != null, 'and it runs out then')
+})
+
+check('timer: a count-up segment waits for a tap however long it is left', () => {
+  const p = compile({ countIn: 0, rounds: 1, intervals: [{ kind: 'work', seconds: null, name: 'Climb' }, { kind: 'rest', seconds: null }, { kind: 'work', seconds: 10 }] })
+  let r = settle(p, startRun(p, T0), sec(3600))
+  eq(r.index, 0, 'an hour later it is still the first one')
+  eq(view(p, r, sec(3600)).left, null)
+  eq(Math.round(view(p, r, sec(3600)).counted), 3600, 'counting up')
+  eq(totalSeconds(p), null, 'a timer with a count-up has no known length')
+  r = skip(p, r, sec(3600))
+  eq(p.segments[r.index].kind, 'rest')
+  eq(bump(p, r, sec(3601), 15), r, 'nothing to add time to on a count-up')
+})
+
+check('timer: repeat goes round again without counting in twice', () => {
+  const p = compile({ countIn: 5, work: 20, rest: 10, rounds: 2, sets: 1, setRest: 30, coolDown: 60, repeat: true })
+  eq(kinds(p).join(' '), 'countin:5 work:20 rest:10 work:20 setrest:30', 'no cool-down on a timer that never ends')
+  eq(p.loopFrom, 1)
+  let r = settle(p, startRun(p, T0), sec(5 + 80 + 1))
+  eq(r.lap, 2)
+  eq(r.index, 1, 'lap two starts at the first work, not the count-in')
+  eq(totalSeconds(p), null)
+  r = back(p, r, sec(5 + 80 + 1.5))
+  eq(r.lap, 1, 'back across the lap boundary')
+  eq(r.index, p.segments.length - 1)
+})
+
+check('timer: the cue names the segment arrived in', () => {
+  const p = compile({ countIn: 5, work: 30, rest: 15, rounds: 2 })
+  let r = startRun(p, T0)
+  eq(cueFor(p, r), 'countIn')
+  const r2 = settle(p, r, sec(6))
+  ok(moved(r, r2), 'a transition is visible to the caller')
+  eq(cueFor(p, r2), 'work')
+  eq(cueFor(p, settle(p, r2, sec(36))), 'rest')
+  eq(cueFor(p, settle(p, r2, sec(999))), 'finished')
+  ok(!moved(r2, settle(p, r2, sec(7))), 'a repaint is not a transition')
+})
+
+check('timer: stored configs are clamped, never trusted', () => {
+  const c = normalizeConfig({ work: -4, rest: 'x', rounds: 1e6, sets: 0, intervals: [{ kind: 'nap', seconds: 9e9, name: 'A'.repeat(99) }, null] })
+  eq(c.work, 5)
+  eq(c.rest, DEFAULT_CONFIG.rest, 'garbage is the default, not zero')
+  eq(c.rounds, 99)
+  eq(c.sets, 1)
+  eq(c.intervals.length, 1)
+  eq(c.intervals[0].kind, 'work')
+  eq(c.intervals[0].seconds, 3600)
+  eq(c.intervals[0].name.length, 40)
+  eq(normalizeConfig(null).work, DEFAULT_CONFIG.work)
+})
+
+check('timer: steppers snap to a sensible grid in both directions', () => {
+  eq(stepSeconds(30, 1), 35)
+  eq(stepSeconds(55, 1), 60)
+  eq(stepSeconds(60, 1), 75)
+  eq(stepSeconds(60, -1), 55)
+  eq(stepSeconds(300, -1), 285)
+  eq(stepSeconds(300, 1), 330)
+  eq(stepSeconds(600, 1), 660)
+  eq(stepSeconds(7, 1), 10, 'an odd number from a plan steps onto the grid')
+  eq(stepSeconds(0, -1), 0)
+})
+
+check('timer: presets round-trip through the log as their own entries', () => {
+  const config = { ...DEFAULT_CONFIG, work: 45, rest: 15, rounds: 6, sets: 2, setRest: 90 }
+  const id = newTimerId()
+  ok(id.startsWith('timer-') && id !== LAST_TIMER_ID)
+  const entry = { ...buildTimerEntry(id, '  Hill reps  ', config), updatedAt: '2026-10-25T09:00:00Z' }
+  eq(entry.kind, TIMER_KIND)
+  eq(entry.date, null, 'undated, so it never shows in a day or the feed')
+  // Through the same JSON and merge the sync does.
+  const merged = mergeState({ entries: {} }, JSON.parse(JSON.stringify({ entries: { [id]: entry } })))
+  const back = savedTimers(Object.values(merged.entries))
+  eq(back.length, 1)
+  eq(back[0].name, 'Hill reps')
+  ok(sameConfig(back[0].config, config), 'the config comes back unchanged')
+  eq(describe(back[0].config), '2 sets of 6 × 45s work · 15s rest')
+  // A tombstone takes it away; the last-used entry is not a saved preset.
+  const last = { ...buildLastTimerEntry('Tabata', BUILT_INS[1].config), updatedAt: '2026-10-25T09:01:00Z' }
+  const later = mergeState(merged, { entries: { [id]: { ...entry, deleted: true, updatedAt: '2026-10-25T09:02:00Z' }, [LAST_TIMER_ID]: last } })
+  const list = Object.values(later.entries)
+  eq(savedTimers(list).length, 0, 'deleted presets are gone')
+  eq(lastTimer(list).name, 'Tabata')
+  eq(presetList(list)[0].id, LAST_TIMER_ID, 'the last one used is the one-tap default')
+  eq(presetList([])[0].id, BUILT_INS[0].id, 'with nothing used yet, a shipped preset is')
+})
+
+check('timer: a running timer survives a reload from storage', () => {
+  const store = new Map()
+  const storage = { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: k => store.delete(k) }
+  const config = { ...DEFAULT_CONFIG, countIn: 0, work: 30, rest: 15, rounds: 4 }
+  const p = compile(config)
+  const r = pause(p, settle(p, startRun(p, T0), sec(40)), sec(40))
+  const key = runKeyFor('owner')
+  ok(key.startsWith('bushido:'), 'cleared by sign-out with the rest of the device cache')
+  ok(runKeyFor('sam') !== key, 'one per person')
+  saveRun(storage, key, { name: 'x', title: 'Ride', config, run: r })
+  const got = loadRun(storage, key, sec(4000))
+  eq(got.title, 'Ride')
+  const p2 = compile(got.config)
+  const v = view(p2, settle(p2, got.run, sec(4000)), sec(4000))
+  eq(v.segment.kind, 'rest', 'the same segment')
+  eq(Math.round(v.left), 5, 'the same second, paused through the reload')
+  eq(loadRun(storage, key, sec(3600 * 25)), null, 'a run left for a day is not resumed')
+  saveRun(storage, key, { config, run: settle(p, startRun(p, T0), sec(999)) })
+  eq(loadRun(storage, key, sec(1000)), null, 'a finished run is not resumed')
+  saveRun(storage, key, null)
+  eq(store.has(key), false)
+})
+
+/* The climbing cards' timers as presets. The general timer has no set log, so
+ * the one thing it drops from workout mode's walk is the review; everything
+ * else has to come out identical, or "the same session" runs differently
+ * depending on which button started it. */
+function workoutModePhases(session) {
+  const steps = buildSteps(session, {})
+  const out = []
+  let at = startOf(0, steps, { lead: LEAD_IN })
+  for (let guard = 0; guard < 5000 && at.phase !== 'finished'; guard++) {
+    if (at.phase === 'review') { at = afterSet(at, steps); continue }
+    const kind = { countin: 'countin', work: 'work', represt: 'rest', setrest: 'setrest' }[at.phase]
+    out.push(`${kind}:${at.seconds || null}`)
+    at = advancePhase(at, steps)
+  }
+  return out
+}
+
+check('timer: a climbing card\'s declared timer runs the same sequence as workout mode', () => {
+  const timed = menu.filter(m => hasWorkout(m) && sessionTimer(m))
+  ok(timed.length >= 5, `only ${timed.length} timed cards in the fixture`)
+  for (const m of timed) {
+    const p = compile(sessionTimer(m).config)
+    eq(kinds(p).join(' '), workoutModePhases(m).join(' '), m.id)
+  }
+  // And one by hand, so a change to both at once still fails.
+  const p = compile(sessionTimer(opt('max-hangs')).config)
+  eq(p.segments[0].kind, 'countin')
+  eq(p.segments[0].seconds, LEAD_IN, 'the long lead-in before the first set, as workout mode')
+  eq(p.segments[1].name, opt('max-hangs').logSpec.exercises[0].name, 'work is named for the exercise')
+  ok(p.segments.every(s => s.kind !== 'cooldown'), 'nothing the plan did not declare')
+  eq(sessionTimer(menu.find(m => m.id === 'log-workout')), null, 'an ordinary card has no plan timer to offer')
 })
 
 console.log(failed ? `\n${failed} test(s) failed` : '\nall workout tests pass')

@@ -10,6 +10,7 @@ import { outWith } from '../lib/unlogged.js'
 import { PlanFlow } from '../features/planner'
 import { WeekPlanFlow } from '../features/weekplanner'
 import { PersonDay } from '../features/trainer'
+import { openTimerAfterSheet } from '../features/timer'
 import * as trainerLib from '../lib/trainer.js'
 
 export function Overlays() {
@@ -37,6 +38,7 @@ export function Overlays() {
         onLog={() => openLog(menuFrom === 'today' ? viewDay : null)}
         onRest={restOpt ? () => askRest() : null}
         onPlanWeek={me.features.ai ? () => setFab('week') : null}
+        onTimer={() => { setFab(null); openTimerAfterSheet() }}
       />
     )
   }

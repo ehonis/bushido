@@ -6,6 +6,7 @@ import { Tabs } from 'expo-router'
 import { AppProvider, useApp } from '../../shell/AppData'
 import { TabBar } from '../../shell/TabBar'
 import { Overlays } from '../../shell/Overlays'
+import { TimerHost } from '../../features/timer'
 import { useAccessReauth } from '../../shell/accessReauth'
 import { colors } from '../../theme'
 
@@ -24,6 +25,8 @@ function Inner() {
         <Tabs.Screen name="coach" options={{ title: 'Coach' }} />
       </Tabs>
       <Overlays />
+      {/* The interval timer, and a run that was going when the app went away. */}
+      <TimerHost entries={store.entries} upsertEntry={store.upsertEntry} deleteEntry={store.deleteEntry} />
     </>
   )
 }
