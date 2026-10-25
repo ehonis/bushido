@@ -111,9 +111,8 @@ export function UnloggedWorkouts({
    * A short commute ride is not really a workout, but its miles should still
    * count. Same entry, same snapshot, same everything, with
    * `training: false` on it — which keeps the miles on the bike and the day on
-   * the streak, and keeps a commute out of the load chart, out of the week's
-   * quotas and away from the recommender's sense
-   * of a heavy week. See `isTraining`, and `weekDaily` in lib/quota.js.
+   * the streak, and keeps a commute out of the load chart. See `isTraining` in
+   * lib/store.js.
    *
    * It is a second BUTTON rather than a checkbox inside the form, because the
    * whole value of this card is that logging a ride is one tap; making the cheap
@@ -206,11 +205,11 @@ export function UnloggedWorkouts({
               <>
                 <button className="unlogrow-take" onClick={() => take(item)}>Log it</button>
                 <button className="unlogrow-miles" onClick={() => takeAsMiles(item)}
-                  title="Counts the miles and the streak — not the quota, not as training">
+                  title="Counts the miles and the streak — not as training">
                   Just miles
                 </button>
                 <button className="unlogrow-miles" onClick={() => takeAsWarmup(item)}
-                  title="The front of another session — counts the minutes, not the quota">
+                  title="The front of another session — counts the minutes, not as a workout">
                   Warm-up
                 </button>
               </>

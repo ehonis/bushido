@@ -26,10 +26,10 @@ check('a fresh install: every optional link is off', () => {
   const c = createConfig({ root: ROOT, dataDir: tmp(), env: bareEnv() })
   eq(c.migrate().install, 'fresh')
   const t = c.totem()
-  ok(!t.enabled && !t.goals && !t.habitSync, 'a Totem feature is on by default')
+  ok(!t.enabled && !t.habitSync, 'a Totem feature is on by default')
   ok(t.secret() === '', 'a fresh install found a bridge secret')
   const l = c.links()
-  eq([l.notifyCore, l.brainFile, l.krakatoaDir], [null, null, null], 'a sibling path is set by default')
+  eq([l.notifyCore, l.brainFile], [null, null], 'a sibling path is set by default')
   ok(!c.ai().installed, 'AI claims to be set up with no CLI anywhere')
   eq(c.planFile().source, 'starter')
   ok(c.planFile().file.endsWith(path.join('content', 'starter.json')))
@@ -44,7 +44,7 @@ check('an existing install keeps its login-free access and otherwise starts like
   eq(c.migrate().install, 'migrated')
   ok(!c.totem().enabled, 'the migration switched a bridge on from code')
   const l = c.links()
-  eq([l.notifyCore, l.brainFile, l.krakatoaDir], [null, null, null], 'the migration set a sibling path from code')
+  eq([l.notifyCore, l.brainFile], [null, null], 'the migration set a sibling path from code')
   eq(c.read().plan.file, '', 'the migration points at a file in the repo instead of the data dir')
   eq(c.read().notifications.tz, '', 'the migration set a timezone from code')
   eq(c.athlete(), { name: '', notes: '' }, 'personal facts are seeded from code')
@@ -128,17 +128,21 @@ check('clearPlanFile forgets a plan file named in settings.json; update() cannot
   eq(JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')).plan.file, '', 'the setting is still on disk')
 })
 
-check('a key a section no longer has is dropped, not kept: totem.whoop and totem.strava', () => {
+check('a key a section no longer has is dropped, not kept: totem.whoop, totem.strava, totem.goals, links.krakatoaDir', () => {
   const dir = tmp()
   fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({
-    totem: { url: 'http://bridge:1', habitSync: false, whoop: true, strava: true },
+    totem: { url: 'http://bridge:1', habitSync: false, whoop: true, strava: true, goals: true },
+    links: { brainFile: '/b/me.md', krakatoaDir: '/k' },
   }))
   const c = createConfig({ root: ROOT, dataDir: dir, env: bareEnv() })
-  eq(Object.keys(c.publicView().totem).sort(), ['envFile', 'goals', 'habit', 'habitSync', 'secret', 'url'])
+  eq(Object.keys(c.publicView().totem).sort(), ['envFile', 'habit', 'habitSync', 'secret', 'url'])
   eq([c.read().totem.url, c.read().totem.habitSync], ['http://bridge:1', false], 'a known key lost its value')
+  ok(!('goals' in c.totem()), 'linked goals still resolve')
+  ok(!('krakatoaDir' in c.links()), 'the nutrition digest still resolves')
+  eq(c.links().brainFile, '/b/me.md', 'the brain file the planner reads was lost with it')
   c.update({ totem: { habit: 'h' } })
   const saved = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')).totem
-  ok(!('whoop' in saved) && !('strava' in saved), 'a removed key went back into settings.json')
+  ok(!('whoop' in saved) && !('strava' in saved) && !('goals' in saved), 'a removed key went back into settings.json')
 })
 
 check('a settings.json written by hand before the first start is kept, not migrated', () => {
@@ -153,7 +157,7 @@ check('a settings.json written by hand before the first start is kept, not migra
   eq(c.migrate(), { created: false, install: 'migrated' })
   eq(c.authMode().value, 'proxy')
   eq([c.athlete().name, c.tz(), c.totem().url, c.links().notifyCore], ['Sam', 'Europe/Oslo', 'http://bridge:1', '/n'])
-  ok(c.totem().goals, 'a partial file loses its defaults')
+  ok(c.totem().habitSync, 'a partial file loses its defaults')
 })
 
 check('the migration runs once: later edits are not overwritten', () => {
@@ -179,7 +183,7 @@ check('environment variables win over settings', () => {
   const dir = tmp()
   const env = bareEnv({
     BUSHIDO_TOTEM_URL: 'http://bridge:1/', BRIDGE_SECRET: 'from-env', BUSHIDO_NOTIFY_CORE: '/n',
-    CLAUDE_BIN: process.execPath, ANTHROPIC_API_KEY: 'env-key', BUSHIDO_COACH_MODEL: 'm-env',
+    CLAUDE_BIN: process.execPath, ANTHROPIC_API_KEY: 'env-key', BUSHIDO_PLANNER_MODEL: 'm-env',
     BUSHIDO_PLAN_FILE: '/p.json', BUSHIDO_TZ: 'Europe/Oslo',
   })
   const c = createConfig({ root: ROOT, dataDir: dir, env })
@@ -193,8 +197,7 @@ check('environment variables win over settings', () => {
   const ai = c.ai()
   eq(ai.bin, process.execPath)
   ok(ai.installed)
-  eq(ai.coachModel, 'm-env')
-  eq(ai.plannerModel, 'm-set', 'the settings model is not the fallback for other features')
+  eq(ai.plannerModel, 'm-env')
   eq(ai.spawnEnv().ANTHROPIC_API_KEY, 'env-key', 'a stored key overrode the env one')
   eq(c.planFile(), { file: '/p.json', source: 'env BUSHIDO_PLAN_FILE' })
   eq(c.tz(), 'Europe/Oslo')
@@ -227,11 +230,11 @@ check('a browser patch cannot set a file, a directory or a program', () => {
   c.update({
     ai: { bin: '/bin/sh', model: 'm' }, plan: { file: '/etc/passwd' },
     totem: { envFile: '/root/.env', url: 'http://b' },
-    links: { brainFile: '/home/x/.bashrc', krakatoaDir: '/', notifyCore: '/tmp/evil' },
+    links: { brainFile: '/home/x/.bashrc', notifyCore: '/tmp/evil' },
   })
   const r = c.read()
-  eq([r.ai.bin, r.plan.file, r.totem.envFile, r.links.brainFile, r.links.krakatoaDir, r.links.notifyCore],
-    ['', '', '', '', '', ''], 'a path-like setting was written from a patch')
+  eq([r.ai.bin, r.plan.file, r.totem.envFile, r.links.brainFile, r.links.notifyCore],
+    ['', '', '', '', ''], 'a path-like setting was written from a patch')
   eq([r.ai.model, r.totem.url], ['m', 'http://b'], 'ordinary settings in the same patch were lost')
 })
 
@@ -255,9 +258,10 @@ check('the starter ships no personal content', () => {
   ok(!/Ethan/.test(s), 'the starter names the original user')
   ok(!('facility' in JSON.parse(s)), 'the starter describes a real gym')
   const ex = JSON.parse(fs.readFileSync(path.join(ROOT, 'examples', 'plan.json'), 'utf8'))
-  ok(ex.achievements.every(a => a.id.startsWith('example-')), 'the example plan is not the invented one')
+  ok(ex.dailyMenu.filter(m => !['log-workout', 'planned', 'off'].includes(m.id)).every(m => m.id.startsWith('example-')),
+    'the example plan is not the invented one')
   const plan = JSON.parse(s)
-  eq(plan.achievements, [], 'the starter seeds achievements')
+  ok(!('achievements' in plan), 'the starter seeds achievements')
   ok(plan.dailyMenu.some(m => m.id === 'log-workout'), 'the starter cannot log a workout')
 })
 

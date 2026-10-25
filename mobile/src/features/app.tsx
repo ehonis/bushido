@@ -17,29 +17,20 @@ import { reloadApp } from '../shell/reload'
 import { impact } from '../ui/haptics'
 
 /*
- * Seven tabs, ordered roughly by how often a session touches them. ACHIEVEMENTS
- * and GOALS are deliberately two tabs: an achievement is open-ended and lives
- * here; a Totem goal is a week or a quarter and lives there.
+ * Three tabs, since 2026-10-25 (issue #31): Today, Log, Progress. Week went with
+ * the quotas; Achievements, Goals and Coach went because they were not used.
  */
 export const TABS = [
   { id: 'today', label: 'Today' },
-  { id: 'week', label: 'Week' },
   { id: 'log', label: 'Log' },
   { id: 'progress', label: 'Progress' },
-  { id: 'achievements', label: 'Achievements' },
-  { id: 'goals', label: 'Goals' },
-  { id: 'coach', label: 'Coach' },
 ] as const
 
 /*
- * What this person's app offers (lib/whoami.js). The coach is the owner's for
- * now, and linked goals come from the owner's Totem; for anyone else those tabs
- * are not there at all.
+ * What this person's app offers. Every tab is everyone's now; the signature
+ * stays because callers still pass features and ownership.
  */
-export const tabsFor = (features: any, owner = true) => TABS.filter((t) =>
-  (t.id !== 'coach' || features?.ai !== false) &&
-  // The owner keeps the tab with no bridge: it is where the app says how to set one up.
-  (t.id !== 'goals' || owner || features?.goals))
+export const tabsFor = (_features?: any, _owner = true) => TABS
 
 /**
  * Whose log is open when the owner is acting as someone else, on every screen,
@@ -74,26 +65,25 @@ const FAB_ROWS = [
   // thirty cards, which is to say nowhere.
   { key: 'rest', icon: 'Sunset', tint: null, title: 'Log a rest day', sub: 'A day off on purpose' },
   { key: 'plan', icon: 'Sparkles', tint: null, title: 'Plan a workout', sub: 'Build it yourself, or have it written for you' },
-  { key: 'week', icon: 'CalendarRange', tint: null, title: 'Plan the week', sub: 'Talk this week’s counts through' },
   { key: 'timer', icon: 'Timer', tint: null, title: 'Interval timer', sub: 'Work, rest and rounds' },
 ] as const
 
 /**
- * What the + offers. Four doors: the separate session picker went on 2026-10-14 when the
- * plan's cards moved into Log a workout as the climbing folders (lib/folders.js).
+ * What the + offers. Three doors: the separate session picker went on 2026-10-14 when the
+ * plan's cards moved into Log a workout as the climbing folders (lib/folders.js), and
+ * Plan the week went with the quotas on 2026-10-25.
  * A sheet from the bottom, because the button is at the bottom and a menu that
  * opens away from your thumb is one you reach across for.
  */
-export function FabMenu({ onClose, onPlan, onLog, onPlanWeek, onRest, onTimer = null }: {
+export function FabMenu({ onClose, onPlan, onLog, onRest, onTimer = null }: {
   onClose: () => void
   onPlan: () => void
   onLog: () => void
-  onPlanWeek: (() => void) | null
   onRest: (() => void) | null
   onTimer?: (() => void) | null
 }) {
   const insets = useSafeAreaInsets()
-  const handlers: Record<string, (() => void) | null> = { plan: onPlan, log: onLog, rest: onRest, week: onPlanWeek, timer: onTimer }
+  const handlers: Record<string, (() => void) | null> = { plan: onPlan, log: onLog, rest: onRest, timer: onTimer }
   return (
     <RNModal visible transparent animationType="slide" onRequestClose={onClose}>
       <GestureHandlerRootView style={{ flex: 1 }}>

@@ -42,12 +42,12 @@ const blank = () => ({
   athlete: { name: '', notes: '' },
   ai: { provider: 'claude-cli', bin: '', apiKey: '', model: '' },
   plan: { file: '' },
-  totem: { url: '', secret: '', envFile: '', habit: '', habitSync: true, goals: true },
+  totem: { url: '', secret: '', envFile: '', habit: '', habitSync: true },
   /* The Strava API app everyone connects their own account through. */
   strava: { clientId: '', clientSecret: '', redirectUri: '' },
   /* The WHOOP developer app the owner's WHOOP is connected through. */
   whoop: { clientId: '', clientSecret: '', redirectUri: '' },
-  links: { notifyCore: '', brainFile: '', krakatoaDir: '' },
+  links: { notifyCore: '', brainFile: '' },
   notifications: { tz: '' },
 })
 
@@ -58,7 +58,7 @@ const blank = () => ({
  * data/settings.json, and the Settings page shows them read-only. plan.file is
  * not in update() at all: importing a plan is how a browser changes the plan.
  */
-const FILE_ONLY = [['ai', 'bin'], ['totem', 'envFile'], ['links', 'notifyCore'], ['links', 'brainFile'], ['links', 'krakatoaDir']]
+const FILE_ONLY = [['ai', 'bin'], ['totem', 'envFile'], ['links', 'notifyCore'], ['links', 'brainFile']]
 
 /* Settings keys that hold secrets: never sent to a browser, shown masked. */
 const SECRET_KEYS = [['ai', 'apiKey'], ['totem', 'secret'], ['strava', 'clientSecret'], ['whoop', 'clientSecret']]
@@ -216,9 +216,7 @@ function createConfig({ root, dataDir, env = process.env }) {
       apiKeySet: Boolean(key.value),
       apiKeySource: key.source,
       model: src(null, s.model, DEFAULT_MODEL),
-      coachModel: model('BUSHIDO_COACH_MODEL'),
       plannerModel: model('BUSHIDO_PLANNER_MODEL'),
-      chatModel: model('BUSHIDO_CHAT_MODEL'),
       /* The environment a CLI run gets: the server's own, plus a stored key. */
       spawnEnv() {
         if (key.source === 'settings') return { ...process.env, ...env, ANTHROPIC_API_KEY: key.value }
@@ -259,7 +257,6 @@ function createConfig({ root, dataDir, env = process.env }) {
       secret,
       secretSource,
       habitSync: enabled && s.habitSync !== false,
-      goals: enabled && s.goals !== false,
     }
   }
 
@@ -318,11 +315,9 @@ function createConfig({ root, dataDir, env = process.env }) {
     const s = read().links
     const notifyCore = src('BUSHIDO_NOTIFY_CORE', s.notifyCore, null)
     const brainFile = src('BUSHIDO_BRAIN_FILE', s.brainFile, null)
-    const krakatoaDir = src('BUSHIDO_KRAKATOA_DIR', s.krakatoaDir, null)
     return {
       notifyCore: abs(notifyCore.value), notifyCoreSource: notifyCore.source,
       brainFile: abs(brainFile.value), brainFileSource: brainFile.source,
-      krakatoaDir: abs(krakatoaDir.value), krakatoaDirSource: krakatoaDir.source,
     }
   }
 

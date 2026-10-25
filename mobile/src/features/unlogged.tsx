@@ -111,7 +111,7 @@ export function UnloggedWorkouts({
   /*
    * "Just miles" — an activity, not a workout. `training: false` keeps the miles
    * on the bike and the day on the streak, and keeps a commute out of the load
-   * chart, the week's quotas and the recommender. A second BUTTON rather than a
+   * chart. A second BUTTON rather than a
    * checkbox, because logging a ride here is one tap. It names itself "Commute"
    * (lib/naming.js), marked as the app's name so unticking takes it back.
    */
@@ -203,11 +203,11 @@ export function UnloggedWorkouts({
                       <T size={13} color={colors.accent}>Log it</T>
                     </Press>
                     <Press onPress={() => takeAsMiles(item)} accessibilityRole="button" hitSlop={{ top: 4, bottom: 4 }}
-                      accessibilityHint="Counts the miles and the streak — not the quota, not as training" style={u.miles}>
+                      accessibilityHint="Counts the miles and the streak — not as training" style={u.miles}>
                       <T size={11} dim numberOfLines={1}>Just miles</T>
                     </Press>
                     <Press onPress={() => takeAsWarmup(item)} accessibilityRole="button" hitSlop={{ top: 4, bottom: 4 }}
-                      accessibilityHint="The front of another session — counts the minutes, not the quota" style={u.miles}>
+                      accessibilityHint="The front of another session — counts the minutes, not as a workout" style={u.miles}>
                       <T size={11} dim numberOfLines={1}>Warm-up</T>
                     </Press>
                   </>

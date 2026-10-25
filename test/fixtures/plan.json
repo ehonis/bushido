@@ -10984,7 +10984,7 @@
           "key": "activity",
           "type": "activity",
           "label": "What kind of workout was this?",
-          "hint": "Optional — it sets the form below and which quota this fills. A planned climbing session has no entry here; the plan already said what it was.",
+          "hint": "Optional — it sets the form below and the category it files under. A planned climbing session has no entry here; the plan already said what it was.",
           "groups": [
             "Running",
             "Cycling",
@@ -15465,7 +15465,7 @@
     "note": "The fields are the things a coach would ask before saying anything, and they are hard fields rather than prose because bodyweight is a series, and 'feeling' is only useful if it is comparable across days. Three of them are read by the recommendation engine itself (`informs`): where you are replaces the calendar's guess about the day, the time you have rules out anything longer, and your fingers right now override what your last session logged. Everything else goes in the message. What you say here is kept — every check-in is read by the next one, so telling the coach on Thursday that the gym has moved to Sunday is what makes Sunday's plan right."
   },
   "outputsNote": "Two of these appear on every session — how hard it felt, and how your fingers felt after. They are what make the trend charts work: RPE times duration gives session training load, and the finger score is your earliest warning that the two-hard-days budget is being broken. Fill them in the moment you finish; recalled RPE from the next morning is worth much less. Every session also ends with two free-text notes — how it felt, and what to change next time. Those are the ones worth writing properly: when you repeat a session the app shows you the last one before you start, which is the only moment 'what to improve' can actually change anything.",
-  "menuNote": "Thirty sessions, each tagged with the quota category it fills. The climbing ones carry protocols because a repeater set is meaningless without its numbers; *Log a workout* carries none, because a ride is a ride. Nothing here is scheduled to a weekday any more — the week asks for counts per category and you decide which day each lands on.",
+  "menuNote": "Thirty sessions, each tagged with the category it files under. The climbing ones carry protocols because a repeater set is meaningless without its numbers; *Log a workout* carries none, because a ride is a ride. Nothing here is scheduled to a weekday any more — the week asks for counts per category and you decide which day each lands on.",
   "achievements": [
     {
       "id": "climb-12a",
@@ -15560,7 +15560,7 @@
       "name": "Run",
       "discipline": "run",
       "icon": "Footprints",
-      "blurb": "Road, trail, treadmill, track. The discipline that punishes a jump in volume hardest, so raise this quota slower than it feels like you could.",
+      "blurb": "Road, trail, treadmill, track. The discipline that punishes a jump in volume hardest, so raise it slower than it feels like you could.",
       "logWith": "run",
       "logNote": "No protocol, because a run is a run. This lane opens the workout card with the activity already picked."
     },
@@ -15585,7 +15585,7 @@
       "name": "Anything else",
       "discipline": "other",
       "icon": "Sparkles",
-      "blurb": "Dance, pickleball, a hike, manual labour. Here so a day you moved is a day that counts, and so you can set a quota for it if you want one.",
+      "blurb": "Dance, pickleball, a hike, manual labour. Here so a day you moved is a day that counts.",
       "logWith": null,
       "logNote": "Nothing in the menu is a \"misc\" session — this lane opens the workout card and lets you search."
     }
@@ -16155,7 +16155,7 @@
         "key": "z2",
         "label": "Zone 2",
         "icon": "HeartPulse",
-        "prompt": "a zone 2 aerobic session — easy, steady, conversational — in whichever of swim, bike or run the week still owes most (say which you picked and why in `why`, and do not repeat yesterday's sport unless the week asks for it)",
+        "prompt": "a zone 2 aerobic session — easy, steady, conversational — in whichever of swim, bike or run has been done least lately (say which you picked and why in `why`, and do not repeat yesterday's sport unless the week asks for it)",
         "category": null,
         "activity": null,
         "hint": "easy, steady, conversational — most of your week should be this",
@@ -16557,7 +16557,7 @@
         "key": "endurance",
         "name": "Endurance",
         "icon": "HeartPulse",
-        "blurb": "These let the model pick swim, bike or run for you, from what the week still owes — build it yourself and you say which. Zone 2 and easy volume are the bread and butter; the hard ones say how rarely they belong."
+        "blurb": "These let the model pick swim, bike or run for you, from what you have done least lately — build it yourself and you say which. Zone 2 and easy volume are the bread and butter; the hard ones say how rarely they belong."
       },
       {
         "key": "swim",

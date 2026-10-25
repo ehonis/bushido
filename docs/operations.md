@@ -23,13 +23,16 @@ bushido/
   data/auth.json        the owner account and the session key (0600)
   data/plan.json        your own plan: preferred over everything but env (backed up before
                         Settings replaces or removes it)
-  data/coach/           the AI coach's conversations, one file each
   data/drafts/          "Write it for me" drafts, one file each (up to 8, a week at most)
   data/whoop.json       WHOOP cache: workouts + daily recovery (disposable)
   data/strava.json      Strava cache: recent rides/runs/walks + gear (disposable)
   data/strava-oauth.json        the owner's Strava grant (0600; Bushido is its only holder)
   data/strava-activities.json   the owner's full activity mirror, which Totem's goals read
 ```
+
+An install older than 2026-10-25 may also have `data/coach.json`, `data/coach/` and
+`data/goals.json`, left by the AI coach and linked goals (since removed). Nothing reads
+them and nothing deletes them; move them out by hand if you want them gone.
 
 `BUSHIDO_DATA_DIR` moves everything under `data/`; the Docker image puts it at `/data`.
 
@@ -57,7 +60,7 @@ See [`deploy/README.md`](../deploy/README.md) for installing the unit.
 ```
 cd app && npm run build              # writes ../dist, no service restart needed
 npm run dev                                 # hot reload on :5173, proxies /api to :8099
-npm test                                    # recommender + quotas + workout + coach + lifts + render smoke
+npm test                                    # every app suite + render smoke + server suites
 ```
 
 Editing the content file (`data/plan.json`, or whichever one Settings says is in
@@ -67,13 +70,12 @@ property access here rather than on your phone in a basement.
 
 ## Frontend build settings
 
-The built app reads three optional values from `app/.env` at **build** time (template:
+The built app reads two optional values from `app/.env` at **build** time (template:
 `app/.env.example`); change one and run `npm run build` again.
 
 | variable | what it does | unset |
 |---|---|---|
-| `VITE_BUSHIDO_HOST` | the hostname this app is served at; Totem goals linking to it show on Today, and handed-over pages land here | goals match the host the page is open at |
-| `VITE_BUSHIDO_LEGACY_HOSTS` | comma-separated older hostnames that stored goal links may still use | old links are not matched |
+| `VITE_BUSHIDO_HOST` | the hostname this app is served at; handed-over pages land here | nothing moves |
 | `VITE_BUSHIDO_HANDOFF_FROM` | comma-separated retired hostnames; once a page there has synced its offline outbox it moves to `VITE_BUSHIDO_HOST` | nothing moves |
 
 ## Sign-in
@@ -119,7 +121,7 @@ the port, and the server logs a warning at start-up if it is listening on anythi
 loopback. A data directory that already has an owner account is never migrated to proxy.
 
 Settings that name files or programs (the CLI path, the bridge `.env` file, the notify
-core, the athlete profile file and the food-log directory) are read-only on the page: set
+core and the athlete profile file) are read-only on the page: set
 them in the environment or in `data/settings.json`.
 
 If you lose the password: stop the server, delete `data/auth.json`, start it, and use
@@ -128,7 +130,7 @@ the new setup link. The training log is untouched.
 ## More than one person
 
 An install can hold several people's logs. The owner (whoever set it up) keeps the data
-dir exactly as it was: `data/state.json`, `data/plan.json`, `data/coach/`, `data/backups/`.
+dir exactly as it was: `data/state.json`, `data/plan.json`, `data/backups/`.
 Everyone else has the same files under `data/users/<id>/`, plus `about.json` (their About
 you: a name and notes for their own AI runs). `data/users.json` (`0600`) lists
 the people and the emails they sign in with; edit it in Settings → People.
@@ -157,8 +159,8 @@ under its own key, and every API call from the app says whose log it holds
 `X-Bushido-Auth: switched`, and the app reloads. One person's cached log can never be
 merged into another's.
 
-For anyone but the owner: Settings are refused; WHOOP, linked goals, habit sync and
-notifications are off, because they hold the owner's accounts. Strava is everyone's own:
+For anyone but the owner: Settings are refused; WHOOP, habit sync and notifications
+are off, because they hold the owner's accounts. Strava is everyone's own:
 each person, the owner included, connects their account in profile → Settings → *Connect
 Strava*, which needs a Strava API app in Settings → *Strava*. A new Strava app accepts only
 its creator until it is raised to ten athletes at strava.com/settings/api, and its
@@ -168,26 +170,24 @@ Authorization Callback Domain must cover the host people open Bushido on. A pers
 `data/users/<id>/plan.json` if one was imported while acting as them, else the starter.
 Removing someone in Settings stops them getting in and leaves their folder on disk.
 
-**Everyone gets the AI** once a Claude CLI is configured: the coach, Plan a workout and Plan
-the week. Each run is built from that person's own space only: their log, coach threads,
-plan and About you (profile → You → *About you*; the owner's stays in Settings). Their runs
-get `--add-dir` for `data/users/<id>/` alone, and are denied by rule from reading anything
-else in the data dir (the owner's `state.json`, coach threads and note, caches, backups,
-`users.json`) and every other person's folder. The owner's brain file and its notebook, the
-nutrition digest, the brain Write grant and the WHOOP/Strava digests are not given to them
-and are denied by path; their prompts have no section for any of them, exactly like an
-install that never configured them. Without a CLI nothing changes for them: no Coach tab, no
-"Write it for me".
+**Everyone gets the workout planner** once a Claude CLI is configured (Plan a workout →
+*Write it for me*). Each run is built from that person's own space only: their log, plan and
+About you (profile → You → *About you*; the owner's stays in Settings). Their runs get
+`--add-dir` for `data/users/<id>/` alone, and are denied by rule from reading anything else
+in the data dir (the owner's `state.json`, caches, backups, `users.json`, and an older
+install's coach files and goals cache) and every other person's folder. The owner's brain
+file and its notebook and the WHOOP/Strava files are not given to them and are denied by
+path; their prompts have no section for any of them, exactly like an install that never
+configured them. Without a CLI nothing changes for them: no "Write it for me".
 
 **The owner as trainer.** Without acting as anyone, the owner can:
 
-- plan a workout or a week FOR someone (the "For: You / Sam" choice at the top of both
-  planners, shown only to the owner, only with more than one person, never while acting).
-  The model run uses that person's log, plan and About you. Keeping it writes into their log:
-  a planned session lands as an ordinary entry, `done: false` (done from its day on), with the same derivable id
-  their own + would have given it and `data.plannedBy: { id, name }` stamped by the server;
-  a week is their `quota-<monday>` with `plannedBy`. A week they set themselves is never
-  overwritten (`409`). They see "planned by <owner>" on Today, the sheet and the feed, and
+- plan a workout FOR someone (the "For: You / Sam" choice at the top of Plan a workout,
+  shown only to the owner, only with more than one person, never while acting). The model
+  run uses that person's log, plan and About you. Keeping it writes into their log: a
+  planned session lands as an ordinary entry, `done: false` (done from its day on), with the same derivable id
+  their own + would have given it and `data.plannedBy: { id, name }` stamped by the server.
+  They see "planned by <owner>" on Today, the sheet and the feed, and
   can edit, log or delete it like anything else.
 - open "Sam's day" from Today: their week, read-only, each session openable to log it, mark
   it done or start it from their side. Their About you can be edited there too.
@@ -218,7 +218,7 @@ Signed out, `/api/*` answers `401` with `X-Bushido-Auth: login` and pages redire
 | `GET /api/auth/me` · `POST /api/auth/password` | who is signed in, whose log this is and what it offers; change the password |
 | `POST /api/act-as` | `{ id }` — the owner acts as someone (`null`: back to themselves) |
 | `GET`/`POST`/`PUT /api/settings/users` · `DELETE /api/settings/users/<id>` | the people on this install (owner only) |
-| `GET /api/people` · `GET /api/people/<id>/entry?id=…` or `?date=…` · `POST /api/people/<id>/entry` | the owner reads and writes someone else's copy of a shared workout, a session the owner planned for them (`daily-…`) or a week the owner planned for them (`quota-<monday>`). Owner only, not while acting as someone, never the owner's own log, and only entries carrying `data.sharedFrom` or `data.plannedBy` (both stamped by the server); anything they logged or set themselves is `409 not-shared` |
+| `GET /api/people` · `GET /api/people/<id>/entry?id=…` or `?date=…` · `POST /api/people/<id>/entry` | the owner reads and writes someone else's copy of a shared workout, or a session the owner planned for them (`daily-…`). Owner only, not while acting as someone, never the owner's own log, and only entries carrying `data.sharedFrom` or `data.plannedBy` (both stamped by the server); anything they logged or set themselves is `409 not-shared` |
 | `GET /api/people/<id>/state` · `GET /api/people/<id>/content` | their log and the plan their app runs on, read-only (owner only, not while acting) |
 | `GET`/`PUT /api/people/<id>/about` | their About you, `{ name, notes }` (owner only, not while acting) |
 | `GET`/`PUT /api/about` | your own About you, for anyone but the owner (whose is in Settings; `PUT` from the owner is `409 settings`) |
@@ -226,19 +226,12 @@ Signed out, `/api/*` answers `401` with `X-Bushido-Auth: login` and pages redire
 | `POST /api/settings/ai/test` | one tiny request through the configured CLI |
 | `GET /api/content` | the content file in use (see Settings → Training plan) |
 | `POST /api/plan/import` · `/api/plan/example` · `/api/plan/reset` | import a plan, copy the example, back to the starter |
-| `GET /api/coach` | today's coach note — 404 until there is one, which is normal |
-| `GET /api/coach/threads` · `GET`/`DELETE /api/coach/thread/<id>` | the AI coach's conversations |
-| `POST /api/coach/chat` | `{ message, threadId?, context? }` → one coach turn; one model run |
 | `POST /api/plan/workout` | `{ kinds, minutes, goal, for? }` → a workout with the sets written in; one model run, stored nowhere |
 | `POST /api/plan/revise` | `{ plan, message, thread, for? }` → the same workout, changed; stored nowhere |
 | `GET`/`POST /api/plan/drafts` | this person's AI workout drafts; `{ picked, minutes, goal, context, for? }` starts one, answering at once with it still working |
 | `GET`/`PUT`/`DELETE /api/plan/drafts/<id>` | one draft; `PUT { pres }` saves edits; `DELETE` discards (and stops its run) |
 | `POST /api/plan/drafts/<id>/revise` · `…/retry` | `{ message, pres? }` revises on the draft; retry re-runs a failed turn |
 | `POST /api/plan/drafts/<id>/keep` | claim it before placing (`409`/`404` with `code: "kept"` when another device kept it); `{ release: true }` hands it back. A draft whose id is on an entry (`data.plan.draftId`) is deleted |
-| `POST /api/plan/week` | `{ monday, counts, message, thread, for? }` → the week's quotas, proposed; stored nowhere |
-
-`for` (a person's id) is the owner planning for someone else: the run uses their space. Owner
-only (`403`), not while acting as someone else (`409 acting`), never the owner's own id.
 | `GET /api/whoop` · `POST /api/whoop/pull` | the WHOOP cache, and a refetch (`configured: false` until the owner connects WHOOP) |
 | `POST /api/whoop/connect` · `GET /whoop/callback` · `POST /api/whoop/disconnect` | connect or drop the owner's WHOOP (owner only; `409` while acting as someone) |
 | `POST /api/whoop/owner` | `{ method, args }` on the owner's WHOOP client (`status`, `training`, `sleepNights`): how Totem and Krakatoa read WHOOP (owner only) |
@@ -246,7 +239,6 @@ only (`403`), not while acting as someone else (`409 acting`), never the owner's
 | `GET /api/strava/activity?id=` | one activity in full (laps, splits, calories) — fetched when you attach it |
 | `POST /api/strava/connect` · `GET /strava/callback` · `POST /api/strava/disconnect` | connect or drop your own Strava (`409` while acting as someone) |
 | `POST /api/strava/owner` | `{ method, args }` on the owner's Strava client: how Totem reads Strava (owner only) |
-| `GET /api/goals` · `POST /api/goals/pull` | Totem goals linked to this app |
 | `/api/push/*` | push subscriptions, when a notify core is configured |
 | `GET /api/state` | `{ version, updatedAt, state }` |
 | `PUT /api/state` | `{ state }` — merged with disk, returns merged doc |
@@ -254,7 +246,15 @@ only (`403`), not while acting as someone else (`409 acting`), never the owner's
 | `GET /api/export` | download the whole log as JSON |
 | `POST /api/import` | replace the log from an export |
 
-Every route that reads or writes a log, a plan or coach files does so for the person the
+`for` (a person's id) on the planner and draft routes is the owner planning for someone else: the
+run uses their space. Owner only (`403`), not while acting as someone else (`409 acting`),
+never the owner's own id.
+
+`GET /api/health` with a session reports, besides the entry count and resolved paths,
+`ai: { model, claude, brain }` (the planner's model, whether a CLI was found, whether the
+brain file exists), `totem`, `notify`, `whoop` and `strava`.
+
+Every route that reads or writes a log or a plan does so for the person the
 request is for (see *More than one person*). AI routes answer `503` with
 `code: "ai-not-configured"` when no CLI is found, or for someone the AI is not set up for.
 
@@ -333,15 +333,10 @@ to any real workout). Bushido is just a writer into it.
   series kept since July. Change a day to rest and it zeroes out there too.
 - Override with `BUSHIDO_TOTEM_URL`, `BUSHIDO_TOTEM_HABIT`, `BUSHIDO_TOTEM_ENV`, or untick *Mark the daily habit* in Settings.
 
-## The coach note
+## The removed coach
 
-`data/coach.json` is one document per day: a headline, what the coach read in your week,
-capped nudges, and flags. The app shows it as its own card on Today.
-
-It is written on the way out of a check-in and nowhere else — there is no scheduled run
-any more, and nothing writes it in the background. Talk to the coach and there is a note;
-don't and the app behaves exactly as it did before the coach existed. Advice is dated, so
-a note written for Monday can never quietly steer Tuesday.
+The AI coach, its daily coach note (`data/coach.json`) and the dormant check-in coach were
+removed on 2026-10-25. Their files are left where they are and nothing reads them.
 
 There used to be a 04:40 systemd timer (`coach/run.sh`) that ran a headless Opus session
 and could edit the plan file behind a validate-test-revert gate. It's gone, along

@@ -1493,11 +1493,12 @@ check('workout mode steps through the doubles carrying the grade field', () => {
 
 const T0 = Date.parse('2026-10-25T09:00:00Z')
 const sec = (n) => T0 + n * 1000
-const kinds = (program) => program.segments.map(s => `${s.kind}:${s.seconds}`)
+// Kind AND seconds per segment, so every comparison below fails on a changed duration too.
+const shape = (program) => program.segments.map(s => `${s.kind}:${s.seconds}`)
 
 check('timer: work and rest alternate, with no rest after the last round', () => {
   const p = compile({ countIn: 5, work: 30, rest: 15, rounds: 3, sets: 1, coolDown: 0 })
-  eq(kinds(p).join(' '), 'countin:5 work:30 rest:15 work:30 rest:15 work:30')
+  eq(shape(p).join(' '), 'countin:5 work:30 rest:15 work:30 rest:15 work:30')
   eq(totalSeconds(p), 5 + 30 * 3 + 15 * 2)
   eq(p.segments[3].round, 2, 'the second work is round 2')
   eq(p.segments[3].rounds, 3)
@@ -1505,19 +1506,19 @@ check('timer: work and rest alternate, with no rest after the last round', () =>
 
 check('timer: sets get the rest between sets instead of the round rest, and the cool-down comes last', () => {
   const p = compile({ countIn: 0, work: 20, rest: 10, rounds: 2, sets: 2, setRest: 60, coolDown: 120 })
-  eq(kinds(p).join(' '), 'work:20 rest:10 work:20 setrest:60 work:20 rest:10 work:20 cooldown:120')
+  eq(shape(p).join(' '), 'work:20 rest:10 work:20 setrest:60 work:20 rest:10 work:20 cooldown:120')
   eq(p.segments[4].set, 2, 'set 2 starts after the set rest')
   eq(p.segments[4].round, 1, 'and its round count starts again')
 })
 
 check('timer: with no rest between sets, the round rest still separates them', () => {
   const p = compile({ countIn: 0, work: 20, rest: 10, rounds: 1, sets: 2, setRest: 0 })
-  eq(kinds(p).join(' '), 'work:20 rest:10 work:20')
+  eq(shape(p).join(' '), 'work:20 rest:10 work:20')
 })
 
 check('timer: a rest of zero is back-to-back work, not a zero-second segment', () => {
   const p = compile({ countIn: 0, work: 60, rest: 0, rounds: 3 })
-  eq(kinds(p).join(' '), 'work:60 work:60 work:60')
+  eq(shape(p).join(' '), 'work:60 work:60 work:60')
 })
 
 check('timer: named intervals replace work/rest as the round', () => {
@@ -1624,15 +1625,45 @@ check('timer: a count-up segment waits for a tap however long it is left', () =>
 
 check('timer: repeat goes round again without counting in twice', () => {
   const p = compile({ countIn: 5, work: 20, rest: 10, rounds: 2, sets: 1, setRest: 30, coolDown: 60, repeat: true })
-  eq(kinds(p).join(' '), 'countin:5 work:20 rest:10 work:20 setrest:30', 'no cool-down on a timer that never ends')
+  eq(shape(p).join(' '), 'countin:5 work:20 rest:10 work:20 rest:10', 'no cool-down on a timer that never ends')
   eq(p.loopFrom, 1)
-  let r = settle(p, startRun(p, T0), sec(5 + 80 + 1))
+  let r = settle(p, startRun(p, T0), sec(5 + 60 + 1))
   eq(r.lap, 2)
   eq(r.index, 1, 'lap two starts at the first work, not the count-in')
   eq(totalSeconds(p), null)
-  r = back(p, r, sec(5 + 80 + 1.5))
+  r = back(p, r, sec(5 + 60 + 1.5))
   eq(r.lap, 1, 'back across the lap boundary')
   eq(r.index, p.segments.length - 1)
+})
+
+check('timer: one set on repeat runs lap into lap, with no rest between sets nobody asked for', () => {
+  // Tabata + "Repeat until I stop": 20/10 forever. The stored setRest (60 by
+  // default) once added a minute every lap and cut round 8's rest.
+  const tabata = BUILT_INS.find(b => b.id === 'builtin-tabata').config
+  const p = compile({ ...tabata, repeat: true })
+  eq(shape(p).filter(x => !x.startsWith('countin')).join(' '), Array(8).fill('work:20 rest:10').join(' '))
+  ok(p.segments.every(s => s.kind !== 'setrest'), 'no rest between sets with one set')
+  const lap = 8 * 30
+  const r = settle(p, startRun(p, T0), sec(tabata.countIn + lap + 1))
+  eq(r.lap, 2, 'a lap is eight rounds of 30 seconds')
+  eq(r.index, p.loopFrom, 'and the next starts on work')
+  // Without repeat, one set never had a rest between sets either.
+  ok(compile(tabata).segments.every(s => s.kind !== 'setrest'))
+})
+
+check('timer: with sets, repeat rests between sets and between laps alike', () => {
+  const p = compile({ countIn: 0, work: 20, rest: 10, rounds: 2, sets: 2, setRest: 60, repeat: true })
+  eq(shape(p).join(' '), 'work:20 rest:10 work:20 setrest:60 work:20 rest:10 work:20 setrest:60')
+})
+
+check('timer: back from Done does not count the time spent on Done', () => {
+  const p = compile({ countIn: 0, work: 30, rest: 15, rounds: 1 })
+  const fin = settle(p, startRun(p, T0), sec(30))
+  eq(fin.finishedAt, sec(30))
+  const r = back(p, fin, sec(630)) // ten minutes looking at Done
+  eq(Math.round(view(p, r, sec(630)).elapsed), 30, 'elapsed resumes from where it finished')
+  eq(Math.round(view(p, r, sec(640)).elapsed), 40)
+  eq(Math.round(view(p, r, sec(640)).left), 20, 'the last segment runs again in full')
 })
 
 check('timer: the cue names the segment arrived in', () => {
@@ -1741,13 +1772,17 @@ check('timer: a climbing card\'s declared timer runs the same sequence as workou
   ok(timed.length >= 5, `only ${timed.length} timed cards in the fixture`)
   for (const m of timed) {
     const p = compile(sessionTimer(m).config)
-    eq(kinds(p).join(' '), workoutModePhases(m).join(' '), m.id)
+    eq(shape(p).join(' '), workoutModePhases(m).join(' '), m.id)
   }
   // And one by hand, so a change to both at once still fails.
   const p = compile(sessionTimer(opt('max-hangs')).config)
   eq(p.segments[0].kind, 'countin')
   eq(p.segments[0].seconds, LEAD_IN, 'the long lead-in before the first set, as workout mode')
   eq(p.segments[1].name, opt('max-hangs').logSpec.exercises[0].name, 'work is named for the exercise')
+  // Durations straight from the plan's own timer, not through workout.js.
+  const ex = opt('max-hangs').logSpec.exercises[0]
+  eq(p.segments[1].seconds, exerciseTimer(opt('max-hangs'), ex.key).work, 'the work is the plan\'s hang')
+  ok(p.segments[1].seconds > 0, 'a declared hang counts down')
   ok(p.segments.every(s => s.kind !== 'cooldown'), 'nothing the plan did not declare')
   eq(sessionTimer(menu.find(m => m.id === 'log-workout')), null, 'an ordinary card has no plan timer to offer')
 })

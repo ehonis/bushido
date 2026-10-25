@@ -33,8 +33,7 @@ import { optFor } from '../lib/menu.js'
 import * as trainerLib from '../lib/trainer.js'
 import { isDone } from '../lib/store.js'
 import { prescriptionSteps, runProgress, restLeft, itemLine, prescriptionLine } from '../lib/prescription.js'
-import { mondayOf, weekDays, shiftWeek } from '../lib/quota.js'
-import { fromIso, localIso } from '../lib/dates.js'
+import { fromIso, localIso, mondayOf, weekDays, shiftWeek } from '../lib/dates.js'
 import { currentMe } from '../lib/whoami.js'
 
 type Person = { id: string; name: string; entryId?: string; tone?: number }
@@ -356,7 +355,7 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
       }) : null}
       <Fold summary={`About ${person.name}`} style={{ marginTop: 16 }}>
         <AboutForm load={() => peopleApi.getPersonAbout(person.id)} save={(doc: any) => peopleApi.putPersonAbout(person.id, doc)}
-          lead={`What ${person.name}'s coach and planners are told, and what yours are told when you plan for ${person.name}.`} />
+          lead={`What ${person.name}'s workout planner is told, and what yours is told when you plan for ${person.name}.`} />
       </Fold>
 
       {openId ? (
@@ -441,7 +440,7 @@ export function PersonEntrySheet({ person, entryId, menu = [], entries = [], onC
 
 /* ------------------------------------------------------------ About you */
 
-/** A person's name and notes for their own coach and planners. */
+/** A person's name and notes for their own workout planner. */
 export function AboutForm({ load, save, lead = null }: {
   load: () => Promise<any>
   save: (doc: { name: string; notes: string }) => Promise<any>
@@ -474,9 +473,9 @@ export function AboutForm({ load, save, lead = null }: {
         <Input value={doc.name} maxLength={80} autoCorrect={false}
           onChangeText={(v) => { setDoc({ ...doc, name: v }); setStatus(null) }} />
       </Field>
-      <Field label="Notes for the coach and planners">
+      <Field label="Notes for the workout planner">
         <Input multiline value={doc.notes} maxLength={4000} style={{ minHeight: 110 }}
-          placeholder="Goals, injuries, the equipment you have, anything a coach should know."
+          placeholder="Goals, injuries, the equipment you have, anything a planner should know."
           onChangeText={(v) => { setDoc({ ...doc, notes: v }); setStatus(null) }} />
       </Field>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -494,8 +493,8 @@ export function MyAbout({ me = currentMe() }: { me?: any }) {
     <Card>
       <H2>About you</H2>
       <AboutForm load={peopleApi.getMyAbout} save={peopleApi.putMyAbout}
-        lead={me.acting ? `What ${me.name}'s coach and planners are told about ${me.name}.`
-          : 'What your coach and planners are told about you. Only you and the owner of this install can see it.'} />
+        lead={me.acting ? `What ${me.name}'s workout planner is told about ${me.name}.`
+          : 'What your workout planner is told about you. Only you and the owner of this install can see it.'} />
     </Card>
   )
 }

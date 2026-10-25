@@ -51,7 +51,6 @@ import {
 import { ExerciseSection } from './exercises'
 import { useWhoop, readinessFor } from '../lib/whoop.jsx'
 import { usePlan } from '../lib/planctx.jsx'
-import { progress as quotaProgress } from '../lib/quota.js'
 import { currentMe } from '../lib/whoami.js'
 import { ForChoice, ForLine, usePersonLog } from './trainer'
 
@@ -160,7 +159,6 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
   const { cache: whoopCache } = (useWhoop as any)()
   // WHOOP is the owner's: someone else's plan is told nothing about recovery (§7).
   const readiness = useMemo(() => (target ? null : (readinessFor as any)(whoopCache, iso)), [whoopCache, iso, target])
-  const week = useMemo(() => (quotaProgress as any)({ plan: ctxPlan, entries: ctxEntries, iso }), [ctxPlan, ctxEntries, iso])
 
   // kind | ask | working | review | failed | kept, plus `build` — the hand-built
   // route, which reaches the same editor from the same kinds with no model in it.
@@ -255,7 +253,7 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
         picked,
         minutes,
         goal: goal.trim(),
-        context: (plannerContext as any)({ readiness, week, iso }),
+        context: (plannerContext as any)({ readiness, plan: ctxPlan, entries: ctxEntries, iso }),
         forId: target?.id || null,
       })
       upsert(d)
@@ -269,7 +267,7 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
       setError(e.message)
       setStep('failed')
     }
-  }, [picked, minutes, goal, readiness, week, iso, target, draftId, upsert, drop])
+  }, [picked, minutes, goal, readiness, ctxPlan, ctxEntries, iso, target, draftId, upsert, drop])
 
   /** Try a failed draft again; a draft that never got made is simply made. */
   const retry = useCallback(async (d: any = open) => {
@@ -319,9 +317,9 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
 
   /**
    * The other route: the blocks, named, with nothing in them. One block per kind
-   * picked, in tap order, each carrying that kind's quota and sport — the seam is
-   * the block and not the author. A kind that names no category leaves the block
-   * saying "counts toward nothing"; nothing here guesses on their behalf.
+   * picked, in tap order, each carrying that kind's category and sport — the seam
+   * is the block and not the author. A kind that names no category leaves the block
+   * as "part of the workout beside it"; nothing here guesses on their behalf.
    */
   const build = useCallback(() => {
     setPres((blankPrescription as any)({
@@ -1250,9 +1248,9 @@ function SplitNote({ parts }: { parts: any[] }) {
       <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
         <T size={13.5} weight={700}>This lands as {parts.length} separate workouts</T>
         <T size={12} dim lineHeight={18}>
-          {parts.map(p => p.title).join(' · ')} — each with its own log and its own quota, so
-          a ride your watch recorded attaches to the ride. Change a block’s
-          <T size={12} color={colors.accent}> counts toward</T> below to move the seams.
+          {parts.map(p => p.title).join(' · ')} — each with its own log, so a ride your
+          watch recorded attaches to the ride. Change which blocks are
+          <T size={12} color={colors.accent}> their own workout</T> below to move the seams.
         </T>
       </View>
     </View>
@@ -1260,12 +1258,13 @@ function SplitNote({ parts }: { parts: any[] }) {
 }
 
 /**
- * Which quota a BLOCK fills — and therefore where the session SPLITS.
+ * Which category a BLOCK is — and therefore where the session SPLITS.
  *
- * "Counts toward" belongs to each workout in the session, not the session as a
- * whole: a run and a lift each go to their own quota. `none` is a real answer and
- * the default for a warm-up — a block that is not a workout in its own right
- * should not quietly fill a quota. See `categoriesOf` in lib/quota.js.
+ * Each workout in the session has its own category, not the session as a whole:
+ * a run and a lift land as two entries, each with its own log and its own place
+ * for the watch to attach to. (Until 2026-10-25 this was also which weekly quota
+ * the block filled; the quotas are gone, the split stays.) `none` is a real
+ * answer and the default for a warm-up: it belongs to the workout beside it.
  */
 function BlockQuota({ categories, value, onChange }: any) {
   if (!categories.length) return null
@@ -1279,8 +1278,8 @@ function BlockQuota({ categories, value, onChange }: any) {
           <Icon name="Target" size={12} color={colors.inkFaint} />
           <T size={11.5} faint>
             {picked
-              ? <>counts toward <T size={11.5} weight={600} color={colors.accent}>{picked.name}</T></>
-              : 'counts toward nothing'}
+              ? <>its own workout: <T size={11.5} weight={600} color={colors.accent}>{picked.name}</T></>
+              : 'part of the workout beside it'}
           </T>
         </View>
       }

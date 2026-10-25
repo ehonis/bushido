@@ -12,8 +12,8 @@
  *
  * A COMMUTE COUNTS HERE. `isDone` is the only test, so a short ride to work
  * counts the same as a session — decided when the "not a workout, just adds
- * miles" button went in: getting on the bike is the streak's whole question. It is NOT load and, since 2026-09-21, not a quota
- * either (see `weekDaily` in quota.js), so this file is deliberately the odd one
+ * miles" button went in: getting on the bike is the streak's whole question. It is NOT load,
+ * so this file is deliberately the odd one
  * out and must not grow an `isTraining` check to match them.
  */
 

@@ -62,7 +62,7 @@ check('JSON routes refuse other content types with 415; DELETE, push and forms a
   eq(requestGuard(req('POST', { 'content-type': 'text/plain' }), '/api/entry').status, 415)
   eq(requestGuard(req('PUT', {}), '/api/settings').status, 415)
   eq(requestGuard(req('POST', { 'content-type': 'application/json; charset=utf-8' }), '/api/entry'), null)
-  eq(requestGuard(req('DELETE', {}), '/api/coach/thread/x'), null)
+  eq(requestGuard(req('DELETE', {}), '/api/settings/users'), null)
   eq(requestGuard(req('POST', {}), '/api/push/test'), null)
   eq(requestGuard(req('POST', { 'content-type': 'application/x-www-form-urlencoded' }), '/login'), null)
 })

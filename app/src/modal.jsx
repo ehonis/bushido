@@ -135,7 +135,7 @@ export function Modal({
               <span className="confirm-ico"><Icon name="TriangleAlert" size={34} /></span>
               <h3>{deleteLabel}?</h3>
               <p className="sub">
-                {deleteBody || <>It comes off the day, out of the week&rsquo;s quotas and out of your
+                {deleteBody || <>It comes off the day and out of your
                   training load. Anything you logged on it goes with it.</>}
               </p>
               <div className="confirm-acts">

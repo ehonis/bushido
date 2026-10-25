@@ -389,8 +389,8 @@ export function rankForSession({ activities = [], entry, session, date, entries 
 /* ------------------------------------------------------------- the digest */
 
 /**
- * Monday-start week key, labelled by its Monday — the same week the quotas use
- * (`mondayOf` in app/src/lib/quota.js) and, since 2026-09-20, the same week Totem
+ * Monday-start week key, labelled by its Monday — the same week the app uses
+ * (`mondayOf` in app/src/lib/dates.js) and, since 2026-09-20, the same week Totem
  * cuts its goals and its own mileage buckets on. It was Sunday-start before that,
  * which meant the coach's "last four weeks" never lined up with the quota board it
  * was reading beside.

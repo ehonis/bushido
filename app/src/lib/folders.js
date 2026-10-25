@@ -48,7 +48,7 @@ export function folderCards(plan) {
 }
 
 /**
- * The cards grouped by the quota category each declares, in plan order.
+ * The cards grouped by the category each declares, in plan order.
  *
  * Authored, stable and not a ranking: a list that reorders itself under the
  * user's thumb is the thing the swap list was removed for.

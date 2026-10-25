@@ -16,15 +16,12 @@ import { totalSets, totalReps } from './setlog.jsx'
 import { sessionStats } from './lib/stats.js'
 import { liftsLine } from './lib/lifts.js'
 import { localIso, fromIso } from './lib/dates.js'
-import { progress as quotaProgress, mondayOf, weekDays, shiftWeek, quotaCounts, quotaEntry, suggest, buildQuotaEntry } from './lib/quota.js'
 import { isDone, isRepeatable, repeatLabel, extraEntryId, doneWhenPlaced, markDone } from './lib/store.js'
 import { testEntryFor, testEntryId, testFor } from './lib/tests.js'
 import { WorkoutMode } from './workout.jsx'
 import { openTimer, timerRequestFor } from './timer.jsx'
 import { WorkoutRunner } from './runner.jsx'
-import { QuotaBars } from './quotabars.jsx'
 import { PrescriptionEditor, PlanTalk, PlanWhy } from './planner.jsx'
-import { Markdown } from './lib/markdown.jsx'
 import { usePlan } from './lib/planctx.jsx'
 import { liftFieldOf } from './planner.jsx'
 import { optFor } from './lib/menu.js'
@@ -34,10 +31,7 @@ import { minutesFor, resolveMinutes } from './lib/minutes.js'
 import { levelFor } from './lib/level.js'
 import { nameFor, titleFor, withCasualName } from './lib/naming.js'
 import { disciplineFor } from './lib/activities.js'
-import { Journal } from './journal.jsx'
 import { UnloggedWorkouts } from './unlogged.jsx'
-import { achievements, unclaimed } from './lib/achievements.js'
-import { profileFacts } from './lib/profile.js'
 import { currentMe } from './lib/whoami.js'
 import { applyOut, applyRun, canStart, workoutSides, planPeople, plannedLine } from './lib/trainer.js'
 import { sharePeople, sharedPeopleOn, withLine, addPerson, removePerson, withSharedPerson, copyExercises, hasExercises } from './lib/shared.js'
@@ -71,42 +65,29 @@ const NO_SKIPS = []
  * tuning — it is a screen that opens with an argument nobody wanted to have,
  * every day, in the two minutes before training.
  *
- * So Today is now two things and nothing else:
- *
- *   1. WHERE THE WEEK STANDS — the quota bars. A reading, not an offer. See
- *      quotabars.jsx.
- *   2. WHAT IS ACTUALLY ON THE DAY — sessions the user planned or logged, and nothing
+ * So Today is now one thing: WHAT IS ACTUALLY ON THE DAY — sessions the user planned or logged, and nothing
  *      the user did not. An empty day renders as an empty day rather than as five
  *      suggestions.
  *
- * Adding to the day moved OUT of this screen entirely and onto the + button
- * beside the coach bubble, which offers the two things the user actually does: plan one
- * (the planner writes the sets) or log one (something already done). See
+ * Adding to the day moved OUT of this screen entirely and onto the + button,
+ * which offers the things the user actually does: plan one (the planner writes
+ * the sets), log one (something already done) or take a rest day. See
  * planner.jsx and App.jsx.
  *
- * `lib/recommend.js` is still on disk and still tested. The coach can reason with
- * it, and the finger-spacing rules it enforces are the app's only unbypassable
- * ones. Nothing on this screen reads it.
+ * The quota bars that used to lead this screen, the journal beside it and the
+ * recommender behind both were removed on 2026-10-25 (issue #31). Old quota and
+ * journal entries stay in the log and nothing here reads them.
  */
 
 export function TodayTab({
   plan, entries, upsertEntry, deleteEntry,
-  settings = {}, saveSettings = () => {},
   openEntryId = null, onOpened = () => {},
-  onPlan = null, onLog = null, onRest = null, onSetWeek = null, onViewDay = null,
+  onPlan = null, onLog = null, onRest = null, onViewDay = null,
 }) {
   const today = todayIso()
   const [iso, setIso] = useState(today)
   // The + button logs onto the day being looked at, so it has to know which.
   useEffect(() => { onViewDay?.(iso) }, [iso])
-  /*
-   * An entry the WEEK asked to open, as opposed to one the + button just created.
-   *
-   * Kept apart from `openEntryId` because they want different screens: a session
-   * the user has this second planned opens straight into the runner, and one the user tapped
-   * on a quota bar to look at opens its sheet. Same plumbing, one extra word.
-   */
-  const [openFromWeek, setOpenFromWeek] = useState(null)
   const isFuture = iso > today
   const menu = plan?.dailyMenu || []
 
@@ -150,8 +131,7 @@ export function TodayTab({
    *
    * Lands as an ordinary EXTRA rather than as the day's main session. A ride is
    * something the user also did; it should not displace whatever the day already is.
-   * `fresh` because two rides in a day are two workouts — and under quotas that
-   * is the difference between filling one and filling two.
+   * `fresh` because two rides in a day are two workouts.
    */
   const logMeasured = (opt, out, extra = {}) => {
     const id = extraEntryId(iso, opt.id, dayEntries, { fresh: true })
@@ -315,15 +295,6 @@ export function TodayTab({
 
       <div className="pagegrid">
         <div className="col-main">
-          {/* Where the week stands. A reading — nothing here is pressable into a
-              session, which is the whole difference from the board it replaced. */}
-          {/* Pressing a bar opens what filled it; pressing one of those jumps the
-              day nav to the day it happened on. See quotabars.jsx. */}
-          {/* Pressing what filled a bar opens THAT session, on its own day. See
-              the header of quotabars.jsx for what it used to do instead. */}
-          <QuotaBars plan={plan} entries={entries} iso={iso} onSetWeek={onSetWeek}
-            onOpenEntry={(date, id) => { setIso(date); setOpenFromWeek(id) }} />
-
           <DaySessions plan={plan} entries={entries}
             mainEntry={mainEntry} extraEntries={extraEntries}
             onPickMain={pickMain} onAddExtra={addExtra} onRemove={removeSession}
@@ -331,9 +302,8 @@ export function TodayTab({
             onSetDone={setDone} onSetTraining={setTraining}
             onSaveEntry={upsertEntry}
             viewIso={iso} isFuture={isFuture}
-            openEntryId={openEntryId || openFromWeek}
-            openAs={openFromWeek ? 'sheet' : 'auto'}
-            onOpened={() => { onOpened(); setOpenFromWeek(null) }}
+            openEntryId={openEntryId}
+            onOpened={onOpened}
             onPlan={onPlan} onLog={onLog ? () => onLog(iso) : null} onRest={onRest} />
 
           {/* The owner's window onto someone else's days, to coach without acting
@@ -355,11 +325,6 @@ export function TodayTab({
               onClimb={onLog ? (item) => onLog(iso, { climb: item }) : null}
               skipped={skippedWorkouts} onDismiss={dismissWorkout} onRestore={restoreWorkout}
               split={splitWorkouts} onSplit={splitWorkout} />
-          )}
-
-          {!isFuture && (
-            <Journal plan={plan} entries={entries} iso={iso} upsertEntry={upsertEntry}
-              settings={settings} saveSettings={saveSettings} />
           )}
 
           <div className="card">
@@ -413,13 +378,9 @@ function DayNav({ viewIso, today, onChange, plan }) {
 }
 
 /*
- * The quick log used to sit here — a bodyweight box and a one-line note. It was
- * replaced by the check-in (see checkin.jsx) on 2026-08-13: the same numbers,
- * plus somewhere to say the thing neither field could hold ("can't get to the
- * gym tonight, going Sunday instead"), and a coach that answers and can lean on
- * today's recommendation. Bodyweight still writes an ordinary `bodyweight`
- * entry, so the series it has kept since the first week of the block is
- * unbroken; the Log tab's own quick log is still there for back-filling any date.
+ * Bodyweight is logged from the Log tab's quick log, for any date, as an
+ * ordinary `bodyweight` entry. (The daily check-in that also wrote one was
+ * removed on 2026-10-25; its old entries stay in the log, unread.)
  */
 
 /* Lives in lib/level.js now — it is what decides whether a day spent a hard
@@ -549,8 +510,7 @@ function DayList({ rows, onOpen, onPlan, onLog, onRest = null, isFuture, repeats
  * of every main session offering the four support blocks to ride along with it.
  * It was never used and was just bloat. Adjuncts that are already ON an entry
  * still render as rows in the day list, because they are history; nothing offers
- * a new one. Same disposition as `lib/recommend.js` — the machinery stays, the
- * screen stops asking.
+ * a new one.
  */
 
 /**
@@ -809,7 +769,7 @@ export function SessionSheet({
 
       {/*
         * "Log another workout today" came off the sheet on 2026-09-21 — the day
-        * list's own button and the + beside the coach bubble are both one tap
+        * list's own button and the + button are both one tap
         * from here, and a third way in at the bottom of a form is the kind of
         * thing that made this screen read as a maze.
         */}
@@ -886,7 +846,7 @@ function DaySessions({
   plan, entries, mainEntry, extraEntries,
   onPickMain, onAddExtra, onRemove, onSaveOutputs, onSaveRun, onSavePlan,
   onSetDone, onSetTraining, viewIso, isFuture, onSaveEntry = null,
-  openEntryId = null, openAs = 'auto', onOpened = () => {},
+  openEntryId = null, onOpened = () => {},
   onPlan = null, onLog = null, onRest = null,
 }) {
   const [sheet, setSheet] = useState(null)   // row key: 'main' | an extra entry id
@@ -902,7 +862,7 @@ function DaySessions({
    * Creating an entry and leaving them to find it is the same dead end the "add
    * another" button had before it opened what it created: a blank row on the day
    * that the user then has to spot and press. The id round-trips through App because
-   * the button lives beside the coach bubble rather than on this screen.
+   * the button floats over every tab rather than living on this screen.
    */
   useEffect(() => {
     if (!openEntryId) return
@@ -912,10 +872,10 @@ function DaySessions({
     // A planned session opens straight into the runner. The user pressed "plan a
     // workout" and then "put it on today"; a third tap to start it is a tap that
     // asks them to confirm something the user has already said twice.
-    if (openAs !== 'sheet' && hit.data?.plan && runnable(null, hit.data.plan)) setWorkout(key)
+    if (hit.data?.plan && runnable(null, hit.data.plan)) setWorkout(key)
     else setSheet(key)
     onOpened()
-  }, [openEntryId, openAs, mainEntry?.id, extraEntries.length])
+  }, [openEntryId, mainEntry?.id, extraEntries.length])
 
   const logged = optFor(menu, mainEntry?.data?.optId)
   const resting = logged?.role === 'rest'
@@ -1155,167 +1115,6 @@ function DaySessions({
           onClose={() => setSheet(null)}
         />
       )}
-    </>
-  )
-}
-
-/* ------------------------------------------------------------------- week */
-
-/*
- * The Week tab: where the quotas are written.
- *
- * This replaced the week-by-week plan on 2026-09-14. That tab rendered eleven
- * dated weeks and four phases out of plan.json — a block that had already gone
- * stale, counting down to a trip that was not happening. Nothing here is content
- * any more: the week is something the user writes, and the app's only jobs are
- * to copy last week forward and to show what filled it.
- *
- * Three rules, from the conversation that produced it:
- *
- *   - The user writes them. `suggest()` offers; nothing is ever written without a tap.
- *   - Misses expire on Sunday. No debt, no carry-over, no guilt.
- *   - A quota counts WORKOUTS, not days. A day with a ride and a lift fills two.
- */
-
-export function WeekTab({ plan, entries, upsertEntry }) {
-  const today = todayIso()
-  const [monday, setMonday] = useState(() => mondayOf(today))
-  const week = useMemo(() => quotaProgress({ plan, entries, iso: monday }), [plan, entries, monday])
-  const stored = useMemo(() => quotaCounts(entries, monday), [entries, monday])
-  // The reasoning, if this week was planned with the AI (see weekplanner.jsx). A
-  // week set by hand has none, and shows none.
-  const planned = useMemo(() => quotaEntry(entries, monday)?.data || null, [entries, monday])
-  const offer = useMemo(() => suggest({ plan, entries, iso: monday }), [plan, entries, monday])
-
-  // What is in the boxes. Seeded from what the user has SET, never from the
-  // suggestion — a pre-filled number whose provenance is invisible is a number
-  // that gets confirmed without being read. Taking the offer is a tap.
-  const [draft, setDraft] = useState(null)
-  const counts = draft ?? stored
-  const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(stored)
-
-  const set = (key, n) => {
-    const next = { ...counts }
-    if (n > 0) next[key] = n
-    else delete next[key]
-    setDraft(next)
-  }
-  // Keep the provenance the week planner wrote, if any — moving one stepper by
-  // hand does not un-explain the rest of the week.
-  const save = () => {
-    const { counts: _c, ...extra } = planned || {}
-    upsertEntry(buildQuotaEntry(monday, counts, extra))
-    setDraft(null)
-  }
-  const shift = (n) => { setMonday(m => shiftWeek(m, n)); setDraft(null) }
-
-  const isThisWeek = monday === mondayOf(today)
-  const label = `${fromIso(monday).toLocaleDateString([], { month: 'short', day: 'numeric' })} – ` +
-    `${fromIso(weekDays(monday)[6]).toLocaleDateString([], { month: 'short', day: 'numeric' })}`
-
-  const achs = useMemo(
-    () => achievements(plan, entries, profileFacts(entries)), [plan, entries])
-  const catsOf = (a) => (plan?.quotaCategories || []).filter(c => a.categories.includes(c.key))
-  const ungrouped = useMemo(() => unclaimed(plan, achs), [plan, achs])
-
-  const Row = (c) => {
-    const state = week.byKey[c.key] || { done: 0 }
-    const n = counts[c.key] || 0
-    return (
-      <div key={c.key} className={`quotarow ${state.complete ? 'done' : ''}`}>
-        <span className="quotarow-ico"><Icon name={c.icon} size={16} /></span>
-        <span className="quotarow-name">
-          <strong>{c.name}</strong>
-          <span className="sub">{c.blurb}</span>
-        </span>
-        <span className="quotarow-did" title="what you have actually logged this week">
-          {state.done > 0 ? `${state.done} done` : ''}
-        </span>
-        <span className="quotarow-set">
-          <button className="qbtn" onClick={() => set(c.key, Math.max(0, n - 1))}
-            aria-label={`one fewer ${c.name}`} disabled={!n}><Icon name="Minus" size={14} /></button>
-          <span className="qbtn-n">{n || '–'}</span>
-          <button className="qbtn" onClick={() => set(c.key, n + 1)}
-            aria-label={`one more ${c.name}`}><Icon name="Plus" size={14} /></button>
-        </span>
-      </div>
-    )
-  }
-
-  return (
-    <>
-      <div className="daynav">
-        <button onClick={() => shift(-1)} aria-label="previous week">‹</button>
-        <span className="daynav-label">
-          {label}{isThisWeek && <em> · this week</em>}
-        </span>
-        <button onClick={() => shift(1)} aria-label="next week">›</button>
-      </div>
-
-      <div className="card">
-        <h2>{planned?.title || 'What this week asks for'}</h2>
-        <p className="sub">
-          A quota is a count of <strong>workouts</strong>, not days — a day you ride and lift
-          fills two. Nothing is assigned to a weekday; you decide that as the week goes.
-          Whatever is left on Sunday expires rather than carrying over.
-        </p>
-
-        {planned?.why && <PlanWhy text={planned.why} />}
-
-        {!week.isSet && offer.source !== 'empty' && (
-          <button className="restbtn" onClick={() => setDraft(offer.counts)}>
-            <Icon name="Repeat" size={17} />
-            <span>
-              {offer.source === 'last-week'
-                ? 'Copy last week\'s quotas forward'
-                : 'Start from what you actually did last week'}
-            </span>
-          </button>
-        )}
-
-        {achs.map(a => (
-          <div key={a.id} className="quotagroup">
-            <h3><Icon name={a.icon} size={15} /> {a.name}</h3>
-            {a.blurb && <p className="sub">{a.blurb}</p>}
-            {catsOf(a).map(Row)}
-          </div>
-        ))}
-
-        {ungrouped.length > 0 && (
-          <div className="quotagroup">
-            <h3><Icon name="Sparkles" size={15} /> Nothing in particular</h3>
-            <p className="sub">
-              Claimed by none of your achievements. It still counts and it still shows up.
-            </p>
-            {ungrouped.map(Row)}
-          </div>
-        )}
-
-        <div className="quotafoot">
-          <span className="sub">
-            {Object.values(counts).reduce((a, b) => a + b, 0)} workouts asked for
-            {week.isSet && ` · ${week.doneTotal} of ${week.plannedTotal} filled`}
-          </span>
-          <button className="primary" onClick={save} disabled={!dirty}>
-            {week.isSet ? 'Update the week' : 'Set the week'}
-          </button>
-        </div>
-      </div>
-
-      {(plan?.rules || []).length > 0 && (
-        <Blurb id="rules" title="When life happens" tone="card">
-          <p className="sub">The plan is supposed to bend. These are the rules for bending it.</p>
-          <ul className="rules">
-            {plan.rules.map((r, i) => (
-              <li key={i}><strong>{r.when}</strong> — {r.then}</li>
-            ))}
-          </ul>
-        </Blurb>
-      )}
-
-      <Blurb id="exposure" title={plan?.exposureBudget?.title || 'The finger budget'} tone="card">
-        <p className="sub">{plan?.exposureBudget?.body}</p>
-      </Blurb>
     </>
   )
 }

@@ -80,7 +80,7 @@ export function Modal({
       <Icon name="TriangleAlert" size={34} color={colors.vizCrit} />
       <T size={17} weight={600} align="center" style={{ marginTop: 10, marginBottom: 6 }}>{`${deleteLabel}?`}</T>
       <T size={13} dim align="center">
-        {deleteBody || 'It comes off the day, out of the week’s quotas and out of your training load. Anything you logged on it goes with it.'}
+        {deleteBody || 'It comes off the day and out of your training load. Anything you logged on it goes with it.'}
       </T>
       <View style={{ flexDirection: 'row', gap: 10, marginTop: 20, alignSelf: 'stretch' }}>
         <Btn kind="ghost" title="Keep it" flex onPress={() => setConfirming(false)} />

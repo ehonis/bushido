@@ -4,19 +4,17 @@
  */
 import { renderToString } from 'react-dom/server'
 import { readFileSync } from 'node:fs'
-import { TodayTab, WeekTab, TestingTab, WhyTab, SessionSheet } from './src/tabs.jsx'
-import { QuotaBars } from './src/quotabars.jsx'
+import { TodayTab, TestingTab, WhyTab, SessionSheet } from './src/tabs.jsx'
 import {
   PlanFlow, PrescriptionEditor, KeptStep, PlanTalk, BuildStep, groupedKinds, liftFieldOf,
   DraftList, Working,
 } from './src/planner.jsx'
 import { draftStep, draftPres, draftLine } from './src/lib/drafts.js'
 import { WorkoutRunner } from './src/runner.jsx'
-import { WeekPlanFlow, defaultMonday } from './src/weekplanner.jsx'
 import { FabMenu, RestPrompt, ActingBanner, tabsFor } from './src/App.jsx'
 import { _setMe } from './src/lib/whoami.js'
 import { hasIcon } from './src/lib/icons.jsx'
-import { weekContext } from './src/lib/plannerapi.js'
+import { plannerContext } from './src/lib/plannerapi.js'
 import { ScreenCard, describeScreen } from './src/screeninfo.jsx'
 import { ActivityChooser, activityGroups, activityFieldOf } from './src/picker.jsx'
 import { climbingFolders } from './src/lib/folders.js'
@@ -30,8 +28,6 @@ import { TheirSide } from './src/sharedwith.jsx'
 import { sharedCopy } from './src/lib/shared.js'
 import { SidesWorkout, PeopleDays, PersonDay, MyAbout, ForChoice } from './src/trainer.jsx'
 import { planPeople } from './src/lib/trainer.js'
-import { AchievementsTab } from './src/achievements.jsx'
-import { TotemGoals } from './src/goals.jsx'
 import { PlanProvider } from './src/lib/planctx.jsx'
 import { PrefsProvider } from './src/lib/prefs.jsx'
 import { ProgressView } from './src/progress.jsx'
@@ -40,11 +36,9 @@ import { ExercisePicker, STEP } from './src/exercises.jsx'
 import { buildSections, SectionBody } from './src/session.jsx'
 import { HowSheet, MovesList, HowRow } from './src/howto.jsx'
 import { FIGURES, hasFigure } from './src/lib/figures.jsx'
-import { buildQuotaEntry, mondayOf } from './src/lib/quota.js'
 import { localIso } from './src/lib/dates.js'
 import { resolveCeiling } from './src/lib/force.js'
 import { WorkoutMode, Face, Review } from './src/workout.jsx'
-import { CheckIn } from './src/checkin.jsx'
 import { WhoopProvider } from './src/lib/whoop.jsx'
 import { WhoopWorkouts, WhoopReadiness, WhoopSleep, sleepSeries, sleepStats } from './src/whoop.jsx'
 import { StravaProvider } from './src/lib/strava.jsx'
@@ -289,19 +283,41 @@ const RESTING_RUN = (() => {
     { at: Date.now() - 30_000, steps })
 })()
 
+/*
+ * What an old log still carries from the features removed on 2026-10-25 (issue
+ * #31): a week's quotas, a check-in, a journal day, an achievement. Stored data is
+ * never rewritten, so every screen has to render with these in the log and show
+ * none of them as a workout.
+ */
+const LEGACY = [
+  { id: `quota-${TODAY}`, kind: 'quota', date: TODAY, updatedAt: 'z', data: { counts: { pe: 2, bike: 3, swim: 1 } } },
+  { id: `checkin-${TODAY}`, kind: 'checkin', date: TODAY, updatedAt: 'z', data: {
+    fields: { weightLb: 150, feeling: 4 },
+    messages: [{ role: 'you', at: 'z', text: 'no gym tonight' },
+               { role: 'coach', at: 'z', text: 'Then it is the crimp crawls.' }] } },
+  { id: `journal-${TODAY}`, kind: 'journal', date: TODAY, updatedAt: 'z', data: { values: { caffeine: true, alcohol: 2 } } },
+  { id: 'journal-custom', kind: 'journal-custom', updatedAt: 'z', data: { metrics: [{ key: 'x-1', label: 'Sauna', type: 'toggle' }] } },
+  { id: 'achievement-run-a-50k', kind: 'achievement', date: null, updatedAt: 'z',
+    data: { id: 'run-a-50k', name: 'Run a 50k', categories: ['run'] } },
+  // Not legacy: an interval-timer preset (#36), undated. It rides along to pin that
+  // nothing #31 removed filters it out or trips over an entry with no date.
+  { id: 'timer-last', kind: 'timer', updatedAt: 'z', data: { name: 'Last', work: 30, rest: 15, rounds: 8 } },
+]
+/** Words any of those would put on screen if a reader still rendered them. */
+const LEGACY_WORDS = /quota|This week|no gym tonight|crimp crawls\.|Sauna|Run a 50k|Achievement|Journal|Check in/i
+
 const cases = [
   ['TodayTab', <TodayTab plan={plan} entries={entries} upsertEntry={noop} deleteEntry={noop} />,
     (html) => {
       const t = text(html)
-      // Both the achievement card and the Totem goals card left Today on
-      // 2026-09-15 for tabs of their own — see App.jsx TABS.
+      // Achievements and Totem goals left Today on 2026-09-15 and the app on
+      // 2026-10-25 (issue #31), with the quota bars and the journal.
       if (/Achievements/.test(t)) throw new Error('the achievement card is back on Today')
       if (/Goals from Totem/.test(t)) throw new Error('the Totem goals card is back on Today')
-      // The three tiles — this week, week of, streak — went the same day. Two
-      // restated the quota board below them and the streak moved to the header.
+      if (/role="progressbar"|class="qb-/.test(html)) throw new Error('the quota bars are back on Today')
+      if (/Journal/.test(t)) throw new Error('the journal is back on Today')
       if (/class="tiles"/.test(html)) throw new Error('the stat tile row came back')
     }],
-  ['WeekTab', <WeekTab plan={plan} entries={[]} upsertEntry={() => {}} />],
   ['TestingTab', <TestingTab plan={plan} entries={entries} upsertEntry={noop} deleteEntry={noop} />],
   ['GearSection(empty)', <GearSection plan={plan} entries={[]} strava={null} upsertEntry={noop} deleteEntry={noop} />],
   ['GearSection(strava bikes and shoes)', <GearSection plan={plan} entries={[]}
@@ -333,56 +349,6 @@ const cases = [
     (html) => {
       if (!/200/.test(text(html))) throw new Error('the hours on a retired rope are why you retired it')
     }],
-  ['AchievementsTab(the two seeds)',
-    <AchievementsTab plan={plan} entries={[]} upsertEntry={noop} />,
-    (html) => {
-      const t = text(html)
-      if (!/Climb 5\.12a/.test(t) || !/Half Ironman/.test(t)) {
-        throw new Error('the seeded achievements are missing')
-      }
-      if (!/Add an achievement/.test(t)) throw new Error('no way to add one — which was the ask')
-      if (!/Came with the app/.test(t)) throw new Error('a seeded one should say it came back if deleted')
-    }],
-  ['AchievementsTab(one he added, and one he deleted)',
-    <AchievementsTab plan={plan} upsertEntry={noop} entries={[
-      { id: 'achievement-run-a-50k', kind: 'achievement', date: null,
-        updatedAt: '2026-09-15T12:00:00.000Z',
-        data: { id: 'run-a-50k', name: 'Run a 50k', short: '50k', icon: 'Footprints',
-          date: '2027-05-01', blurb: '', categories: ['run'],
-          createdAt: '2026-09-15T12:00:00.000Z' } },
-      { id: 'achievement-half-iron', kind: 'achievement', date: null, deleted: true,
-        updatedAt: '2026-09-15T12:00:00.000Z', data: { id: 'half-iron', deleted: true } },
-    ]} />,
-    (html) => {
-      const t = text(html)
-      if (!/Run a 50k/.test(t)) throw new Error('his own achievement is not listed')
-      if (/Half Ironman/.test(t)) throw new Error('a deleted seed came back')
-      if (!/2027-05-01/.test(t)) throw new Error('the target date is not shown')
-    }],
-  ['AchievementsTab(what this week asks of each)',
-    <AchievementsTab plan={plan} upsertEntry={noop}
-      entries={[buildQuotaEntry(mondayOf(TODAY), { pe: 2, fingers: 1 })]} />,
-    (html) => {
-      const t = text(html)
-      // The bars are the half that used to live on Today, and they are the reason
-      // this is a tab rather than a settings page. Only the climbing achievement
-      // has a quota here, so the other has to say plainly that it has none.
-      if (!/0\/2/.test(t)) throw new Error('the power-endurance bar is not showing what the week asked for')
-      if (!/0\/1/.test(t)) throw new Error('the fingers bar is not showing what the week asked for')
-      if (!/nothing asked for/.test(t)) throw new Error('an achievement with no quota should say so')
-      if (!/2026-11-30|2027-10-31|No date/.test(t)) throw new Error('the target date line is missing')
-    }],
-  ['TotemGoals(its own tab never renders blank)', <TotemGoals full />,
-    (html) => {
-      // As a card it stayed silent with nothing to say. A tab cannot: one you
-      // tapped that rendered nothing is indistinguishable from a broken one.
-      // Server-side the fetch never resolves, so this is the loading state.
-      if (!text(html).trim()) throw new Error('the Goals tab rendered nothing at all')
-    }],
-  ['TotemGoals(as a card, still silent while loading)', <TotemGoals />,
-    (html) => {
-      if (text(html).trim()) throw new Error('the card should say nothing until it has something')
-    }],
   ['ProfileMenu(with a picture)', <StravaProvider initial={{ cache: STRAVA_CACHE, status: 'ok' }}>
     <ProfileMenu plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} status="synced" />
   </StravaProvider>,
@@ -400,14 +366,15 @@ const cases = [
   ['LogTab', <LogTab plan={plan} entries={entries} upsertEntry={noop} deleteEntry={noop} />],
   // Empty state: a brand-new install must not crash before anything is logged.
   ['TodayTab(empty)', <TodayTab plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
-  // Today is Aug 2; the block opens Aug 3. The before-it-starts state ships first.
-  // A week nobody has set quotas for. The commonest state there is — every
-  // Monday starts here — so it must render without nagging or crashing.
-  ['TodayTab(no quotas set)', <TodayTab plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
-  ['TodayTab(quotas set, part done)', <TodayTab plan={plan}
-    entries={[buildQuotaEntry(mondayOf(TODAY), { pe: 2, bike: 3, swim: 1 })]}
-    upsertEntry={noop} deleteEntry={noop} />],
-  ['WeekTab(no quotas declared)', <WeekTab plan={{ ...plan, quotaCategories: [] }} entries={[]} upsertEntry={() => {}} />],
+  /* An old log with quotas, a check-in, a journal day and an achievement in it:
+     Today renders, empty, and none of it shows. */
+  ['TodayTab(legacy entries are ignored)', <TodayTab plan={plan} entries={LEGACY}
+    upsertEntry={noop} deleteEntry={noop} onPlan={noop} onLog={noop} onRest={noop} />,
+    (html) => {
+      const t = text(html)
+      if (!/Nothing on today yet/.test(t)) throw new Error('a legacy entry shows up as something on the day')
+      if (LEGACY_WORDS.test(t)) throw new Error(`a removed feature's data is on screen: ${t.match(LEGACY_WORDS)}`)
+    }],
   ['TestingTab(empty)', <TestingTab plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
   ['LogTab(empty)', <LogTab plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
   /* The feed reads the rename too — it computes each row's name live rather than
@@ -567,7 +534,7 @@ const cases = [
    * which is exactly the kind of thing that regresses without anybody noticing.
    */
   ['TodayTab(empty day offers nothing)', <TodayTab plan={plan}
-    entries={[buildQuotaEntry(mondayOf(TODAY), { pe: 2, fingers: 1, bike: 2, swim: 1 })]}
+    entries={[]}
     upsertEntry={noop} deleteEntry={noop}
     onPlan={noop} onLog={noop} onRest={noop} />,
     (html) => {
@@ -587,84 +554,6 @@ const cases = [
       if (/Take a rest day instead/.test(t)) throw new Error('the rest-day suggestion is back')
       if (/still owes|Why .*? today/.test(t)) throw new Error('the recommendation card is back')
       if (/not done yet/.test(t)) throw new Error('something he never chose reads as a missed session')
-    }],
-  /* The bars themselves: the one thing Today now leads with. */
-  ['TodayTab(the quota bars)', <TodayTab plan={plan}
-    entries={[
-      buildQuotaEntry(mondayOf(TODAY), { pe: 2, fingers: 1, bike: 2, swim: 1 }),
-      { id: `daily-${TODAY}-b`, kind: 'daily', date: TODAY, updatedAt: 'z',
-        data: { slot: 'main', optId: 'board', level: 4, done: true, minutes: 90, out: { rpe: 7 } } },
-    ]}
-    upsertEntry={noop} deleteEntry={noop} />,
-    (html) => {
-      const t = text(html)
-      for (const name of ['Power endurance', 'Fingers', 'Bike', 'Swim']) {
-        if (!t.includes(name)) throw new Error(`${name} has no bar`)
-      }
-      if (!/This week/.test(t)) throw new Error('the bars do not say what week they are')
-      if (!/role="progressbar"/.test(html)) throw new Error('the bars are not bars')
-      if (!/of 6/.test(t)) throw new Error('the week total is wrong or missing')
-    }],
-  /* Tapping a quota bar opens the workouts that filled it this week. */
-  ['QuotaBars(a bar opens onto what filled it)', <QuotaBars plan={plan} iso={TODAY}
-    entries={[
-      buildQuotaEntry(mondayOf(TODAY), { bike: 2, swim: 1 }),
-      { id: 'r1', kind: 'daily', date: TODAY, updatedAt: 'z',
-        data: { optId: 'log-workout', name: 'Mountain bike', minutes: 74, level: 3, done: true,
-          out: { activity: 'mtb' } } },
-      { id: 'r2', kind: 'daily', date: TODAY, updatedAt: 'z',
-        data: { slot: 'extra', optId: 'log-workout', name: 'Commute', minutes: 12, level: 1,
-          done: false, out: { activity: 'bike' } } },
-    ]} />,
-    (html) => {
-      const t = text(html)
-      // A bar with something behind it is pressable and says so.
-      if (!/class="qb-row[^"]*pressable/.test(html)) throw new Error('a filled bar is not pressable')
-      if (!/aria-expanded="false"/.test(html)) throw new Error('the bar does not announce that it opens')
-      // A quota nothing has touched must NOT be — an empty panel is a worse
-      // answer than no panel, and "0/1" already says everything there is to say.
-      const rows = html.split('class="qb-row').length - 1
-      const pressable = html.split('pressable').length - 1
-      if (pressable >= rows) throw new Error('an untouched quota is offering to open onto nothing')
-      void t
-    }],
-  ['QuotaBars(no quotas set)', <QuotaBars plan={plan} entries={[]} iso={TODAY} />,
-    (html) => {
-      if (!/No quotas for the week/.test(text(html))) throw new Error('an unset week does not say so')
-    }],
-  /* Planned, not done — the dotted continuation. */
-  ['QuotaBars(a planned workout draws dotted)', <QuotaBars plan={plan} iso={TODAY}
-    entries={[
-      buildQuotaEntry(mondayOf(TODAY), { bike: 2 }),
-      { id: 'p1', kind: 'daily', date: TODAY, updatedAt: 'z',
-        data: { optId: 'log-workout', level: 2, done: false, undone: true, out: { activity: 'bike' } } },
-    ]} />,
-    (html) => {
-      if (!/class="qb-soon"/.test(html)) throw new Error('a planned workout draws no dotted segment')
-      // The one thing it must not do: count as progress.
-      if (!/>1<\/strong> of 2|0\/2/.test(text(html))) {
-        throw new Error('a plan is being counted as done')
-      }
-      if (!/1 of them are already\s+on a day|already\s*on a day/.test(text(html))) {
-        throw new Error('nothing says what the dotted part is')
-      }
-    }],
-  ['QuotaBars(nothing planned draws no dots)', <QuotaBars plan={plan} iso={TODAY}
-    entries={[buildQuotaEntry(mondayOf(TODAY), { bike: 2 })]} />,
-    (html) => {
-      if (/class="qb-soon"/.test(html)) throw new Error('drawing a dotted segment for nothing')
-    }],
-  ['QuotaBars(over quota)', <QuotaBars plan={plan} iso={TODAY}
-    entries={[
-      buildQuotaEntry(mondayOf(TODAY), { bike: 1 }),
-      { id: 'r1', kind: 'daily', date: TODAY, updatedAt: 'z',
-        data: { optId: 'log-workout', level: 2, done: true, out: { activity: 'bike' } } },
-      { id: 'r2', kind: 'daily', date: TODAY, updatedAt: 'z',
-        data: { slot: 'extra', optId: 'log-workout', level: 2, done: true, out: { activity: 'bike' } } },
-    ]} />,
-    (html) => {
-      // Shown as over rather than clipped at full: a week the user beat is worth seeing.
-      if (!/\+1/.test(text(html))) throw new Error('going past a quota is not shown')
     }],
   /*
    * ABSENCES, which are the only thing a render test can say about a removal.
@@ -746,7 +635,7 @@ const cases = [
     }),
   /*
    * "Log another workout today" came OFF the sheet on 2026-09-21. The day list's
-   * own button (pinned separately, below) and the + beside the coach bubble are
+   * own button (pinned separately, below) and the + button are
    * both one tap from here, and a third route at the foot of a form was part of
    * what made this screen read as a maze.
    *
@@ -1490,13 +1379,6 @@ const cases = [
     <div className="probe"><HowSheet exercise={{ name: 'x' }} onClose={noop} /></div>,
     html => { if (html.includes('how-sheet')) throw new Error('opened a sheet with nothing in it') }],
 
-  /*
-   * The morning coach's card left Today on 2026-09-17, with the rest of the
-   * things that told them what to do. The coach it belonged to has been off since
-   * the pivot (see App.jsx), the conversation is its own tab and a bubble, and a
-   * card that renders a model's overnight edits to a plan makes no sense on a
-   * screen with no plan to edit. `lib/coach.js` and its tests are untouched.
-   */
   /* The Monday split and the sessions added on 2026-08-10, with the logs their
    * charts actually read from. */
   ['TodayTab(the Monday pair)', <TodayTab plan={plan} entries={[
@@ -1530,100 +1412,21 @@ const cases = [
         out: { maxLoad: 219, rpe: 7, fingers: 2 } } },
   ]} upsertEntry={noop} deleteEntry={noop} />],
 
-  // A check-in is history too — a new entry kind reaching the Log tab, which
-  // renders anything nothing claims as raw JSON.
-  ['LogTab(a check-in)', <LogTab plan={plan} entries={[
-    { id: `checkin-${TODAY}`, kind: 'checkin', date: TODAY, updatedAt: 'z', data: {
-      fields: { weightLb: 150, feeling: 4 },
-      messages: [{ role: 'you', at: 'z', text: 'no gym tonight' },
-                 { role: 'coach', at: 'z', text: 'Then it is the crimp crawls.' }] } },
-  ]} upsertEntry={noop} deleteEntry={noop} />,
-    ],
+  // An old log's check-ins, journal days, quotas and achievements are history the
+  // app no longer reads (issue #31): the Log renders, and none of them is a workout.
+  ['LogTab(legacy entries are not workouts)', <LogTab plan={plan} entries={[...LEGACY, ...entries]}
+    upsertEntry={noop} deleteEntry={noop} />,
+    (html) => {
+      const t = text(html)
+      if (LEGACY_WORDS.test(t)) throw new Error(`a removed feature's data is in the log: ${t.match(LEGACY_WORDS)}`)
+    }],
+  ['ProgressView(legacy entries are not workouts)', <ProgressView plan={plan} entries={LEGACY} />,
+    (html) => {
+      const t = text(html)
+      if (!/Nothing here/.test(t)) throw new Error('a legacy entry was counted as a workout')
+      if (/Achievement/.test(t)) throw new Error('the achievement filter is back')
+    }],
 
-  /* The check-in. It is the card the user touches first every day and the only place
-   * a model's words land in the middle of the training screen, so every state
-   * it can be in is pinned: nothing said yet, a thread with a reply that changed
-   * the day, a turn that failed, and a plan that never loaded its fields. */
-  ['CheckIn(fresh)', <CheckIn plan={plan} entries={[]} iso={TODAY} upsertEntry={noop} />,
-    html => {
-      const t = text(html)
-      if (!t.includes('Bodyweight')) throw new Error('the hard fields are missing')
-      if (!/textarea/.test(html)) throw new Error('nowhere to say anything')
-    }],
-  ['CheckIn(filled in, mid-conversation)', <CheckIn plan={plan} iso={TODAY} upsertEntry={noop}
-    onPlaceSession={noop} onUndoPlacement={noop}
-    entries={[{ id: `checkin-${TODAY}`, kind: 'checkin', date: TODAY, updatedAt: 'z', data: {
-      fields: { weightLb: 150, feeling: 4, sleep: 3, fingers: 2, minutes: 25, where: 'home' },
-      messages: [
-        { role: 'you', at: `${TODAY}T17:02:00.000Z`, text: "can't get to the gym tonight — going Sunday instead" },
-        { role: 'coach', at: `${TODAY}T17:02:20.000Z`, model: 'claude-sonnet-5',
-          text: 'Then tonight is the crimp crawls: 22 minutes, at home, and it is the pump work your own notes keep asking for.',
-          // Three cards, covering every state one can be in: a live offer with
-          // buttons, one the day cannot take, and a nudge alongside them. NOTHING
-          // here has happened to the day — that is the whole point of the card.
-          suggested: [
-            { action: 'main', optId: 'crawls', why: 'at home, 22 minutes, and the pump work is owed' },
-            { action: 'add', optId: 'board', why: 'if you get out after all' },
-          ],
-          applied: [{ optId: 'hard-gym', points: -18, why: 'not at the gym tonight' }] },
-      ] } }]} />,
-    html => {
-      const t = text(html)
-      if (!t.includes('going Sunday instead')) throw new Error('what he said is missing')
-      if (!t.includes('Crimp crawls')) throw new Error('the offered session is not named')
-      if (!t.includes('Swap in as main')) throw new Error('an offer he cannot act on is just a claim')
-      if (!t.includes('Add as extra')) throw new Error('both buttons belong on an offer')
-      // The board needs the gym and the user said the user is home, so that card must lose
-      // its buttons and say so rather than offering an impossible evening.
-      if (!/needs|at the gym/.test(t)) throw new Error('a refused offer must say why')
-      if (!t.includes('nudged')) throw new Error('a nudge landed with no label on it')
-      if (!/150 lb/.test(t)) throw new Error('the fields summary is missing')
-    }],
-  // The same thread after the user pressed one. It reads as done, and can go back.
-  ['CheckIn(offer taken)', <CheckIn plan={plan} iso={TODAY} upsertEntry={noop}
-    onPlaceSession={noop} onUndoPlacement={noop}
-    entries={[{ id: `checkin-${TODAY}`, kind: 'checkin', date: TODAY, updatedAt: 'z', data: {
-      fields: {}, messages: [
-        { role: 'you', at: `${TODAY}T17:02:00.000Z`, text: 'no gym tonight' },
-        { role: 'coach', at: `${TODAY}T17:02:20.000Z`, text: 'Crimp crawls then.', applied: [],
-          suggested: [{ action: 'main', optId: 'crawls', why: 'home tonight',
-            taken: { action: 'main', optId: 'crawls', prevOptId: 'board' } }] },
-      ] } }]} />,
-    html => {
-      const t = text(html)
-      if (!t.includes('now your main')) throw new Error('a taken offer does not say it was taken')
-      if (!t.includes('undo')) throw new Error('a tap he cannot take back is a decision he did not make')
-      if (t.includes('Swap in as main')) throw new Error('a taken offer still shows its buttons')
-    }],
-  // A card with no buttons at all: the user is at home and the coach offered the gym.
-  ['CheckIn(offer the day cannot take)', <CheckIn plan={plan} iso={TODAY} upsertEntry={noop}
-    onPlaceSession={noop} onUndoPlacement={noop}
-    entries={[{ id: `checkin-${TODAY}`, kind: 'checkin', date: TODAY, updatedAt: 'z', data: {
-      fields: { where: 'home', minutes: 20 }, messages: [
-        { role: 'you', at: `${TODAY}T17:02:00.000Z`, text: 'what about the board' },
-        { role: 'coach', at: `${TODAY}T17:02:20.000Z`, text: 'Not tonight.', applied: [],
-          suggested: [{ action: 'main', optId: 'board', why: 'the week wants it' }] },
-      ] } }]} />,
-    html => {
-      const t = text(html)
-      if (t.includes('Swap in as main')) throw new Error('a button that would build an illegal day')
-      if (!/at home|20 minutes/.test(t)) throw new Error('a card that silently loses its buttons reads as broken')
-    }],
-  // The tailnet was down. What the user typed still has to be on the screen.
-  ['CheckIn(coach unreachable)', <CheckIn plan={plan} iso={TODAY} upsertEntry={noop}
-    entries={[{ id: `checkin-${TODAY}`, kind: 'checkin', date: TODAY, updatedAt: 'z', data: {
-      fields: {}, messages: [
-        { role: 'you', at: `${TODAY}T17:02:00.000Z`, text: 'fingers feel wrecked' },
-        { role: 'coach', at: `${TODAY}T17:02:05.000Z`, text: '', failed: true },
-      ] } }]} />,
-    html => {
-      const t = text(html)
-      if (!t.includes('fingers feel wrecked')) throw new Error('a failed turn ate what he said')
-      // SSR escapes the apostrophe, so match the half of the sentence that survives.
-      if (!/Saved, but the coach/.test(t)) throw new Error('a failed turn pretended to succeed')
-    }],
-  // No plan yet: the card still has to take a bodyweight and a message.
-  ['CheckIn(no plan loaded)', <CheckIn plan={null} entries={[]} iso={TODAY} upsertEntry={noop} />],
 
   /* WHOOP.
    *
@@ -1924,8 +1727,8 @@ const cases = [
            *
            * Pinned here for two things. The row says WHEN, not only how long —
            * a duration does not identify a workout, so a clock is the only thing
-           * that tells two 22-minute rides apart. And "Just miles" no longer
-           * claims to fill a quota, because it no longer does; the button's own
+           * that tells two 22-minute rides apart. And "Just miles" never mentions
+           * a quota, because there are none any more; the button's own
            * words are the only place the user ever
            * reads what it means, so the copy is worth a test.
            *
@@ -1962,8 +1765,8 @@ const cases = [
                   }
                   if (!t2.includes(at(ride.end))) throw new Error('a row should say when it ended too')
                   if (!/82 min/.test(t2)) throw new Error('the duration should still be there')
-                  if (!/not the quota/.test(html)) {
-                    throw new Error('"just miles" must not still claim to fill a quota')
+                  if (/quota/i.test(html)) {
+                    throw new Error('"just miles" still talks about a quota, which the app no longer has')
                   }
                   /*
                    * Three doors per row: a measured activity such as a short row
@@ -2170,18 +1973,20 @@ const cases = [
     <ActivityChooser plan={plan} field={activityFieldOf(plan)} onPick={noop} onPickCard={noop} onClose={noop} />,
     (html) => {
       const t = text(html)
-      // The plan's cards lead, as two folders, before any sport.
+      // The general ways to log lead; the plan's climbing cards follow as two
+      // folders under Climbing (issue #31: a workout log first).
       for (const f of ['Bouldering', 'Rock climbing']) {
         if (!t.includes(f)) throw new Error(`no ${f} folder`)
       }
-      if (t.indexOf('Rock climbing') > t.indexOf('Your usual')) throw new Error('the folders do not lead')
+      if (t.indexOf('Your usual') > t.indexOf('Bouldering')) throw new Error('the climbing folders lead the general sports')
+      if (t.lastIndexOf('Climbing') < t.indexOf('Your usual')) throw new Error('the Climbing group is not after the activities')
       for (const name of ['Mountain bike', 'Swim', 'Run', 'Lift']) {
         if (!t.includes(name)) throw new Error(`${name} is not in the activity list`)
       }
       if (!/Your usual/.test(t)) throw new Error('his six pinned sports are not led with')
-      // The right-hand column says which quota it fills, which is the question
-      // the group heading above the row cannot answer.
-      if (!/Anything else|Bike|Run/.test(t)) throw new Error('no quota category on the rows')
+      // The right-hand column says which category it files under, which the
+      // group heading above the row cannot.
+      if (!/Anything else|Bike|Run/.test(t)) throw new Error('no category on the rows')
       // Same screen as the session picker, literally — if this diverges, one of
       // them has grown a second implementation.
       if (!/class="spick-row"/.test(html)) throw new Error('the two pickers are not the same screen')
@@ -2338,7 +2143,7 @@ const cases = [
       }
       if (!/Add an exercise here/.test(t)) throw new Error('no way into the exercise catalogue')
       if (!/Add a piece/.test(t)) throw new Error('no way to add work that is not a lift')
-      if (!/counts toward/.test(t)) throw new Error('a block does not say which quota it fills')
+      if (!/its own workout|part of the workout beside it/.test(t)) throw new Error('a block does not say whether it is its own workout')
       if (!/Put it on today/.test(t)) throw new Error('no way to keep it')
       // Nothing in it yet is not a workout, and the button says so by being off.
       if (!/<button class="btn big" disabled=""/.test(html)) {
@@ -2517,7 +2322,7 @@ const cases = [
    * the user is still choosing the weight, and a quota per BLOCK rather than per
    * session. All three land on the same screen, so they are checked on one.
    */
-  ['PrescriptionEditor(body map, last time, and a quota per block)',
+  ['PrescriptionEditor(body map, last time, and a category per block)',
     <PrescriptionEditor pres={TRIP} liftField={LIFT_FIELD} entries={PRIOR_LIFTS}
       categories={plan.quotaCategories} onChange={noop} />,
     (html) => {
@@ -2533,12 +2338,13 @@ const cases = [
       if (!/last time \(2026-09-10\)/.test(t)) throw new Error('no previous session on the planning screen')
       if (!/175/.test(t)) throw new Error('the previous weight is not shown')
 
-      // 3. A quota per block, not per session. This is the one that reverses an
-      //    earlier decision, so it is the one most likely to be undone by accident.
-      if (!/counts toward/i.test(t)) throw new Error('no per-block quota control')
-      if (!/Lift/.test(t) || !/Run/.test(t)) throw new Error('the two blocks do not name their own quotas')
-      // The warm-up is not a workout in its own right and must not fill anything.
-      if (!/counts toward nothing/.test(t)) throw new Error('the warm-up claims a quota')
+      // 3. A category per block, not per session: where the session splits into
+      //    workouts. Said in plain words; the quotas it used to fill are gone.
+      if (!/its own workout/i.test(t)) throw new Error('no per-block split control')
+      if (!/Lift/.test(t) || !/Run/.test(t)) throw new Error('the two blocks do not name their own categories')
+      // The warm-up is not a workout in its own right.
+      if (!/part of the workout beside it/.test(t)) throw new Error('the warm-up claims to be a workout')
+      if (/counts toward|quota/i.test(html.replace(/<[^>]*>/g, ' '))) throw new Error('quota language is back on the planner')
     }],
   ['BodyMap(a movement the catalog has no muscles for renders nothing)', null, () => {
     const html = renderToString(
@@ -2719,17 +2525,11 @@ const cases = [
     <PrefsProvider settings={{ blurbs: { allHidden: true, hidden: {}, shown: {} } }} saveSettings={noop}>
       <WhyTab plan={plan} />
     </PrefsProvider>],
-  ['WeekTab(blurbs hidden)',
-    <PrefsProvider settings={{ blurbs: { allHidden: true, hidden: {}, shown: {} } }} saveSettings={noop}>
-      <WeekTab plan={plan} entries={[]} upsertEntry={() => {}} />
-    </PrefsProvider>],
-
-  /* ======================================================= endurance + the week
+  /* ============================================================= endurance
    *
    * Instead of one bike/swim/run section, endurance is a set of workout kinds —
    * speed, power, endurance and so on — that the app selects workouts from, with
-   * zone-two and low-intensity volume as the default emphasis. And the + screen
-   * has a mode for quota / week planning as a back-and-forth with the AI.
+   * zone-two and low-intensity volume as the default emphasis.
    */
   ['PlanFlow(the endurance kinds let the planner pick the sport)', null, () => {
     const kinds = plan.plannerKinds.kinds
@@ -2742,8 +2542,8 @@ const cases = [
       if (k.category || k.activity) throw new Error(`${k.key} names a sport; the endurance group is for kinds that let the planner pick`)
       if (!/swim|bike|run|sport/i.test(k.prompt)) throw new Error(`${k.key}'s prompt does not tell the planner to pick a sport`)
     }
-    // The three sport catalogs: each has a catch-all, and every kind in it fills
-    // that sport's quota.
+    // The three sport catalogs: each has a catch-all, and every kind in it is
+    // that sport's category.
     for (const g of ['swim', 'bike', 'run']) {
       const items = kinds.filter(k => k.group === g)
       if (items.length < 5) throw new Error(`only ${items.length} ${g} kinds`)
@@ -2751,12 +2551,12 @@ const cases = [
       for (const k of items) if (k.category !== g) throw new Error(`${k.key} in the ${g} group fills ${k.category}`)
     }
     // Every sport and category a kind names is real. A typo here is a form of the
-    // wrong shape and a quota nothing can fill.
+    // wrong shape and a category nothing files under.
     const acts = new Set(activityFieldOf(plan).activities.map(a => a.key))
     const cats = new Set(plan.quotaCategories.map(c => c.key))
     for (const k of kinds) {
       if (k.activity && !acts.has(k.activity)) throw new Error(`${k.key}: activity "${k.activity}" is not in the catalog`)
-      if (k.category && !cats.has(k.category)) throw new Error(`${k.key}: category "${k.category}" is not a quota category`)
+      if (k.category && !cats.has(k.category)) throw new Error(`${k.key}: category "${k.category}" is not a category`)
     }
     // The bread and butter is not folded away; the catalogs are.
     const groups = plan.plannerKinds.groups
@@ -2782,56 +2582,27 @@ const cases = [
       if (!/\d+ kinds/.test(t)) throw new Error('a folded group does not say how many are in it')
       if (!/pick swim, bike or run/i.test(t)) throw new Error('nothing says the sportless kinds choose the sport')
     }],
-  ['WeekPlanFlow(opens on the numbers, asks nothing, writes nothing)',
-    <WeekPlanFlow plan={plan} entries={[buildQuotaEntry(mondayOf(TODAY), { bike: 3, pe: 2 })]} iso={TODAY}
-      upsertEntry={() => { throw new Error('the week planner wrote an entry on mount') }}
-      onClose={noop} onPlan={noop} />,
-    (html) => {
-      const t = text(html)
-      // Every quota category has a stepper — this is the Week tab's numbers with an
-      // agent beside them, not a subset.
-      for (const c of plan.quotaCategories) if (!t.includes(c.name)) throw new Error(`${c.name} has no row`)
-      if (!/Draft the week for me/.test(t)) throw new Error('no quick prompt')
-      if (!/Set the week|Update the week/.test(t)) throw new Error('no way to keep it')
-      if (!/This week/.test(t) || !/Next week/.test(t)) throw new Error('cannot choose which week')
-      // The first turn is their. A model call the user did not ask for is a dollar spent
-      // on a question the user may not have had.
-      if (/Reading your last few weeks/.test(t)) throw new Error('it is asking the model on open')
-      if (!/aria-label="one more Bike"/.test(html)) throw new Error('the steppers are not steppers')
-    }],
-  ['weekContext(hands over set-vs-did so the agent need not parse the log)', null, () => {
-    const monday = '2026-09-21'
-    const s = weekContext({
-      monday, iso: '2026-09-19', plan,
+  /* The planner picks a sport from what was LOGGED lately, not from a quota (issue #31). */
+  ['plannerContext(hands over the last week\'s workouts, not quotas)', null, () => {
+    const s = plannerContext({
+      iso: '2026-09-19', plan,
       entries: [
-        buildQuotaEntry('2026-09-14', { bike: 3, pe: 2 }),
+        { id: 'q', kind: 'quota', date: '2026-09-14', updatedAt: 'z', data: { counts: { bike: 3, pe: 2 } } },
         { id: 'r1', kind: 'daily', date: '2026-09-15', updatedAt: 'z',
-          data: { optId: 'log-workout', level: 2, done: true, out: { activity: 'bike' } } },
+          data: { optId: 'log-workout', name: 'Mountain bike', level: 2, done: true, out: { activity: 'mtb' } } },
         { id: 'r2', kind: 'daily', date: '2026-09-16', updatedAt: 'z',
-          data: { optId: 'log-workout', level: 2, done: false, undone: true, out: { activity: 'bike' } } },
+          data: { optId: 'log-workout', name: 'Run', level: 2, done: false, undone: true, out: { activity: 'run' } } },
+        { id: 'r3', kind: 'daily', date: '2026-09-01', updatedAt: 'z',
+          data: { optId: 'log-workout', name: 'Swim', level: 2, done: true, out: { activity: 'swim' } } },
       ],
     })
-    if (!/week of 2026-09-14: .*bike 1\/3/.test(s)) throw new Error(`done/set is wrong or missing: ${s}`)
-    if (!/power endurance 0\/2/.test(s)) throw new Error('a quota with nothing done is not listed')
-  }],
-  ['WeekPlanFlow(a weekend plans the coming week)', null, () => {
-    const want = (iso, monday) => {
-      const got = defaultMonday(iso)
-      if (got !== monday) throw new Error(`${iso} opens on ${got}, expected ${monday}`)
+    if (!/2026-09-15: Mountain bike/.test(s)) throw new Error(`the recent ride is missing: ${s}`)
+    if (/2026-09-16|2026-09-01/.test(s)) throw new Error(`an unfinished or old workout leaked in: ${s}`)
+    if (/quota|owe|0\/2/i.test(s)) throw new Error(`quota language reached the planner: ${s}`)
+    if (!/Nothing logged/.test(plannerContext({ iso: '2026-09-19', plan, entries: [] }))) {
+      throw new Error('an empty week does not say so')
     }
-    want('2026-09-19', '2026-09-21')  // Saturday → next week
-    want('2026-09-20', '2026-09-21')  // Sunday → next week
-    want('2026-09-16', '2026-09-14')  // Wednesday → this week
-    want('2026-09-21', '2026-09-21')  // Monday → this week
   }],
-  ['WeekTab(a week planned with the AI shows its reasoning)',
-    <WeekTab plan={plan} upsertEntry={noop}
-      entries={[buildQuotaEntry(mondayOf(TODAY), { bike: 3 }, { why: 'Three rides because the log says you ride.', title: 'Bike-heavy, fingers light' })]} />,
-    (html) => {
-      const t = text(html)
-      if (!/Three rides because/.test(t)) throw new Error('the reasoning is not shown under the week it explains')
-      if (!/Bike-heavy, fingers light/.test(t)) throw new Error('the week is not named')
-    }],
   ['ScreenCard(renders before it can measure)', <ScreenCard />,
     (html) => { if (!/Measuring/.test(text(html))) throw new Error('no placeholder before measurement') }],
   ['describeScreen(names the iOS 26 short viewport)', null, () => {
@@ -2848,18 +2619,15 @@ const cases = [
     if (!/Home Screen/.test(tab)) throw new Error('a browser tab is not told to install')
   }],
   /*
-   * More than one person (lib/whoami.js). The owner sees every tab and both
-   * planner routes; someone the AI is not set up for sees no Coach tab, no Goals
-   * tab, and only "Build it myself". Pinned from both sides, so a regression in
-   * either direction is a failure rather than a quiet change.
+   * More than one person (lib/whoami.js). Everyone gets the same three tabs;
+   * someone the AI is not set up for gets only "Build it myself". Pinned from
+   * both sides, so a regression in either direction is a failure rather than a
+   * quiet change.
    */
-  ['tabsFor(the owner sees all seven, bridge or not; someone else loses Coach and Goals)', null, () => {
-    const all = tabsFor({ ai: true, goals: false }, true).map(t => t.id)
-    if (all.length !== 7 || !all.includes('coach') || !all.includes('goals')) throw new Error(`the owner's tabs: ${all}`)
-    const hers = tabsFor({ ai: false, goals: false }, false).map(t => t.id)
-    if (hers.includes('coach') || hers.includes('goals')) throw new Error(`a tab for a feature that is off: ${hers}`)
-    for (const keep of ['today', 'week', 'log', 'progress', 'achievements']) {
-      if (!hers.includes(keep)) throw new Error(`no ${keep} tab without AI`)
+  ['tabsFor(three tabs, for everyone: Today, Log, Progress)', null, () => {
+    for (const [features, owner] of [[{ ai: true }, true], [{ ai: false }, false], [{ ai: true }, false]]) {
+      const ids = tabsFor(features, owner).map(t => t.id).join()
+      if (ids !== 'today,log,progress') throw new Error(`tabs ${ids} for ${JSON.stringify(features)}, owner ${owner}`)
     }
   }],
   ['PlanFlow(no AI: building it yourself is the only route)', null, () => {
@@ -2995,17 +2763,10 @@ const cases = [
     const FOR = /aria-label="Who this is for"/
     const flow = (me) => renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop}
       people={planPeople(me)} onKeepFor={async () => ({ ids: [], count: 0, first: null })} />)
-    const week = (me) => renderToString(<WeekPlanFlow plan={plan} entries={[]} iso={TODAY} upsertEntry={noop} onClose={noop}
-      people={planPeople(me)} owner={{ id: 'owner', name: 'Alex' }} />)
     const plannedForSam = { ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, plannedBy: { id: 'owner', name: 'Alex' } } }
     const sharedPlanned = { ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, sharedWith: [{ id: 'sam', entryId: PLANNED_ENTRY.id }] } }
     const timed = plan.dailyMenu.find(o => hasWorkout(o) && buildSteps(o, {}).length)
     return [
-      ['tabsFor(someone else gets Coach once AI is configured; Goals stays the owner\'s)', null, () => {
-        const hers = tabsFor({ ai: true, goals: false }, false).map(t => t.id)
-        if (!hers.includes('coach')) throw new Error('no Coach tab for someone else with AI configured')
-        if (hers.includes('goals')) throw new Error('the owner\'s linked goals reached someone else')
-      }],
       ['PlanFlow("For: You / Sam" only for the owner, with someone else on the install, not while acting)', null, () => {
         const html = flow(ownerMe)
         if (!FOR.test(html)) throw new Error('the owner cannot plan for Sam')
@@ -3019,12 +2780,6 @@ const cases = [
         if (FOR.test(renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} people={planPeople(ownerMe)} />))) {
           throw new Error('"For:" with no way to keep it in their log')
         }
-      }],
-      ['WeekPlanFlow("For: You / Sam" only for the owner, with someone else on the install, not while acting)', null, () => {
-        if (!FOR.test(week(ownerMe))) throw new Error('the owner cannot plan Sam\'s week')
-        if (FOR.test(week(alone))) throw new Error('"For:" on a one-person install')
-        if (FOR.test(week(acting))) throw new Error('"For:" while acting as someone')
-        if (FOR.test(week(sam))) throw new Error('"For:" for someone who is not the owner')
       }],
       ['ForChoice(nothing with nobody to choose)', null, () => {
         if (renderToString(<ForChoice people={[]} target={null} onTarget={noop} />) !== '') throw new Error('a choice of one')
@@ -3096,16 +2851,23 @@ const cases = [
   // The rest day is a door of its own: as a footer link under the old session
   // picker it was technically reachable and the user could not find it. "Pick a
   // session" went on 2026-10-14: its cards are folders inside Log a workout.
-  ['FabMenu(four doors, rest included, no session picker)',
-    <FabMenu onClose={noop} onPlan={noop} onLog={noop} onPlanWeek={noop} onRest={noop} />,
+  // "Plan the week" went with the quotas on 2026-10-25 (issue #31).
+  ['FabMenu(four doors: log, rest, plan, the timer last; no week planner, no session picker)',
+    <FabMenu onClose={noop} onPlan={noop} onLog={noop} onPlanWeek={noop} onRest={noop} onTimer={noop} />,
     (html) => {
       const t = text(html)
-      for (const door of ['Plan a workout', 'Log a workout', 'Log a rest day', 'Plan the week']) {
+      const doors = ['Log a workout', 'Log a rest day', 'Plan a workout', 'Interval timer']
+      for (const door of doors) {
         if (!t.includes(door)) throw new Error(`no "${door}" door`)
       }
+      // Logging doors, then planning, then tools (docs/DESIGN.md, "The + menu, final shape").
+      const at = doors.map(d => t.indexOf(d))
+      if (at.some((x, i) => i && x < at[i - 1])) throw new Error(`the doors are out of order: ${doors.join(' < ')}`)
+      if (/Plan the week/.test(t)) throw new Error('the week planner is back on the +')
       if (/Pick a session/.test(t)) throw new Error('the separate session door is back')
       // The common case leads (docs/DESIGN.md D7).
       if (t.indexOf('Log a workout') > t.indexOf('Plan a workout')) throw new Error('Log a workout is not the first door')
+      if (/quota|Move Every Day/i.test(t)) throw new Error('the + still talks about quotas or a habit name')
     }],
   /*
    * The interval timer (timer.jsx, issue #32). It used to exist only inside
@@ -3226,11 +2988,9 @@ const cases = [
     }],
 
   // A FRESH INSTALL. content/starter.json is the first thing a stranger's
-  // install renders: no achievements, no climbing cards, the catalogs only.
+  // install renders: no climbing cards, the catalogs only.
   ['starter: TodayTab', <TodayTab plan={starter} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
-  ['starter: WeekTab', <WeekTab plan={starter} entries={[]} upsertEntry={noop} />],
   ['starter: LogTab', <LogTab plan={starter} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
-  ['starter: AchievementsTab', <AchievementsTab plan={starter} entries={[]} upsertEntry={noop} />],
   ['starter: ProgressView', <ProgressView plan={starter} entries={[]} />],
   ['starter: TestingTab', <TestingTab plan={starter} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
   ['starter: WhyTab', <WhyTab plan={starter} />],
@@ -3238,9 +2998,6 @@ const cases = [
   ['starter: ActivityChooser', <ActivityChooser plan={starter} field={activityFieldOf(starter)} onPick={noop} onClose={noop} />,
     (html) => { if (!/Run/.test(text(html))) throw new Error('the activity catalog is missing from the starter') }],
   ['example: TodayTab', <TodayTab plan={example} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
-  ['example: WeekTab', <WeekTab plan={example} entries={[]} upsertEntry={noop} />],
-  ['example: AchievementsTab', <AchievementsTab plan={example} entries={[]} upsertEntry={noop} />,
-    (html) => { if (!text(html).includes('Run a 10K')) throw new Error('the example achievements do not render') }],
   ['example: TestingTab', <TestingTab plan={example} entries={[]} upsertEntry={noop} deleteEntry={noop} />,
     (html) => { if (!text(html).includes('5 km time trial')) throw new Error('the example test does not render') }],
   // The example has no climbing, so its cards sit in "From the plan", not under a sport they are not.
@@ -3251,10 +3008,6 @@ const cases = [
     const keys = climbingFolders(example).map(f => f.key)
     if (keys.join() !== 'plan') throw new Error(`the example is foldered as ${keys.join(', ')}`)
   }],
-  ['starter: an achievement the owner added', <AchievementsTab plan={starter} upsertEntry={noop} entries={[
-    { id: 'achievement-marathon', kind: 'achievement', date: '2026-10-01', updatedAt: 'z',
-      data: { id: 'marathon', name: 'First marathon', categories: ['run'], createdAt: '2026-10-01T00:00:00Z' } }]} />,
-    (html) => { if (!text(html).includes('First marathon')) throw new Error('an owner-made achievement does not render') }],
 ]
 
 

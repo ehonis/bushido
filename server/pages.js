@@ -173,7 +173,7 @@ function render() {
   const e = view.effective, st = view.status
   const welcome = new URLSearchParams(location.search).has('welcome')
   let h = ''
-  if (welcome) h += '<div class="card"><h2>You are signed in</h2><p class="sub">Next: point Bushido at an AI below if you want the coach and planners, then open the app and add an achievement on the Achievements tab. Everything else here is optional.</p><a class="btn" href="/">Open the app</a></div>'
+  if (welcome) h += '<div class="card"><h2>You are signed in</h2><p class="sub">Next: point Bushido at an AI below if you want it to write workouts for you, then open the app and log one. Everything else here is optional.</p><a class="btn" href="/">Open the app</a></div>'
 
   // Account
   h += '<div class="card" id="c-account"><h2>Account</h2>'
@@ -207,24 +207,24 @@ function render() {
 
   // AI
   h += '<div class="card" id="c-ai"><h2>AI</h2>' +
-    '<p class="sub">The coach, the workout planner and the week planner run the <a href="https://docs.claude.com/en/docs/claude-code/overview" target="_blank" rel="noopener">Claude Code CLI</a> headless. It is the only backend the code supports. Without it the app works; those three features say so instead.</p>' +
+    '<p class="sub">The workout planner (Plan a workout → Write it for me) runs the <a href="https://docs.claude.com/en/docs/claude-code/overview" target="_blank" rel="noopener">Claude Code CLI</a> headless. It is the only backend the code supports. Without it the app works and you build workouts yourself.</p>' +
     '<p>' + pill(e.ai.installed, 'CLI found', 'CLI not found') + ' ' + pill(e.ai.apiKeySet, 'API key set', 'no API key') +
     (st.aiVersion ? ' <span class="faint">' + esc(st.aiVersion) + '</span>' : '') + '</p>' +
     field('ai', 'bin', 'Path to the claude binary', { readonly: true, value: e.ai.bin, source: e.ai.binSource }) +
     field('ai', 'apiKey', 'Anthropic API key (optional)', { secret: true, source: e.ai.apiKeySource, note: 'Passed to the CLI as ANTHROPIC_API_KEY. Leave empty to use the CLI\'s own sign-in (run claude once and log in).' }) +
-    field('ai', 'model', 'Model', { placeholder: e.ai.defaultModel, note: 'Default ' + e.ai.defaultModel + '. BUSHIDO_COACH_MODEL / BUSHIDO_PLANNER_MODEL override per feature.' }) +
+    field('ai', 'model', 'Model', { placeholder: e.ai.defaultModel, note: 'Default ' + e.ai.defaultModel + '. BUSHIDO_PLANNER_MODEL overrides it.' }) +
     '<div class="row"><button class="primary save">Save</button><button id="ai-test">Test</button><span class="msg"></span></div><pre id="ai-out" hidden></pre></div>'
 
   // Athlete
-  h += '<div class="card" id="c-you"><h2>About you</h2><p class="sub">Given to the coach and planners with every request. Goals, history, injuries, equipment: whatever you want them to take into account.</p>' +
+  h += '<div class="card" id="c-you"><h2>About you</h2><p class="sub">Given to the workout planner with every request. Goals, history, injuries, equipment: whatever you want it to take into account.</p>' +
     field('athlete', 'name', 'Name') +
-    field('athlete', 'notes', 'Notes for the coach', { textarea: true, placeholder: 'Training for a first marathon in May. Bad left knee. Dumbbells up to 50 lb at home.' }) +
+    field('athlete', 'notes', 'Notes for the planner', { textarea: true, placeholder: 'Training for a first marathon in May. Bad left knee. Dumbbells up to 50 lb at home.' }) +
     '<div class="row"><button class="primary save">Save</button><span class="msg"></span></div></div>'
 
   // Plan
   h += '<div class="card" id="c-plan"><h2>Training plan' + (pp.planFor ? ' for ' + esc(pp.planFor) : '') + '</h2>' +
     (pp.planFor ? '<p class="sub">You are acting as ' + esc(pp.planFor) + ', so this card is about their plan, not yours.</p>' : '') +
-    '<p class="sub">The content file the app runs on: session cards, the activity and lift catalogs, quota categories and seeded achievements.</p>' +
+    '<p class="sub">The content file the app runs on: session cards, the activity and lift catalogs and the categories workouts file under.</p>' +
     '<p>Now: <strong>' + esc(e.plan.label) + '</strong> <span class="faint">' + esc(e.plan.file) + '</span></p>' +
     (e.plan.source.startsWith('env ') ? '<p class="faint">Pinned by ' + esc(e.plan.source.slice(4)) + '.</p>' :
     '<div class="row"><a class="btn" href="/api/content" download="plan.json">Download</a>' +
@@ -238,13 +238,12 @@ function render() {
   // Integrations
   const t = e.totem
   h += '<div class="card" id="c-int"><h2>Integrations</h2>' +
-    '<p class="sub">Linked goals and the daily habit come from a <strong>Totem bridge</strong>, a separate service reached over HTTP. WHOOP and Strava do not: they are connected here, in the cards below.</p>' +
-    '<p>' + pill(t.enabled, 'bridge configured', 'no bridge') + ' ' + pill(t.goals, 'goals on', 'goals off') + ' ' + pill(t.habitSync, 'habit sync on', 'habit sync off') + '</p>' +
+    '<p class="sub">The daily habit is marked on a <strong>Totem bridge</strong>, a separate service reached over HTTP. WHOOP and Strava do not: they are connected here, in the cards below.</p>' +
+    '<p>' + pill(t.enabled, 'bridge configured', 'no bridge') + ' ' + pill(t.habitSync, 'habit sync on', 'habit sync off') + '</p>' +
     field('totem', 'url', 'Bridge URL', { source: t.urlSource, placeholder: 'http://127.0.0.1:8787' }) +
     field('totem', 'secret', 'Bridge secret', { secret: true, source: t.secretSource }) +
     field('totem', 'envFile', 'Or read BRIDGE_SECRET from this .env file', { readonly: true, source: t.envFileSource }) +
     field('totem', 'habit', 'Habit id to mark when you train', { placeholder: 'move-every-day' }) +
-    check('totem', 'goals', 'Show goals linked to this app') +
     check('totem', 'habitSync', 'Mark the daily habit when a session is logged') +
     '<div class="row"><button class="primary save">Save</button><span class="msg"></span></div></div>'
 
@@ -274,7 +273,6 @@ function render() {
     '<p class="faint">Notifications are ' + (st.notify ? 'on' : 'off') + '.</p>' +
     field('links', 'notifyCore', 'Push notification core (directory)', { readonly: true, value: l.notifyCore, source: l.notifyCoreSource }) +
     field('links', 'brainFile', 'Athlete profile file (Markdown) the AI may read', { readonly: true, value: l.brainFile, source: l.brainFileSource }) +
-    field('links', 'krakatoaDir', 'Nutrition digest directory the coach may read', { readonly: true, value: l.krakatoaDir, source: l.krakatoaDirSource }) +
     field('notifications', 'tz', 'Timezone for scheduled notifications', { placeholder: e.tz }) +
     '<div class="row"><button class="primary save">Save</button><span class="msg"></span></div></div>'
 

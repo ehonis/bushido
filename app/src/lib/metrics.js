@@ -22,9 +22,10 @@
 
 import { optFor } from './menu.js'
 import { isTraining } from './store.js'
-import { categoryOf, disciplineOf, mondayOf } from './quota.js'
+import { categoryOf, disciplineOf } from './category.js'
+import { mondayOf } from './dates.js'
 import { minutesFor } from './minutes.js'
-import { isHardEntry } from './recommend.js'
+import { isHardEntry } from './fingers.js'
 import { gradeIndex, rungLabel, vRungLabel, hardestGrade, hardestClimbed } from './grades.js'
 import { liftsIn } from './lifts.js'
 import { weeksIn } from './scope.js'
@@ -175,60 +176,6 @@ export const METRICS = [
     series: (r, plan) => byWeek(r, plan, e => pos(e.data?.out?.poolDistance) || 0),
   },
 
-  /* ------------------------------------------------------------ climbing */
-  {
-    key: 'hardFingers',
-    group: 'Climbing',
-    kind: 'bar',
-    label: 'Hard finger days per week',
-    help: 'What the two unbypassable rules are counted on. Three is the cap.',
-    ref: (plan) => plan?.recommender?.hardCap,
-    refLabel: 'cap',
-    applies: (r) => has(r.disciplines, 'climbing'),
-    series: (r, plan) => byWeek(r, plan, e => (isHardEntry(e, plan?.dailyMenu || []) ? 1 : 0)),
-  },
-  /*
-   * Hardest thing climbed, routes and boulders separately.
-   *
-   * These were THREE charts before 2026-09-15 — one for lead laps, one for fun
-   * bouldering, one for fun sport days — which is the same measurement split by
-   * which card happened to record it, and exactly the over-specificity the
-   * rebuild was for. Now the scope decides which sessions are in, and there are
-   * two charts because a V-grade and a YDS grade are two ladders.
-   *
-   * Both read the session-level field AND the per-climb detail, because a session
-   * can carry either: `hardest` is what the user typed on the card, and `sets.*.climbs`
-   * is what the user ticked per burn. Reading only one of them would make a chart that
-   * goes blank on exactly the days the user logged more carefully.
-   */
-  {
-    key: 'hardestRoute',
-    group: 'Climbing',
-    kind: 'line',
-    label: 'Hardest route',
-    applies: (r) => has(r.disciplines, 'climbing'),
-    fmtY: (v) => rungLabel(Math.round(v)),
-    series: (r) => perSession(r, e => {
-      const out = e.data?.out || {}
-      const fromSets = Object.values(out.sets || {}).map(hardestClimbed)
-      const best = hardestGrade([out.hardestYds, ...fromSets].filter(v => isRoute(v)))
-      return best === null ? null : gradeIndex(best)
-    }),
-  },
-  {
-    key: 'hardestBoulder',
-    group: 'Climbing',
-    kind: 'line',
-    label: 'Hardest boulder',
-    applies: (r) => has(r.disciplines, 'climbing'),
-    fmtY: (v) => vRungLabel(Math.round(v)),
-    series: (r) => perSession(r, e => {
-      const out = e.data?.out || {}
-      const fromSets = Object.values(out.sets || {}).map(hardestClimbed)
-      return hardestGrade([out.hardest, ...fromSets].filter(v => isBoulder(v)))
-    }),
-  },
-
   /* ------------------------------------------------------- one exercise */
   {
     key: 'topLoad',
@@ -292,13 +239,71 @@ export const METRICS = [
     applies: (r) => r.entries.filter(e => pos(e.data?.out?.rpe)).length >= 2,
     series: (r) => perSession(r, e => pos(e.data?.out?.rpe)),
   },
+
+  /* ------------------------------------------------------------ climbing */
+  /*
+   * LAST, on purpose (2026-10-25, issue #31). Groups render in the order their
+   * first chart appears here, and this is a workout log first: the climbing
+   * charts follow the general ones rather than leading them.
+   */
+  {
+    key: 'hardFingers',
+    group: 'Climbing',
+    kind: 'bar',
+    label: 'Hard finger days per week',
+    help: 'Days a session loaded the fingers hard, as logged.',
+    applies: (r) => has(r.disciplines, 'climbing'),
+    series: (r, plan) => byWeek(r, plan, e => (isHardEntry(e, plan?.dailyMenu || []) ? 1 : 0)),
+  },
+  /*
+   * Hardest thing climbed, routes and boulders separately.
+   *
+   * These were THREE charts before 2026-09-15 — one for lead laps, one for fun
+   * bouldering, one for fun sport days — which is the same measurement split by
+   * which card happened to record it, and exactly the over-specificity the
+   * rebuild was for. Now the scope decides which sessions are in, and there are
+   * two charts because a V-grade and a YDS grade are two ladders.
+   *
+   * Both read the session-level field AND the per-climb detail, because a session
+   * can carry either: `hardest` is what the user typed on the card, and `sets.*.climbs`
+   * is what the user ticked per burn. Reading only one of them would make a chart that
+   * goes blank on exactly the days the user logged more carefully.
+   */
+  {
+    key: 'hardestRoute',
+    group: 'Climbing',
+    kind: 'line',
+    label: 'Hardest route',
+    applies: (r) => has(r.disciplines, 'climbing'),
+    fmtY: (v) => rungLabel(Math.round(v)),
+    series: (r) => perSession(r, e => {
+      const out = e.data?.out || {}
+      const fromSets = Object.values(out.sets || {}).map(hardestClimbed)
+      const best = hardestGrade([out.hardestYds, ...fromSets].filter(v => isRoute(v)))
+      return best === null ? null : gradeIndex(best)
+    }),
+  },
+  {
+    key: 'hardestBoulder',
+    group: 'Climbing',
+    kind: 'line',
+    label: 'Hardest boulder',
+    applies: (r) => has(r.disciplines, 'climbing'),
+    fmtY: (v) => vRungLabel(Math.round(v)),
+    series: (r) => perSession(r, e => {
+      const out = e.data?.out || {}
+      const fromSets = Object.values(out.sets || {}).map(hardestClimbed)
+      return hardestGrade([out.hardest, ...fromSets].filter(v => isBoulder(v)))
+    }),
+  },
+
   {
     key: 'fingers',
-    group: 'Effort',
+    group: 'Climbing',
     kind: 'line',
     unit: '/5',
     label: 'Fingers afterwards',
-    help: '4 is sore and 5 is something hurts — the two the recommender acts on.',
+    help: 'How the fingers read after a session: 4 is sore and 5 is something hurts.',
     applies: (r) => r.entries.filter(e => pos(e.data?.out?.fingers)).length >= 2,
     series: (r) => perSession(r, e => pos(e.data?.out?.fingers)),
   },

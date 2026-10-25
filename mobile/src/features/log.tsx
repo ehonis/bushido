@@ -29,7 +29,7 @@ import { SessionLog, DetailsSheet } from './sessionlog'
 import { isDone, isTraining } from '../lib/store.js'
 import { minutesFor } from '../lib/minutes.js'
 import { fromIso, localIso } from '../lib/dates.js'
-import { categoryOf, disciplineOf } from '../lib/quota.js'
+import { categoryOf, disciplineOf } from '../lib/category.js'
 import { gearOn, gearUsage } from '../lib/gear.js'
 import { loggedActivity } from '../lib/activities.js'
 import { useStrava } from '../lib/strava.jsx'
@@ -45,7 +45,7 @@ const fmt1 = (n: number) => Math.round(n * 10) / 10
 // The copy of the sheet's delete confirmation, shared with the swipe so both
 // ways out say the same thing.
 const DELETE_LABEL = 'Delete this workout'
-const DELETE_BODY = 'It goes out of the log, out of the week’s quotas, out of your training load and off the streak. The measurement it carries goes with it.'
+const DELETE_BODY = 'It goes out of the log, out of your training load and off the streak. The measurement it carries goes with it.'
 
 /** A human date that says "today" and "yesterday", because those are most of them. */
 function dayLabel(iso: string, today: string) {
@@ -120,7 +120,7 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry }: any) {
         discipline: (disciplineOf as any)(e, menu),
         rest: Number(e.data?.level) === 0 || opt?.role === 'rest',
         // Logged as activity rather than training — a commute, an errand on the
-        // bike. Its miles count; its load and its quota do not, so the card says so.
+        // bike. Its miles count; its load does not, so the card says so.
         casual: !isTraining(e),
         // A workout done together: "with Sam" (or, in Sam's log, "with Alex"). lib/shared.js.
         with: (withLine as any)(e, currentMe().people),

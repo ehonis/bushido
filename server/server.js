@@ -11,7 +11,6 @@
  *   GET  /settings            the Settings page; GET/PUT /api/settings behind it
  *   GET  /api/health          liveness + paths ({ ok } only, when not signed in)
  *   GET  /api/content         the program definition (read-only; see config.planFile)
- *   GET  /api/coach           today's coach note (read-only, from data/coach.json)
  *   GET  /api/whoop           cached WHOOP workouts, daily recovery and sleep (data/whoop.json)
  *   POST /api/whoop/pull      refetch from WHOOP now (the "Pull from WHOOP" button)
  *   GET  /api/strava          this person's cached Strava activities + gear + athlete (strava.json)
@@ -23,14 +22,11 @@
  *   POST /api/whoop/connect   connect the owner's WHOOP; GET /whoop/callback finishes it,
  *                             POST /api/whoop/disconnect ends it
  *   POST /api/whoop/owner     { method, args } on the owner's WHOOP client, for Totem and Krakatoa
- *   GET  /api/goals           Totem goals linked to this app (when the bridge is configured)
- *   GET  /api/coach/threads   the AI coach's conversations; POST /api/coach/chat for a turn
  *   POST /api/plan/workout    { kinds, minutes, goal } -> a prescription, stored nowhere
  *   POST /api/plan/revise     { plan, message } -> the same plan, changed; stored nowhere
  *   GET  /api/plan/drafts     this person's AI workout drafts; POST one to start writing it;
  *                             GET/PUT/DELETE /api/plan/drafts/:id, POST …/:id/revise, …/retry, …/keep
  *                             (server/drafts.js: the run belongs to the draft, not the page)
- *   POST /api/plan/week       { monday, counts, message, thread } -> the week's quotas, proposed; stored nowhere
  *   GET  /api/state           { version, updatedAt, state }
  *   PUT  /api/state           { state } -> merged with what's on disk, returns merged doc
  *   POST /api/entry           { entry } -> upsert one entry, returns merged doc
@@ -59,11 +55,8 @@ const fs = require('fs')
 const fsp = require('fs/promises')
 const path = require('path')
 const { spawn } = require('child_process')
-const chat = require('./chat.js')
-const coach = require('./coach.js')
 const planner = require('./planner.js')
 const { createDrafts, dirOf: draftsDir, keptIdsIn } = require('./drafts.js')
-const weekplanner = require('./weekplanner.js')
 const { createBushidoNotify } = require('./notify.js')
 const notifyFacts = require('./notify-facts.js')
 const { createConfig } = require('./config.js')
@@ -79,11 +72,6 @@ const DATA_DIR = process.env.BUSHIDO_DATA_DIR ? path.resolve(process.env.BUSHIDO
 const config = createConfig({ root: ROOT, dataDir: DATA_DIR })
 const DIST_DIR = process.env.BUSHIDO_DIST_DIR || path.join(ROOT, 'dist')
 const WHOOP_FILE = path.join(DATA_DIR, 'whoop.json')
-/*
- * Whether the check-in coach runs at all. See the guard on /api/chat.
- * `BUSHIDO_COACH=1` forces it back on for anyone testing the rewrite.
- */
-const COACH_ENABLED = process.env.BUSHIDO_COACH === '1'
 
 const PORT = Number(process.env.BUSHIDO_PORT || 8099)
 const BIND = process.env.BUSHIDO_BIND || '0.0.0.0'
@@ -117,8 +105,9 @@ const access = createAccessVerifier({ settings: () => config.access(), certsUrl:
 const STARTER_PLAN = path.join(ROOT, 'content', 'starter.json')
 
 /**
- * Everything that belongs to one person: their log, its backups, their plan and
- * their coach files. The owner's space is the data dir itself, which is where
+ * Everything that belongs to one person: their log, its backups and their plan.
+ * (A space may also hold coach.json and coach/ from the removed AI coach; nothing
+ * reads them, and nothing deletes them either.) The owner's space is the data dir itself, which is where
  * all of it lived before there was more than one person, so nothing moved.
  */
 function spaceFor(user) {
@@ -130,8 +119,6 @@ function spaceFor(user) {
     name: user?.name || '',
     stateFile: path.join(dir, 'state.json'),
     backupDir: path.join(dir, 'backups'),
-    coachFile: path.join(dir, 'coach.json'),
-    coachDir: path.join(dir, 'coach'),
     /*
      * The owner's plan resolves through config (env, data/plan.json, settings,
      * starter). Anyone else runs on their own imported plan or the starter;
@@ -148,15 +135,15 @@ const OWNER_SPACE = spaceFor({ id: OWNER })
 
 /*
  * What a person's app may offer. Integrations hold the owner's accounts (WHOOP,
- * Totem goals and habits, the push identity, the brain file), so for anyone
+ * Totem habits, the push identity, the brain file), so for anyone
  * else they are off, which renders exactly as an install that never set them
  * up. Strava is the exception: everyone connects their own account here once
  * Settings has a Strava API app.
  *
  * AI is everyone's once a CLI is configured: each run is built from the person's
  * own space, About you and plan (`aiRun`), and a run for anyone but the owner is
- * denied the owner's files by flag (agentflags.js). The owner keeps the coach tab
- * with no CLI so the "set AI up" answer has somewhere to appear; nobody else
+ * denied the owner's files by flag (agentflags.js). The owner keeps "Write it for
+ * me" with no CLI so the "set AI up" answer has somewhere to appear; nobody else
  * should be shown a setup they cannot do.
  */
 function featuresFor(space) {
@@ -171,27 +158,17 @@ function featuresFor(space) {
     strava: stravaLinked(space),
     // There is a Strava app to connect through.
     stravaConnect: config.strava().configured,
-    goals: own && t.goals,
     habitSync: own && t.habitSync,
     notifications: own && Boolean(notify),
   }
 }
 
-// The coach. Sonnet rather than Opus, deliberately: this is a conversation the user is
-// having standing in the kitchen deciding whether to train, so it is answering in
-// seconds that matters, and everything it can decide is capped anyway.
 /*
  * The binary, the key and the models all come from config.ai(), resolved per
  * request so a change in Settings applies without a restart.
  */
-/* One JSON per conversation, under each person's coach/. See server/coach.js on why these are files. */
-/* Totem's goals, cached like WHOOP and Strava are. See /api/goals below. */
-const GOALS_FILE = path.join(DATA_DIR, 'goals.json')
-const GOALS_TTL_MS = Number(process.env.BUSHIDO_GOALS_TTL_MS) || 10 * 60 * 1000
-const COACH_EFFORT = process.env.BUSHIDO_COACH_EFFORT || 'medium'
-const COACH_TIMEOUT_MS = Number(process.env.BUSHIDO_COACH_TIMEOUT_MS) || 180000
 /*
- * The workout planner. Same model as the coach and deliberately LOWER effort: it
+ * The workout planner, at deliberately LOW effort: it
  * is answering a button the user pressed on the way out of the door, not holding a
  * conversation, and everything it writes is a prescription the user is about to edit
  * anyway. Two minutes is the ceiling, not the target.
@@ -200,26 +177,6 @@ const PLANNER_EFFORT = process.env.BUSHIDO_PLANNER_EFFORT || 'low'
 const PLANNER_TIMEOUT_MS = Number(process.env.BUSHIDO_PLANNER_TIMEOUT_MS) || 150000
 /* "Write it for me" drafts, and the runs writing them. See server/drafts.js. */
 const drafts = createDrafts()
-/*
- * The week planner shares the planner's model and timeout and sits one notch
- * higher on effort: it is comparing three weeks of what the user set against what the user
- * did, which is a reading job rather than a writing one, and the user is not standing
- * in gym shorts for this one.
- */
-const WEEK_EFFORT = process.env.BUSHIDO_WEEK_EFFORT || 'low'
-// Measured, not assumed: the first live turn at medium effort hit the planner's
-// 150s ceiling reading state.json whole. Low effort plus a pre-digested
-// set-vs-did context (see weekContext in lib/plannerapi.js) is the fix; the
-// longer ceiling is the safety net, and the user is not in gym shorts for this one.
-const WEEK_TIMEOUT_MS = Number(process.env.BUSHIDO_WEEK_TIMEOUT_MS) || 240000
-// Low effort, measured rather than assumed: on the real prompt it answered in
-// 30s against 28s at medium and 54s with the default, for a third of the cost
-// and a reply that was, if anything, closer to the two sentences CHECKIN.md
-// asks for. Everything it can decide is capped at coachCap points anyway.
-const CHAT_EFFORT = process.env.BUSHIDO_CHAT_EFFORT || 'low'
-const CHAT_TIMEOUT_MS = Number(process.env.BUSHIDO_CHAT_TIMEOUT_MS || 120000)
-/* The dormant check-in coach's prompt. It is written for one person and kept as an example. */
-const CHECKIN_PROMPT = path.join(ROOT, 'examples', 'coach', 'CHECKIN.md')
 
 /** What every AI route says when there is no CLI to run. */
 const AI_MISSING = 'AI is not set up. Open Settings → AI and point Bushido at the Claude Code CLI.'
@@ -284,13 +241,12 @@ function aiRun(space = OWNER_SPACE) {
       person: own ? null : { dir: space.dir },
       // The owner's own plan too, when it is the owner's (not the shared starter) and lives
       // outside the data dir, which is denied wholesale anyway.
-      ownerSources: own ? [] : [links.brainFile, links.brainFile && path.dirname(links.brainFile), links.krakatoaDir,
+      ownerSources: own ? [] : [links.brainFile, links.brainFile && path.dirname(links.brainFile),
         (() => { const f = config.planFile().file; return f && path.resolve(f) !== path.resolve(STARTER_PLAN) ? f : null })()],
       measurements: own,
       name: a.name, notes: a.notes,
       today: new Date().toISOString().slice(0, 10),
     },
-    krakatoaDir: own ? links.krakatoaDir : null,
   }
 }
 
@@ -457,15 +413,6 @@ function startNotify() {
     .catch((e) => { console.log('[bushido] notifications unavailable:', e.message); return null })
 }
 
-/** This week's goals, as Bushido already caches them from Totem. */
-function cachedGoals() {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'goals.json'), 'utf8')).goals || null
-  } catch {
-    return null
-  }
-}
-
 const readCache = (file) => {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return null }
 }
@@ -479,7 +426,7 @@ const readCache = (file) => {
 async function notifyWorkoutLogged(entry) {
   if (!notify) return
   try {
-    const fact = notifyFacts.workoutLoggedFact({ entry, goals: cachedGoals(), now: Date.now() })
+    const fact = notifyFacts.workoutLoggedFact({ entry, now: Date.now() })
     if (!fact) return
     await notify.notifier.deliver({
       title: fact.title,
@@ -495,7 +442,7 @@ async function notifyWorkoutLogged(entry) {
 }
 
 /**
- * The scheduled half: readiness, unlogged workouts, goal pace.
+ * The scheduled half: readiness and unlogged workouts.
  *
  * Plans a day the way Totem's digest does — several notifications at the times
  * they can still change what the user does — then drains whatever is due. One tick, no
@@ -512,7 +459,6 @@ async function notifyTick() {
       state: readStateSync(OWNER_SPACE).state,
       whoop: readCache(WHOOP_FILE),
       strava: readStravaCache(OWNER_SPACE),
-      goals: cachedGoals(),
       now,
     })
 
@@ -973,60 +919,6 @@ function stravaRedirectFor(req) {
   return `${proto}://${host}/strava/callback`
 }
 
-/*
- * Goals come from Totem over the same bridge everything else does.
- *
- * `/api/goals` there already existed — read-only needed no change to Totem at
- * all, which is the whole reason this was the option worth taking.
- */
-let goalsInFlight = null
-let goalsState = { at: null, ok: null, detail: 'not pulled yet' }
-
-async function pullGoals() {
-  if (!config.totem().goals) return { ok: false, error: NOT_CONFIGURED }
-  if (goalsInFlight) return goalsInFlight
-  const TOTEM_URL = totemUrl()
-  goalsInFlight = (async () => {
-    const secret = totemSecret()
-    if (!secret) {
-      goalsState = { at: new Date().toISOString(), ok: false, detail: 'no BRIDGE_SECRET found' }
-      return { ok: false, error: goalsState.detail }
-    }
-    try {
-      const res = await fetch(`${TOTEM_URL}/api/goals`, {
-        headers: { Authorization: `Bearer ${secret}` }, signal: AbortSignal.timeout(15000),
-      })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const detail = body?.error?.message || body?.error || `HTTP ${res.status}`
-        goalsState = { at: new Date().toISOString(), ok: false, detail }
-        return { ok: false, error: detail }
-      }
-      const doc = {
-        fetchedAt: new Date().toISOString(),
-        goals: Array.isArray(body.goals) ? body.goals : [],
-      }
-      await fsp.mkdir(DATA_DIR, { recursive: true })
-      const tmp = `${GOALS_FILE}.tmp-${process.pid}`
-      await fsp.writeFile(tmp, JSON.stringify(doc, null, 2))
-      await fsp.rename(tmp, GOALS_FILE)
-      goalsState = { at: doc.fetchedAt, ok: true, detail: `${doc.goals.length} goals` }
-      return { ok: true, ...doc }
-    } catch (err) {
-      goalsState = { at: new Date().toISOString(), ok: false, detail: err.message }
-      return { ok: false, error: err.message }
-    }
-  })().finally(() => { goalsInFlight = null })
-  return goalsInFlight
-}
-
-function refreshGoalsIfStale() {
-  if (!config.totem().goals) return
-  const cache = readJson(GOALS_FILE, null)
-  const age = cache?.fetchedAt ? Date.now() - Date.parse(cache.fetchedAt) : Infinity
-  if (age > GOALS_TTL_MS) pullGoals().catch(() => {})
-}
-
 /**
  * Sync every DATE the incoming payload touched, once each, from the merged doc
  * rather than from the payload — a push that edits one of three sessions still
@@ -1051,180 +943,8 @@ function syncDailyEntries(incoming, state, before) {
   }
 }
 
-// --------------------------------------------------------- check-in coach
-
-/*
- * One turn of the conversation on the Today tab.
- *
- * This is the only endpoint that starts a model, and it is the only one a
- * browser can use to change what the app recommends, so the shape of it is the
- * safety argument:
- *
- *   - The run has NO TOOLS. Everything it sees is assembled here (server/chat.js)
- *     and passed on stdin. It cannot read a file, write one, or touch
- *     content/plan.json. Nothing reachable from a phone gets to edit the
- *     programme; the plan is the owner's, edited by hand.
- *   - Its output is schema-validated by the CLI and re-checked by mergeNote,
- *     which clamps every nudge to `recommender.coachCap` and refuses to invent
- *     an entry in `changed` (that array is the audit trail for plan edits, and
- *     a chat cannot make one).
- *   - What it writes is a coach note for TODAY, read through lib/coach.js. So it
- *     inherits the rules that matter: no note can put two hard finger days back
- *     to back or breach the weekly cap, because nudges are read after the hard
- *     blocks have already returned.
- *   - It may also SUGGEST sessions — swap the main, add an extra, take one off —
- *     because a capped nudge could not express "do the crawls instead" and the
- *     coach spent two weeks claiming changes that never happened. It does not
- *     perform them and neither does this route. They come back as offers; the
- *     app draws each one as a card with buttons, decides live which buttons are
- *     legal via lib/recommend.js `placeable()`, and writes an entry only when
- *     the user presses one. So this endpoint has no write access to state.json at
- *     all, and every change to the training log is still their own tap.
- *
- * Runs are serialised. Two phones asking at once would otherwise both read
- * coach.json, both merge, and the second would drop the first's nudges.
- */
-
-let chatChain = Promise.resolve()
-/* Serialised: a coach turn can WRITE a memory, and two agents appending to one
-   brain file is how half a memory gets written. */
-let coachChain = Promise.resolve()
-let coachLast = { at: null, ok: null, detail: 'no coach turn yet' }
-let chatLast = { at: null, ok: null, detail: 'no check-in yet' }
-
 function readJson(file, fallback = null) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return fallback }
-}
-
-/** One headless turn. Resolves the parsed structured output, or throws. */
-function askCoach(prompt) {
-  const ai = config.ai()
-  const CLAUDE_BIN = ai.bin
-  return new Promise((resolve, reject) => {
-    if (!ai.installed) return reject(new Error(AI_MISSING))
-    const child = spawn(CLAUDE_BIN, [
-      '--print',
-      '--model', ai.chatModel,
-      '--effort', CHAT_EFFORT,
-      '--output-format', 'json',
-      // No tools at all. This is the load-bearing line in the whole feature.
-      '--tools', '',
-      // ...and none of the owner's own settings, MCP servers or CLAUDE.md.
-      ...ISOLATION,
-      '--no-session-persistence',
-      '--json-schema', JSON.stringify(chat.REPLY_SCHEMA),
-    ], { env: ai.spawnEnv(), stdio: ['pipe', 'pipe', 'pipe'] })
-
-    let out = ''
-    let err = ''
-    const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('the coach took too long')) },
-      CHAT_TIMEOUT_MS)
-
-    child.stdout.on('data', c => { out += c })
-    child.stderr.on('data', c => { err += c })
-    child.on('error', (e) => { clearTimeout(timer); reject(new Error(`cannot run ${CLAUDE_BIN}: ${e.message}`)) })
-    child.on('close', (code) => {
-      clearTimeout(timer)
-      if (code !== 0) return reject(new Error(err.trim().split('\n').pop() || `claude exited ${code}`))
-      let doc
-      try { doc = JSON.parse(out) } catch { return reject(new Error('the coach did not return JSON')) }
-      // `structured_output` is the validated object; `result` is the same thing
-      // as a string. Prefer the object, fall back rather than fail on a CLI that
-      // stops sending it.
-      const reply = doc.structured_output || readParsed(doc.result)
-      if (!reply || typeof reply !== 'object') return reject(new Error('the coach returned nothing usable'))
-      resolve({ reply, model: modelOf(doc) })
-    })
-
-    child.stdin.end(prompt)
-  })
-}
-
-const readParsed = (s) => { try { return JSON.parse(s) } catch { return null } }
-
-/**
- * Which model actually answered. The CLI reports usage for every model a run
- * touched — including the small one it uses for its own housekeeping — so the
- * answer is the one that wrote the most, not whichever key lands last. The name
- * ends up on the message in the thread, and attributing a coaching note to the
- * wrong model is a small lie that would be very hard to notice later.
- */
-function modelOf(doc) {
-  const usage = Object.entries(doc?.modelUsage || {})
-  if (!usage.length) return config.ai().chatModel
-  return usage.sort((a, b) => (b[1]?.outputTokens || 0) - (a[1]?.outputTokens || 0))[0][0]
-}
-
-async function checkIn(request) {
-  const plan = readJson(OWNER_SPACE.planFile().file, {})
-  const state = readStateSync(OWNER_SPACE).state
-  const BRAIN_FILE = config.links().brainFile
-  const note = readJson(OWNER_SPACE.coachFile, null)
-  // Absent is fine and must stay fine: the profile lives in another repo, and a
-  // coach with no profile is worse than one with no answer only if it pretends.
-  let brain = null
-  try { if (BRAIN_FILE) brain = fs.readFileSync(BRAIN_FILE, 'utf8') } catch { /* not installed */ }
-
-  /*
-   * WHOOP, from the cache on this disk rather than from the request.
-   *
-   * A stale cache is refreshed on the way in — a check-in is the moment the
-   * numbers matter most, and this is not a page load, so it can afford to wait
-   * for it. `refreshWhoopIfStale` fires in the background and does not block, so
-   * a band that has not synced costs a slightly older digest and never a reply:
-   * WHOOP being down must not cost them a conversation with their coach.
-   */
-  refreshWhoopIfStale()
-  const whoop = chat.whoopDigest(readWhoopCache(), request.date, {
-    entries: Object.values(state.entries || {}),
-  })
-  // Strava the same way: what the legs did this month, from the cache on disk.
-  refreshStravaIfStale()
-  const strava = chat.stravaDigest(readStravaCache(), request.date, {
-    entries: Object.values(state.entries || {}),
-  })
-
-  const prompt = chat.buildPrompt({
-    instructions: fs.readFileSync(CHECKIN_PROMPT, 'utf8'),
-    brain, plan, state, note, whoop, strava, request, name: config.athlete().name,
-  })
-
-  const { reply, model } = await askCoach(prompt)
-  const text = chat.replyText(reply)
-  if (!text) throw new Error('the coach had nothing to say')
-
-  const { note: merged, applied } = chat.mergeNote({
-    note, reply, date: request.date, cap: chat.coachCap(plan), model,
-  })
-
-  // Only sessions that exist may be nudged. A nudge on an id the plan does not
-  // have is inert in the app, so writing it would leave the reply describing a
-  // change that never happened.
-  const ids = new Set((plan.dailyMenu || []).map(m => m.id))
-  merged.nudges = merged.nudges.filter(n => ids.has(n.optId))
-  const kept = applied.filter(a => ids.has(a.optId))
-
-  // The sessions it put forward. Shape-checked here and nothing more: the app
-  // renders each as a card with buttons, decides live which buttons to offer,
-  // and writes nothing until the user presses one. Nothing on this path touches
-  // state.json — a browser-triggered model run cannot change the training log,
-  // it can only put something on screen for them to accept.
-  const offered = chat.suggestions(reply, plan)
-
-  await writeCoachNote(merged)
-  chatLast = {
-    at: new Date().toISOString(),
-    ok: true,
-    detail: `${request.date}, ${kept.length} nudge(s), ${offered.length} suggestion(s)`,
-  }
-  return { reply: text, model, applied: kept, sessions: offered, note: merged }
-}
-
-async function writeCoachNote(note) {
-  const file = OWNER_SPACE.coachFile
-  const tmp = `${file}.tmp-${process.pid}`
-  await fsp.writeFile(tmp, JSON.stringify(note, null, 2), 'utf8')
-  await fsp.rename(tmp, file)
 }
 
 // ------------------------------------------------------------ http plumbing
@@ -1468,7 +1188,7 @@ function testAi() {
   const started = Date.now()
   return new Promise((resolve, reject) => {
     const child = spawn(ai.bin, [
-      '--print', '--model', ai.coachModel, '--output-format', 'json',
+      '--print', '--model', ai.plannerModel, '--output-format', 'json',
       '--tools', '', '--no-session-persistence', ...ISOLATION,
     ], { env: ai.spawnEnv(), stdio: ['pipe', 'pipe', 'pipe'] })
     let out = ''
@@ -1485,7 +1205,7 @@ function testAi() {
         const why = doc?.result || err.trim().split('\n').pop() || `exited ${code}`
         return reject(new Error(`the CLI ran but the request failed: ${String(why).slice(0, 300)}. If it is not signed in, run it once in a terminal and log in, or add an API key.`))
       }
-      resolve({ ok: true, ms: Date.now() - started, model: modelOf(doc) || ai.coachModel, reply: String(doc.result || '').slice(0, 200) })
+      resolve({ ok: true, ms: Date.now() - started, model: modelOf(doc) || ai.plannerModel, reply: String(doc.result || '').slice(0, 200) })
     })
     child.stdin.end('Reply with the single word: ok')
   })
@@ -1517,7 +1237,7 @@ async function settingsView(who, ctx) {
       },
       totem: {
         enabled: t.enabled, url: t.url, urlSource: t.urlSource, secretSource: t.secretSource, envFileSource,
-        habitSync: t.habitSync, goals: t.goals,
+        habitSync: t.habitSync,
       },
       strava: (() => {
         const sa = config.strava()
@@ -1646,19 +1366,18 @@ function proxySettingsRefusal(mode, req, p) {
  *     write chain per person) and the same last-write-wins merge as the person's
  *     own saves. A removal is a tombstone, as everywhere else.
  *   - Only the parts of their log that came from the owner: a shared workout
- *     (`data.sharedFrom`) or a session or week the owner planned for them
+ *     (`data.sharedFrom`) or a session the owner planned for them
  *     (`data.plannedBy`). A live entry at that id carrying neither is something
  *     they logged themselves, and the owner must never overwrite it (409
- *     `not-shared`; the app picks another id, or says the week is already set).
+ *     `not-shared`; the app picks another id).
  *     Both markers are stamped here from users.json, never taken from the request.
- *   - A planned week is their `quota-<monday>` entry, the same id their own Week
- *     tab writes; a planned session is a daily entry with a derivable id.
+ *   - A planned session is a daily entry with a derivable id. (Planning someone's
+ *     week, their `quota-<monday>`, went with the quotas on 2026-10-25.)
  *   - A new daily entry is `done: false` whatever the request said, so it never
  *     looks like their own tick (`hasOwnMarks` in lib/shared.js). `isDone` still
  *     reads it as done from its day on, like any planned session (AGENTS.md §4).
  */
 const DAILY_ID_RE = /^daily-(\d{4}-\d{2}-\d{2})(?:-[\w.-]{1,80})?$/
-const QUOTA_ID_RE = /^quota-(\d{4}-\d{2}-\d{2})$/
 const fromOwner = (data) => Boolean(data && (data.sharedFrom || data.plannedBy))
 
 async function peopleRoute(req, res, url, ctx) {
@@ -1720,13 +1439,11 @@ async function peopleRoute(req, res, url, ctx) {
     const body = await readBody(req, 1024 * 1024)
     const entry = body?.entry
     const idm = DAILY_ID_RE.exec(String(entry?.id || ''))
-    const qm = QUOTA_ID_RE.exec(String(entry?.id || ''))
     const daily = Boolean(entry && idm && entry.kind === 'daily' && entry.date === idm[1])
-    const quota = Boolean(entry && qm && entry.kind === 'quota')
-    if (!entry || typeof entry !== 'object' || (!daily && !quota)) {
-      return send(res, 400, { error: 'expected { entry: { id: "daily-<date>…" or "quota-<monday>", kind, date, data } }' })
+    if (!entry || typeof entry !== 'object' || !daily) {
+      return send(res, 400, { error: 'expected { entry: { id: "daily-<date>…", kind, date, data } }' })
     }
-    if (!entry.data || typeof entry.data !== 'object' || !fromOwner(entry.data) || (quota && !entry.data.plannedBy)) {
+    if (!entry.data || typeof entry.data !== 'object' || !fromOwner(entry.data)) {
       return send(res, 400, { error: 'only a shared workout (data.sharedFrom) or something you planned for them (data.plannedBy) can be written here' })
     }
     const owner = users.owner()
@@ -1742,14 +1459,14 @@ async function peopleRoute(req, res, url, ctx) {
         const data = { ...entry.data }
         if (data.sharedFrom) data.sharedFrom = stamp
         if (data.plannedBy) data.plannedBy = stamp
-        if (daily && !live && !entry.deleted) data.done = false
+        if (!live && !entry.deleted) data.done = false
         const stamped = { ...entry, data, updatedAt: entry.updatedAt || new Date().toISOString() }
         return mergeState(base, { entries: { [entry.id]: stamped } })
       })
     } catch (err) {
       if (err.message !== NOT_SHARED) throw err
       return send(res, 409, {
-        error: quota ? `${person.name} already set that week` : `${person.name} already logged something else under that id`,
+        error: `${person.name} already logged something else under that id`,
         code: NOT_SHARED,
       })
     }
@@ -2139,12 +1856,7 @@ const server = http.createServer(async (req, res) => {
         contentFile: space.planFile().file,
         auth: { mode: auth.mode, owner: auth.hasOwner(), access: config.access().enabled, people: users.list().length },
         distDir: DIST_DIR,
-        coach: { file: space.coachFile, present: fs.existsSync(space.coachFile) },
-        chat: { model: ai.chatModel, claude: ai.installed, brain: Boolean(links.brainFile && fs.existsSync(links.brainFile)), last: chatLast },
-        goals: goalsState,
-        coach: { model: ai.coachModel, effort: COACH_EFFORT, dir: space.coachDir,
-                 threads: (() => { try { return coach.listThreads(space.coachDir).length } catch { return 0 } })(),
-                 last: coachLast },
+        ai: { model: ai.plannerModel, claude: ai.installed, brain: Boolean(links.brainFile && fs.existsSync(links.brainFile)) },
         totem: { enabled: t.enabled, url: t.url, habit: t.habit, secret: Boolean(t.secret()), lastSync: totemLast },
         notify: Boolean(notify),
         whoop: { file: WHOOP_FILE, present: fs.existsSync(WHOOP_FILE), linked: whoopLinked(), days: WHOOP_DAYS, last: whoopState },
@@ -2175,9 +1887,6 @@ const server = http.createServer(async (req, res) => {
     }
     if ((p === '/api/whoop/pull') && !features.whoop) {
       return send(res, 409, { error: 'WHOOP is not connected for this account' })
-    }
-    if (p === '/api/goals/pull' && !features.goals) {
-      return send(res, 409, { error: 'linked goals are not available for this account' })
     }
 
     if (p === '/api/strava/pull' && req.method === 'POST') {
@@ -2261,146 +1970,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     /*
-     * Today's coach note. Read-only, and read-only on purpose: the note is
-     * written on the way out of /api/chat, by the server, after the model's reply
-     * has been through chat.js's caps. A browser cannot PUT one, so nothing
-     * reachable from a phone can forge coaching advice.
-     *
-     * A 404 is the ordinary case, not an error: most days the user has not talked to
-     * the coach yet. The app treats an absent note as "behave exactly as you did
-     * before the coach existed".
-     */
-    if (p === '/api/coach' && req.method === 'GET') {
-      try {
-        const raw = await fsp.readFile(space.coachFile, 'utf8')
-        JSON.parse(raw) // a half-written file must 404, not reach the phone as junk
-        return send(res, 200, raw, { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-cache' })
-      } catch {
-        return send(res, 404, { error: 'no coach note yet' })
-      }
-    }
-
-    /*
-     * One turn of the check-in. Slow by nature — it is a model run — so it is
-     * serialised behind whatever is already in flight rather than run
-     * concurrently, and every failure comes back as prose the card can show.
-     * The app has already stored what the user typed by the time this is called, so a
-     * 503 here costs a reply and never a training note.
-     */
-    /*
-     * The AI coach. Threads are files under data/coach/ — see server/coach.js.
-     *
-     * Serialised like the old check-in was, and for a sharper reason now: a turn
-     * can WRITE (a memory into the brain), and two concurrent agents appending to
-     * one file is how a memory gets half-written.
-     */
-    /*
-     * Goals, read-only, from Totem.
-     *
-     * Totem OWNS goals — it has the schema, the MCP tools and the notebook-import
-     * flow, and there is exactly one place to author one. Bushido shows the ones
-     * marked as its own and contributes nothing, chosen over a schema migration
-     * in Totem's database, which holds other data too.
-     *
-     * Cached to disk and refreshed in the background when stale, exactly like the
-     * WHOOP and Strava caches beside it: Totem being down should make the
-     * goals card stale, never make the app fail to load.
-     */
-    if (p === '/api/goals' && req.method === 'GET') {
-      if (!features.goals) return send(res, 200, { fetchedAt: null, goals: [], configured: false }, { 'Cache-Control': 'no-cache' })
-      refreshGoalsIfStale()
-      const cache = readJson(GOALS_FILE, null)
-      return send(res, 200, { ...(cache || { fetchedAt: null, goals: [] }), configured: true }, { 'Cache-Control': 'no-cache' })
-    }
-
-    if (p === '/api/goals/pull' && req.method === 'POST') {
-      return send(res, 200, await pullGoals())
-    }
-
-    /*
      * AI is everyone's when a CLI is configured (featuresFor), and every run is
      * built from ONE person's space (aiRun): their log, About you and plan, and
      * for anyone but the owner none of the owner's sources. Without a CLI anyone
      * but the owner gets the answer a fresh install gives, and their app does not
      * offer it at all.
      */
-    const aiRoute = p.startsWith('/api/coach/') || p === '/api/plan/workout' || p === '/api/plan/revise' || p === '/api/plan/week'
+    const aiRoute = p === '/api/plan/workout' || p === '/api/plan/revise'
       || p === '/api/plan/drafts' || p.startsWith('/api/plan/drafts/')
     if (aiRoute && !features.ai) {
-      if (p === '/api/coach/threads' && req.method === 'GET') return send(res, 200, { threads: [] }, { 'Cache-Control': 'no-cache' })
       if (p === '/api/plan/drafts' && req.method === 'GET') return send(res, 200, { drafts: [] }, { 'Cache-Control': 'no-cache' })
-      return send(res, 503, { error: 'The coach and planners are not available on this account yet.', code: 'ai-not-configured' })
-    }
-
-    if (p === '/api/coach/threads' && req.method === 'GET') {
-      return send(res, 200, { threads: coach.listThreads(space.coachDir) }, { 'Cache-Control': 'no-cache' })
-    }
-
-    if (p.startsWith('/api/coach/thread/') && req.method === 'GET') {
-      try {
-        const t = coach.readThread(space.coachDir, p.slice('/api/coach/thread/'.length))
-        if (!t) return send(res, 404, { error: 'no such thread' })
-        return send(res, 200, t, { 'Cache-Control': 'no-cache' })
-      } catch (err) { return send(res, 400, { error: err.message }) }
-    }
-
-    if (p.startsWith('/api/coach/thread/') && req.method === 'DELETE') {
-      try {
-        const id = p.slice('/api/coach/thread/'.length)
-        return send(res, 200, { ok: coach.deleteThread(space.coachDir, id) })
-      } catch (err) { return send(res, 400, { error: err.message }) }
-    }
-
-    if (p === '/api/coach/chat' && req.method === 'POST') {
-      const body = await readBody(req, 256 * 1024)
-      const question = String(body?.message || '').trim()
-      if (!question) return send(res, 400, { error: 'say something' })
-      const { ai, common, krakatoaDir } = aiRun(space)
-      if (!ai.installed) return send(res, 503, { error: AI_MISSING, code: 'ai-not-configured' })
-
-      const run = async () => {
-        let thread = body.threadId ? coach.readThread(space.coachDir, body.threadId) : null
-        if (!thread) thread = coach.newThread(question.slice(0, 60))
-
-        /*
-         * Their message is stored BEFORE the agent is asked, deliberately. A turn
-         * takes up to three minutes and can fail; with the box unreachable the user
-         * should lose the reply and never the thing the user typed. Same rule the old
-         * check-in had.
-         */
-        thread = coach.appendMessage(thread, { role: 'user', text: question, at: new Date().toISOString() })
-        coach.writeThread(space.coachDir, thread)
-
-        const { reply, model } = await coach.askCoach({
-          ...common, model: ai.coachModel, effort: COACH_EFFORT,
-          timeoutMs: COACH_TIMEOUT_MS,
-          krakatoaDir, planFile: space.planFile().file,
-          thread, question, context: String(body.context || '').slice(0, 4000),
-        })
-
-        thread = coach.appendMessage(thread, {
-          role: 'coach', text: reply.reply, at: new Date().toISOString(),
-          sessions: Array.isArray(reply.sessions) ? reply.sessions : undefined,
-          wroteMemory: reply.wroteMemory || undefined,
-          model,
-        })
-        // A thread names itself off the first exchange rather than the first
-        // question, which is usually four words and no use in a list.
-        if (reply.title && (thread.messages.length <= 2 || thread.title === 'New chat')) {
-          thread.title = String(reply.title).slice(0, 80)
-        }
-        return coach.writeThread(space.coachDir, thread)
-      }
-
-      const next = coachChain.then(run)
-      coachChain = next.catch(() => {})
-      try {
-        return send(res, 200, await next)
-      } catch (err) {
-        coachLast = { at: new Date().toISOString(), ok: false, detail: err.message }
-        console.error('[bushido] coach failed:', err.message)
-        return send(res, 503, { error: err.message })
-      }
+      return send(res, 503, { error: 'The workout planner is not available on this account yet.', code: 'ai-not-configured' })
     }
 
     /*
@@ -2408,12 +1988,10 @@ const server = http.createServer(async (req, res) => {
      *
      * Slow — it is a model run that reads their log first — and it returns the
      * prescription rather than storing it. Nothing lands in the log until the user taps
-     * "keep it", which is the same rule the coach's session offers follow: the
-     * app only ever writes because the user said so.
+     * "keep it": the app only ever writes because the user said so.
      *
-     * NOT serialised behind the coach chain. This agent writes nothing, so two of
-     * them at once is two reads, and making them queue behind a three-minute coach
-     * turn to get a leg day is the wrong trade.
+     * NOT serialised. This agent writes nothing, so two of them at once is two
+     * reads.
      */
     if (p === '/api/plan/workout' && req.method === 'POST') {
       const body = await readBody(req, 64 * 1024)
@@ -2586,41 +2164,6 @@ const server = http.createServer(async (req, res) => {
           : drafts.retry(dir, id, runner(target.space)))
       }
       return send(res, 405, { error: 'method not allowed' })
-    }
-
-    /*
-     * Plan the week's quotas, one turn at a time.
-     *
-     * Stateless like the two above: the thread and their draft go up, the whole week
-     * comes back. Nothing here writes a quota entry — their tap on "Set the week"
-     * does, through the ordinary state PUT. See server/weekplanner.js.
-     */
-    if (p === '/api/plan/week' && req.method === 'POST') {
-      const body = await readBody(req, 128 * 1024)
-      const message = String(body?.message || '').trim().slice(0, 1500)
-      const monday = String(body?.monday || '').trim()
-      if (!message) return send(res, 400, { error: 'say what you want from the week' })
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(monday)) return send(res, 400, { error: 'say which week' })
-      const target = aiSpaceFor(body, ctx, space)
-      if (target.refused) return send(res, ...target.refused)
-      const { ai, common } = aiRun(target.space)
-      if (!ai.installed) return send(res, 503, { error: AI_MISSING, code: 'ai-not-configured' })
-
-      try {
-        const plan = planner.readPlanJson(target.space.planFile().file) || {}
-        const built = await weekplanner.planWeek({
-          ...common, model: ai.plannerModel, effort: WEEK_EFFORT,
-          timeoutMs: WEEK_TIMEOUT_MS,
-          plan, monday, message,
-          counts: (body?.counts && typeof body.counts === 'object') ? body.counts : {},
-          thread: Array.isArray(body?.thread) ? body.thread.slice(-10) : [],
-          context: String(body?.context || '').slice(0, 4000),
-        })
-        return send(res, 200, built)
-      } catch (err) {
-        console.error('[bushido] week planner failed:', err.message)
-        return send(res, 503, { error: err.message })
-      }
     }
 
     if (p === '/api/state' && req.method === 'GET') {

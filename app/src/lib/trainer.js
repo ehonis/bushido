@@ -2,7 +2,7 @@
  * THE OWNER AS TRAINER: planning for someone else on the install, and running a
  * workout from more than one person's side, without acting as them.
  *
- * Two logs, never one (AGENTS.md §3). A session or a week the owner plans for
+ * Two logs, never one (AGENTS.md §3). A session the owner plans for
  * someone lands in THEIR log, through `/api/people/:id/entry` (server.js
  * `peopleRoute`), as an ordinary entry carrying `data.plannedBy: { id, name }`,
  * stamped by the server. It arrives `done: false`, which `isDone` reads as done
@@ -13,7 +13,7 @@
  * In a workout, each person's side is that person's own entry with its own
  * writer: the owner's goes through the owner's store, anyone else's through the
  * people endpoints. Nothing here writes; this file is the arithmetic, and the
- * screens (trainer.jsx, planner.jsx, weekplanner.jsx, runner.jsx, workout.jsx)
+ * screens (trainer.jsx, planner.jsx, runner.jsx, workout.jsx)
  * do the I/O.
  *
  * Pure: no fetch, no React.
@@ -21,7 +21,6 @@
 
 import { extraEntryId, isDone, doneWhenPlaced, markDone } from './store.js'
 import { localIso } from './dates.js'
-import { buildQuotaEntry } from './quota.js'
 import { nameFor, titleFor } from './naming.js'
 import { levelFor } from './level.js'
 import { resolveMinutes } from './minutes.js'
@@ -105,10 +104,6 @@ export function plannedEntriesFor({ parts = [], theirDay = [], menu = [], date, 
   return placeEntries({ menu, onDay: theirDay, items, date })
     .map(e => ({ ...e, data: { ...e.data, done: false, plannedBy: plannedByOf(owner) } }))
 }
-
-/** Someone's week, as the owner set it for them: their `quota-<monday>` entry, marked. */
-export const plannedQuotaFor = (monday, counts, extra = {}, owner) =>
-  buildQuotaEntry(monday, counts, { ...extra, plannedBy: plannedByOf(owner) })
 
 /**
  * Write a kept prescription into someone's log. Their day is read first so the

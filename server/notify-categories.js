@@ -37,20 +37,6 @@ export const BUSHIDO_CATEGORIES = {
     dedupeWindowMinutes: 12 * HOUR,
     slot: 'morning',
   },
-  'quota.pace': {
-    label: 'Week quota',
-    quietHours: 'defer',
-    defaultEnabled: true,
-    dedupeWindowMinutes: 24 * HOUR,
-    slot: 'evening',
-  },
-  'goal.pace': {
-    label: 'Goal pace',
-    quietHours: 'defer',
-    defaultEnabled: true,
-    dedupeWindowMinutes: 7 * 24 * HOUR,
-    slot: 'night',
-  },
   'milestone.hit': {
     label: 'Milestones',
     quietHours: 'defer',

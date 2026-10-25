@@ -2,7 +2,7 @@
  * What Bushido is allowed to say, and when.
  *
  * Pure functions over data the app already holds — the training log, the WHOOP
- * cache, the Strava cache, and Totem's goals — returning facts in the shape the
+ * cache and the Strava cache — returning facts in the shape the
  * shared planner ranks (see notify/signals.mjs in the personal-assistant repo).
  * No model decides what is true here; the model only chooses the words.
  *
@@ -50,51 +50,6 @@ export function doneEntriesFor(state, date) {
   return Object.values(state?.entries || {})
     .filter((e) => e && e.kind === 'daily' && e.date === date && isDone(e, date))
 }
-
-/**
- * Goal metrics Strava feeds, which is what a ride or a run actually moves.
- *
- * A metric with nothing left on it is dropped, and that is not the same test as
- * `g.complete`. Completion is THEIR to assert in Totem, so a goal the user has already
- * hit sits there at 100% and `complete: false` for the rest of its period — and
- * since the nearest goal is the one named, a finished one wins every sort and
- * every ride is announced against it. "Go for one mountain bike ride — 0 to go
- * with 14 days left" went out five times before anyone read it as a bug; it is
- * arithmetic about a question the user answered a week ago. `goalPaceFacts` has always
- * drawn this line the same way (`fraction < 1`).
- */
-/**
- * Every number a goal is tracking: its own first, then the ones on its steps.
- *
- * A goal's numbers usually live on its STEPS — "complete cardio goals" with "2 bike
- * rides (10+ miles)" under it — and reading `goal.metrics` alone meant the goals most
- * worth saying something about were the ones that never had anything said. The goal's
- * own come first so a step feeding a total is never the one named: the total is.
- *
- * A step decided against is left out; its numbers are not something to chase.
- */
-function allMetrics(goal) {
-  const steps = Array.isArray(goal?.subGoals) ? goal.subGoals : []
-  return [
-    ...(Array.isArray(goal?.metrics) ? goal.metrics : []),
-    ...steps.filter((s) => !s?.abandoned && !s?.complete).flatMap((s) => (Array.isArray(s?.metrics) ? s.metrics : [])),
-  ]
-}
-
-function movedGoals(goals, family) {
-  if (!Array.isArray(goals)) return []
-  const wanted = family === 'ride' ? /bik|cycl|ride/i : family === 'run' ? /run/i : null
-  if (!wanted) return []
-  return goals
-    .filter((g) => !g.complete && g.periodState === 'active')
-    .map((g) => ({
-      goal: g,
-      metric: allMetrics(g).find((m) => m.available !== false && wanted.test(m.label || '')),
-    }))
-    .filter((x) => x.metric && x.metric.targetValue > 0 && x.metric.value < x.metric.targetValue)
-}
-
-const round = (n) => Math.round(n * 10) / 10
 
 /* --------------------------------------------------------- workout logged */
 
@@ -230,7 +185,7 @@ export function completedDailyEntries(incoming, before = {}, today = localIso())
  * table for the same reason — this one is a response, not a nudge, and no amount
  * of feedback should train it away.
  */
-export function workoutLoggedFact({ entry, goals = null, now = Date.now() }) {
+export function workoutLoggedFact({ entry, now = Date.now() }) {
   if (!entry || entry.kind !== 'daily' || entry.deleted) return null
   if (entry.data?.done === false) return null
   // Resting is the one thing that is not a session. `workout.logged` is pinned
@@ -249,28 +204,10 @@ export function workoutLoggedFact({ entry, goals = null, now = Date.now() }) {
   const data = entry.data || {}
   const name = data.name || 'Session'
   const out = data.out || {}
-  const family = String(data.family || data.activity || name).toLowerCase().includes('run') ? 'run'
-    : /bike|bik|cycl|ride/i.test(String(data.family || data.activity || name)) ? 'ride'
-      : null
-
-  // What the session moved, if anything. A goal fed by Strava updates itself, so
-  // by the time this reads it the new miles are already in.
-  const moved = movedGoals(goals, family)
-    .map(({ goal, metric }) => ({
-      title: goal.title,
-      left: round(metric.targetValue - metric.value),
-      value: round(metric.value),
-      target: round(metric.targetValue),
-      unit: metric.unit || '',
-      daysLeft: goal.daysLeft,
-      percent: goal.progress?.percent ?? null,
-    }))
-    .sort((a, b) => a.left - b.left)[0]
-
+  // It used to say which linked Totem goal the session moved; linked goals were
+  // removed on 2026-10-25 (issue #31), so it says what was logged and nothing more.
   const effort = Number.isFinite(out.rpe) ? ` RPE ${out.rpe}.` : ''
-  const body = moved
-    ? `${moved.value} of ${moved.target} ${moved.unit} on ${moved.title} — ${moved.left} to go with ${moved.daysLeft} day${moved.daysLeft === 1 ? '' : 's'} left.`
-    : `Logged.${effort}`
+  const body = `Logged.${effort}`
 
   return {
     kind: 'workout.done',
@@ -364,68 +301,6 @@ export function unloggedFacts({ state = null, whoop = null, strava = null, now =
   }]
 }
 
-/* ------------------------------------------------------------- goal pace */
-
-/**
- * A standing goal close enough to finish, or drifting far enough to say so.
- *
- * `nearDone` is where "you're close" is true rather than encouraging. Below it,
- * a nudge is a progress bar read aloud.
- */
-export function goalPaceFacts({ goals = null, now = Date.now(), nearDone = 0.7 }) {
-  if (!Array.isArray(goals)) return []
-  const out = []
-
-  for (const goal of goals) {
-    if (goal.complete || goal.periodState !== 'active') continue
-    const fraction = goal.progress?.fraction
-    // Unreadable is not behind — a Strava metric nobody could read is unknown.
-    if (fraction === null || fraction === undefined) continue
-
-    const metric = allMetrics(goal).find((m) => m.available !== false && m.targetValue > 0)
-    if (!metric) continue
-    const left = round(metric.targetValue - metric.value)
-    const unit = metric.unit || ''
-    const days = Number(goal.daysLeft) || 0
-
-    if (fraction >= nearDone && fraction < 1) {
-      out.push({
-        kind: 'goal.near',
-        category: 'goal.pace',
-        salience: 60 + Math.round(fraction * 20) + (days <= 2 ? 10 : 0),
-        slot: 'evening',
-        subject: goal.id,
-        title: `${left} ${unit} from ${goal.title}`,
-        body: `${goal.progress.percent}% there with ${days} day${days === 1 ? '' : 's'} left. That's one session.`,
-        url: '/',
-        expiresAt: now + Math.max(1, days) * DAY,
-        revalidate: { collector: 'goals', factKey: `goal-near:${goal.id}:${goal.progress.percent}` },
-        resolvedTitle: `${goal.title} — done`,
-      })
-      continue
-    }
-
-    // Behind with the window closing. Said near the end, not every evening of it.
-    if (days <= 2 && fraction < nearDone) {
-      const perDay = round(left / Math.max(1, days))
-      out.push({
-        kind: 'goal.behind',
-        category: 'goal.pace',
-        salience: 50,
-        slot: 'night',
-        subject: goal.id,
-        title: `${goal.title} needs ${perDay} ${unit} a day`,
-        body: `${goal.progress.percent}% with ${days} day${days === 1 ? '' : 's'} to go. Worth deciding whether it still stands.`,
-        url: '/',
-        expiresAt: now + Math.max(1, days) * DAY,
-        revalidate: { collector: 'goals', factKey: `goal-behind:${goal.id}:${goal.progress.percent}` },
-      })
-    }
-  }
-
-  return out
-}
-
 /* ---------------------------------------------------------- body warning */
 
 /**
@@ -462,11 +337,10 @@ export function bodyWarningFacts({ whoop = null, now = Date.now() }) {
 /* ------------------------------------------------------------- collection */
 
 /** Everything except the workout-logged fact, which is event-driven. */
-export function collectScheduledFacts({ state = null, whoop = null, strava = null, goals = null, now = Date.now(), tz }) {
+export function collectScheduledFacts({ state = null, whoop = null, strava = null, now = Date.now(), tz }) {
   return [
     ...readinessFacts({ whoop, now, tz }),
     ...bodyWarningFacts({ whoop, now }),
     ...unloggedFacts({ state, whoop, strava, now }),
-    ...goalPaceFacts({ goals, now }),
   ]
 }

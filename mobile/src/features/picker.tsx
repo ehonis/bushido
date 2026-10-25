@@ -4,20 +4,24 @@
  * There used to be two, *Log a workout* over the sports catalog and *Pick a
  * session* over the plan's cards. Two lists for one act meant knowing which list
  * a thing lived in before finding it, so on 2026-10-14 the plan's cards moved
- * INSIDE the workout picker, as folders at the top: Bouldering and Rock climbing
+ * INSIDE the workout picker, as folders: Bouldering and Rock climbing
  * (lib/folders.js says what goes where, and why folders are not activities).
  *
- *   FOLDERS    the plan's own cards, grouped inside each folder by the quota
- *              category each declares. Picking one puts it on the day with its
- *              protocol, cues, timer and the hard-finger question.
  *   ACTIVITIES the sports catalog, grouped as the catalog groups itself, pinned
  *              sports first. Picking one puts the workout card on the day with the
  *              activity already answered.
+ *   FOLDERS    the plan's own cards, grouped inside each folder by the category
+ *              each declares. Picking one puts it on the day with its protocol,
+ *              cues, timer and the hard-finger question.
+ *
+ * The activities come FIRST and the Climbing group after them (2026-10-25, issue
+ * #31): a workout log, so the general ways to log lead. Ordered in code, not
+ * content, because the owner's plan file is not in the repository.
  *
  * NOTHING RANKS: a list of doors, in the order the content file declares them,
  * with a search box that reaches both. The right-hand column says what each row
- * COSTS or FILLS: minutes for a card, the quota category for an activity, the
- * card count for a folder.
+ * COSTS or IS: minutes for a card, the category for an activity, the card count
+ * for a folder.
  */
 import React, { useMemo, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
@@ -130,8 +134,8 @@ function defaultSearch(groups: any[], q: string) {
 /**
  * The activity catalog as picker groups, their pinned sports first. The pins are
  * a real group because that is what they are: the sports that are most of what
- * the user logs. `meta` is the QUOTA CATEGORY, not the group — "which of these
- * fills my bike quota" is the question the right-hand column can answer.
+ * the user logs. `meta` is the CATEGORY, not the group: the group is already the
+ * heading above the row, so the right-hand column says what it files under.
  */
 export function activityGroups(field: any, plan: any) {
   if (!field) return []
@@ -171,7 +175,7 @@ const cardRow = (m: any, folderName: string | null = null) => ({
   search: m.dose,
 })
 
-/** The folder rows that lead the chooser: one per folder with any cards in it. */
+/** The folder rows, after the activities: one per folder with any cards in it. */
 export function folderGroup(plan: any) {
   const folders: any[] = climbingFolders(plan)
   if (!folders.length) return null
@@ -184,7 +188,7 @@ export function folderGroup(plan: any) {
   }
 }
 
-/** One folder's cards, grouped by quota category, as picker rows. */
+/** One folder's cards, grouped by category, as picker rows. */
 export function folderRows(plan: any, key: string) {
   const f: any = climbingFolders(plan).find((x: any) => x.key === key)
   if (!f) return []
@@ -219,8 +223,8 @@ export function ActivityChooser({
   const [folder, setFolder] = useState<string | null>(initialFolder)
   const climbing = useMemo(() => (onPickCard ? folderGroup(plan) : null), [plan, onPickCard])
   const groups = useMemo(() => [
-    ...(climbing ? [climbing] : []),
     ...(climbingOnly ? [] : activityGroups(field, plan)),
+    ...(climbing ? [climbing] : []),
   ], [climbing, climbingOnly, field, plan])
   const n = (activityCatalog as any)(field).activities.length
   const cards: any[] = onPickCard ? folderCards(plan) : []
@@ -257,12 +261,11 @@ export function ActivityChooser({
       title={climbingOnly ? 'Log the climb' : 'Log a workout'}
       sub={sub.filter(Boolean).join(' · ')}
       icon={climbingOnly ? 'Mountain' : 'NotebookPen'}
-      placeholder={climbingOnly ? 'board, 4×4, ARC, crag day…' : 'bouldering, mountain bike, max hangs, erg…'}
+      placeholder={climbingOnly ? 'board, 4×4, ARC, crag day…' : 'run, mountain bike, bench press, erg…'}
       lead={climbingOnly
         ? 'Which session was it? WHOOP recorded the climb; the card asks the hard-finger question.'
-        : 'Something you already did. Climbing is in the two folders at the top; pick anything '
-          + 'else and the form arrives the right shape: a ride asks for distance, a swim for '
-          + 'yards, a lift for the exercises.'}
+        : 'Something you already did. Pick it and the form arrives the right shape: a ride '
+          + 'asks for distance, a swim for yards, a lift for the exercises.'}
       groups={groups}
       /* The catalog has its own ranked search: "ru" has to return Run before Ruck.
          Cards follow, matched on every word, so "max hangs" finds its card

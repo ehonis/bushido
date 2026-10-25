@@ -307,12 +307,8 @@ export function markDone(entry, done, at = new Date().toISOString()) {
  * counts toward gear mileage, the daily streak and the Totem habit, and the
  * Progress page's miles. What it is excluded from is everything that reads it as
  * a SESSION: training load (sRPE, the load calendar's sense of a heavy day, the
- * recommender's whole-body ceiling) and — since 2026-09-21 — the weekly quotas.
- *
- * The quotas were the other way round for six days: a commute initially filled
- * one, and in use that turned every commute into a counted workout. A quota
- * is a count of training the user meant to do, so `quota.js` drops these now. See
- * `weekDaily` there.
+ * recommender's whole-body ceiling) and, while they existed, the weekly quotas
+ * (removed 2026-10-25).
  *
  * Absent means training, because every entry written before 2026-09-15 was.
  */

@@ -207,7 +207,7 @@ export function TimerSetup({ title, presets, onStart, onSave = null, onDelete = 
             <Stepper label="Sets" value={String(config.sets)}
               onDown={config.sets > 1 ? () => set('sets', config.sets - 1) : null}
               onUp={config.sets < LIMITS.sets[1] ? () => set('sets', config.sets + 1) : null} />
-            {(config.sets > 1 || config.repeat) && (
+            {config.sets > 1 && (
               <Stepper label="Rest between sets" value={config.setRest ? secondsLabel(config.setRest) : 'None'}
                 onDown={config.setRest > 0 ? () => set('setRest', stepSeconds(config.setRest, -1)) : null}
                 onUp={config.setRest < LIMITS.setRest[1] ? () => set('setRest', stepSeconds(config.setRest, 1)) : null} />

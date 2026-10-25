@@ -93,15 +93,8 @@ export function BushidoMark({ size = 18, className, ...rest }) {
 
 export const TAB_ICONS = {
   today: 'CalendarDays',
-  week: 'Target',
   log: 'NotebookPen',
   progress: 'Gauge',
-  // A finish line for the standing things, waypoints for the ones Totem writes.
-  // Neither reuses the Week tab's target: two identical glyphs in one bar is a
-  // bar you have to read rather than recognise.
-  achievements: 'Flag',
-  goals: 'Waypoints',
-  coach: 'Sparkles',
 }
 
 export const VERDICT_ICONS = {
