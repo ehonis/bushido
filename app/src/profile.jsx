@@ -1,27 +1,21 @@
 /*
- * The profile: the user, their gear, their numbers, and the reference material.
+ * The profile: the user, their gear, their connections, and the reference material.
  *
  * Added 2026-09-15. It replaced the sync pill in the header with the user's name
- * and Strava profile picture. The sync state did not die with
- * it; it moved into the panel, because a corner of the screen that only ever says
- * "synced 3:52 PM" is a corner spent on the least interesting true statement the
- * app can make, and "who am I and what do I own" is the more useful thing.
+ * and Strava profile picture. The sync state did not die with it; it moved onto
+ * the avatar as a dot and into Settings, because "who am I and what do I own" is
+ * the more useful thing for a corner of the screen to say.
  *
- * It also absorbed three tabs. Gear, Testing and Why were all reference rather
- * than doing: none of them is touched mid-session, all three were taking space in
- * a bottom bar used with one chalky thumb. The bar is now Today, Week, Log,
- * Progress — the four screens a session actually passes through.
+ * It is a popover anchored under the avatar on a desktop and a bottom sheet on a
+ * phone (the difference is CSS, not a second component): reference, not doing
+ * (AGENTS.md §6.7).
  *
- * IT WAS A FULL-SCREEN PAGE FOR ABOUT AN HOUR, and that was wrong. Full-screen
- * suits a session you are in the middle of — one thing, all the room. This is
- * reference: you open it, change one number or read one odometer, and leave. On a
- * 2300px desktop the full-screen version put a narrow column of fields in the
- * middle of a dark void with six tabs spread edge to edge.
- *
- * Now it is a popover anchored under the avatar, sized to its contents, with the
- * sections as a rail down the side. On a phone the same component becomes a
- * bottom sheet, which is where a thumb expects a menu to come from — the
- * difference is CSS, not a second component.
+ * A LIST OF SECTIONS since wave 2 (#44). It was six tabs in a sideways strip that
+ * cut off on a phone ("Alerts" half hidden), with Testing and Why, which only a
+ * climbing plan fills, sitting beside You and Gear. Now the panel opens on one
+ * list (You, Gear, Notifications, Connections, Climbing, Settings), each row
+ * opening its page with a back button in the header, and Testing and Why live
+ * under the one Climbing row (docs/DESIGN.md D6).
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -30,24 +24,51 @@ import { ScreenCard } from './screeninfo.jsx'
 import { Popover } from './modal.jsx'
 import { useStrava } from './lib/strava.jsx'
 import { athleteOf, profileFacts, buildProfileEntry, factValue, PROFILE_GROUPS } from './lib/profile.js'
+import { gearUsage } from './lib/gear.js'
 import { GearSection } from './gear.jsx'
-import { TestingTab, WhyTab } from './testing.jsx'
+import { TestingTab, WhyTab, hasTests, hasEvidence } from './testing.jsx'
 import { usePrefs } from './lib/prefs.jsx'
 import { localIso } from './lib/dates.js'
 import { NotificationsSection } from './notifications.jsx'
 import { currentMe, actAs } from './lib/whoami.js'
 import { MyAbout } from './trainer.jsx'
 
-/* ---------------------------------------------------------- the menu */
+/* ---------------------------------------------------------- the pages */
 
-const SECTIONS = [
-  { key: 'you', label: 'You', icon: 'PersonStanding' },
-  { key: 'gear', label: 'Gear', icon: 'ShoppingBag' },
-  { key: 'testing', label: 'Testing', icon: 'Gauge' },
-  { key: 'why', label: 'Why', icon: 'FlaskConical' },
-  { key: 'alerts', label: 'Alerts', icon: 'Bell' },
-  { key: 'settings', label: 'Settings', icon: 'Shield' },
-]
+/*
+ * Every page the panel can show, and the page its back button returns to. The
+ * home list is the first six; Testing and Why are reached from Climbing.
+ */
+export const PAGES = {
+  you: { label: 'You', icon: 'PersonStanding' },
+  gear: { label: 'Gear', icon: 'ShoppingBag' },
+  notifications: { label: 'Notifications', icon: 'Bell' },
+  connections: { label: 'Connections', icon: 'Waypoints' },
+  climbing: { label: 'Climbing', icon: 'Mountain' },
+  settings: { label: 'Settings', icon: 'Shield' },
+  testing: { label: 'Testing', icon: 'Gauge', parent: 'climbing' },
+  why: { label: 'Why', icon: 'FlaskConical', parent: 'climbing' },
+}
+
+/* Whether this person has anything to connect: Strava is everyone's own, WHOOP the owner's (§3). */
+export function canConnect(who) {
+  if (who.acting) return false
+  const strava = who.features.stravaConnect || who.features.strava
+  const whoop = who.owner && (who.features.whoopConnect || who.features.whoop)
+  return Boolean(strava || whoop)
+}
+
+/** The home rows, in order. Connections only where there is something to connect. */
+export function homePages(who) {
+  return ['you', 'gear', 'notifications', ...(canConnect(who) ? ['connections'] : []), 'climbing', 'settings']
+}
+
+const syncLabel = (status, lastSync) => ({
+  loading: 'Connecting',
+  syncing: 'Saving',
+  synced: lastSync ? `Synced ${lastSync.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : 'Synced',
+  offline: 'Offline, will retry',
+}[status] || '')
 
 /**
  * The avatar in the header, and the panel it opens.
@@ -56,15 +77,13 @@ const SECTIONS = [
  * the button and splitting them means passing a ref up through App to get it.
  *
  * The sync DOT lives on the avatar, because "is my log actually saved" is a real
- * question with a real failure mode and burying it entirely would be worse than
- * the pill it replaced. A dot rather than a sentence: green is fine, anything
- * else is worth opening.
+ * question with a real failure mode. A dot rather than a sentence: green is fine,
+ * anything else is worth opening.
  */
 export function ProfileMenu({ plan, entries, upsertEntry, deleteEntry, status, lastSync, me: who = currentMe() }) {
   const btn = useRef(null)
   const [anchor, setAnchor] = useState(null)
-  const [tab, setTab] = useState('you')
-  const { cache: strava, pull, pulling } = useStrava()
+  const { cache: strava } = useStrava()
   // Strava's name and picture when connected; otherwise the name this person has on the install.
   const me = athleteOf(strava, who.name)
 
@@ -73,8 +92,10 @@ export function ProfileMenu({ plan, entries, upsertEntry, deleteEntry, status, l
 
   return (
     <>
+      {/* A name for the button: on a phone it is a face and nothing else, and a
+          `title` is not an accessible name there. */}
       <button ref={btn} className="mebtn" onClick={() => (anchor ? close() : open())}
-        aria-expanded={Boolean(anchor)} title="You, your gear and your numbers">
+        aria-expanded={Boolean(anchor)} aria-label={`Profile: ${me.name || 'you'}`}>
         <span className="mebtn-av">
           {me.avatar
             ? <img src={me.avatar} alt="" width={28} height={28} />
@@ -87,7 +108,39 @@ export function ProfileMenu({ plan, entries, upsertEntry, deleteEntry, status, l
 
       {anchor !== undefined && anchor !== null && (
         <Popover anchor={anchor} label={me.name} onClose={close}>
-          <header className="pop-head">
+          <ProfilePanel plan={plan} entries={entries} upsertEntry={upsertEntry} deleteEntry={deleteEntry}
+            status={status} lastSync={lastSync} who={who} onClose={close} />
+        </Popover>
+      )}
+    </>
+  )
+}
+
+/**
+ * What the popover holds: the home list, or one page with a back button.
+ * Exported so the smoke suite can render any page without opening a popover.
+ */
+export function ProfilePanel({
+  plan, entries, upsertEntry, deleteEntry, status, lastSync, who = currentMe(), onClose, initialPage = null,
+}) {
+  const [page, setPage] = useState(initialPage)
+  const { cache: strava, pull, pulling } = useStrava()
+  const me = athleteOf(strava, who.name)
+  const sec = page ? PAGES[page] : null
+
+  return (
+    <>
+      <header className="pop-head">
+        {sec ? (
+          <>
+            <button className="iconbtn prof-back" onClick={() => setPage(sec.parent || null)}
+              aria-label={`Back to ${sec.parent ? PAGES[sec.parent].label : 'your profile'}`}>
+              <Icon name="ChevronRight" size={20} style={{ transform: 'rotate(180deg)' }} />
+            </button>
+            <span className="pop-who"><strong>{sec.label}</strong></span>
+          </>
+        ) : (
+          <>
             <span className="pop-av">
               {me.avatar
                 ? <img src={me.avatar} alt="" width={36} height={36} />
@@ -95,48 +148,89 @@ export function ProfileMenu({ plan, entries, upsertEntry, deleteEntry, status, l
             </span>
             <span className="pop-who">
               <strong>{me.name}</strong>
-              <span className="sub">{who.acting ? `${who.real.name || 'You'}, logging for them` : me.connected ? 'via Strava' : who.features.strava ? 'Strava not connected' : ''}</span>
+              <span className="sub">{who.acting ? `${who.real.name || 'You'}, logging for them` : me.connected ? 'via Strava' : ''}</span>
             </span>
-            <button className="pop-x" onClick={close} aria-label="Close"><Icon name="X" size={17} /></button>
-          </header>
+          </>
+        )}
+        <button className="pop-x" onClick={onClose} aria-label="Close"><Icon name="X" size={17} /></button>
+      </header>
 
-          <div className="pop-split">
-            <nav className="pop-rail" role="tablist">
-              {SECTIONS.map(sec => (
-                <button key={sec.key} role="tab" aria-selected={tab === sec.key}
-                  className={`pop-railbtn ${tab === sec.key ? 'on' : ''}`}
-                  onClick={() => setTab(sec.key)}>
-                  <Icon name={sec.icon} size={15} />
-                  <span>{sec.label}</span>
-                </button>
-              ))}
-            </nav>
-
-            <div className="pop-body">
-              {tab === 'you' && <MyAbout me={who} />}
-              {tab === 'you' && <YouSection plan={plan} entries={entries} strava={strava} upsertEntry={upsertEntry} />}
-              {tab === 'gear' && (
-                <GearSection plan={plan} entries={entries} strava={strava}
-                  upsertEntry={upsertEntry} deleteEntry={deleteEntry} />
-              )}
-              {tab === 'testing' && <TestingTab plan={plan} entries={entries} upsertEntry={upsertEntry} />}
-              {tab === 'why' && <WhyTab plan={plan} />}
-              {tab === 'alerts' && <NotificationsSection />}
-              {tab === 'settings' && (
-                <SettingsSection status={status} lastSync={lastSync} who={who}
-                  strava={strava} onPullStrava={pull} pulling={pulling} />
-              )}
-            </div>
-          </div>
-        </Popover>
-      )}
+      <div className="pop-body">
+        {!page && (
+          <HomeList who={who} plan={plan} entries={entries} strava={strava}
+            status={status} lastSync={lastSync} onOpen={setPage} />
+        )}
+        {page === 'you' && <MyAbout me={who} />}
+        {page === 'you' && <FactsForm groups={['body']} entries={entries} strava={strava} upsertEntry={upsertEntry} />}
+        {page === 'gear' && (
+          <GearSection plan={plan} entries={entries} strava={strava}
+            upsertEntry={upsertEntry} deleteEntry={deleteEntry} />
+        )}
+        {page === 'notifications' && <NotificationsSection />}
+        {page === 'connections' && <ConnectionsSection who={who} strava={strava} onPullStrava={pull} pulling={pulling} />}
+        {page === 'climbing' && (
+          <ClimbingSection plan={plan} entries={entries} strava={strava} upsertEntry={upsertEntry} onOpen={setPage} />
+        )}
+        {page === 'testing' && <TestingTab plan={plan} entries={entries} upsertEntry={upsertEntry} />}
+        {page === 'why' && <WhyTab plan={plan} />}
+        {page === 'settings' && <SettingsSection status={status} lastSync={lastSync} who={who} />}
+      </div>
     </>
   )
 }
 
-/* ------------------------------------------------------------------- you */
+/* ------------------------------------------------------------------ home */
 
-function YouSection({ plan, entries, strava, upsertEntry }) {
+/** One row that opens a page: icon, name, the one fact worth seeing, chevron. */
+function PageRow({ page, meta, onOpen }) {
+  const sec = PAGES[page]
+  return (
+    <button type="button" className="list-row" onClick={() => onOpen(page)}>
+      <Icon name={sec.icon} size={20} />
+      <span className="list-row-main">
+        <span className="list-row-title">{sec.label}</span>
+        {meta ? <span className="list-row-meta">{meta}</span> : null}
+      </span>
+      <Icon name="ChevronRight" size={16} className="list-row-chev" />
+    </button>
+  )
+}
+
+function HomeList({ who, plan, entries, strava, status, lastSync, onOpen }) {
+  const facts = profileFacts(entries)
+  const weightField = PROFILE_GROUPS.flatMap(g => g.fields).find(f => f.key === 'weightLb')
+  const weight = weightField ? factValue(weightField, { facts, strava, entries }).value : null
+  const gearCount = useMemo(
+    () => gearUsage({ plan, entries, strava }).filter(g => !g.retired).length,
+    [plan, entries, strava])
+  const connected = [
+    who.features.strava && 'Strava',
+    who.owner && who.features.whoop && 'WHOOP',
+  ].filter(Boolean)
+  const meta = {
+    you: weight != null ? `${weight} lb` : '',
+    gear: gearCount ? `${gearCount} item${gearCount === 1 ? '' : 's'}` : '',
+    connections: connected.length ? connected.join(' and ') : 'Not connected',
+    climbing: facts.redpoint || facts.boulder || '',
+    settings: syncLabel(status, lastSync),
+  }
+  return (
+    <nav className="list prof-home" aria-label="Profile">
+      {homePages(who).map(p => <PageRow key={p} page={p} meta={meta[p]} onOpen={onOpen} />)}
+    </nav>
+  )
+}
+
+/* ------------------------------------------------------- your numbers */
+
+/*
+ * Helper text only where a field is not obvious from its label (D7). Ape index
+ * is a measurement most people have never taken; the rest say what they are.
+ */
+const HINTED = new Set(['apeIndex'])
+
+/** The standing facts of the named PROFILE_GROUPS: body on You, grades on Climbing. */
+function FactsForm({ groups, entries, strava, upsertEntry }) {
   const facts = profileFacts(entries)
   const save = (key, value) => {
     const next = { ...facts }
@@ -160,52 +254,163 @@ function YouSection({ plan, entries, strava, upsertEntry }) {
     upsertEntry({ id: `bodyweight-${date}`, kind: 'bodyweight', date, data: { lb: n } })
   }
 
+  return PROFILE_GROUPS.filter(g => groups.includes(g.key)).map(group => (
+    <section className="prof-sec" key={group.key}>
+      <div className="section-head"><h3>{group.key === 'climbing' ? 'Your grades' : group.name}</h3></div>
+      <div className="factgrid">
+        {group.fields.map(f => {
+          const { value, source, date } = factValue(f, { facts, strava, entries })
+          return (
+            <label className="field fact" key={f.key}>
+              <span className="fact-label">
+                {f.label}{f.unit ? ` (${f.unit})` : ''}
+                {/* A value the user did not give must never look like one they did —
+                    the same rule `filledBy` enforces on a WHOOP-filled distance. */}
+                {source === 'strava' && <span className="fact-from">from Strava</span>}
+                {source === 'logged' && <span className="fact-from">logged {date}</span>}
+              </span>
+              <input
+                type="text"
+                inputMode={f.type === 'number' ? 'decimal' : undefined}
+                defaultValue={source === 'own' ? value : ''}
+                /*
+                 * A number the app is only SHOWING on their behalf goes in the
+                 * placeholder, never the value: it reads the same, and it does
+                 * not silently become theirs the next time anything saves. Same
+                 * rule as a derived average speed. Failing that, a short example.
+                 */
+                placeholder={source !== 'own' && value !== null ? String(value) : (f.eg || '')}
+                onBlur={e => (f.writes === 'bodyweight'
+                  ? saveWeight(e.target.value)
+                  : save(f.key, f.type === 'number'
+                      ? (e.target.value === '' ? '' : Number(e.target.value))
+                      : e.target.value))}
+              />
+              {f.hint && HINTED.has(f.key) && <span className="fact-hint">{f.hint}</span>}
+            </label>
+          )
+        })}
+      </div>
+    </section>
+  ))
+}
+
+/* ------------------------------------------------------------- climbing */
+
+/*
+ * Climbing: the grades, then Testing and Why as rows. Those two are filled only
+ * by a plan that defines tests or evidence, so a row with nothing behind it is
+ * left out rather than opening onto an apology (D7).
+ */
+function ClimbingSection({ plan, entries, strava, upsertEntry, onOpen }) {
+  const tests = hasTests(plan)
+  const why = hasEvidence(plan)
   return (
     <>
-      {PROFILE_GROUPS.map(group => (
-        <div className="card" key={group.key}>
-          <h2><Icon name={group.icon} size={16} /> {group.name}</h2>
-          {group.blurb && <p className="sub">{group.blurb}</p>}
-          <div className="factgrid">
-            {group.fields.map(f => {
-              const { value, source, date } = factValue(f, { facts, strava, entries })
-              return (
-                <label className="field fact" key={f.key}>
-                  <span className="fact-label">
-                    {f.label} {f.unit ? <em>({f.unit})</em> : null}
-                    {/* A value the user did not give must never look like one the user did —
-                        the same rule `filledBy` enforces on a WHOOP-filled
-                        distance. */}
-                    {source === 'strava' && <span className="out-from">from Strava</span>}
-                    {source === 'logged' && <span className="out-from">logged {date}</span>}
-                  </span>
-                  <input
-                    type={f.type === 'number' ? 'number' : 'text'}
-                    inputMode={f.type === 'number' ? 'decimal' : undefined}
-                    defaultValue={source === 'own' ? value : ''}
-                    /*
-                     * A number the app is only SHOWING on their behalf goes in the
-                     * placeholder, never the value: it reads the same, and it does
-                     * not silently become their the next time anything saves. Same
-                     * rule as a derived average speed. Failing that, a short
-                     * example — the explanatory sentence lives under the box,
-                     * because a placeholder long enough to explain something is a
-                     * placeholder truncated at the input's width.
-                     */
-                    placeholder={source !== 'own' && value !== null ? String(value) : (f.eg || '')}
-                    onBlur={e => (f.writes === 'bodyweight'
-                      ? saveWeight(e.target.value)
-                      : save(f.key, f.type === 'number'
-                          ? (e.target.value === '' ? '' : Number(e.target.value))
-                          : e.target.value))}
-                  />
-                  {f.hint && <span className="fact-hint">{f.hint}</span>}
-                </label>
-              )
-            })}
-          </div>
+      <FactsForm groups={['climbing']} entries={entries} strava={strava} upsertEntry={upsertEntry} />
+      {(tests || why) && (
+        <div className="list">
+          {tests && <PageRow page="testing" meta={`${(plan?.tests || []).length} in this plan`} onOpen={onOpen} />}
+          {why && <PageRow page="why" meta="The evidence behind the plan" onOpen={onOpen} />}
         </div>
-      ))}
+      )}
+    </>
+  )
+}
+
+/* ---------------------------------------------------------- connections */
+
+/* A POST from a connect row: busy while it runs, its error kept for the row to show. */
+function useConnectCall() {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const call = async (path) => {
+    setBusy(true); setError('')
+    try {
+      const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`)
+      return body
+    } catch (err) {
+      setError(err.message)
+      setBusy(false)
+      return null
+    }
+  }
+  return { busy, error, call }
+}
+
+/**
+ * One service: its name and state on a row, then its buttons. Connecting leaves
+ * the app for the service's consent page and comes back to `/`; both directions
+ * reload, since whether a service is on is decided at boot (whoami).
+ */
+function ServiceRow({ name, icon, connected, detail, connectPath, disconnectPath, confirmText, extra }) {
+  const { busy, error, call } = useConnectCall()
+  const connect = async () => {
+    const body = await call(connectPath)
+    if (body?.authUrl) window.location.href = body.authUrl
+  }
+  const disconnect = async () => {
+    if (!window.confirm(confirmText)) return
+    if (await call(disconnectPath)) window.location.reload()
+  }
+  return (
+    <section className="prof-sec prof-service">
+      <div className="list-row prof-service-row">
+        <Icon name={icon} size={20} />
+        <span className="list-row-main">
+          <span className="list-row-title">{name}</span>
+          <span className="list-row-meta">{connected ? (detail || 'Connected') : 'Not connected'}</span>
+        </span>
+        {/* Secondary, not the accent: two services on one page would be two primaries. */}
+        {connected
+          ? <Icon name="CircleCheck" size={18} className="prof-on" />
+          : (
+            <button type="button" className="btn secondary" onClick={connect} disabled={busy}>
+              {busy ? 'Opening…' : 'Connect'}
+            </button>
+          )}
+      </div>
+      {connected && (
+        <div className="prof-actions">
+          <button type="button" className="btn quiet" onClick={disconnect} disabled={busy}>Disconnect</button>
+          {extra}
+        </div>
+      )}
+      {error && <p className="sub err">{error}</p>}
+    </section>
+  )
+}
+
+/*
+ * Everyone connects their own Strava here, the owner included: the server holds
+ * the grant in their own space (POST /api/strava/connect), and Totem reads the
+ * owner's from there. The owner's WHOOP is held here too (POST
+ * /api/whoop/connect): Totem's sleep habit and Krakatoa's calorie burn read it
+ * from this app, so disconnecting stops those as well, and the confirm says so.
+ */
+export function ConnectionsSection({ who, strava, onPullStrava, pulling }) {
+  const showStrava = !who.acting && (who.features.stravaConnect || who.features.strava)
+  const showWhoop = who.owner && !who.acting && (who.features.whoopConnect || who.features.whoop)
+  return (
+    <>
+      {showStrava && (
+        <ServiceRow name="Strava" icon="Bike" connected={who.features.strava}
+          detail={strava?.athlete?.name ? `Connected as ${strava.athlete.name}` : ''}
+          connectPath="/api/strava/connect" disconnectPath="/api/strava/disconnect"
+          confirmText={`Disconnect Strava? Workouts already attached stay in your log.${who.owner ? ' Totem stops getting your Strava too.' : ''}`}
+          extra={(
+            <button type="button" className="btn secondary" onClick={() => onPullStrava?.()} disabled={pulling}>
+              {pulling ? 'Refreshing…' : 'Refresh'}
+            </button>
+          )} />
+      )}
+      {showWhoop && (
+        <ServiceRow name="WHOOP" icon="HeartPulse" connected={who.features.whoop}
+          connectPath="/api/whoop/connect" disconnectPath="/api/whoop/disconnect"
+          confirmText="Disconnect WHOOP? Workouts already attached stay in your log. Totem and Krakatoa stop getting WHOOP too." />
+      )}
     </>
   )
 }
@@ -240,204 +445,72 @@ export function PeopleCard({ who }) {
     actAs(id).catch(e => { setBusy(null); setError(e.message) })
   }
   return (
-    <div className="card">
-      <h2>People</h2>
-      <p className="sub">
-        Open someone&rsquo;s log to log sessions and mark sets for them. Everything you do there
-        is theirs, until you switch back.
-      </p>
-      {who.people.map(p => {
-        const isOpen = p.id === who.id
-        const isMe = p.id === who.real.id
-        return (
-          <button key={p.id} className="restbtn" disabled={isOpen || Boolean(busy)}
-            onClick={() => go(isMe ? null : p.id)}>
-            <Icon name={isMe ? 'PersonStanding' : 'Users'} size={16} />
-            <span>
-              {isOpen ? `${isMe ? 'Your log' : `${p.name}’s log`} (open)`
-                : busy === (isMe ? 'me' : p.id) ? 'Switching…'
-                  : isMe ? 'Back to your log' : `Log for ${p.name}`}
-            </span>
-          </button>
-        )
-      })}
-      {error && <p className="sub" style={{ color: 'var(--bad)' }}>{error}</p>}
-    </div>
-  )
-}
-
-/*
- * Everyone connects their own Strava here, the owner included: the server holds
- * the grant in their own space (POST /api/strava/connect), and Totem reads the
- * owner's from there. Connecting leaves the app
- * for Strava's consent page and comes back to `/`; both directions reload, since
- * whether Strava is on is decided at boot (whoami).
- */
-/* A POST from a connect card: busy while it runs, its error kept for the card to show. */
-function useConnectCall() {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const call = async (path) => {
-    setBusy(true); setError('')
-    try {
-      const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-      const body = await r.json().catch(() => ({}))
-      if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`)
-      return body
-    } catch (err) {
-      setError(err.message)
-      setBusy(false)
-      return null
-    }
-  }
-  return { busy, error, call }
-}
-
-function OwnStravaCard({ who, strava, onPullStrava, pulling }) {
-  const { busy, error, call } = useConnectCall()
-  const connect = async () => {
-    const body = await call('/api/strava/connect')
-    if (body?.authUrl) window.location.href = body.authUrl
-  }
-  const disconnect = async () => {
-    const totem = who.owner ? ' Totem reads your Strava from here, so its Strava goals stop updating too.' : ''
-    if (!window.confirm(`Disconnect Strava? Workouts already attached to sessions stay in your log.${totem}`)) return
-    if (await call('/api/strava/disconnect')) window.location.reload()
-  }
-  const connected = who.features.strava
-  return (
-    <div className="card">
-      <h2>Strava</h2>
-      <p className="sub">
-        {connected
-          ? `Connected${strava?.athlete?.name ? ` as ${strava.athlete.name}` : ''}. Your runs and rides show up to attach to a session, including Apple Watch workouts Strava imports from Apple Health.`
-          : 'Connect your Strava account to attach your runs and rides to sessions. Apple Watch workouts get here too once Strava imports them from Apple Health.'}
-      </p>
-      {connected ? (
-        <>
-          <button className="restbtn" onClick={() => onPullStrava?.()} disabled={pulling || busy}>
-            <Icon name="RotateCw" size={16} />
-            <span>{pulling ? 'Refreshing…' : 'Refresh now'}</span>
-          </button>
-          <button className="restbtn" onClick={disconnect} disabled={busy}>
-            <Icon name="LogOut" size={16} />
-            <span>Disconnect Strava</span>
-          </button>
-        </>
-      ) : (
-        <button className="restbtn" onClick={connect} disabled={busy}>
-          <Icon name="ExternalLink" size={16} />
-          <span>{busy ? 'Opening Strava…' : 'Connect Strava'}</span>
-        </button>
-      )}
+    <section className="prof-sec">
+      <div className="section-head"><h3>Whose log</h3></div>
+      <div className="list">
+        {who.people.map(p => {
+          const isOpen = p.id === who.id
+          const isMe = p.id === who.real.id
+          return (
+            <button key={p.id} type="button" className="list-row" disabled={isOpen || Boolean(busy)}
+              onClick={() => go(isMe ? null : p.id)}>
+              <Icon name={isMe ? 'PersonStanding' : 'Users'} size={20} />
+              <span className="list-row-main">
+                <span className="list-row-title">
+                  {busy === (isMe ? 'me' : p.id) ? 'Switching…'
+                    : isMe ? (isOpen ? 'Your log' : 'Back to your log') : (isOpen ? `${p.name}’s log` : `Log for ${p.name}`)}
+                </span>
+              </span>
+              {isOpen ? <span className="list-row-meta">Open</span> : <Icon name="ChevronRight" size={16} className="list-row-chev" />}
+            </button>
+          )
+        })}
+      </div>
       {error && <p className="sub err">{error}</p>}
-    </div>
+    </section>
   )
 }
 
-/*
- * The owner's WHOOP, held here (POST /api/whoop/connect). Totem's sleep habit
- * and Krakatoa's calorie burn read it from this app, so disconnecting stops
- * those too. Like Strava, both directions reload: WHOOP being on is decided at
- * boot (whoami).
- */
-function OwnWhoopCard({ who }) {
-  const { busy, error, call } = useConnectCall()
-  const connect = async () => {
-    const body = await call('/api/whoop/connect')
-    if (body?.authUrl) window.location.href = body.authUrl
-  }
-  const disconnect = async () => {
-    if (!window.confirm('Disconnect WHOOP? Workouts already attached to sessions stay in your log. Totem\'s sleep habit and Krakatoa read WHOOP from here, so they stop updating too.')) return
-    if (await call('/api/whoop/disconnect')) window.location.reload()
-  }
-  const connected = who.features.whoop
-  return (
-    <div className="card">
-      <h2>WHOOP</h2>
-      <p className="sub">
-        {connected
-          ? 'Connected. Workouts, recovery and sleep come from here, for this app, Totem and Krakatoa.'
-          : 'Connect your WHOOP to attach workouts to sessions and see recovery and sleep. Totem and Krakatoa read it from here.'}
-      </p>
-      {connected ? (
-        <button className="restbtn" onClick={disconnect} disabled={busy}>
-          <Icon name="LogOut" size={16} />
-          <span>Disconnect WHOOP</span>
-        </button>
-      ) : (
-        <button className="restbtn" onClick={connect} disabled={busy}>
-          <Icon name="ExternalLink" size={16} />
-          <span>{busy ? 'Opening WHOOP…' : 'Connect WHOOP'}</span>
-        </button>
-      )}
-      {error && <p className="sub err">{error}</p>}
-    </div>
-  )
-}
-
-function SettingsSection({ status, lastSync, strava, onPullStrava, pulling, who = currentMe() }) {
-  const { allHidden, toggleAll } = usePrefs()
+export function SettingsSection({ status, lastSync, who = currentMe() }) {
+  // `toggleAll` was read here and never existed, so the old button did nothing.
+  const { allHidden, setAllHidden } = usePrefs()
   const canSignOut = useCanSignOut()
-  const label = {
-    loading: 'connecting', syncing: 'saving',
-    synced: lastSync ? `synced ${lastSync.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : 'synced',
-    offline: 'offline — will retry',
-  }[status]
 
   return (
     <>
       <PeopleCard who={who} />
-      {(who.real.admin || canSignOut) && (
-      <div className="card">
-        <h2>Server</h2>
-        <p className="sub">
-          Sign-in, AI, the training plan and integrations are set on the server&rsquo;s own
-          Settings page.
-        </p>
-        {who.real.admin && (
-          <a className="restbtn" href="/settings">
-            <Icon name="Shield" size={16} />
-            <span>Open Settings</span>
-          </a>
-        )}
-        {canSignOut && (
-          <a className="restbtn" href="/?signout=1">
-            <Icon name="LogOut" size={16} />
-            <span>Sign out of this device</span>
-          </a>
-        )}
-      </div>
-      )}
 
-      <div className="card">
-        <h2>Sync</h2>
-        <p className="sub">
-          This is what the header used to say. Your log lives on your box and syncs
-          across devices; an offline edit queues and pushes when the tailnet comes back.
-        </p>
-        <div className="setrow">
-          <span className={`dot ${status}`} /> <strong>{label}</strong>
+      <section className="prof-sec">
+        <div className="list">
+          <div className="list-row prof-static">
+            <span className="prof-dot"><span className={`dot ${status}`} /></span>
+            <span className="list-row-main"><span className="list-row-title">{syncLabel(status, lastSync) || 'Sync'}</span></span>
+          </div>
+          <label className="list-row prof-check">
+            <Icon name="Info" size={20} />
+            <span className="list-row-main">
+              <span className="list-row-title">Show explanations</span>
+            </span>
+            <input type="checkbox" checked={!allHidden} onChange={() => setAllHidden(!allHidden)} />
+          </label>
+          {who.real.admin && (
+            <a className="list-row" href="/settings">
+              <Icon name="Shield" size={20} />
+              <span className="list-row-main">
+                <span className="list-row-title">Server settings</span>
+                <span className="list-row-meta">Sign-in, AI, plan, integrations</span>
+              </span>
+              <Icon name="ExternalLink" size={16} className="list-row-chev" />
+            </a>
+          )}
+          {canSignOut && (
+            <a className="list-row prof-danger" href="/?signout=1">
+              <Icon name="LogOut" size={20} />
+              <span className="list-row-main"><span className="list-row-title">Sign out of this device</span></span>
+            </a>
+          )}
         </div>
-      </div>
-
-      {!who.acting && (who.features.stravaConnect || who.features.strava) && (
-        <OwnStravaCard who={who} strava={strava} onPullStrava={onPullStrava} pulling={pulling} />
-      )}
-
-      {who.owner && !who.acting && (who.features.whoopConnect || who.features.whoop) && <OwnWhoopCard who={who} />}
-
-      <div className="card">
-        <h2>Explanations</h2>
-        <p className="sub">
-          The app explains itself a lot. Once you know why a thing is there, you can
-          collapse every explainer to a one-line stub and tap any of them back.
-        </p>
-        <button className="restbtn" onClick={toggleAll}>
-          <Icon name={allHidden ? 'Eye' : 'EyeOff'} size={16} />
-          <span>{allHidden ? 'Show the explanations' : 'Hide the explanations'}</span>
-        </button>
-      </div>
+      </section>
 
       {/* What the device gives the page — see screeninfo.jsx. */}
       <ScreenCard />

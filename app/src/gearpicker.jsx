@@ -54,10 +54,11 @@ export function GearPicker({ session, out, entries = [], onChange }) {
         <span>On what</span>
         {picked.length === 0 && <span className="out-value">optional</span>}
       </div>
-      <div className="gearpick">
+      {/* The answer chips every question on the form uses, selected in the accent tint. */}
+      <div className="out-choices gearpick">
         {choices.map(g => (
-          <button key={g.id} type="button"
-            className={`gearchip ${picked.includes(g.id) ? 'on' : ''}`}
+          <button key={g.id} type="button" aria-pressed={picked.includes(g.id)}
+            className={`out-chip ${picked.includes(g.id) ? 'on' : ''}`}
             onClick={() => toggle(g.id)}>
             <Icon name={kindOf(plan, g.kind)?.icon || 'ShoppingBag'} size={15} />
             <span>{g.name}</span>

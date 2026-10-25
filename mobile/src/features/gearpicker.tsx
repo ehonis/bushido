@@ -11,10 +11,9 @@
  */
 import React, { useEffect, useMemo } from 'react'
 import { StyleSheet, View } from 'react-native'
-import { colors, radius, TAP } from '../theme'
+import { font, space } from '../theme'
 import { T } from '../ui/Text'
-import { Press } from '../ui/kit'
-import { Icon } from '../lib/icons'
+import { Chip } from '../ui/kit'
 import { useStrava } from '../lib/strava.jsx'
 import { gearChoicesFor, defaultGearFor, gearOn, kindOf } from '../lib/gear.js'
 import { usePlan } from '../lib/planctx.jsx'
@@ -47,24 +46,18 @@ export function GearPicker({ session, out, entries = [], onChange }: any) {
     onChange(next)
   }
 
+  // The answer chips every question on the form uses, selected in the accent tint.
   return (
-    <View style={{ gap: 7 }}>
+    <View style={{ gap: space[2] }}>
       <View style={st.label}>
-        <T size={13} dim>On what</T>
-        {picked.length === 0 && <T size={17} weight={600} tabular>optional</T>}
+        <T size={font.small} dim>On what</T>
+        {picked.length === 0 && <T size={font.small} faint>optional</T>}
       </View>
       <View style={st.chips}>
-        {choices.map((g) => {
-          const on = picked.includes(g.id)
-          const c = on ? colors.accent : colors.inkDim
-          return (
-            <Press key={g.id} haptic onPress={() => toggle(g.id)} style={[st.chip, on && { borderColor: colors.accent }]}
-              accessibilityRole="button" accessibilityState={{ selected: on }}>
-              <Icon name={kindOf(plan, g.kind)?.icon || 'ShoppingBag'} size={15} color={c} />
-              <T size={13} color={c}>{g.name}</T>
-            </Press>
-          )
-        })}
+        {choices.map((g) => (
+          <Chip key={g.id} out on={picked.includes(g.id)} onPress={() => toggle(g.id)}
+            icon={kindOf(plan, g.kind)?.icon || 'ShoppingBag'} label={g.name} />
+        ))}
       </View>
     </View>
   )
@@ -72,9 +65,5 @@ export function GearPicker({ session, out, entries = [], onChange }: any) {
 
 const st = StyleSheet.create({
   label: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: {
-    flexDirection: 'row', alignItems: 'center', gap: 7, minHeight: TAP, paddingHorizontal: 12,
-    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: radius.md,
-  },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
 })

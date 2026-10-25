@@ -1,7 +1,7 @@
 /*
  * The plan's tests and the evidence behind it: the profile's Testing and Why
- * sections. Moved out of tabs.jsx unchanged (2026-10-25, docs/DESIGN.md "Wave 2:
- * who owns which file") so the climbing pages and Today have one owner each.
+ * pages, both under its Climbing row (docs/DESIGN.md D6). Moved out of tabs.jsx
+ * (2026-10-25) so the climbing pages and Today have one owner each.
  */
 
 import { useState } from 'react'
@@ -14,6 +14,10 @@ import { localIso } from './lib/dates.js'
 // The same one-liner as tabs.jsx's: the local day, not UTC's.
 const todayIso = () => localIso()
 
+/* Whether a plan fills each page. The profile leaves out a row with nothing behind it. */
+export const hasTests = (plan) => Boolean((plan?.tests || []).length || (plan?.testingNotes || []).length)
+export const hasEvidence = (plan) => Boolean((plan?.evidence || []).length || plan?.exposureBudget || plan?.reframe)
+
 /* ---------------------------------------------------------------- testing */
 
 export function TestingTab({ plan, entries, upsertEntry }) {
@@ -21,15 +25,8 @@ export function TestingTab({ plan, entries, upsertEntry }) {
   const tests = plan?.tests || []
 
   // The starter content has no benchmark tests; a plan that defines some fills this in.
-  if (!tests.length && !(plan?.testingNotes || []).length) {
-    return (
-      <div className="card">
-        <h2>No tests in this plan</h2>
-        <p className="sub" style={{ margin: 0 }}>
-          Benchmark tests come from the training plan. The example plan in Settings has six.
-        </p>
-      </div>
-    )
+  if (!hasTests(plan)) {
+    return <div className="empty"><Icon name="Gauge" size={24} />No tests in this plan</div>
   }
 
   return (
@@ -61,10 +58,9 @@ export function TestingTab({ plan, entries, upsertEntry }) {
 
             {t.id === 'critical-force' && <CeilingReadout entries={entries} />}
 
-            <button className="btn ghost" style={{ marginTop: 10 }}
-              onClick={() => setActive(active === t.id ? null : t.id)}>
-              {active === t.id ? 'close' : 'run this test'}
-            </button>
+            {active !== t.id && (
+              <button className="btn secondary test-run" onClick={() => setActive(t.id)}>Run this test</button>
+            )}
 
             {active === t.id && <TestRunner test={t} onSave={upsertEntry} onDone={() => setActive(null)} />}
           </div>
@@ -92,7 +88,7 @@ function CeilingReadout({ entries }) {
     <div className="ceiling">
       <div className="ceiling-head">
         <Icon name="Gauge" size={14} />
-        <span>Your sub-threshold ceiling</span>
+        <span>Your ceiling</span>
         <span className="ceiling-date">tested {c.date}</span>
       </div>
 
@@ -151,12 +147,12 @@ function TestRunner({ test, onSave, onDone }) {
   return (
     <div className="runner">
       <div className="runner-sec">
-        <h3>Equipment</h3>
+        <div className="section-head"><h3>Equipment</h3></div>
         <p>{test.equipment}</p>
       </div>
 
       <div className="runner-sec">
-        <h3>Procedure</h3>
+        <div className="section-head"><h3>Steps</h3></div>
         <ol className="steps">
           {test.procedure.map((s, i) => <li key={i}>{s}</li>)}
         </ol>
@@ -164,30 +160,33 @@ function TestRunner({ test, onSave, onDone }) {
 
       {test.cautions?.length > 0 && (
         <div className="runner-sec caution">
-          <h3>Don't</h3>
+          <div className="section-head"><h3>Don&rsquo;t</h3></div>
           <ul>{test.cautions.map((c, i) => <li key={i}>{c}</li>)}</ul>
         </div>
       )}
 
       <div className="runner-sec">
-        <h3>Result</h3>
-        <label className="field" style={{ marginBottom: 10 }}>
+        <div className="section-head"><h3>Result</h3></div>
+        <label className="field">
           Date
           <input type="date" value={date} onChange={e => setDate(e.target.value)} />
         </label>
         {test.metrics.map(m => (
-          <label className="field" key={m.key} style={{ marginBottom: 10 }}>
+          <label className="field" key={m.key}>
             {m.label} {m.unit ? `(${m.unit})` : ''}
-            <input type="number" inputMode="decimal" value={vals[m.key] ?? ''}
+            <input type="text" inputMode="decimal" value={vals[m.key] ?? ''}
               onChange={e => setVals(v => ({ ...v, [m.key]: e.target.value }))} placeholder={m.hint || ''} />
           </label>
         ))}
-        <button className="btn" onClick={save}>Save result</button>
+        <div className="prof-actions">
+          <button className="btn ghost" onClick={onDone}>Cancel</button>
+          <button className="btn" onClick={save}>Save result</button>
+        </div>
       </div>
 
       {test.interpretation && (
         <div className="runner-sec">
-          <h3>Reading the number</h3>
+          <div className="section-head"><h3>Reading the number</h3></div>
           <p>{test.interpretation}</p>
         </div>
       )}
@@ -196,6 +195,14 @@ function TestRunner({ test, onSave, onDone }) {
 }
 
 /* -------------------------------------------------------------------- why */
+
+const VERDICTS = [
+  { key: 'all', label: 'All' },
+  { key: 'supported', label: 'Supported' },
+  { key: 'mixed', label: 'Mixed' },
+  { key: 'refuted', label: 'Refuted' },
+]
+const VERDICT_LABEL = Object.fromEntries(VERDICTS.map(v => [v.key, v.label]))
 
 export function WhyTab({ plan }) {
   const [filter, setFilter] = useState('all')
@@ -223,26 +230,15 @@ export function WhyTab({ plan }) {
         </Blurb>
       )}
 
-      <div className="card">
-        <h2>What the evidence actually says</h2>
-        <p className="sub" style={{ margin: items.length ? 0 : 12 }}>
-          Every claim below was checked against primary sources, and the shaky ones were handed to agents whose
-          job was to refute them. Where the honest answer is "nobody knows," it says so.
-        </p>
-        {!items.length && (
-          <p className="sub" style={{ margin: 0 }}>
-            The standalone evidence index was removed on 2026-09-14 with the rest of the
-            dated block. Nothing was lost: every session still carries its own graded
-            <strong> transfer</strong> and <strong>summary</strong>, which is where these
-            claims were actually read. Open any session and expand <em>the evidence</em>.
-          </p>
-        )}
-      </div>
+      {!(plan?.evidence || []).length && !plan?.exposureBudget && !plan?.reframe && (
+        <div className="empty"><Icon name="FlaskConical" size={24} />No evidence notes in this plan</div>
+      )}
 
-      {items.length > 0 && (
-        <div className="filters">
-          {['all', 'supported', 'mixed', 'refuted'].map(f => (
-            <button key={f} className={`chip ${filter === f ? 'on' : ''}`} onClick={() => setFilter(f)}>{f}</button>
+      {(plan?.evidence || []).length > 0 && (
+        <div className="filters" role="group" aria-label="Show">
+          {VERDICTS.map(f => (
+            <button key={f.key} className={`chip ${filter === f.key ? 'on' : ''}`} aria-pressed={filter === f.key}
+              onClick={() => setFilter(f.key)}>{f.label}</button>
           ))}
         </div>
       )}
@@ -250,7 +246,7 @@ export function WhyTab({ plan }) {
       {items.map((e, i) => (
         <div key={i} className={`card ev ${e.verdict}`}>
           <div className="ev-head">
-            <span className={`ev-badge ${e.verdict}`}><Icon name={VERDICT_ICONS[e.verdict]} size={12} /> {e.verdict}</span>
+            <span className={`ev-badge ${e.verdict}`}><Icon name={VERDICT_ICONS[e.verdict]} size={12} /> {VERDICT_LABEL[e.verdict] || e.verdict}</span>
             <span className="ev-claim">{e.claim}</span>
           </div>
           <p className="ev-body">{e.reality}</p>

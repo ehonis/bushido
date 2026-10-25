@@ -6,9 +6,13 @@ holds for anyone.
 
 ## Your day, and the + button
 
-Three tabs: **Today**, **Log** and **Progress**. Today is **your day**: the sessions
-actually on it, and nothing you did not put there. An empty day says so and offers the
-three ways in.
+Three tabs: **Today**, **Log** and **Progress**. Today is **your day**: the day is the
+title, with ‹ › to move between days, and under it one list of the workouts actually on
+it, each with one line of what it was (time · distance) and a tick when it is done.
+Nothing you did not put there. An empty day says "Nothing logged today" and offers **Log a
+workout** and a quiet **Rest day**. Tapping a workout opens its sheet: the form is open,
+everything saves as you type, and **Close** is the button at the foot. Removing one shows
+an **Undo** for a few seconds.
 
 Everything gets onto the day through the **+ button**, bottom right:
 
@@ -129,9 +133,10 @@ unlogged card with a "Log it" that asks which climbing session it was.
 
 ## Workouts your watch already knows about
 
-WHOOP and Strava record what you did; Today offers anything with no log entry as a
-one-tap card, pre-filled with the time and distance. Waving one off is recorded, so it
-does not come back.
+WHOOP and Strava record what you did; Today offers anything with no log entry as a row
+with one button, **Log it**, which logs it pre-filled with the time and distance. Tap the
+row for the rest: **Just miles**, **Warm-up**, *Same as…*, *Not the same* and **Dismiss**.
+Dismissing is recorded, so it does not come back (until you bring it back).
 
 This fixed a real hole: three of the six sports in `data/whoop.json` — `dance`,
 `mountain-biking`, and WHOOP's own generic `activity` — previously mapped to **nothing**,
@@ -171,9 +176,12 @@ same calendar as recovery. A morning with no scored night shows no card.
 ## You, and your gear
 
 The header is your Strava name and picture (the sync state survives as the dot on it).
-Tapping it opens a panel anchored under it — a bottom sheet on a phone — which absorbed three tabs — **Gear**, **Testing** and **Why**
-— because none of them is touched mid-session and all three were taking room in a bottom bar
-used one-handed. The tab bar is now **Today · Log · Progress**.
+Tapping it opens a panel anchored under it (a bottom sheet on a phone) that lists its
+sections: **You** (body numbers), **Gear**, **Notifications**, **Connections** (Strava, and
+WHOOP for the owner; only when the server has an app for one), **Climbing** (your grades,
+then **Testing** and **Why** when the plan has tests or evidence) and **Settings** (whose
+log, sync, explanations, the server's Settings page, sign out). Each opens its page with a
+back button. The tab bar is **Today · Log · Progress**.
 
 **Gear** is what you own and what it has done, not what to buy. Bikes and shoes arrive from
 Strava with their real odometers and stay read-only; ropes, harnesses, climbing shoes, plates

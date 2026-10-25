@@ -4,78 +4,13 @@
  * Moved out of styles.css rule for rule and in the same order (2026-10-25). Tokens, base
  * components and the shell stay there; this file only uses them.
  */
-/* ------------------------------------------------- shared workouts (sharedwith.jsx) */
-
-/* Small and quiet on purpose: who else was there is a fact about the workout,
-   not the point of the sheet. */
-.withrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; }
-.withrow-lead { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-faint); margin-right: 2px; }
-.withrow .chip { display: inline-flex; align-items: center; gap: 4px; min-height: var(--tap); padding: 0 12px; }
-.withchip { padding-right: 2px; }
-.withchip-x {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 36px; min-height: 36px; margin: -4px 0; background: none; border: 0;
-  color: var(--ink-faint); cursor: pointer; border-radius: 999px;
-}
-.withadd { color: var(--ink-faint); }
-.withrow-busy { font-size: 12px; color: var(--ink-faint); }
-.withrow-err { font-size: 12px; color: var(--bad); margin: 0; }
-/* Whose log a shared workout's sheet is filling in, pinned to the top of the
-   sheet while it scrolls (.modal-body is the scroller, padded 16px). Each person's
-   initial and name in their colour; the one being filled in, filled in. */
-.personbar {
-  position: sticky; top: -16px; z-index: 5;
-  display: flex; gap: 8px; margin: -16px -16px 12px; padding: 10px 16px;
-  background: var(--panel); border-bottom: 1px solid var(--line);
-}
-.personbar-btn {
-  flex: 1; min-width: 0; min-height: var(--tap); display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line); background: none;
-  color: var(--ink-dim); font: inherit; font-size: 15px; cursor: pointer;
-}
-.personbar-btn.on {
-  color: var(--ink); font-weight: 700; border-color: var(--who);
-  background: color-mix(in oklab, var(--who) 18%, var(--panel));
-}
-.personbar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.avatar {
-  flex: none; width: 28px; height: 28px; border-radius: 50%; display: inline-grid; place-items: center;
-  font-size: 14px; font-weight: 700; color: var(--bg); background: var(--who, var(--ink-faint));
-}
-.synctoggle {
-  display: flex; align-items: center; gap: 12px; min-height: var(--tap); margin: 0 0 12px; padding: 10px 12px;
-  border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); cursor: pointer;
-}
-.synctoggle-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.synctoggle-label { font-size: 15px; font-weight: 600; color: var(--ink); }
-.synctoggle-sub { font-size: 12px; color: var(--ink-faint); }
-.switch {
-  appearance: none; flex: none; position: relative; width: 48px; height: 28px; margin: 0; cursor: pointer;
-  border-radius: 999px; background: var(--line); transition: background .15s;
-}
-.switch::after {
-  content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
-  background: var(--ink); transition: transform .15s;
-}
-.switch:checked { background: var(--accent); }
-.switch:checked::after { transform: translateX(20px); background: var(--bg); }
-.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.sharednote { display: flex; align-items: center; gap: 5px; margin: 0 0 10px; font-size: 12px; color: var(--ink-faint); }
-.theirside-lead { margin: 0 0 4px; }
-.theirside-copy { width: 100%; min-height: 44px; margin-top: 12px; }
-.theirside-copied { margin: 12px 0 0; font-size: 13px; }
-.out-yours { margin-left: 8px; font-size: 11px; font-weight: 400; color: var(--ink-faint); }
-.liftlog-yours { width: 100%; margin-bottom: 10px; }
-.dl-with, .logcard-with {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: 11px; color: var(--ink-faint); margin-top: 2px;
-}
-
-/* ------------------------------------- the owner as trainer (trainer.jsx) */
+/* ----------------------------------------------- each person's colour */
 
 /* Each person's colour wherever the owner sees more than one log. Not new hues:
    the owner is the accent and everyone else takes the validated series colours,
-   so `npm run palette` has nothing new to check. The name always goes with it. */
+   so `npm run palette` has nothing new to check. The name always goes with it.
+   `--who-soft` / `--who-line` are a picked person's fill and edge, the way
+   `--accent-soft` / `--accent-line` are a picked chip's. */
 :root {
   --person-0: var(--accent);
   --person-1: var(--series-1);
@@ -84,64 +19,139 @@
 [data-tone="0"] { --who: var(--person-0); }
 [data-tone="1"] { --who: var(--person-1); }
 [data-tone="2"] { --who: var(--person-2); }
-
-.forchoice { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; }
-.forchoice-lead { font-size: 12px; color: var(--ink-faint); }
-.forchoice .seg { flex: 1; }
-.forchoice .seg button { flex: 1; min-height: var(--tap); }
-.forchoice .seg button.on { color: var(--who, var(--ink)); box-shadow: inset 0 -2px 0 var(--who, transparent); }
-.forline {
-  display: flex; align-items: center; gap: 6px; margin: 0 0 12px; padding: 8px 10px;
-  font-size: 13px; color: var(--ink-dim); border-radius: var(--radius);
-  border-left: 3px solid var(--who, var(--line)); background: var(--panel);
+[data-tone] {
+  --who-soft: color-mix(in oklab, var(--who) 16%, var(--panel-3));
+  --who-line: color-mix(in oklab, var(--who) 70%, var(--line));
 }
-.forline strong { color: var(--who, var(--ink)); }
-.plan-for-wait, .plan-keep-err { margin: 8px 0 12px; }
+
+/* A person's initial. Filled in their colour when it is the one picked or the
+   only one shown; an outline in their colour beside a picked one, so which side
+   is on is never told by colour alone. */
+.avatar {
+  flex: none; width: 28px; height: 28px; border-radius: var(--r-pill); display: inline-grid; place-items: center;
+  font-size: var(--fs-small); font-weight: 700; line-height: 1; color: var(--bg); background: var(--who, var(--ink-faint));
+}
+.avatar.sm { width: 22px; height: 22px; font-size: var(--fs-caption); }
+.whoseg button:not(.on) .avatar,
+.personchip:not(.on) .avatar { background: transparent; color: var(--who); box-shadow: inset 0 0 0 1.5px var(--who); }
+
+/* Person chip: the chip, with their initial ahead of the name. Picked is their
+   own soft fill and edge (the accent's, for you). "With …" and "For: …" both. */
+.personchips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.personchip { padding-left: 5px; }
+.personchip.ghost { padding-left: var(--sp-3); }
+.personchip.on { color: var(--ink); background: var(--who-soft); border-color: var(--who-line); }
+.personchip-name { overflow: hidden; text-overflow: ellipsis; }
+.personchip-x {
+  display: inline-grid; place-items: center; width: 36px; height: 34px; margin: 0 calc(-1 * var(--sp-3)) 0 -4px;
+  background: none; border: 0; border-radius: var(--r-pill); color: var(--ink-dim); cursor: pointer;
+}
+.personchip-x:hover { color: var(--ink); }
+
+/* Segmented, for people: the side being filled in is raised in its person's
+   colour. The sheet's bar and the workout switcher are the same control. */
+.whoseg button { min-height: var(--tap); gap: var(--sp-2); font-size: var(--fs-body); }
+.whoseg button.on { color: var(--ink); font-weight: 600; background: var(--who-soft); box-shadow: inset 0 0 0 1px var(--who-line); }
+
+/* ------------------------------------------------- shared workouts (sharedwith.jsx) */
+
+/* Whose log a shared workout's sheet is filling in, pinned to the top of the
+   sheet while it scrolls (.modal-body is the scroller, padded 16px), with a rule
+   in that person's colour along its foot. */
+.personbar {
+  position: sticky; top: -16px; z-index: 5;
+  margin: -16px -16px var(--sp-3); padding: var(--sp-2) var(--sp-4);
+  background: var(--panel); border-bottom: 2px solid var(--who, var(--line));
+}
+.personbar .seg { margin: 0; }
+.personbar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* "With": who else did this workout. A section head and person chips. */
+.withrow { margin: 0 0 var(--sp-4); }
+.withrow .section-head { margin-top: var(--sp-4); }
+.withrow-err { font-size: var(--fs-small); color: var(--bad); margin: var(--sp-2) 0 0; }
+.synctoggle {
+  display: flex; align-items: center; gap: var(--sp-3); min-height: var(--tap); margin: 0 0 var(--sp-3); padding: var(--sp-3);
+  border: 1px solid var(--line); border-radius: var(--r-card); background: var(--panel-2); cursor: pointer;
+}
+.synctoggle-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.synctoggle-label { font-size: var(--fs-body); font-weight: 600; color: var(--ink); }
+.synctoggle-sub { font-size: var(--fs-small); color: var(--ink-dim); line-height: 1.4; }
+.switch {
+  appearance: none; flex: none; position: relative; width: 48px; height: 28px; margin: 0; padding: 0; min-height: 0; cursor: pointer;
+  border: 0; border-radius: var(--r-pill); background: var(--line-strong); transition: background var(--dur-fast) var(--ease-out);
+}
+.switch::after {
+  content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--ink); transition: transform var(--dur-fast) var(--ease-out);
+}
+.switch:checked { background: var(--accent); }
+.switch:checked::after { transform: translateX(20px); background: var(--on-accent); }
+.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sharednote { display: flex; align-items: center; gap: var(--sp-1); margin: 0 0 var(--sp-3); font-size: var(--fs-caption); color: var(--ink-faint); }
+.theirside-lead { margin: 0 0 var(--sp-1); }
+.theirside-copy { width: 100%; margin-top: var(--sp-3); }
+.theirside-copied { margin: var(--sp-3) 0 0; }
+.out-yours { margin-left: var(--sp-2); font-size: var(--fs-caption); font-weight: 400; color: var(--ink-faint); }
+.liftlog-yours { width: 100%; margin-bottom: 10px; }
+.dl-with, .logcard-with {
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  font-size: var(--fs-caption); color: var(--ink-faint); margin-top: 2px;
+}
+
+/* ------------------------------------- the owner as trainer (trainer.jsx) */
+
+/* "For: You / Sam": the same person chips, 44px because it is an answer. */
+.forchoice { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-4); }
+.forchoice-lead { font-size: var(--fs-small); color: var(--ink-dim); margin-right: var(--sp-1); }
+.forchoice .personchip { min-height: var(--tap); padding-right: var(--sp-4); }
+/* Whose log this is, as a line: their initial, a rule in their colour. */
+.forline {
+  display: flex; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-3); padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-small); color: var(--ink-dim); border-radius: var(--r-control);
+  border-left: 3px solid var(--who, var(--line)); background: var(--panel-2);
+}
+.forline strong { color: var(--ink); font-weight: 600; }
+.plan-for-wait, .plan-keep-err { margin: var(--sp-2) 0 var(--sp-3); }
 
 /* Inside a workout: whose side is on screen, unmistakably. A rule in their colour
    along the top, their name in the header, and the switcher under it. */
 .run[data-tone], .wo[data-tone] { box-shadow: inset 0 3px 0 var(--who); }
 .side-who {
-  display: inline-block; margin-right: 8px; padding: 1px 8px; border-radius: 999px;
-  font-size: 12px; font-weight: 700; color: var(--bg); background: var(--who);
+  display: inline-block; margin-right: var(--sp-2); padding: 1px var(--sp-2); border-radius: var(--r-pill);
+  font-size: var(--fs-caption); font-weight: 700; color: var(--bg); background: var(--who);
   vertical-align: 1px;
 }
-.sideswitch { margin: 8px 10px 0; flex: none; }
-.sideswitch button { flex: 1; min-height: var(--tap); display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
-.sideswitch button.on { color: var(--ink); box-shadow: inset 0 -3px 0 var(--who); }
-.side-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--who, var(--ink-faint)); flex: none; display: inline-block; }
-.side-status { font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.sideswitch { margin: var(--sp-2) 10px 0; flex: none; }
+.side-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-status { font-size: var(--fs-caption); font-weight: 400; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 .side-err {
-  position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 90;
-  margin: 0; padding: 10px 12px; border-radius: var(--radius);
-  background: var(--panel-2); color: var(--bad); font-size: 13px;
+  position: fixed; left: var(--sp-3); right: var(--sp-3); bottom: calc(var(--sp-3) + env(safe-area-inset-bottom)); z-index: 90;
+  margin: 0; padding: 10px var(--sp-3); border-radius: var(--r-card);
+  background: var(--panel-2); color: var(--bad); font-size: var(--fs-small);
 }
 
-/* Someone's day, from Today. Small: a door, not a second Today. */
-.peopledays { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 16px; }
-.peopleday { display: inline-flex; align-items: center; gap: 6px; min-height: var(--tap); padding: 0 14px; color: var(--ink-dim); }
-.pday-wrap { border-top: 3px solid var(--who, var(--line)); padding-top: 6px; }
-.pday-lead { margin: 0 0 10px; }
-.pday { margin: 0 0 12px; }
-.pday-date { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: var(--ink-faint); text-transform: uppercase; letter-spacing: .04em; }
-.pday.today .pday-date { color: var(--who, var(--accent)); }
-.pday-row {
-  display: flex; align-items: center; gap: 10px; width: 100%; min-height: var(--tap);
-  padding: 8px 10px; margin: 0 0 4px; text-align: left; cursor: pointer;
-  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); color: var(--ink);
-}
-.pday-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.pday-name .sub { font-size: 12px; }
-.pday-none { margin: 0 0 4px; font-size: 12px; }
-.pday-about { margin: 16px 0 0; }
+/* Someone's day, from Today: a card of rows, one per person. A door, not a second Today. */
+.peopledays { padding-block: var(--sp-1); }
+.peopleday .list-row-title { font-weight: 500; }
+
+/* Someone's week. */
+.pday-wrap { border-top: 3px solid var(--who, var(--line)); padding-top: var(--sp-2); }
+.pday-nav { display: flex; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-2); }
+.pday-nav-label { flex: 1; text-align: center; font-size: var(--fs-body); font-weight: 600; }
+.pday-lead { display: flex; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-2); }
+.pday-check { flex: none; display: inline-flex; color: var(--ink-faint); }
+.pday-check.on { color: var(--viz-good); }
+.pday + .pday { margin-top: var(--sp-5); }
+.pday-today { color: var(--who, var(--accent)); font-weight: 600; }
+.pday-list { padding-block: var(--sp-1); margin-bottom: 0; }
+.pday-none { margin: 0; }
+.pday-about { margin: var(--sp-6) 0 0; }
 .pday-about > summary { cursor: pointer; min-height: var(--tap); display: flex; align-items: center; color: var(--ink-dim); }
-.pday-plan { margin: 0 0 12px; }
-.pday-block { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; }
-.pday-block .sub { font-size: 12px; }
+.pday-plan { margin: 0 0 var(--sp-3); }
+.pday-plan > .sub { margin: 0 0 var(--sp-1); }
+.pday-block { display: flex; flex-direction: column; gap: 2px; margin: var(--sp-2) 0; }
+.pday-block strong { font-size: var(--fs-body); font-weight: 600; }
 
-.aboutform { display: flex; flex-direction: column; gap: 10px; }
-.aboutform input, .aboutform textarea {
-  font-size: 16px; padding: 10px; color: var(--ink); background: var(--panel-2);
-  border: 1px solid var(--line); border-radius: var(--radius); font-family: inherit;
-}
-.aboutform-acts { display: flex; align-items: center; gap: 10px; }
+.aboutform { display: flex; flex-direction: column; gap: var(--sp-3); }
+.aboutform-acts { display: flex; align-items: center; gap: var(--sp-3); }

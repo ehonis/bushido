@@ -1,11 +1,11 @@
 // The plan's tests and the evidence behind it: the profile's Testing and Why
-// sections, the twin of app/src/testing.jsx. Moved out of tabs.tsx unchanged
-// (2026-10-25, docs/DESIGN.md "Wave 2: who owns which file").
+// pages, both under its Climbing row (docs/DESIGN.md D6), the twin of
+// app/src/testing.jsx. Moved out of tabs.tsx (2026-10-25).
 import React, { useState } from 'react'
 import { StyleSheet, View } from 'react-native'
-import { colors } from '../theme'
+import { colors, font, radius, space } from '../theme'
 import { T } from '../ui/Text'
-import { Btn, Card, Chip, Field, H2 } from '../ui/kit'
+import { Btn, Card, Chip, Empty, Field, H2, SectionHeader } from '../ui/kit'
 import { Fold } from '../ui/Fold'
 import { success } from '../ui/haptics'
 import { Icon, VERDICT_ICONS } from '../lib/icons'
@@ -19,6 +19,10 @@ import { localIso } from '../lib/dates.js'
 // The same one-liner as tabs.tsx's: the local day, not UTC's.
 const todayIso = () => localIso()
 
+/* Whether a plan fills each page. The profile leaves out a row with nothing behind it. */
+export const hasTests = (plan: any) => Boolean((plan?.tests || []).length || (plan?.testingNotes || []).length)
+export const hasEvidence = (plan: any) => Boolean((plan?.evidence || []).length || plan?.exposureBudget || plan?.reframe)
+
 /* ---------------------------------------------------------------- testing */
 
 export function TestingTab({ plan, entries = [], upsertEntry }: { plan: any; entries?: any[]; upsertEntry: (e: any) => void; deleteEntry?: (id: string) => void }) {
@@ -26,22 +30,13 @@ export function TestingTab({ plan, entries = [], upsertEntry }: { plan: any; ent
   const tests = plan?.tests || []
 
   // The starter content has no benchmark tests; a plan that defines some fills this in.
-  if (!tests.length && !(plan?.testingNotes || []).length) {
-    return (
-      <Card>
-        <H2>No tests in this plan</H2>
-        <T size={13} dim>
-          Benchmark tests come from the training plan. The example plan in Settings has six.
-        </T>
-      </Card>
-    )
-  }
+  if (!hasTests(plan)) return <Empty icon="Gauge">No tests in this plan</Empty>
 
   return (
     <>
       {(plan?.testingNotes || []).map((n: any, i: number) => (
         <Blurb key={i} id={`testnote-${i}`} title={n.title}>
-          <T size={13} dim>{n.body}</T>
+          <T size={font.small} dim>{n.body}</T>
         </Blurb>
       ))}
 
@@ -52,7 +47,7 @@ export function TestingTab({ plan, entries = [], upsertEntry }: { plan: any; ent
         return (
           <Card key={t.id}>
             <H2>{t.name}</H2>
-            <T size={13} dim style={{ marginBottom: 14 }}>{t.why}</T>
+            <T size={font.small} dim style={{ marginBottom: space[3] }}>{t.why}</T>
 
             {t.metrics.map((m: any, mi: number) => {
               const pts = results
@@ -66,8 +61,9 @@ export function TestingTab({ plan, entries = [], upsertEntry }: { plan: any; ent
 
             {t.id === 'critical-force' && <CeilingReadout entries={entries} />}
 
-            <Btn kind="ghost" style={{ marginTop: 10 }} title={active === t.id ? 'close' : 'run this test'}
-              onPress={() => setActive(active === t.id ? null : t.id)} />
+            {active !== t.id && (
+              <Btn kind="secondary" style={{ marginTop: space[3] }} title="Run this test" onPress={() => setActive(t.id)} />
+            )}
 
             {active === t.id && <TestRunner test={t} onSave={upsertEntry} onDone={() => setActive(null)} />}
           </Card>
@@ -80,9 +76,9 @@ export function TestingTab({ plan, entries = [], upsertEntry }: { plan: any; ent
 /** .deflist: a two-column definition list, label left, prose right. */
 function Def({ dt, children }: { dt: string; children: React.ReactNode }) {
   return (
-    <View style={{ flexDirection: 'row', gap: 14 }}>
-      <T size={12} faint style={{ width: 96, paddingTop: 2 }}>{dt}</T>
-      <T size={13} style={{ flex: 1 }}>{children}</T>
+    <View style={{ flexDirection: 'row', gap: space[3] }}>
+      <T size={font.small} dim style={{ width: 96 }}>{dt}</T>
+      <T size={font.small} style={{ flex: 1 }}>{children}</T>
     </View>
   )
 }
@@ -103,24 +99,24 @@ function CeilingReadout({ entries }: { entries: any[] }) {
 
   return (
     <View style={st.ceiling}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 12 }}>
-        <Icon name="Gauge" size={14} color={colors.inkFaint} />
-        <T size={11} caps faint style={{ flex: 1 }}>Your sub-threshold ceiling</T>
-        <T size={11} faint>{`tested ${c.date}`}</T>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2], marginBottom: space[3] }}>
+        <Icon name="Gauge" size={16} color={colors.series3} />
+        <T size={font.body} weight={600} style={{ flex: 1 }}>Your ceiling</T>
+        <T size={font.caption} dim>{`tested ${c.date}`}</T>
       </View>
 
-      <View style={{ flexDirection: 'row', gap: 22, flexWrap: 'wrap', marginBottom: 14 }}>
+      <View style={{ flexDirection: 'row', gap: space[6], flexWrap: 'wrap', marginBottom: space[4] }}>
         <View style={{ gap: 2 }}>
-          <T size={30} weight={700} lineHeight={32} tabular>{String(round(c.ceiling))}</T>
-          <T size={11} faint>kg ceiling</T>
+          <T size={font.display} weight={600} lineHeight={34} tabular>{String(round(c.ceiling))}</T>
+          <T size={font.caption} dim>kg ceiling</T>
         </View>
         <View style={{ gap: 2 }}>
-          <T size={30} weight={700} lineHeight={32} tabular color={colors.accent}>{String(round(c.ceiling - 2))}</T>
-          <T size={11} faint>kg — unilateral target</T>
+          <T size={font.display} weight={600} lineHeight={34} tabular color={colors.accent}>{String(round(c.ceiling - 2))}</T>
+          <T size={font.caption} dim>kg — unilateral target</T>
         </View>
       </View>
 
-      <View style={{ gap: 8 }}>
+      <View style={{ gap: space[2] }}>
         <Def dt="How">
           {c.cfMin != null
             ? `CFmin ${round(c.cfMin)} kg vs CF ${round(c.cf)} − ${CF_CORRECTION_KG} = ${round(c.corrected)} kg. The lower one binds${c.bound === 'cfmin' ? ' — that is CFmin' : ' — that is the corrected CF'}.`
@@ -142,11 +138,11 @@ function CeilingReadout({ entries }: { entries: any[] }) {
   )
 }
 
-/** .runner-sec: a small-caps heading and its body. */
+/** .runner-sec: a section head and its body. */
 function RunnerSec({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <View style={{ marginBottom: 18 }}>
-      <T size={12} caps faint style={{ marginBottom: 7 }}>{title}</T>
+    <View style={{ marginBottom: space[4] }}>
+      <SectionHeader title={title} style={{ marginTop: space[4] }} />
       {children}
     </View>
   )
@@ -167,47 +163,50 @@ function TestRunner({ test, onSave, onDone }: { test: any; onSave: (e: any) => v
   return (
     <View style={st.runner}>
       <RunnerSec title="Equipment">
-        <T size={14}>{test.equipment}</T>
+        <T size={font.body}>{test.equipment}</T>
       </RunnerSec>
 
-      <RunnerSec title="Procedure">
-        <View style={{ gap: 7 }}>
+      <RunnerSec title="Steps">
+        <View style={{ gap: space[2] }}>
           {test.procedure.map((s: string, i: number) => (
             <View key={i} style={{ flexDirection: 'row', gap: 6 }}>
-              <T size={14} dim tabular style={{ width: 18 }}>{`${i + 1}.`}</T>
-              <T size={14} style={{ flex: 1 }}>{s}</T>
+              <T size={font.body} dim tabular style={{ width: 20 }}>{`${i + 1}.`}</T>
+              <T size={font.body} style={{ flex: 1 }}>{s}</T>
             </View>
           ))}
         </View>
       </RunnerSec>
 
       {test.cautions?.length > 0 && (
-        <RunnerSec title="Don't">
+        <RunnerSec title="Don’t">
           {test.cautions.map((c: string, i: number) => (
-            <View key={i} style={{ flexDirection: 'row', gap: 8 }}>
-              <T size={14} faint>•</T>
-              <T size={14} dim style={{ flex: 1 }}>{c}</T>
+            <View key={i} style={{ flexDirection: 'row', gap: space[2] }}>
+              <T size={font.body} faint>•</T>
+              <T size={font.body} dim style={{ flex: 1 }}>{c}</T>
             </View>
           ))}
         </RunnerSec>
       )}
 
       <RunnerSec title="Result">
-        <Field label="Date" style={{ marginBottom: 10 }}>
+        <Field label="Date" style={{ marginBottom: space[3] }}>
           <DayStepper value={date} max={todayIso()} onChange={setDate} />
         </Field>
         {test.metrics.map((m: any) => (
-          <Field key={m.key} label={`${m.label} ${m.unit ? `(${m.unit})` : ''}`} style={{ marginBottom: 10 }}>
+          <Field key={m.key} label={`${m.label} ${m.unit ? `(${m.unit})` : ''}`} style={{ marginBottom: space[3] }}>
             <NumInput value={vals[m.key] ?? ''} blank="" placeholder={m.hint || ''}
               onChange={(v: any) => setVals(prev => ({ ...prev, [m.key]: v }))} />
           </Field>
         ))}
-        <Btn title="Save result" onPress={save} />
+        <View style={{ flexDirection: 'row', gap: space[2], justifyContent: 'flex-end' }}>
+          <Btn kind="ghost" title="Cancel" onPress={onDone} />
+          <Btn title="Save result" onPress={save} />
+        </View>
       </RunnerSec>
 
       {test.interpretation && (
         <RunnerSec title="Reading the number">
-          <T size={14}>{test.interpretation}</T>
+          <T size={font.body}>{test.interpretation}</T>
         </RunnerSec>
       )}
     </View>
@@ -215,6 +214,14 @@ function TestRunner({ test, onSave, onDone }: { test: any; onSave: (e: any) => v
 }
 
 /* -------------------------------------------------------------------- why */
+
+const VERDICTS = [
+  { key: 'all', label: 'All' },
+  { key: 'supported', label: 'Supported' },
+  { key: 'mixed', label: 'Mixed' },
+  { key: 'refuted', label: 'Refuted' },
+]
+const VERDICT_LABEL: Record<string, string> = Object.fromEntries(VERDICTS.map(v => [v.key, v.label]))
 
 const VERDICT_COLORS: Record<string, string> = {
   supported: colors.vizGood,
@@ -230,12 +237,12 @@ export function WhyTab({ plan }: { plan: any }) {
     <>
       {plan?.exposureBudget && (
         <Blurb id="exposure-budget" title={plan.exposureBudget.title}>
-          <T size={13} dim style={{ marginBottom: plan.exposureBudget.disagreement ? 12 : 0 }}>
+          <T size={font.small} dim style={{ marginBottom: plan.exposureBudget.disagreement ? space[3] : 0 }}>
             {plan.exposureBudget.body}
           </T>
           {plan.exposureBudget.disagreement && (
-            <Fold summary="Where my sources disagreed" style={{ borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 10 }}>
-              <T size={13} dim style={{ marginTop: 6 }}>{plan.exposureBudget.disagreement}</T>
+            <Fold summary="Where my sources disagreed" headStyle={{ minHeight: 44 }} style={{ borderTopWidth: 1, borderTopColor: colors.line, paddingTop: space[2] }}>
+              <T size={font.small} dim style={{ marginTop: 6 }}>{plan.exposureBudget.disagreement}</T>
             </Fold>
           )}
         </Blurb>
@@ -243,33 +250,18 @@ export function WhyTab({ plan }: { plan: any }) {
 
       {plan?.reframe && (
         <Blurb id="reframe" title={plan.reframe.title}>
-          <T size={13} dim>{plan.reframe.body}</T>
+          <T size={font.small} dim>{plan.reframe.body}</T>
         </Blurb>
       )}
 
-      <Card>
-        <H2>What the evidence actually says</H2>
-        <T size={13} dim style={{ marginBottom: items.length ? 0 : 12 }}>
-          Every claim below was checked against primary sources, and the shaky ones were handed to agents whose
-          job was to refute them. Where the honest answer is &ldquo;nobody knows,&rdquo; it says so.
-        </T>
-        {!items.length && (
-          <T size={13} dim>
-            {'The standalone evidence index was removed on 2026-09-14 with the rest of the dated block. Nothing was lost: every session still carries its own graded '}
-            <T size={13} weight={600} color={colors.ink}>transfer</T>
-            {' and '}
-            <T size={13} weight={600} color={colors.ink}>summary</T>
-            {', which is where these claims were actually read. Open any session and expand '}
-            <T size={13} dim style={{ fontStyle: 'italic' }}>the evidence</T>
-            {'.'}
-          </T>
-        )}
-      </Card>
+      {!(plan?.evidence || []).length && !plan?.exposureBudget && !plan?.reframe && (
+        <Empty icon="FlaskConical">No evidence notes in this plan</Empty>
+      )}
 
-      {items.length > 0 && (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-          {['all', 'supported', 'mixed', 'refuted'].map(f => (
-            <Chip key={f} label={f} on={filter === f} onPress={() => setFilter(f)} />
+      {(plan?.evidence || []).length > 0 && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2], marginBottom: space[3] }}>
+          {VERDICTS.map(f => (
+            <Chip key={f.key} label={f.label} on={filter === f.key} onPress={() => setFilter(f.key)} />
           ))}
         </View>
       )}
@@ -278,21 +270,21 @@ export function WhyTab({ plan }: { plan: any }) {
         const c = VERDICT_COLORS[e.verdict] || colors.inkDim
         return (
           <Card key={i}>
-            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 9, marginBottom: 7 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space[2], marginBottom: space[2] }}>
               <View style={[st.badge, { borderColor: c }]}>
                 <Icon name={VERDICT_ICONS[e.verdict]} size={12} color={c} />
-                <T size={10} caps color={c} lineHeight={13}>{e.verdict}</T>
+                <T size={font.caption} color={c}>{VERDICT_LABEL[e.verdict] || e.verdict}</T>
               </View>
-              <T size={14} weight={600} style={{ flex: 1 }}>{e.claim}</T>
+              <T size={font.body} weight={600} style={{ flex: 1 }}>{e.claim}</T>
             </View>
-            <T size={14} dim>{e.reality}</T>
+            <T size={font.body} dim>{e.reality}</T>
             {e.doThis && (
-              <T size={14} style={{ marginTop: 9 }}>
-                <T size={14} weight={600}>So:</T>{` ${e.doThis}`}
+              <T size={font.body} style={{ marginTop: space[2] }}>
+                <T size={font.body} weight={600}>So:</T>{` ${e.doThis}`}
               </T>
             )}
             {e.sources?.length > 0 && (
-              <T size={12} faint style={{ marginTop: 9 }}>{e.sources.join(' · ')}</T>
+              <T size={font.caption} faint style={{ marginTop: space[2] }}>{e.sources.join(' · ')}</T>
             )}
           </Card>
         )
@@ -302,12 +294,12 @@ export function WhyTab({ plan }: { plan: any }) {
 }
 const st = StyleSheet.create({
   ceiling: {
-    marginTop: 14, padding: 14, backgroundColor: colors.panel2,
-    borderWidth: 1, borderColor: colors.line, borderLeftWidth: 3, borderLeftColor: colors.series3, borderRadius: 9,
+    marginTop: space[4], padding: space[4], backgroundColor: colors.panel2,
+    borderWidth: 1, borderColor: colors.line, borderRadius: radius.card,
   },
-  runner: { marginTop: 14, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 14 },
+  runner: { marginTop: space[4], borderTopWidth: 1, borderTopColor: colors.line, paddingTop: space[2] },
   badge: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    borderWidth: 1, borderRadius: 4, paddingVertical: 3, paddingHorizontal: 7,
+    flexDirection: 'row', alignItems: 'center', gap: space[1],
+    borderWidth: 1, borderRadius: radius.pill, paddingVertical: 2, paddingHorizontal: space[2],
   },
 })

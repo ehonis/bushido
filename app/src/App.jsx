@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useStore, doneWhenPlaced } from './lib/store.js'
-import { TodayTab } from './tabs.jsx'
+import { TodayTab, DaySwitcher } from './tabs.jsx'
 import { LogTab } from './log.jsx'
 import { Icon, BushidoMark, TAB_ICONS } from './lib/icons.jsx'
 import { PrefsProvider } from './lib/prefs.jsx'
@@ -153,19 +153,19 @@ export function RestPrompt({ opt, date: initialDate, entryFor, onSave, onClose }
   const save = () => onSave({ date, why: why || undefined, notes: notes.trim() || undefined })
 
   return (
-    <Modal title="Rest day" sub={existing ? 'Already a rest day — change the why' : 'Why are you resting?'}
+    <Modal title="Rest day" sub={existing ? 'Already a rest day' : null}
       icon={opt?.icon || 'Sunset'} tone="rest" onClose={onClose}
       footer={
         <button className="btn" onClick={save}>
           <Icon name="Check" size={16} /> {existing ? 'Save' : 'Log the rest day'}
         </button>
       }>
-      {/* Any day up to today — a rest day the user forgot to log is still one the user took. */}
-      <label className="field" style={{ marginBottom: 10 }}>
-        Day
-        <input type="date" value={date} max={today}
-          onChange={e => e.target.value && setDate(e.target.value)} />
-      </label>
+      {/* Any day up to today — a rest day the user forgot to log is still one the
+          user took. The day switcher, as on Today, not a browser date box. */}
+      <div className="field rest-day">
+        <span>Day</span>
+        <DaySwitcher value={date} today={today} max={today} onChange={setDate} />
+      </div>
       {field && (
         <div className="out-field">
           <div className="out-label"><span>{field.label}</span></div>
@@ -184,8 +184,8 @@ export function RestPrompt({ opt, date: initialDate, entryFor, onSave, onClose }
         </div>
       )}
       <label className="notefield">
-        <span className="notefield-label">In your own words</span>
-        <textarea rows={3} value={notes} placeholder="Optional — what's going on?"
+        <span className="notefield-label">Notes</span>
+        <textarea rows={3} value={notes} placeholder="Optional"
           onChange={e => setNotes(e.target.value)} />
       </label>
     </Modal>

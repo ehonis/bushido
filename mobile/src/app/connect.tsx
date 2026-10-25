@@ -1,5 +1,6 @@
-// First run, or signed out: where the server is and how to get in. Styled after
-// the server's own sign-in page (server/pages.js). Two steps, because the
+// First run, or signed out: where the server is and how to get in. Built from the
+// kit (Card, Field, Input, Btn) on the tokens, like the server's own sign-in page
+// (server/pages.js), which copies the same values. Two steps, because the
 // server says which kind of sign-in it uses (GET /api/health -> `auth`):
 //
 //   1. The address. A server behind Cloudflare Access gets Access's login first
@@ -14,9 +15,9 @@ import React, { useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View, type TextInput } from 'react-native'
 import { Image } from 'expo-image'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { colors } from '../theme'
+import { colors, font, space } from '../theme'
 import { T } from '../ui/Text'
-import { Btn, Input, Press } from '../ui/kit'
+import { Btn, Card, Field, Input, Sub } from '../ui/kit'
 import { DEFAULT_PORT, getConnection, normalizeBaseUrl, saveConnection, type AuthKind } from '../lib/connection'
 import { probeAccess, signInWithAccess } from '../lib/cfAccess'
 import { success } from '../ui/haptics'
@@ -134,94 +135,93 @@ export default function Connect() {
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[st.page, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 20 }} keyboardShouldPersistTaps="handled">
-        <View style={st.card}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-            <Image source={require('../../assets/images/bushido-mark.png')} style={{ width: 22, height: 22 }} tintColor={colors.accent} />
-            <T size={17} weight={600} style={{ letterSpacing: 0.3 }}>Bushido</T>
-          </View>
+      <ScrollView contentContainerStyle={st.scroll} keyboardShouldPersistTaps="handled">
+        <View style={st.mark}>
+          <Image source={require('../../assets/images/bushido-mark.png')} style={{ width: 22, height: 22 }} tintColor={colors.accent} />
+          <T size={font.title} weight={600}>Bushido</T>
+        </View>
 
-          {!step2 ? (
-            <>
-              <T size={22} weight={700} style={{ marginBottom: 6 }}>Connect to Bushido</T>
-              <T dim size={14} style={{ marginBottom: 16 }}>
-                The address of the machine running Bushido. A Tailscale IP or name works.
-              </T>
-              <Input
-                value={address}
-                onChangeText={setAddress}
-                placeholder="100.x.y.z or bushido.example.com"
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="url"
-                returnKeyType="go"
-                onSubmitEditing={findServer}
-                style={{ marginBottom: 12, backgroundColor: colors.bg }}
-              />
-              {stage ? <T dim size={14} style={{ marginBottom: 12 }}>{stage}</T> : null}
-              {error ? <T color={colors.bad} size={14} style={{ marginBottom: 12 }}>{error}</T> : null}
-              <Btn title="Continue" loading={busy} disabled={!address.trim()} onPress={findServer} />
-              <T faint size={12.5} style={{ marginTop: 14 }}>
-                {`An IP or Tailscale name uses port ${DEFAULT_PORT}; a domain uses https (Cloudflare Access sign-in is handled).`}
-              </T>
-            </>
-          ) : (
-            <>
-              <T size={22} weight={700} style={{ marginBottom: 6 }}>Sign in</T>
-              <T dim size={14} style={{ marginBottom: 16 }} numberOfLines={1}>{server!.baseUrl.replace(/^https?:\/\//, '')}</T>
-              {useToken ? (
+        {!step2 ? (
+          <>
+            <T size={font.heading} weight={600} style={st.title}>Connect to Bushido</T>
+            <Sub style={st.lead}>The machine running Bushido. A Tailscale IP or name works.</Sub>
+            <Card>
+              <Field label="Server address">
                 <Input
-                  value={token}
-                  onChangeText={setToken}
-                  placeholder="BUSHIDO_API_TOKEN"
-                  secureTextEntry
+                  value={address}
+                  onChangeText={setAddress}
+                  placeholder="100.x.y.z or bushido.example.com"
                   autoCapitalize="none"
                   autoCorrect={false}
+                  keyboardType="url"
                   returnKeyType="go"
-                  onSubmitEditing={() => canSignIn && signIn()}
-                  style={{ marginBottom: 12, backgroundColor: colors.bg }}
+                  onSubmitEditing={findServer}
                 />
-              ) : (
-                <>
+              </Field>
+              <T size={font.caption} faint style={st.help}>
+                {`An IP or Tailscale name uses port ${DEFAULT_PORT}; a domain uses https.`}
+              </T>
+              {stage ? <Sub style={st.msg}>{stage}</Sub> : null}
+              {error ? <T color={colors.bad} size={font.small} style={st.msg}>{error}</T> : null}
+              <Btn title="Continue" loading={busy} disabled={!address.trim()} onPress={findServer} style={st.go} />
+            </Card>
+          </>
+        ) : (
+          <>
+            <T size={font.heading} weight={600} style={st.title}>Sign in</T>
+            <T size={font.small} dim style={st.lead} numberOfLines={1}>{server!.baseUrl.replace(/^https?:\/\//, '')}</T>
+            <Card>
+              {useToken ? (
+                <Field label="API token">
                   <Input
-                    value={username}
-                    onChangeText={setUsername}
-                    placeholder="Username"
+                    value={token}
+                    onChangeText={setToken}
+                    placeholder="BUSHIDO_API_TOKEN"
+                    secureTextEntry
                     autoCapitalize="none"
                     autoCorrect={false}
-                    textContentType="username"
-                    autoComplete="username"
-                    returnKeyType="next"
-                    onSubmitEditing={() => passRef.current?.focus()}
-                    style={{ marginBottom: 12, backgroundColor: colors.bg }}
-                  />
-                  <Input
-                    ref={passRef}
-                    value={password}
-                    onChangeText={setPassword}
-                    placeholder="Password"
-                    secureTextEntry
-                    textContentType="password"
-                    autoComplete="current-password"
                     returnKeyType="go"
                     onSubmitEditing={() => canSignIn && signIn()}
-                    style={{ marginBottom: 12, backgroundColor: colors.bg }}
                   />
-                </>
+                </Field>
+              ) : (
+                <View style={{ gap: space[3] }}>
+                  <Field label="Username">
+                    <Input
+                      value={username}
+                      onChangeText={setUsername}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      textContentType="username"
+                      autoComplete="username"
+                      returnKeyType="next"
+                      onSubmitEditing={() => passRef.current?.focus()}
+                    />
+                  </Field>
+                  <Field label="Password">
+                    <Input
+                      ref={passRef}
+                      value={password}
+                      onChangeText={setPassword}
+                      secureTextEntry
+                      textContentType="password"
+                      autoComplete="current-password"
+                      returnKeyType="go"
+                      onSubmitEditing={() => canSignIn && signIn()}
+                    />
+                  </Field>
+                </View>
               )}
-              {error ? <T color={colors.bad} size={14} style={{ marginBottom: 12 }}>{error}</T> : null}
-              <Btn title="Sign in" loading={busy} disabled={!canSignIn} onPress={signIn} />
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 14 }}>
-                <Press onPress={() => { setServer(null); setError('') }} style={st.link}>
-                  <T faint size={13}>Another server</T>
-                </Press>
-                <Press onPress={() => { setUseToken(!useToken); setError('') }} style={st.link}>
-                  <T faint size={13}>{useToken ? 'Use a password' : 'Use an API token'}</T>
-                </Press>
-              </View>
-            </>
-          )}
-        </View>
+              {error ? <T color={colors.bad} size={font.small} style={st.msg}>{error}</T> : null}
+              <Btn title="Sign in" loading={busy} disabled={!canSignIn} onPress={signIn} style={st.go} />
+            </Card>
+            <View style={st.links}>
+              <Btn kind="quiet" title="Another server" onPress={() => { setServer(null); setError('') }} />
+              <Btn kind="quiet" title={useToken ? 'Use a password' : 'Use an API token'}
+                onPress={() => { setUseToken(!useToken); setError('') }} />
+            </View>
+          </>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   )
@@ -231,6 +231,12 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 const st = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.bg },
-  card: { backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: 16, padding: 24 },
-  link: { minHeight: 36, justifyContent: 'center' },
+  scroll: { flexGrow: 1, justifyContent: 'center', padding: space[5], maxWidth: 440, width: '100%', alignSelf: 'center' },
+  mark: { flexDirection: 'row', alignItems: 'center', gap: space[2], marginBottom: space[6] },
+  title: { marginBottom: space[1] },
+  lead: { marginBottom: space[4] },
+  help: { marginTop: 6 },
+  msg: { marginTop: space[3] },
+  go: { marginTop: space[4] },
+  links: { flexDirection: 'row', justifyContent: 'space-between', marginTop: space[2] },
 })

@@ -7,9 +7,9 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
-import { colors, mix, radius, TAP } from '../theme'
+import { colors, font, mix, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
-import { Btn, Chip, Input, Press, Toggle } from '../ui/kit'
+import { Btn, Chip, Input, Press, Row, Toggle } from '../ui/kit'
 import { Modal } from '../ui/Sheet'
 import { Fold } from '../ui/Fold'
 import { success, tap } from '../ui/haptics'
@@ -18,10 +18,10 @@ import { NumInput } from './numinput'
 import { SetLog, GradeSelect, RangeSlider, totalSets, totalReps } from './setlog'
 import { LiftLog } from './liftlog'
 import { ActivityPicker } from './activitypicker'
-import { liftSets, liftReps, liftsLine } from '../lib/lifts.js'
+import { liftsLine } from '../lib/lifts.js'
 import { asksItsOwnDuration, minutesFor, minutesSourceOf } from '../lib/minutes.js'
 import { visibleOutputs, pruneHidden, derivedValue, filledBy } from '../lib/outputs.js'
-import { gateResolver } from '../lib/activities.js'
+import { gateResolver, activityOf, activityLabel } from '../lib/activities.js'
 import { usePlan } from '../lib/planctx.jsx'
 import { quickNames, titleOf, nameFor, rename, titleFor } from '../lib/naming.js'
 import { GearPicker } from './gearpicker'
@@ -94,7 +94,7 @@ export function PriorNote({ entries, session, excludeId, all = false, style, who
     <View style={[st.prior, style]}>
       <View style={st.priorHead}>
         <Icon name="Repeat" size={13} color={colors.load3} />
-        <T size={11} caps color={colors.load3} style={{ flex: 1 }}>
+        <T size={13} weight={600} color={colors.load3} style={{ flex: 1 }}>
           {/* `whose`: someone else's log, on their side of a shared workout (sharedwith.tsx). */}
           {all
             ? `${whose ? `${whose}’s` : 'Your'} last ${shown.length} session${shown.length === 1 ? '' : 's'}${noted.length ? '' : ' — nothing written down yet'}`
@@ -108,7 +108,7 @@ export function PriorNote({ entries, session, excludeId, all = false, style, who
           <View key={e.id} style={i > 0 ? st.priorNext : null}>
             <T size={11} faint tabular style={{ marginBottom: 4 }}>
               {dayLabel(e.date)
-                + (Number.isFinite(o?.rpe) ? ` · RPE ${o.rpe}` : '')
+                + (Number.isFinite(o?.rpe) ? ` · how hard ${o.rpe}` : '')
                 + (Number.isFinite(o?.fingers) ? ` · fingers ${o.fingers}/5` : '')}
             </T>
             {work ? <T size={12.5} dim style={{ marginTop: 3 }}>{work}</T> : null}
@@ -174,7 +174,10 @@ function Slider({ field, value, onChange, yours }: any) {
         <T size={13} dim>{field.label}</T>
         <Yours value={yours} />
         <View style={{ flex: 1 }} />
-        <T size={17} weight={600} tabular align="right" style={{ minWidth: 24 }}>{v == null ? '' : String(v)}</T>
+        {/* Unanswered, the number reads as a placeholder: a guess is never shown
+            as an answer (AGENTS.md §6.4). */}
+        <T size={17} weight={value == null ? 500 : 600} tabular align="right" style={{ minWidth: 24 }}
+          color={value == null ? colors.inkFaint : colors.ink}>{v == null ? '' : String(v)}</T>
       </View>
       <RangeSlider min={field.min} max={field.max} step={field.step ?? 1} value={v} label={field.label} onChange={onChange} />
       {/* On a phone only the two ends of the scale have room. */}
@@ -287,14 +290,12 @@ function TimeSpent({ session, out, onChange }: any) {
   const measured = Number(out?.elapsedMin)
 
   const hint = ({
-    typed: 'This is what the weekly training-load chart multiplies your RPE by.',
+    typed: null,
     whoop: `Using the ${inUse} min WHOOP recorded. Type to change it.`,
-    strava: `Using the ${inUse} min moving on the Strava activity you attached. Type to change it.`,
-    timer: `Using the ${inUse} min workout mode measured. Type to change it.`,
-    estimate: Number.isFinite(inUse)
-      ? `Blank uses the card's ${inUse} min estimate. The weekly load chart is RPE × this, so a night that ran short or long is worth a second here.`
-      : 'The weekly load chart is RPE × this.',
-  } as Record<string, string>)[source]
+    strava: `Using the ${inUse} min moving on Strava. Type to change it.`,
+    timer: `Using the ${inUse} min the workout timer measured. Type to change it.`,
+    estimate: Number.isFinite(inUse) ? `Left blank, it counts as about ${inUse} min.` : null,
+  } as Record<string, string | null>)[source]
 
   return (
     <View style={st.field}>
@@ -320,7 +321,7 @@ function TimeSpent({ session, out, onChange }: any) {
           </Press>
         )}
       </View>
-      <T size={12} faint style={{ marginTop: 0 }}>{hint}</T>
+      {hint ? <T size={12} faint style={{ marginTop: 0 }}>{hint}</T> : null}
     </View>
   )
 }
@@ -361,8 +362,8 @@ export function SessionDetails({ session, entry, entries, onSave, training, onTr
           and the streak, and takes it out of the training load. */}
       {onTraining && (
         <ToggleRow value={training === false} onChange={(v) => onTraining(!v)}>
-          <T size={14}>Just miles — not a workout</T>
-          <T size={11} faint style={{ marginTop: 2 }}>Counts the distance and the streak. Not the training load.</T>
+          <T size={14}>Just miles, not a workout</T>
+          <T size={12} faint style={{ marginTop: 2 }}>Counts the miles and the streak, not the effort charts.</T>
         </ToggleRow>
       )}
 
@@ -398,18 +399,45 @@ export function DetailsSheet({
  * `hints` (the owner's own out, placeholders only) and `measured: false` (no
  * WHOOP or Strava) are for someone else's copy of a shared workout.
  */
+/**
+ * The activity, once picked: a row that says what it is and opens the picker
+ * (docs/DESIGN.md "Session sheet"). It replaced a "Change" link inside a box.
+ */
+function ActivityRow({ field, value, out, onChange }: any) {
+  const [changing, setChanging] = useState(false)
+  if (!value) return <ActivityPicker field={field} value={value} out={out} onChange={onChange} />
+  if (changing) {
+    return (
+      <View style={{ gap: space[2] }}>
+        <ActivityPicker field={field} value={null} out={null}
+          onChange={(v: any) => { setChanging(false); if (v && v !== value) onChange(v) }} />
+        <Btn kind="quiet" title={`Keep ${(activityLabel as any)(field, value)}`} onPress={() => setChanging(false)}
+          style={{ alignSelf: 'flex-start' }} />
+      </View>
+    )
+  }
+  const picked: any = (activityOf as any)(field, value)
+  // Which service chose it, if one did.
+  const source = filledBy(out, field.key)
+  return (
+    <Row icon={picked?.icon || 'Sparkles'} label={picked?.name || (activityLabel as any)(field, value)}
+      value={`${picked ? 'Activity' : 'No longer in the catalog'}${source ? ` · from ${source}` : ''}`}
+      onPress={() => { tap(); setChanging(true) }} />
+  )
+}
+
+/**
+ * The log form: what was done, how hard, what WHOOP and Strava measured, notes.
+ * Always open, and every field saves as it is typed: there is no Save to press.
+ * The "How did it go?" / "Session logged" fold over it went on 2026-10-25 (#41);
+ * `bare` now only drops the divider above it, and `defaultOpen` is ignored.
+ */
 export function SessionLog({
   session, entry, entries, onSave, bare = false,
-  defaultOpen = false, hints = null, measured = true, whose = null,
+  hints = null, measured = true, whose = null,
 }: any) {
   const declared = session?.outputs || []
   const hasSets = Boolean(session?.logSpec?.exercises?.length)
-  /*
-   * Collapsed by default: on a real session the protocol is what you open the
-   * sheet to read and the form is what you fill in afterwards. `defaultOpen` is
-   * for the cards where that is backwards and the form IS the card.
-   */
-  const [open, setOpen] = useState(defaultOpen)
   const out = entry?.data?.out || {}
 
   // The catalog resolver, so a field may gate on what the CATALOG says about the
@@ -421,68 +449,13 @@ export function SessionLog({
   // disagree — correcting a run to a lift takes its distance with it.
   const set = (key: string, value: any) => onSave((pruneHidden as any)(session, { ...out, [key]: value }, derive))
 
-  /*
-   * WHAT COUNTS AS HAVING LOGGED SOMETHING.
-   *
-   * An `optional` field never BLOCKS "logged", but a card whose fields are ALL
-   * optional must not satisfy `every()` vacuously: where nothing is required,
-   * one real answer is. And the field the card NAMES ITSELF from is its
-   * identity, not an answer — counting it would make "Session logged" true the
-   * instant the user chose "Mountain bike".
-   */
-  const identity = session?.nameFrom
-  const asked = fields.filter((f) => f.key !== identity)
-  const filled = asked.filter((f) => out[f.key] !== undefined).length
-  const setsDone = totalSets(out) + liftSets(out)
-  const repsDone = totalReps(out) + liftReps(out)
-  const hasNote = Boolean(String(out.notes || '').trim() || String(out.improve || '').trim())
-  // A field that is not being ASKED cannot block it either.
-  const required = asked.filter((f) => !f.optional)
-  const answered = filled > 0 || setsDone > 0 || hasNote
-  const complete = required.every((f) => out[f.key] !== undefined)
-    && (required.length > 0 || answered)
-    && (!hasSets || totalSets(out) > 0)
-
-  // The buzz for "Session logged", on the edit that makes it true — not on
-  // opening a sheet that already was.
-  const was = useRef(complete)
-  useEffect(() => {
-    if (complete && !was.current) success()
-    was.current = complete
-  }, [complete])
-
   // Notes are app-level, not plan-level: every session gets them, including the
   // ones with no measurable outputs at all.
   if (!declared.length && !hasSets && !entry) return null
 
-  const shown = bare || open
-  const headColor = complete ? colors.vizGood : colors.ink
-
   return (
     <View style={bare ? null : st.outlog}>
-      {!bare && (
-        <Press onPress={() => { tap(); setOpen((o: boolean) => !o) }} style={st.altHead}
-          accessibilityRole="button" accessibilityState={{ expanded: open }}>
-          <Icon name={complete ? 'CircleCheck' : 'NotebookPen'} size={15} color={headColor} />
-          <T size={14} weight={600} color={headColor} style={{ flex: 1 }}>
-            {complete
-              ? `Session logged${setsDone ? ` — ${setsDone} sets${repsDone ? `, ${repsDone} reps` : ''}` : ''}${hasNote ? ' · noted' : ''}`
-              : filled || setsDone || hasNote
-                ? `How did it go? (${filled}/${asked.length})${hasNote ? ' · noted' : ''}`
-                : 'How did it go?'}
-          </T>
-          <Icon name={open ? 'ChevronUp' : 'ChevronDown'} size={17} color={colors.inkFaint} />
-        </Press>
-      )}
-
-      {!shown && !filled && (
-        <T size={13} dim style={{ marginTop: 8 }}>
-          Takes about twenty seconds and it's what makes the progress charts mean anything.
-        </T>
-      )}
-
-      {shown && (
-        <View style={[st.body, bare && { marginTop: 0 }]}>
+        <View style={st.body}>
           {hasSets && <SetLog session={session} out={out} onSave={onSave} hints={hints} />}
 
           {fields.map((f) => {
@@ -495,7 +468,7 @@ export function SessionLog({
             // What you did, out of ninety-one sports. It decides what the rest of
             // this form means, so it is always first. See lib/activities.js.
             if (f.type === 'activity') {
-              return <ActivityPicker key={f.key} field={f} value={out[f.key]} out={out} onChange={(v: any) => set(f.key, v)} />
+              return <ActivityRow key={f.key} field={f} value={out[f.key]} out={out} onChange={(v: any) => set(f.key, v)} />
             }
             // A grade is a fixed ladder, not a number you type: see lib/grades.js.
             if (f.type === 'grade') {
@@ -522,18 +495,19 @@ export function SessionLog({
             }
             // A number the app can work out is a PLACEHOLDER, and one a service
             // measured says which service: a value the user did not type must
-            // never look like one the user did.
+            // never look like one the user did. The card's example number (`hint`)
+            // is not shown: in a number box it read as a guess the app had made.
             const derived = (derivedValue as any)(f, out)
             const source = filledBy(out, f.key)
             return (
               <View key={f.key} style={{ gap: 5 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap' }}>
-                  <T size={12} dim>{`${f.label} ${f.unit ? `(${f.unit})` : ''}`}</T>
-                  {source ? <T size={10} caps color={colors.accent} style={{ marginLeft: 6 }}>{`from ${source}`}</T> : null}
+                  <T size={font.small} dim>{`${f.label}${f.unit ? ` (${f.unit})` : ''}`}</T>
+                  {source ? <T size={font.caption} dim style={{ marginLeft: 6 }}>{`from ${source}`}</T> : null}
                 </View>
                 <NumInput
                   placeholder={derived != null ? String(derived)
-                    : hints?.[f.key] != null ? String(hints[f.key]) : f.hint}
+                    : hints?.[f.key] != null ? String(hints[f.key]) : ''}
                   placeholderTextColor={colors.inkFaint}
                   accessibilityLabel={f.label}
                   value={out[f.key] ?? ''}
@@ -542,7 +516,7 @@ export function SessionLog({
                   style={st.box}
                 />
                 {derived != null && out[f.key] === undefined && (
-                  <T size={11} faint>worked out from your distance and time</T>
+                  <T size={font.caption} faint>Worked out from your distance and time</T>
                 )}
               </View>
             )
@@ -562,10 +536,6 @@ export function SessionLog({
             */}
 
           <View style={st.notes}>
-            <View style={st.notesHead}>
-              <Icon name="NotebookPen" size={13} color={colors.inkFaint} />
-              <T size={11} faint caps>Notes for this session</T>
-            </View>
             {/*
               * A PLAIN NOTES BOX, back since 2026-09-21, under the same key as
               * the retired "how did it feel?", so the notes written before read
@@ -588,15 +558,13 @@ export function SessionLog({
             <PriorNote entries={entries} session={session} excludeId={entry?.id} all whose={whose} style={{ marginBottom: 0 }} />
           </View>
         </View>
-      )}
     </View>
   )
 }
 
 const st = StyleSheet.create({
-  outlog: { marginTop: 14, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 13 },
-  altHead: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: TAP },
-  body: { marginTop: 14, gap: 16 },
+  outlog: { marginTop: space[4], borderTopWidth: 1, borderTopColor: colors.line, paddingTop: space[4] },
+  body: { gap: space[4] },
   field: { gap: 7 },
   label: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 },
   scale: { flexDirection: 'row', justifyContent: 'space-between', gap: 6 },
@@ -612,7 +580,6 @@ const st = StyleSheet.create({
     paddingHorizontal: 12, minHeight: TAP, justifyContent: 'center',
   },
   notes: { marginTop: 18, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 14 },
-  notesHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 11 },
   prior: {
     backgroundColor: mix(colors.series1, 7, colors.panel2),
     borderWidth: 1, borderColor: mix(colors.series1, 26, colors.line),

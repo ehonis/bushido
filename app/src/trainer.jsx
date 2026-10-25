@@ -20,7 +20,7 @@ import { FullScreen, Modal } from './modal.jsx'
 import { WorkoutRunner } from './runner.jsx'
 import { WorkoutMode } from './workout.jsx'
 import { SessionLog } from './sessionlog.jsx'
-import { usePersonCopy, Avatar } from './sharedwith.jsx'
+import { usePersonCopy, Avatar, PersonChip } from './sharedwith.jsx'
 import * as peopleApi from './lib/peopleapi.js'
 import { optFor } from './lib/menu.js'
 import { applyRun, applyOut, applyDone, canStart, dayOf, dayRow, runKind, plannedLine, toneFor } from './lib/trainer.js'
@@ -34,22 +34,19 @@ const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).padStart(2
 /* ------------------------------------------------------------ For: … */
 
 /**
- * "For: You / Sam", at the top of the planners. `people` is `planPeople(me)`:
- * nothing renders for anyone but the owner, while acting, or with one person.
+ * "For: You / Sam", at the top of the planners: one person chip each, the same
+ * chip as "With …". `people` is `planPeople(me)`: nothing renders for anyone but
+ * the owner, while acting, or with one person.
  */
 export function ForChoice({ people = [], target = null, onTarget }) {
   if (!people.length) return null
   return (
     <div className="forchoice" role="group" aria-label="Who this is for">
       <span className="forchoice-lead">For</span>
-      <div className="seg">
-        <button type="button" className={!target ? 'on' : ''} aria-pressed={!target} data-tone={0}
-          onClick={() => onTarget(null)}>You</button>
-        {people.map(p => (
-          <button key={p.id} type="button" className={target?.id === p.id ? 'on' : ''} aria-pressed={target?.id === p.id}
-            data-tone={toneFor(people, p.id)} onClick={() => onTarget(p)}>{p.name}</button>
-        ))}
-      </div>
+      <PersonChip person={{ name: 'You' }} tone={0} on={!target} onClick={() => onTarget(null)} />
+      {people.map(p => (
+        <PersonChip key={p.id} person={p} tone={toneFor(people, p.id)} on={target?.id === p.id} onClick={() => onTarget(p)} />
+      ))}
     </div>
   )
 }
@@ -57,9 +54,11 @@ export function ForChoice({ people = [], target = null, onTarget }) {
 /** "Planning for Sam", on every screen after the choice, so it cannot be forgotten halfway. */
 export function ForLine({ person, people = [] }) {
   if (!person) return null
+  const tone = toneFor(people, person.id)
   return (
-    <p className="forline" data-tone={toneFor(people, person.id)}>
-      <Icon name="Users" size={13} /> Planning for <strong>{person.name}</strong>, with {person.name}&rsquo;s log. It is written to {person.name}&rsquo;s, from you.
+    <p className="forline" data-tone={tone}>
+      <Avatar name={person.name} tone={tone} small />
+      <span>Planning for <strong>{person.name}</strong> · it goes in {person.name}&rsquo;s log</span>
     </p>
   )
 }
@@ -107,14 +106,15 @@ export function sideStatus(kind, entry, now = Date.now(), finished = false) {
 }
 
 /**
- * You / Sam inside a running workout. Each name carries its colour and what that
- * side is doing right now, so the side that is NOT on screen still says when its
- * rest is up.
+ * You / Sam inside a running workout: the same segmented control as the sheet's
+ * person bar, the side on screen raised in that person's colour. Each name also
+ * says what that side is doing right now, so the side that is NOT on screen still
+ * says when its rest is up.
  */
 export function SideSwitch({ sides = [], side = null, onSide, status = {} }) {
   if (sides.length < 2) return null
   return (
-    <div className="seg sideswitch" role="tablist" aria-label="Whose side of the workout is showing">
+    <div className="seg whoseg sideswitch" role="tablist" aria-label="Whose side of the workout is showing">
       {sides.map(s => {
         const on = (s.id || null) === (side || null)
         const st = status[s.id || '']
@@ -239,28 +239,62 @@ function TheirSlot({ kind, person, session, shown, who, switcher, onExit, onFini
 
 /* ------------------------------------------------------ someone's day */
 
+const dayWords = (iso) => fromIso(iso).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+
+/** What a row says about one of someone's sessions: where it stands, who planned it. */
+const rowMeta = (r) => [r.running ? 'In progress' : r.done ? 'Done' : 'Not done yet', r.plannedBy, r.sharedFrom ? 'shared' : null]
+  .filter(Boolean).join(' · ')
+
 /**
- * "Sam's day", on Today: the owner's way to see what is on someone's days and
- * open one, without acting as them. Nothing for anyone else.
+ * "Sam's day", on Today: one row per person, the owner's way to see and open
+ * someone's days without acting as them. Nothing for anyone else.
  */
 export function PeopleDays({ people = [], date, plan }) {
   const [open, setOpen] = useState(null)
+  const [seen, setSeen] = useState(0)
   if (!people.length) return null
   return (
     <>
-      <div className="peopledays" role="group" aria-label="Other people's days">
-        {people.map(p => (
-          <button key={p.id} type="button" className="chip peopleday" data-tone={toneFor(people, p.id)}
-            onClick={() => setOpen(p)}>
-            <span className="side-dot" data-tone={toneFor(people, p.id)} /> {p.name}&rsquo;s day
-          </button>
-        ))}
-      </div>
+      <section className="card peopledays" aria-label="Other people's days">
+        <div className="list">
+          {people.map(p => (
+            <PersonDayRow key={p.id} person={p} tone={toneFor(people, p.id)} date={date} plan={plan} seen={seen}
+              onOpen={() => setOpen(p)} />
+          ))}
+        </div>
+      </section>
       {open && (
         <PersonDay person={{ ...open, tone: toneFor(people, open.id) }} date={date} plan={plan}
-          onClose={() => setOpen(null)} />
+          onClose={() => { setOpen(null); setSeen(n => n + 1) }} />
       )}
     </>
+  )
+}
+
+/**
+ * One person's row: their initial, "Sam's day", and what is on it, read from
+ * their log on the server. Until that answers (and during SSR) the row is just
+ * the door; a failed read leaves it that way.
+ */
+function PersonDayRow({ person, tone, date, plan, seen, onOpen }) {
+  const [names, setNames] = useState(null)
+  useEffect(() => {
+    let live = true
+    setNames(null)
+    peopleApi.getPersonDay(person.id, date)
+      .then(entries => { if (live) setNames(dayOf(entries, date).map(e => dayRow(e, plan?.dailyMenu || []).name)) })
+      .catch(() => { /* offline or refused: the row is still the way in */ })
+    return () => { live = false }
+  }, [person.id, date, plan, seen])
+  return (
+    <button type="button" className="list-row peopleday" data-tone={tone} onClick={onOpen}>
+      <Avatar name={person.name} tone={tone} />
+      <span className="list-row-main">
+        <span className="list-row-title">{person.name}&rsquo;s day</span>
+        {names && <span className="list-row-meta">{names.length ? names.join(' · ') : 'Nothing on it yet'}</span>}
+      </span>
+      <Icon name="ChevronRight" size={16} className="list-row-chev" />
+    </button>
   )
 }
 
@@ -276,43 +310,55 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
   const me = currentMe()
   const menu = (log.plan || plan)?.dailyMenu || []
   const today = localIso()
+  const thisWeek = monday === mondayOf(today)
   const label = `${fromIso(monday).toLocaleDateString([], { month: 'short', day: 'numeric' })} – ` +
     `${fromIso(weekDays(monday)[6]).toLocaleDateString([], { month: 'short', day: 'numeric' })}`
 
   return (
     <FullScreen title={`${person.name}’s week`} sub={label} icon="Users" onBack={onClose}>
       <div className="pday-wrap" data-tone={person.tone ?? 1}>
-        <div className="daynav">
-          <button onClick={() => setMonday(m => shiftWeek(m, -1))} aria-label="previous week">‹</button>
-          <span className="daynav-label">{label}{monday === mondayOf(today) && <em> · this week</em>}</span>
-          <button onClick={() => setMonday(m => shiftWeek(m, 1))} aria-label="next week">›</button>
+        <div className="pday-nav">
+          <button type="button" className="iconbtn" onClick={() => setMonday(m => shiftWeek(m, -1))} aria-label="Previous week">
+            {/* lib/icons.jsx (the shell's) has no ChevronLeft; the right one, mirrored. */}
+            <Icon name="ChevronRight" size={20} style={{ transform: 'scaleX(-1)' }} />
+          </button>
+          <span className="pday-nav-label">{thisWeek ? 'This week' : label}</span>
+          <button type="button" className="iconbtn" onClick={() => setMonday(m => shiftWeek(m, 1))} aria-label="Next week">
+            <Icon name="ChevronRight" size={20} />
+          </button>
         </div>
         <p className="sub pday-lead">
-          What is on {person.name}&rsquo;s days. Open one to log it or run it from {person.name}&rsquo;s side;
-          everything you change is written to {person.name}&rsquo;s log.
+          <Avatar name={person.name} tone={person.tone ?? 1} small /> Everything you change here goes in {person.name}&rsquo;s log.
         </p>
         {log.loading && <p className="sub">Opening {person.name}&rsquo;s log…</p>}
         {log.error && <p className="withrow-err">Could not open {person.name}&rsquo;s log: {log.error}</p>}
         {log.ready && weekDays(monday).map(d => {
           const rows = dayOf(log.entries, d).map(e => dayRow(e, menu, me))
           return (
-            <section key={d} className={`pday ${d === today ? 'today' : ''}`}>
-              <h3 className="pday-date">{fromIso(d).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</h3>
-              {rows.length ? rows.map(r => (
-                <button key={r.id} type="button" className="pday-row" onClick={() => setOpenId(r.id)}>
-                  <span className={`dl-check ${r.done ? 'on' : ''}`}>
-                    <Icon name={r.done ? 'CircleCheck' : 'Circle'} size={16} />
-                  </span>
-                  <span className="pday-name">
-                    <strong>{r.name}</strong>
-                    <span className="sub">
-                      {[r.running ? 'in progress' : r.done ? 'done' : 'not done yet', r.plannedBy, r.sharedFrom ? 'shared' : null]
-                        .filter(Boolean).join(' · ')}
-                    </span>
-                  </span>
-                  <Icon name="ChevronRight" size={16} />
-                </button>
-              )) : <p className="sub pday-none">Nothing on this day.</p>}
+            <section key={d} className={d === today ? 'pday today' : 'pday'}>
+              <div className="section-head">
+                <h3>{dayWords(d)}</h3>
+                {d === today ? <span className="sub pday-today">Today</span> : !rows.length && <span className="sub">Nothing</span>}
+              </div>
+              {rows.length > 0 && (
+                <div className="card pday-list">
+                  <div className="list">
+                    {rows.map(r => (
+                      <button key={r.id} type="button" className="list-row" onClick={() => setOpenId(r.id)}>
+                        <span className={r.done ? 'pday-check on' : 'pday-check'}>
+                          <Icon name={r.done ? 'CircleCheck' : 'Circle'} size={20} />
+                        </span>
+                        <span className="list-row-main">
+                          <span className="list-row-title">{r.name}</span>
+                          <span className="list-row-meta">{rowMeta(r)}</span>
+                        </span>
+                        <Icon name="ChevronRight" size={16} className="list-row-chev" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {!rows.length && d === today && <p className="sub pday-none">Nothing on today.</p>}
             </section>
           )
         })}
@@ -332,9 +378,12 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
 }
 
 /**
- * One of someone's sessions, opened by the owner: the plan, their form (no WHOOP
- * or Strava; those are the owner's accounts), done, and Start, which runs it from
- * their side. Every write goes to that one entry in their log.
+ * One of someone's sessions, opened by the owner: whose log it is (their
+ * initial, in their colour), the plan, their form (no WHOOP or Strava; those are
+ * the owner's accounts), and Start, which runs it from their side. Every write
+ * goes to that one entry in their log. Done is the default once its day arrives
+ * (AGENTS.md §4), so the footer offers the exception: Mark undone, or Mark done
+ * on one that was undone.
  */
 export function PersonEntrySheet({ person, entryId, menu = [], entries = [], onClose }) {
   const copy = usePersonCopy(person.id, entryId, person.name)
@@ -354,28 +403,32 @@ export function PersonEntrySheet({ person, entryId, menu = [], entries = [], onC
 
   const done = isDone(e)
   const pres = e?.data?.plan || null
+  const start = Boolean(kind && e && canStart(e))
+  const by = e ? plannedLine(e, me) : null
   return (
-    <Modal title={e?.data?.name || opt?.name || 'Session'} sub={`${person.name}’s log`} icon="Users" onClose={onClose}
+    <Modal title={e?.data?.name || opt?.name || 'Session'} sub={e?.date ? dayWords(e.date) : `${person.name}’s log`} icon="Users" onClose={onClose}
       footer={e && !e.deleted ? (
         <div className="sheet-actions">
-          {kind && canStart(e) && (
+          {start && (
             <button className="btn" onClick={() => setRunning(true)}>
               <Icon name="Play" size={16} /> Start for {person.name}
             </button>
           )}
-          <button className={`btn done-btn ${done ? 'ghost on' : ''}`} aria-pressed={done}
+          <button className={done ? 'btn quiet' : start ? 'btn secondary' : 'btn'} aria-pressed={done}
             onClick={() => copy.update(cur => applyDone(cur, !done))}>
             <Icon name={done ? 'CircleCheck' : 'Circle'} size={16} />
-            {done ? `Done for ${person.name} · Mark undone` : `Mark done for ${person.name}`}
+            {done ? 'Mark undone' : `Mark done for ${person.name}`}
           </button>
         </div>
       ) : null}>
-      <p className="forline" data-tone={tone}><Icon name="Users" size={13} /> {person.name}&rsquo;s side</p>
+      <p className="forline" data-tone={tone}>
+        <Avatar name={person.name} tone={tone} small />
+        <span><strong>{person.name}&rsquo;s log</strong>{by ? ` · ${by}` : ''}</span>
+      </p>
       {copy.loading && <p className="sub">Opening {person.name}&rsquo;s log…</p>}
       {copy.error && <p className="withrow-err">{copy.error}</p>}
       {e && !e.deleted && (
         <>
-          {plannedLine(e, me) && <p className="sharednote"><Icon name="ClipboardCheck" size={12} /> {plannedLine(e, me)}</p>}
           {pres && (
             <div className="pday-plan">
               <p className="sub">{prescriptionLine(pres)}</p>

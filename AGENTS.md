@@ -101,10 +101,12 @@ reasons behind the design, and the things that have been removed on purpose.
 | Pickers | `app/src/picker.jsx`, `app/src/lib/folders.js` | `PickerScreen`, `ActivityChooser` (Log a workout: the sports catalog, then the plan's cards under Climbing, in folders by `sched.discipline`). Declaration order, no ranking. |
 | Unlogged workouts | `app/src/lib/unlogged.js`, `app/src/unlogged.jsx` | What WHOOP/Strava saw that the log lacks; `pairUp`, `mergeTargets`, `outWith()`. |
 | Session sheet / edit panel | `app/src/sessionlog.jsx` | `SessionLog`, `SessionDetails`, `DetailsSheet`, `NameField`. |
+| Day switcher | `app/src/tabs.jsx` (`DaySwitcher`, `dayWords`) | ‹ day › in words; Today's title and the rest day's date (§10.9). The phone's is `mobile/src/ui/DayStepper.tsx`. |
+| Toasts | `app/src/toast.jsx`, `app/src/lib/toast.js` | Mobile's API (`pushToast`, `pushError`) on the web: a removal's Undo, a failed save's Retry. |
 | Log feed | `app/src/log.jsx` | Newest first; the open sheet is keyed by ID. |
 | Progress | `app/src/lib/scope.js`, `app/src/lib/metrics.js`, `app/src/progress.jsx` | Charts declare when they apply. |
 | Gear | `app/src/lib/gear.js`, `app/src/gear.jsx`, `app/src/gearpicker.jsx` | Two origins (§6.9). |
-| Profile | `app/src/lib/profile.js`, `app/src/profile.jsx` | A `Popover`, not a `FullScreen`. |
+| Profile | `app/src/lib/profile.js`, `app/src/profile.jsx` | A `Popover`, not a `FullScreen`. Opens on a list of sections (`homePages`), each a page with a back button; Testing and Why (`testing.jsx`) are under Climbing. |
 | Number inputs | `app/src/numinput.jsx`, `app/src/lib/numtext.js` | Text inputs that own their text (§6.4). |
 | Body diagram | `app/src/lib/bodymap.jsx`, `app/muscles.build.mjs` | `react-body-highlighter` + `free-exercise-db`; nothing hand-drawn. |
 | How-to figures | `app/src/howto.jsx`, `app/src/lib/figures.jsx` | Registry of SVG figures named by content. |
@@ -466,7 +468,7 @@ override, and its absence must render exactly like the app before it existed.
 - **Entry ids are derivable on purpose.** `daily-<date>` is the main session;
   `daily-<date>-<optId>` an extra; a repeatable card's further copies take
   `-2`, `-3`… (`extraEntryId` in `lib/store.js` is the only thing that mints one, and only
-  on an explicit "log another"). Two offline devices doing the same act compute the same
+  for a new workout on a day that already has one). Two offline devices doing the same act compute the same
   id, so the merge has something to agree about.
 - **Done once its day arrives, unless marked undone** (since 2026-10-25, docs/DESIGN.md D2).
   An entry created for today or an earlier day is written `done: true` (`doneWhenPlaced`);
@@ -1054,12 +1056,13 @@ the absence of the old door.
 
 Removed, each pinned absent: `FullScreenSession` (a third way to read a session),
 `AdjunctPills` (unused add-ons), the sheet's "MAIN/ADDED SESSION" strap, the sheet's own
-"log another" link (**the day-list button is the door — keep it**), the footer "remove"
+"log another" link (the + is the door; the day list's own dashed "Log another" button went
+too in #41, §10.9), the footer "remove"
 link (now a header bin with a confirmation), the name box in the form (now behind the
 pencil), boilerplate protocols on the two container cards (now a plain notes box), lift
 rest intervals, and the runner for lift-only sessions.
 
-Added: everything folds; reorder per section; `out.notes` back as a plain notes box (same
+Added: everything folds (except the log form, which is open since #41); reorder per section; `out.notes` back as a plain notes box (same
 key, so old notes read back); several measurements per session (`out.whoop` keeps the
 first so every older reader stays right; extras in `*More`); a Warm-up button on unlogged
 workouts; `priorIds` for history.
@@ -1089,9 +1092,10 @@ phone, suspect the inset before the stacking order.
 
 ### 10.6 Rest days have their own door
 
-**Log a rest day** is on Today's empty day card (when viewing today) and in the + menu,
-both opening `RestPrompt` in `App.jsx`. It asks why (chips from the rest card's own
-`why` output, plus notes; both optional), has a date field for a forgotten rest day, and
+**Rest day** is a quiet button on Today's empty day (any day up to today), and **Log a
+rest day** is in the + menu, both opening `RestPrompt` in `App.jsx`. It asks why (chips
+from the rest card's own `why` output, plus "Notes"; both optional), has the day switcher
+for a forgotten rest day, and
 edits an existing rest entry rather than adding a second. `restStats` in `lib/stats.js`
 shows the why on the row. Pinned by `FabMenu(four doors…)` and
 `RestPrompt(asks why before logging)`.
@@ -1142,6 +1146,31 @@ What that means for the code that stays:
   removed content in the starter).
 
 ---
+
+### 10.9 Today and the session sheet, redone (#41, 2026-10-25)
+
+The owner called the old screens atrocious. Same functions; what changed, each pinned in
+the batch A section of `app/smoke.jsx`:
+
+- **The day is Today's title** (`DaySwitcher` with `title`): "Today" / "Yesterday" / a
+  date, ‹ › beside it, a quiet "Today" to come back. Not a card for two arrows.
+- **One card of rows.** Name, one meta line (time · distance as typed or measured, never
+  the card's estimate; what was lifted; a rest day's why), and done said once, by the
+  leading icon. Pinned absent: the MAIN/ADDED pill, the second tick, the "planned" chip,
+  "RPE" on the row, and the dashed "Log another workout" (the + does that).
+- **The empty day** is "Nothing logged today", batch B's quick-log rows (a stub until #42
+  lands), **Log a workout** as the primary, **Rest day** quiet. No paragraph; Plan a
+  workout is the + menu's.
+- **The sheet**: the header is the name over "Today · 29 min" (the day and the time as
+  typed); the log form is always open (the "How did it go?" / "Session logged" fold is
+  gone); the activity is a row that opens the picker; the card's example numbers are no
+  longer placeholders (a placeholder is a guess the app made, §6.4); the footer's primary
+  is **Close** (or Start, when there is something to run) with **Mark undone** / **Mark
+  done** quiet beside it, and neither on a later day; the interval timer is a row at the
+  foot of the body.
+- **Removing** a workout closes the sheet and shows a toast with **Undo**, which writes
+  the entry (and its test result) back. A failed write to someone else's copy shows one
+  with **Retry**.
 
 ## 11. Before you finish
 

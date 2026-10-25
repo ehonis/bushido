@@ -5,132 +5,12 @@
  * Moved out of styles.css rule for rule and in the same order (2026-10-25). Tokens, base
  * components and the shell stay there; this file only uses them.
  */
-/* --------------------------------------------------------- daily habit opts */
-
-.opts { display: grid; gap: 8px; }
-.opt {
-  display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; text-align: left;
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
-  padding: 12px 14px; color: inherit; font: inherit; cursor: pointer;
-}
-.opt:hover { border-color: var(--ink-faint); }
-.opt.on { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 9%, var(--panel-2)); }
-.opt-name { font-weight: 600; font-size: 14px; }
-.opt-meta { font-size: 12px; color: var(--ink-faint); text-align: right; }
-.opt-dose { grid-column: 1 / -1; font-size: 13px; color: var(--ink-dim); }
-
-/* --------------------------------------------------- recommended session */
-
-.card.rec { border-color: color-mix(in oklab, var(--accent) 38%, var(--line)); }
-.card.rec.done { border-color: color-mix(in oklab, var(--viz-good) 40%, var(--line)); }
-
-.rec-tag {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em;
-  color: var(--accent); margin-bottom: 10px;
-}
-.card.rec.done .rec-tag { color: var(--viz-good); }
-
-.rec-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-
-.rec-icon {
-  flex: 0 0 auto; width: 42px; height: 42px; border-radius: 10px;
-  display: grid; place-items: center;
-  background: color-mix(in oklab, var(--accent) 14%, var(--panel-2));
-  color: var(--accent);
-}
-.card.rec.done .rec-icon { background: color-mix(in oklab, var(--viz-good) 14%, var(--panel-2)); color: var(--viz-good); }
-
-.rec-name { font-size: 17px; font-weight: 600; line-height: 1.25; }
-.rec-meta { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-faint); margin-top: 2px; }
-.rec-check { color: var(--viz-good); flex: 0 0 auto; }
-
-.rec-dose { margin: 0; font-size: 14px; color: var(--ink-dim); }
-.rec-why {
-  margin: 10px 0 0; font-size: 13px; color: var(--ink-faint);
-  border-left: 2px solid var(--line); padding-left: 10px;
-}
-
-/* ------------------------------------------- why this is today's pick */
-
-.recwhy-head {
-  display: flex; align-items: center; gap: 9px; width: 100%;
-  background: transparent; border: 0; color: var(--ink); font: inherit; font-size: 14px;
-  cursor: pointer; padding: 0; min-height: 44px; text-align: left;
-}
-/* The same header with nothing to expand — the day's own note, while the day is
-   still three questions and there is no per-session scoring to open. */
-.recwhy-head.static { cursor: default; min-height: 0; padding-bottom: 2px; }
-.recwhy-ico { color: var(--accent); display: inline-flex; flex: 0 0 auto; }
-.recwhy-title { flex: 1 1 auto; color: var(--ink-dim); }
-.recwhy-title strong { color: var(--ink); font-weight: 600; }
-
-.recwhy-lead {
-  margin: 2px 0 0; font-size: 13px; color: var(--ink-dim);
-  border-left: 2px solid color-mix(in oklab, var(--accent) 45%, var(--line)); padding-left: 10px;
-}
-.recwhy-note { margin: 10px 0 0; font-size: 13px; color: var(--ink-faint); }
-.recwhy-block {
-  margin: 10px 0 0; font-size: 13px; color: var(--ink-faint);
-  border-left: 2px solid color-mix(in oklab, var(--viz-crit) 40%, var(--line)); padding-left: 10px;
-}
-.recwhy-block svg { vertical-align: -2px; color: var(--viz-crit); }
-.recwhy-block strong { color: var(--ink-dim); }
-
-.recwhy-list { list-style: none; margin: 12px 0 0; padding: 0; }
-.recwhy-list li {
-  display: flex; gap: 9px; font-size: 13px; color: var(--ink-faint);
-  padding: 5px 0; border-top: 1px solid var(--line);
-}
-.recwhy-pts {
-  flex: 0 0 34px; text-align: right; font-variant-numeric: tabular-nums;
-  color: var(--viz-good); font-size: 12px; line-height: 1.5;
-}
-.recwhy-list.against .recwhy-pts { color: var(--viz-warn); }
-.recwhy-budget { margin-top: 12px; }
-
-/* ------------------------------------------------------------ alternatives */
-
-.alt-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  width: 100%; background: transparent; border: 0; color: var(--ink);
-  font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
-  padding: 0; min-height: 32px; text-align: left;
-}
-.alt-chev { color: var(--ink-faint); display: inline-flex; transition: transform 0.15s ease; }
-.alt-chev.open { transform: rotate(180deg); }
-
-.opt-name { display: inline-flex; align-items: center; gap: 7px; }
-.opt-when {
-  grid-column: 1 / -1; font-size: 12px; color: var(--ink-faint);
-  margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line);
-}
-
-.ev-badge { display: inline-flex; align-items: center; gap: 4px; }
-.tile-icon { color: var(--ink-faint); }
-
 /* ------------------------------------------------------ session instructions */
+
+.rec-dose { margin: 0; font-size: var(--fs-body); color: var(--ink-dim); }
 
 .sess { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px; }
 .sess-dur { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-faint); margin-bottom: 14px; }
-
-.sess-sec { margin-bottom: 18px; }
-.sess-sec:last-child { margin-bottom: 0; }
-.sess-sec h4 {
-  display: flex; align-items: center; gap: 5px;
-  font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em;
-  color: var(--ink-faint); margin: 0 0 8px;
-}
-.sess-sec.block { background: var(--panel-2); border-radius: 8px; padding: 13px; }
-.sess-sec.block h4 { color: var(--accent); }
-.sess-sec.stop h4 { color: var(--viz-warn); }
-
-.sess-list { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.5; }
-.sess-list li { margin-bottom: 7px; }
-.sess-list li:last-child { margin-bottom: 0; }
-.sess-list.num { padding-left: 20px; }
-.sess-sec.stop .sess-list { color: var(--ink-dim); }
-.sess-log { margin: 0; font-size: 13px; color: var(--ink-dim); }
 
 /* -------------------------------------------------------------- load block */
 
@@ -149,19 +29,12 @@
 .load-src { font-size: 11px; color: var(--ink-faint); }
 .load-unknown { display: flex; align-items: flex-start; gap: 7px; font-size: 13px; color: var(--ink-dim); }
 
-/* --------------------------------------------------------- alt option card */
-
-.opt-wrap { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-.opt-wrap.on { border-color: var(--accent); }
-.opt-wrap .opt { background: transparent; border: 0; border-radius: 0; width: 100%; }
-.opt-detail { padding: 0 14px 14px; }
-.opt-detail .sess { margin-top: 0; border-top: 0; padding-top: 0; }
-
 /* ------------------------------------------------------------ session outputs */
 
-.outlog { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 13px; }
-.outlog.done .alt-head { color: var(--viz-good); }
-.out-body { margin-top: 14px; display: grid; gap: 16px; }
+.outlog { margin-top: var(--sp-4); border-top: 1px solid var(--line); padding-top: var(--sp-4); }
+/* First in the sheet (the workout card's form leads it): no divider above it. */
+.modal-body > .outlog:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
+.out-body { display: grid; gap: var(--sp-4); }
 
 .out-field { display: grid; gap: 7px; }
 .out-label { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--ink-dim); }
@@ -169,6 +42,7 @@
   font-size: 17px; font-weight: 600; color: var(--ink);
   font-variant-numeric: tabular-nums; min-width: 24px; text-align: right;
 }
+.out-value.guess { color: var(--ink-faint); font-weight: 500; }
 .out-scale { display: flex; justify-content: space-between; font-size: 10px; color: var(--ink-faint); gap: 6px; }
 .out-scale span:not(:first-child):not(:last-child) { display: none; }
 @media (min-width: 480px) { .out-scale span { display: inline !important; } }
@@ -223,71 +97,13 @@
 .ev-note p { margin: 8px 0 0; font-size: 13px; color: var(--ink-dim); }
 .ev-note .ev-src { font-size: 11px; color: var(--ink-faint); }
 
-.grade { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+.grade { font-size: var(--fs-caption);
   padding: 2px 6px; border-radius: 4px; border: 1px solid currentColor; white-space: nowrap; }
 .g-rct, .g-controlled-trial { color: var(--viz-good); }
 .g-observational, .g-expert-consensus { color: var(--viz-warn); }
 .g-coach-convention, .g-unsupported { color: var(--ink-faint); }
 
 /* Desktop, from styles.css's DESKTOP block: this area's part of it. */
-@media (min-width: 1024px) {
-  .sess-list { font-size: 15px; }
-}
-
-
-/* --------------------------------------------------------------- day nav */
-
-.daynav {
-  display: flex; align-items: center; gap: 6px;
-  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 6px; margin-bottom: 14px;
-}
-.daynav.future { border-style: dashed; border-color: var(--ink-faint); }
-
-.daynav-arrow {
-  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
-  width: 40px; height: 40px; border-radius: 8px;
-  background: transparent; border: 0; color: var(--ink-dim); cursor: pointer;
-}
-.daynav-arrow:hover { background: var(--panel-2); color: var(--ink); }
-
-.daynav-mid { flex: 1; min-width: 0; text-align: center; }
-.daynav-label { font-size: 14px; font-weight: 600; line-height: 1.2; }
-.daynav.future .daynav-label { color: var(--ink-dim); }
-.daynav-date { font-size: 12px; color: var(--ink-faint); }
-
-.daynav-today {
-  flex: 0 0 auto; font: inherit; font-size: 12px; color: var(--ink-dim);
-  background: transparent; border: 1px solid var(--line); border-radius: 999px;
-  padding: 5px 10px; cursor: pointer; min-height: 32px;
-}
-.daynav-today:hover { color: var(--ink); border-color: var(--ink-faint); }
-
-/* ------------------------------------------------------- tiered alternatives */
-
-.swapgroup { margin-bottom: 18px; }
-.swapgroup:last-child { margin-bottom: 0; }
-
-.swapgroup-head {
-  display: flex; align-items: center; gap: 7px; margin-bottom: 9px;
-  font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-faint);
-}
-.swapgroup-n {
-  margin-left: auto; font-size: 11px; letter-spacing: 0;
-  background: var(--panel-2); border-radius: 999px; padding: 1px 7px;
-}
-.swapgroup.swap .swapgroup-head { color: var(--viz-good); }
-.swapgroup.ok .swapgroup-head { color: var(--viz-warn); }
-.swapgroup.avoid .swapgroup-head { color: var(--viz-crit); }
-
-.opt-why-tier {
-  grid-column: 1 / -1; font-size: 12px; margin-top: 7px;
-  padding-top: 7px; border-top: 1px solid var(--line); color: var(--ink-dim);
-}
-.t-avoid { opacity: 0.62; }
-.t-avoid .opt-why-tier { color: var(--viz-crit); }
-.t-swap { border-color: color-mix(in oklab, var(--viz-good) 28%, var(--line)); }
-.t-avoid { border-color: color-mix(in oklab, var(--viz-crit) 24%, var(--line)); }
 
 /* ------------------------------------------------------------ per-set log */
 
@@ -306,8 +122,7 @@
 
 .exlog-table { width: auto; font-size: 13px; }
 .exlog-table th {
-  padding: 0 6px 4px; font-size: 10px; text-transform: uppercase;
-  letter-spacing: 0.05em; color: var(--ink-faint); font-weight: 500;
+  padding: 0 6px 4px; font-size: var(--fs-caption); color: var(--ink-faint); font-weight: 500;
 }
 .exlog-table td { padding: 3px 6px; border: 0; }
 .exlog-table .c-set { color: var(--ink-faint); font-variant-numeric: tabular-nums; width: 22px; text-align: center; }
@@ -333,8 +148,7 @@
 .gradelaps { display: flex; flex-wrap: wrap; gap: 8px 12px; padding: 2px 0 6px; }
 .gradelap { display: inline-flex; align-items: center; gap: 6px; }
 .gradelap-n {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
-  color: var(--ink-faint); white-space: nowrap;
+  font-size: var(--fs-caption); color: var(--ink-faint); white-space: nowrap;
 }
 .gradesel {
   font: inherit; font-size: 16px; min-height: 44px; padding: 6px 8px;
@@ -405,119 +219,13 @@
 
 /* A number the app answered for the user, and one it worked out. Both are labelled
    rather than silent: a value the user did not type must never look like one they did. */
-.out-from {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--accent); margin-left: 6px;
-}
-.out-derived { font-size: 11px; color: var(--ink-faint); }
-
-.extra-another { color: var(--ink-dim); display: inline-flex; align-items: center; gap: 5px; }
-
-/* "Log another workout", under the day. A second one of a card that can be
-   logged twice — the run and the lift — reachable in one tap from the day
-   itself, because the swap list above hides whatever is already your main. */
-.dl-again { color: var(--accent); border-style: solid; }
-.dl-again-n {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--ink-faint); margin-left: 4px;
-}
-
-/* --------------------------------------------------------------- add-ons */
-
-.adj { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 13px; }
-.adj-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-faint); margin-bottom: 8px; }
-.adj-pills { display: flex; flex-wrap: wrap; gap: 7px; }
-
-.adj-pill {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px;
-  color: var(--ink-dim); font: inherit; font-size: 13px;
-  padding: 7px 13px; cursor: pointer; min-height: 38px;
-}
-.adj-pill:hover { border-color: var(--ink-faint); color: var(--ink); }
-.adj-pill.on {
-  background: color-mix(in oklab, var(--viz-good) 14%, var(--panel-2));
-  border-color: color-mix(in oklab, var(--viz-good) 50%, var(--line));
-  color: var(--ink);
-}
-.adj-min { font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
-
-.adj-info { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
-.adj-more {
-  font: inherit; font-size: 11px; color: var(--ink-faint); background: transparent;
-  border: 0; padding: 2px 0; cursor: pointer; text-decoration: underline;
-  text-decoration-color: var(--line); text-underline-offset: 3px;
-}
-.adj-more:hover { color: var(--ink-dim); }
-.adj-detail { margin-top: 10px; background: var(--panel-2); border-radius: 8px; padding: 12px 14px; }
-.adj-detail .sess { margin-top: 0; border-top: 0; padding-top: 0; }
-
-/* -------------------------------------------------------------- history */
-
-.hday { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
-.hday.open { border-color: var(--ink-faint); }
-
-.hday-head {
-  display: flex; align-items: center; gap: 12px; width: 100%;
-  background: transparent; border: 0; color: inherit; font: inherit;
-  padding: 12px 14px; cursor: pointer; text-align: left; min-height: var(--tap);
-}
-.hday-head:hover { background: var(--panel-2); }
-.hday-date { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--ink-dim); flex: 0 0 auto; min-width: 92px; }
-.hday-name { flex: 1; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hday-n { font-size: 11px; color: var(--ink-faint); background: var(--panel-2); border-radius: 999px; padding: 2px 8px; }
-
-.hday-body { padding: 0 14px 12px; }
-
-.hrow { border-top: 1px solid var(--line); }
-.hrow:first-child { border-top: 0; }
-
-.hrow-head {
-  display: flex; align-items: center; gap: 11px; width: 100%;
-  background: transparent; border: 0; color: inherit; font: inherit;
-  padding: 11px 0; cursor: pointer; text-align: left; min-height: 46px;
-}
-.hrow-ico { color: var(--ink-faint); flex: 0 0 auto; display: inline-flex; }
-.hrow-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.hrow-title { font-size: 14px; font-weight: 500; }
-.hrow-sum { font-size: 12px; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hrow-body { padding: 0 0 14px; }
-.hrow-adj { margin: 10px 0 0; font-size: 12px; color: var(--ink-dim); }
-
-/* Minutes trained, per session. Half of the training-load figure, and the half
-   most often wrong when a session was run outside workout mode. */
-.hmins { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
-.hmins label.field { flex: 0 1 132px; }
-.hmins .btn { flex: 0 0 auto; }
-.hmins-src { flex: 1 1 100%; margin: 2px 0 0; font-size: 12px; color: var(--ink-faint); }
-/* The day's total, which is the sum of the sessions under it. */
-.hday-mins {
-  font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums;
-  flex: 0 0 auto; white-space: nowrap;
-}
-.hrow-body .btn.ghost { display: inline-flex; align-items: center; gap: 6px; }
+.out-from { font-size: var(--fs-caption); color: var(--ink-dim); margin-left: 6px; }
+.out-derived { font-size: var(--fs-caption); color: var(--ink-faint); }
 
 /* ------------------------------------------------------------- rest day */
 
-/* Deliberately not styled like a session card — resting is a different kind
-   of thing, and the UI should stop presenting it as one more workout. */
-.card.restday {
-  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-  background: linear-gradient(160deg,
-    color-mix(in oklab, var(--series-1) 10%, var(--panel)),
-    var(--panel) 65%);
-  border-color: color-mix(in oklab, var(--series-1) 28%, var(--line));
-}
-
-.restday-ico {
-  flex: 0 0 auto; width: 54px; height: 54px; border-radius: 50%;
-  display: grid; place-items: center;
-  background: color-mix(in oklab, var(--series-1) 16%, var(--panel-2));
-  color: var(--load-3);
-}
-.restday-mid { flex: 1; min-width: 180px; }
-.restday-title { font-size: 18px; font-weight: 600; line-height: 1.2; }
-.restday-sub { margin: 5px 0 0; font-size: 13px; color: var(--ink-dim); max-width: 62ch; }
+/* A quiet dashed button. Only the profile and gear use it now (batch D's
+   screens); the rest-day card it was made for went with the recommender. */
 
 .restbtn {
   display: flex; align-items: center; justify-content: center; gap: 9px;
@@ -531,124 +239,6 @@
   border-color: color-mix(in oklab, var(--series-1) 40%, var(--line));
   border-style: solid;
 }
-
-/* ------------------------------------------------------------- swap dialog */
-
-/* Compact by design: the alternatives list is a list of names, and the reading
-   happens in the dialog. Fifteen expanded protocols is not a menu, it's a wall. */
-.swaprow {
-  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
-  padding: 11px 13px; min-height: var(--tap);
-  color: inherit; font: inherit; cursor: pointer;
-}
-.swaprow:hover { border-color: var(--ink-faint); }
-.swaprow-ico { flex: 0 0 auto; color: var(--ink-faint); display: inline-flex; }
-.swaprow-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; }
-.swaprow-min { font-size: 12px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
-.swaprow-chev { color: var(--ink-faint); display: inline-flex; }
-.swaprow.t-swap .swaprow-ico { color: var(--viz-good); }
-.swaprow.t-ok .swaprow-ico { color: var(--viz-warn); }
-.swaprow.t-avoid { opacity: 0.66; }
-.swaprow.t-avoid .swaprow-ico { color: var(--viz-crit); }
-
-.swapverdict {
-  display: flex; gap: 9px; align-items: flex-start;
-  border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px; margin-bottom: 14px;
-}
-.swapverdict strong { font-size: 13px; }
-.swapverdict p { margin: 3px 0 0; font-size: 13px; color: var(--ink-dim); }
-.swapverdict.t-swap { border-color: color-mix(in oklab, var(--viz-good) 34%, var(--line)); color: var(--viz-good); }
-.swapverdict.t-ok { border-color: color-mix(in oklab, var(--viz-warn) 34%, var(--line)); color: var(--viz-warn); }
-.swapverdict.t-avoid { border-color: color-mix(in oklab, var(--viz-crit) 34%, var(--line)); color: var(--viz-crit); }
-
-.swapwhen {
-  margin: 10px 0 0; font-size: 13px; color: var(--ink-faint);
-  border-left: 2px solid var(--line); padding-left: 11px;
-}
-
-/* Logged-and-green outranks swapped-and-blue: done is the more useful signal. */
-.card.rec.swapped:not(.done) { border-color: color-mix(in oklab, var(--series-1) 40%, var(--line)); }
-.card.rec.swapped:not(.done) .rec-tag { color: var(--load-3); }
-
-.linkbtn {
-  background: transparent; border: 0; padding: 0; cursor: pointer;
-  font: inherit; color: var(--accent); text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-/* ---------------------------------------------------------- extra sessions */
-
-.card.rec.extra { border-color: color-mix(in oklab, var(--accent) 32%, var(--line)); }
-.card.rec.extra .rec-tag { color: var(--accent); }
-.card.rec.extra .rec-icon { background: color-mix(in oklab, var(--accent) 14%, var(--panel-2)); color: var(--accent); }
-.extra-rm { display: block; margin: 14px 0 0; font-size: 13px; color: var(--ink-faint); }
-.extra-rm:hover { color: var(--viz-crit); }
-
-.swaprow-added {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--accent); background: color-mix(in oklab, var(--accent) 14%, transparent);
-  border-radius: 999px; padding: 2px 7px;
-}
-.swaprow.added { border-color: color-mix(in oklab, var(--accent) 32%, var(--line)); }
-
-/* ------------------------------------------------------------- the day list */
-
-/* First card on the screen: every session you're doing today, as names only.
-   The protocols live in the sheet — a dashboard showing three full protocols
-   at once is a dashboard you scroll past instead of reading. */
-.daylist h2 { margin-bottom: 10px; }
-.dl-rows { display: grid; gap: 8px; }
-
-/* One child now that suggestions (and their dismiss target) are gone. Kept as a
-   wrapper because the row is a button and nesting one inside another is not a
-   thing you can do — if a second control ever returns here, this is where. */
-.dl-rowwrap { display: flex; align-items: stretch; gap: 6px; }
-.dl-rowwrap > .dl-row { flex: 1; min-width: 0; }
-
-
-.dl-row {
-  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
-  background: var(--panel-2); border: 1px solid var(--line);
-  border-left-width: 3px;
-  border-radius: 8px; padding: 11px 12px; min-height: var(--tap);
-  color: inherit; font: inherit; cursor: pointer;
-}
-.dl-row:hover { background: color-mix(in oklab, var(--ink) 4%, var(--panel-2)); }
-.dl-ico { flex: 0 0 auto; display: inline-flex; }
-.dl-main { flex: 1; min-width: 0; }
-.dl-name { display: block; font-size: 14px; font-weight: 600; line-height: 1.3; }
-.dl-stats {
-  display: block; font-size: 12px; color: var(--ink-faint);
-  margin-top: 2px; font-variant-numeric: tabular-nums;
-}
-.dl-tag {
-  flex: 0 0 auto; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--ink-faint); background: var(--panel); border-radius: 999px; padding: 2px 8px;
-  white-space: nowrap;
-}
-.dl-check { flex: 0 0 auto; color: var(--viz-good); display: inline-flex; }
-.dl-chev { flex: 0 0 auto; color: var(--ink-faint); display: inline-flex; }
-
-/* The outline is the session's identity, and it is the same colour on the row,
-   on the sheet and on the fullscreen page. */
-.t-rec { border-left-color: var(--accent); }
-.t-rec .dl-ico, .t-rec .dl-tag { color: var(--accent); }
-.t-extra { border-left-color: var(--series-3); }
-.t-extra .dl-ico, .t-extra .dl-tag { color: var(--series-3); }
-.t-rest { border-left-color: var(--series-1); }
-.t-rest .dl-ico, .t-rest .dl-tag { color: var(--load-3); }
-.dl-row.t-adj { border-left-color: var(--line); opacity: 0.8; }
-.dl-row.t-adj .dl-name { font-weight: 500; font-size: 13px; }
-
-
-.dl-add {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  width: 100%; margin-top: 10px; min-height: var(--tap);
-  background: transparent; border: 1px dashed var(--line); border-radius: 8px;
-  color: var(--ink-faint); font: inherit; font-size: 13px; cursor: pointer;
-}
-.dl-add:hover { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 45%, var(--line)); border-style: solid; }
 
 /* ------------------------------------------------------------- how-to */
 
@@ -740,8 +330,8 @@
 }
 .how-note > svg { flex: 0 0 auto; margin-top: 2px; color: var(--ink-faint); }
 .how-note strong {
-  display: block; color: var(--ink); font-size: 11px;
-  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px;
+  display: block; color: var(--ink); font-size: var(--fs-small); font-weight: 600;
+  margin-bottom: 2px;
 }
 .how-note.warn { border-color: color-mix(in oklab, var(--viz-warn) 35%, var(--line)); }
 .how-note.warn > svg, .how-note.warn strong { color: var(--viz-warn); }
@@ -796,7 +386,7 @@ button.btn.how-got {
 
 .sect-title {
   display: flex; align-items: center; gap: 7px; margin: 0 0 11px;
-  font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint);
+  font-size: var(--fs-small); font-weight: 600; color: var(--ink-dim);
 }
 .sect.stop .sect-title { color: var(--viz-crit); }
 
@@ -812,8 +402,8 @@ button.btn.how-got {
 }
 .step-body { flex: 1; min-width: 0; font-size: 14px; line-height: 1.55; }
 .step-lead {
-  display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
-  color: var(--accent); margin-bottom: 3px;
+  display: block; font-size: var(--fs-small); font-weight: 600;
+  color: var(--ink); margin-bottom: 3px;
 }
 .sect.stop .step-lead { color: var(--viz-crit); }
 
@@ -829,13 +419,9 @@ button.btn.how-got {
 
 /* ------------------------------------------------------------------ notes */
 
-/* Two questions at the end of every session: how it felt, and what to change.
+/* Two boxes at the end of every session: notes, and what to change next time.
    The numbers say what happened; these say why. */
 .notes { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
-.notes-head {
-  display: flex; align-items: center; gap: 6px; margin-bottom: 11px;
-  font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-faint);
-}
 
 .notefield { display: block; margin-bottom: 12px; }
 .notefield-label { display: block; font-size: 12px; color: var(--ink-dim); margin-bottom: 5px; }
@@ -856,7 +442,7 @@ button.btn.how-got {
 .prior-work { margin: 3px 0 0; font-size: 12.5px; color: var(--ink-dim); }
 .prior-head {
   display: flex; align-items: center; gap: 6px; margin-bottom: 9px;
-  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--load-3);
+  font-size: var(--fs-small); font-weight: 600; color: var(--load-3);
 }
 .prior-item + .prior-item { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
 .prior-when {
@@ -867,63 +453,6 @@ button.btn.how-got {
 .prior-improve { margin: 6px 0 0; font-size: 13px; color: var(--ink); line-height: 1.5; }
 .prior-improve strong { color: var(--load-3); }
 .notes .prior { margin-bottom: 0; }
-
-/* -------------------------------------------------------------- completion */
-
-/* Putting a session on the day and doing it are different things. The row shows
-   which: a hollow ring until you say you did it. */
-.dl-check { color: var(--ink-faint); }
-.dl-check.on { color: var(--viz-good); }
-.dl-row.done { border-left-width: 3px; }
-.dl-row:not(.done) .dl-name { color: var(--ink-dim); }
-
-button.btn.done-btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
-}
-button.btn.done-btn.on { color: var(--viz-good); border-color: color-mix(in oklab, var(--viz-good) 40%, var(--line)); }
-.fs-done { margin-bottom: 16px; }
-.fs-done .btn { width: 100%; }
-
-/* ------------------------------------------------------------------ trip */
-
-/* Four days the whole block was built for. On those dates the Today tab stops
-   being a slot in the week template and becomes this. */
-.tripnow { border-top: 3px solid var(--series-3); }
-.tripnow-head { display: flex; align-items: center; gap: 12px; }
-.tripnow-ico {
-  flex: 0 0 auto; width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center;
-  background: color-mix(in oklab, var(--series-3) 15%, var(--panel-2)); color: var(--series-3);
-}
-.tripnow-day { font-size: 16px; font-weight: 600; }
-.tripnow-area { font-size: 12px; color: var(--ink-faint); margin-top: 2px; }
-.tripnow-tally {
-  margin-left: auto; flex: 0 0 auto; font-size: 12px; color: var(--ink-dim);
-  border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; white-space: nowrap;
-}
-.tripnow-plan { font-size: 14px; line-height: 1.55; margin: 12px 0 0; color: var(--ink-dim); }
-
-.tripsess.done { border-color: color-mix(in oklab, var(--viz-good) 35%, var(--line)); }
-.tripsess .done-btn { width: 100%; margin-bottom: 12px; }
-.ci-field .out-label { font-size: 12px; }
-.pattern-delta.up { color: var(--good); }
-.pattern-delta.down { color: var(--bad); }
-
-/* -------------------------------------------------------------- day list */
-
-.dl-empty { padding: 6px 0 2px; }
-.dl-empty-lead { margin: 0 0 6px; font-size: 14px; color: var(--ink-dim); }
-.dl-empty-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.dl-empty-acts .btn { display: inline-flex; align-items: center; gap: 7px; }
-
-/* A session somebody wrote down in advance. Says so on the row, because "does
-   this one have sets in it" is the difference between opening the sheet and
-   opening the runner. */
-.plannedchip {
-  margin-left: 7px; padding: 1px 7px; border-radius: 999px;
-  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
-  color: var(--accent); background: color-mix(in oklab, var(--accent) 14%, transparent);
-  vertical-align: 1px;
-}
 
 /* ----------------------------------------------------- naming one workout
 
@@ -958,3 +487,98 @@ button.btn.done-btn.on { color: var(--viz-good); border-color: color-mix(in okla
 .out-name-more > summary::before { content: '+ '; color: var(--ink-faint); margin-right: 5px; }
 .out-name-more[open] > summary::before { content: '\2212 '; }
 .out-name-more > summary:hover { color: var(--ink-dim); }
+
+/* ------------------------------------------------- the day, as the title
+
+   docs/DESIGN.md "Today" (#41): the day is the screen's own title with ‹ ›
+   beside it, not a card for two arrows. The same switcher sits inside the rest
+   day's form as `.dayswitch`. */
+.daytitle {
+  display: flex; align-items: center; gap: var(--sp-1);
+  margin: 0 0 var(--sp-3);
+}
+.daytitle-words { flex: 1; min-width: 0; }
+.daytitle h2 { margin: 0; font-size: var(--fs-heading); font-weight: 600; line-height: var(--lh-tight); }
+.daytitle .sub { margin-top: 2px; }
+.daytitle.future h2 { color: var(--ink-dim); }
+.daytitle .iconbtn:disabled, .dayswitch .iconbtn:disabled { opacity: 0.3; cursor: default; background: transparent; }
+
+.dayswitch {
+  display: flex; align-items: center; gap: var(--sp-1);
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-control);
+}
+.dayswitch-words {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center;
+  font-size: var(--fs-body); font-weight: 600; color: var(--ink); line-height: var(--lh-tight);
+}
+.dayswitch-words .sub { font-weight: 400; font-size: var(--fs-caption); }
+.rest-day {
+  display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--sp-4);
+  font-size: var(--fs-small); color: var(--ink-dim);
+}
+
+/* ------------------------------------------------------------- the day list
+
+   One card, its rows divided by hairlines (`.list` / `.list-row`). Whether a
+   session is done is said once, by the leading icon. */
+.card.daylist { padding-top: var(--sp-1); padding-bottom: var(--sp-1); }
+.dl-state { display: inline-flex; flex: none; color: var(--ink-faint); }
+.dl-row.s-done .dl-state { color: var(--good); }
+.dl-row.s-running .dl-state { color: var(--ink); }
+.dl-row.s-open .list-row-title { color: var(--ink-dim); }
+
+/* An empty day: what goes here, then the ways to put it there. */
+.dl-empty { margin-bottom: var(--sp-3); }
+.dl-empty-title { margin: 0; font-size: var(--fs-title); font-weight: 600; color: var(--ink); }
+.dl-empty-acts { display: flex; flex-direction: column; gap: var(--sp-2); width: 100%; max-width: 320px; }
+
+/* ------------------------------------------------------- the sheet's foot
+
+   The one primary (Close, or Start), and the quiet undo beside it. */
+.sheet-foot { display: flex; gap: var(--sp-2); width: 100%; }
+.sheet-foot > .btn { flex: 1; }
+.sheet-foot > .btn.quiet { flex: 0 0 auto; }
+
+/* Tools at the foot of the sheet's body (the interval timer): a row, not a button. */
+.sheet-tools { margin-top: var(--sp-4); border-top: 1px solid var(--line); }
+
+/* The activity, once picked: a row that opens the picker. */
+.actrow-change { display: grid; gap: var(--sp-2); }
+.actrow-change > .btn.quiet { justify-self: start; }
+
+/* ------------------------------------------------------------------ toasts
+
+   toast.jsx (docs/DESIGN.md "Toast"): full width under the header, one solid fill
+   per kind, white text. A base component: it lives here until the shell mounts the
+   host for every tab, and then belongs in styles.css with it. */
+.toasts {
+  position: fixed; z-index: 100; left: var(--sp-3); right: var(--sp-3);
+  top: calc(env(safe-area-inset-top) + 60px);
+  max-width: 640px; margin: 0 auto;
+  display: grid; gap: var(--sp-2); pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex; align-items: center; gap: var(--sp-2);
+  min-height: var(--tap); padding: var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-4);
+  border-radius: var(--r-card); box-shadow: var(--elev-3);
+  color: #fff; font-size: var(--fs-body); line-height: var(--lh-tight);
+  animation: toast-in var(--dur) var(--ease-out);
+}
+.toast.t-error { background: var(--toast-error); }
+.toast.t-success { background: var(--toast-success); }
+.toast.t-info { background: var(--toast-info); }
+.toast > svg { flex: none; }
+.toast-text { flex: 1; min-width: 0; padding: var(--sp-2) 0; }
+.toast-n { font-size: var(--fs-caption); font-weight: 600; }
+.toast-act {
+  flex: none; display: inline-flex; align-items: center; gap: var(--sp-1);
+  min-height: 36px; padding: 0 var(--sp-3); border: 0; border-radius: var(--r-control);
+  background: rgb(255 255 255 / 0.15); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+}
+.toast-x {
+  flex: none; width: var(--tap); height: var(--tap); display: grid; place-items: center;
+  border: 0; border-radius: var(--r-pill); background: transparent; color: rgb(255 255 255 / 0.75); cursor: pointer;
+}
+@keyframes toast-in { from { transform: translateY(-8px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }

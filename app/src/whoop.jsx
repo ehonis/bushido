@@ -47,7 +47,7 @@ const span = (a, b) => (clock(b) ? `${clock(a)}–${clock(b)}` : clock(a))
  * `recordedPct`, because WHOOP sends it as a fraction and a complete session read
  * as "only 1% recorded" until it went through there.
  */
-function Numbers({ w, minutes }) {
+function Numbers({ w, minutes, className = 'wh-nums' }) {
   const hard = hardMinutes(w)
   const recorded = recordedPct(w.percentRecorded)
   const bits = []
@@ -62,12 +62,12 @@ function Numbers({ w, minutes }) {
   if (hard) bits.push(`${hard} min zone 3+`)
   if (w.calories) bits.push(`${w.calories} cal`)
   return (
-    <div className="wh-nums">
+    <span className={className}>
       {bits.join(' · ')}
       {recorded !== null && recorded < 95 && (
         <span className="wh-partial"> · only {recorded}% recorded</span>
       )}
-    </div>
+    </span>
   )
 }
 
@@ -118,11 +118,11 @@ function SplitEditor({ snap, onChange, onClear }) {
     <div className="wh-split">
       <div className="wh-splitrow">
         <label>
-          <span>from</span>
+          <span>From</span>
           <input type="time" value={from} onChange={e => setFrom(e.target.value)} aria-label="This session started at" />
         </label>
         <label>
-          <span>to</span>
+          <span>To</span>
           <input type="time" value={to} onChange={e => setTo(e.target.value)} aria-label="This session ended at" />
         </label>
         <span className="wh-splitmin">
@@ -132,21 +132,18 @@ function SplitEditor({ snap, onChange, onClear }) {
 
       {computed && computed.minutes === 0 && (
         <p className="wh-err">
-          Those times do not overlap the workout at all ({span(snap.start, snap.end)}). Check them —
-          saved as they are, this session gets none of it.
+          Those times miss the workout ({span(snap.start, snap.end)}), so this session would get none of it.
         </p>
       )}
 
-      <div className="wh-splitbtns">
-        <button type="button" className="wh-btn" disabled={!computed}
-          onClick={() => computed && onChange(computed)}>
-          <Icon name="Check" size={14} /> {part ? 'update this session\'s part' : 'save this session\'s part'}
-        </button>
+      <div className="prof-actions">
         {part && (
-          <button type="button" className="wh-btn ghost" onClick={onClear}>
-            use the whole workout
-          </button>
+          <button type="button" className="btn quiet" onClick={onClear}>Use the whole workout</button>
         )}
+        <button type="button" className="btn secondary" disabled={!computed}
+          onClick={() => computed && onChange(computed)}>
+          Save this part
+        </button>
       </div>
     </div>
   )
@@ -247,10 +244,10 @@ export function WhoopWorkouts({ session, entry, entries, onSave }) {
 
   return (
     <div className="wh">
-      <div className="wh-head">
-        <Icon name="HeartPulse" size={13} /> WHOOP
-        <button type="button" className="wh-pull" onClick={pull} disabled={pulling}>
-          {pulling ? 'pulling…' : 'pull'}
+      <div className="section-head wh-head">
+        <h3><Icon name="HeartPulse" size={16} /> WHOOP</h3>
+        <button type="button" className="btn quiet wh-pull" onClick={pull} disabled={pulling}>
+          {pulling ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
 
@@ -260,77 +257,89 @@ export function WhoopWorkouts({ session, entry, entries, onSave }) {
       {!error && status?.ok === false && <p className="wh-err">{status.detail}</p>}
 
       {/*
-        * Everything attached, each with its own detach and its own split.
+        * Everything attached, each a row that opens onto its numbers, its split and
+        * its detach.
         *
         * A list rather than a slot. Two measurements of one session is a real and
         * ordinary thing — the strap saw a lift and then a row — and the version of
         * this that held one silently replaced the first with the second.
         */}
-      {attachedList.map(snap => {
-        const filledKeys = Object.keys(snap.filled || {})
-        const alsoOn = alsoOnFor(snap)
-        const doubled = alsoOn && !isSplit(snap) && !alsoOn.part
-        return (
-          <div key={snap.id} className="wh-item attached">
-            <div className="wh-item-top">
-              <span className="wh-sport"><Icon name="CircleCheck" size={13} /> {snap.sport}</span>
-              <span className="wh-when">
-                {span(snap.start, snap.end)}
-                {isSplit(snap) && <> · this session {span(snap.part.start, snap.part.end)}</>}
-              </span>
-              <button type="button" className="wh-btn ghost" onClick={() => detach(snap)}>detach</button>
-            </div>
-            <Numbers w={snap} minutes={attachedMinutes(snap)} />
-            <p className="wh-note">
-              Saved with this session — these numbers stay put whether or not WHOOP is reachable.
-              {isSplit(snap) && (
-                <> The minutes are this session&rsquo;s share; the strain, heart rates and zones are
-                the whole workout&rsquo;s, because WHOOP publishes no way to recover them for part
-                of one.</>
-              )}
-              {/* Named rather than silent: a field the app answered for them is one
-                  the user has to be able to find and argue with. */}
-              {filledKeys.length > 0 && (
-                <> It filled in {filledKeys.join(', ')} above; detaching clears whichever you have
-                not changed.</>
-              )}
-            </p>
+      {attachedList.length > 0 && (
+        <div className="list">
+          {attachedList.map(snap => {
+            const filledKeys = Object.keys(snap.filled || {})
+            const alsoOn = alsoOnFor(snap)
+            const doubled = alsoOn && !isSplit(snap) && !alsoOn.part
+            return (
+              <details key={snap.id} className="wh-item attached" open={Boolean(doubled) || undefined}>
+                <summary className="list-row">
+                  <Icon name="CircleCheck" size={20} className="wh-on" />
+                  <span className="list-row-main">
+                    <span className="list-row-title">{snap.sport}</span>
+                    <span className="list-row-meta">
+                      {span(snap.start, snap.end)}
+                      {isSplit(snap) ? ` · this session ${attachedMinutes(snap)} min` : snap.minutes ? ` · ${snap.minutes} min` : ''}
+                    </span>
+                  </span>
+                  <Icon name="ChevronDown" size={16} className="list-row-chev wh-chev" />
+                </summary>
 
-            {alsoOn && (
-              <p className={doubled ? 'wh-err' : 'wh-note'}>
-                {doubled ? (
-                  <>Also on <strong>{alsoOn.name}</strong>, and neither has been split — so this day
-                  counts these {snap.minutes} minutes twice. Set the part below on both.</>
-                ) : (
-                  <>Shared with <strong>{alsoOn.name}</strong>{alsoOn.part
-                    ? <> ({span(alsoOn.part.start, alsoOn.part.end)} there)</>
-                    : null}.</>
-                )}
-              </p>
-            )}
+                <div className="wh-body">
+                  <Numbers w={snap} minutes={attachedMinutes(snap)} />
 
-            {/* Optional, and the fold is the point: on the ordinary night when one
-                workout is one session, this is a line of text you never open. */}
-            <details className="wh-splitwrap" open={Boolean(doubled || isSplit(snap))}>
-              <summary>
-                {isSplit(snap)
-                  ? `This session was ${attachedMinutes(snap)} min of it`
-                  : 'Was this session only part of that workout?'}
-              </summary>
-              <SplitEditor snap={snap} onChange={(part) => setPart(snap, part)}
-                onClear={() => clearPart(snap)} />
-            </details>
-          </div>
-        )
-      })}
+                  {alsoOn && (
+                    <p className={doubled ? 'wh-err' : 'wh-note'}>
+                      {doubled ? (
+                        <>Also on <strong>{alsoOn.name}</strong> and neither is split, so this day
+                        counts these {snap.minutes} minutes twice. Set the part on both.</>
+                      ) : (
+                        <>Shared with <strong>{alsoOn.name}</strong>{alsoOn.part
+                          ? <> ({span(alsoOn.part.start, alsoOn.part.end)} there)</>
+                          : null}.</>
+                      )}
+                    </p>
+                  )}
 
-      {/* The session's total, once there is more than one thing adding up to it —
-          a number the load chart uses and nothing on screen was stating. */}
+                  <p className="wh-note">
+                    Saved with this session, so it stays if WHOOP goes away.
+                    {isSplit(snap) && (
+                      <> The minutes are this session&rsquo;s share; strain, heart rate and zones are the
+                      whole workout&rsquo;s.</>
+                    )}
+                    {/* Named rather than silent: a field the app answered for them is one
+                        the user has to be able to find and argue with. */}
+                    {filledKeys.length > 0 && (
+                      <> It filled in {filledKeys.join(', ')}; detaching clears whichever you have not changed.</>
+                    )}
+                  </p>
+
+                  {/* Optional, and the fold is the point: on the ordinary night when one
+                      workout is one session, this is a line of text you never open. */}
+                  <details className="wh-splitwrap" open={Boolean(doubled || isSplit(snap)) || undefined}>
+                    <summary>
+                      {isSplit(snap)
+                        ? `This session was ${attachedMinutes(snap)} min of it`
+                        : 'Was this session only part of that workout?'}
+                    </summary>
+                    <SplitEditor snap={snap} onChange={(part) => setPart(snap, part)}
+                      onClear={() => clearPart(snap)} />
+                  </details>
+
+                  <div className="prof-actions">
+                    <button type="button" className="btn quiet" onClick={() => detach(snap)}>Detach</button>
+                  </div>
+                </div>
+              </details>
+            )
+          })}
+        </div>
+      )}
+
+      {/* The session's total, once there is more than one thing adding up to it. */}
       {attachedList.length > 1 && (
         <p className="wh-note wh-total">
-          <Icon name="Timer" size={13} /> {attachedList.length} workouts on this session,{' '}
-          <strong>{attachedList.reduce((n, w) => n + (Number(attachedMinutes(w)) || 0), 0)} min</strong> in
-          total. That is what the weekly load chart multiplies your RPE by.
+          <Icon name="Timer" size={14} /> {attachedList.length} workouts on this session,{' '}
+          <strong>{attachedList.reduce((n, w) => n + (Number(attachedMinutes(w)) || 0), 0)} min</strong> in total
         </p>
       )}
 
@@ -338,52 +347,43 @@ export function WhoopWorkouts({ session, entry, entries, onSave }) {
         attachedList.length === 0 && (
           <p className="wh-empty">
             {cache?.fetchedAt
-              ? 'Nothing recorded on this day. If you have just finished, give the band a minute to sync and pull again.'
+              ? 'Nothing recorded on this day. Just finished? Refresh once the band syncs.'
               : 'No WHOOP data yet.'}
           </p>
         )
       ) : (
-        <div className="wh-list">
-          {attachedList.length > 0 && (
-            <p className="wh-more">Also on this day — attach as many as belong to this session:</p>
-          )}
-          {offers.map(c => {
-            const w = { ...c.workout, ...snapshotOf(c.workout, { maxHeartRate: cache?.maxHeartRate }) }
-            return (
-              <div key={c.workout.id} className={`wh-item ${c.likely ? 'likely' : ''} ${c.attachedTo ? 'taken' : ''}`}>
-                <div className="wh-item-top">
-                  <span className="wh-sport">{c.workout.sport}</span>
-                  <span className="wh-when">{span(c.workout.start, c.workout.end)}</span>
-                  {c.likely && (
-                    <span className="wh-tag" title={c.overlapMin
-                      ? `overlaps this session by ${c.overlapMin} min`
-                      : 'the only workout WHOOP recorded on this day'}>likely</span>
-                  )}
-                </div>
-                <Numbers w={w} />
-                {c.attachedTo ? (
-                  /* Shown rather than hidden: a workout on the wrong session is
-                     invisible if the list quietly drops it. Two readings of the
-                     same tap, so both are offered as words rather than one being
-                     assumed — it is either the same workout on two sessions of one
-                     gym visit, or it is on the wrong session and should move. */
-                  <p className="wh-note">
-                    Already on <strong>{c.attachedTo.name}</strong>. Two sessions inside one gym
-                    visit can share it — attach it here too, then say which part of it each
-                    session was.{' '}
-                    <button type="button" className="wh-btn ghost" onClick={() => attach(c.workout)}>
-                      attach here as well
-                    </button>
-                  </p>
-                ) : (
-                  <button type="button" className="wh-btn" onClick={() => attach(c.workout)}>
-                    <Icon name="Plus" size={14} /> attach to this session
+        <>
+          {attachedList.length > 0 && <p className="wh-more">Also on this day</p>}
+          <div className="list">
+            {offers.map(c => {
+              const w = { ...c.workout, ...snapshotOf(c.workout, { maxHeartRate: cache?.maxHeartRate }) }
+              return (
+                <div key={c.workout.id} className={`list-row wh-offer ${c.likely ? 'likely' : ''} ${c.attachedTo ? 'taken' : ''}`}>
+                  <span className="list-row-main">
+                    <span className="list-row-title">
+                      {c.workout.sport}
+                      {/* The suggestion is marked, not applied: it still takes the tap (§8.2). */}
+                      {c.likely && (
+                        <span className="wh-tag" title={c.overlapMin
+                          ? `Overlaps this session by ${c.overlapMin} min`
+                          : 'The only workout WHOOP recorded on this day'}>Likely</span>
+                      )}
+                    </span>
+                    <span className="list-row-meta">{span(c.workout.start, c.workout.end)}</span>
+                    <Numbers w={w} className="list-row-meta wh-nums" />
+                    {/* Shown rather than hidden: a workout on the wrong session is
+                        invisible if the list quietly drops it. It is either the same
+                        workout on two sessions of one gym visit, or on the wrong one. */}
+                    {c.attachedTo && <span className="list-row-meta">Already on {c.attachedTo.name}</span>}
+                  </span>
+                  <button type="button" className="btn secondary wh-attach" onClick={() => attach(c.workout)}>
+                    {c.attachedTo ? 'Attach here too' : 'Attach'}
                   </button>
-                )}
-              </div>
-            )
-          })}
-        </div>
+                </div>
+              )
+            })}
+          </div>
+        </>
       )}
     </div>
   )
@@ -415,7 +415,9 @@ function Stat({ label, value, unit, sub, toneName = '' }) {
  * A raw HRV of 42 ms says nothing without knowing their normal, which is why every
  * number carries its deviation and why the baseline is a median of the last
  * fortnight rather than a population figure. Fewer than four prior days and the
- * deviation is absent rather than shaky — see `baselineFor`.
+ * deviation is absent rather than shaky — see `baselineFor`. It is a readout:
+ * nothing in the app ranks or blocks a session on it any more (the recommender
+ * went on 2026-10-25).
  */
 export function WhoopReadiness({ date }) {
   const { cache, status, pulling, error, pull } = useWhoop()
@@ -428,10 +430,10 @@ export function WhoopReadiness({ date }) {
     if (status?.ok !== false) return null
     return (
       <div className="card wh-card">
-        <h2><Icon name="HeartPulse" size={16} /> WHOOP</h2>
-        <p className="wh-err" style={{ margin: 0 }}>{error || status.detail}</p>
-        <button className="btn ghost" onClick={pull} disabled={pulling} style={{ marginTop: 10 }}>
-          {pulling ? 'Pulling…' : 'Try again'}
+        <h2>WHOOP</h2>
+        <p className="wh-err">{error || status.detail}</p>
+        <button className="btn secondary" onClick={pull} disabled={pulling}>
+          {pulling ? 'Refreshing…' : 'Try again'}
         </button>
       </div>
     )
@@ -441,27 +443,25 @@ export function WhoopReadiness({ date }) {
 
   return (
     <div className="card wh-card">
-      <h2><Icon name="HeartPulse" size={16} /> How you arrived</h2>
+      <div className="section-head wh-head">
+        <h3><Icon name="HeartPulse" size={16} /> WHOOP</h3>
+        <button type="button" className="btn quiet wh-pull" onClick={pull} disabled={pulling}>
+          {pulling ? 'Refreshing…' : 'Refresh'}
+        </button>
+      </div>
       <div className="wh-stats">
-        <Stat label="recovery" value={r.recovery} unit="%"
+        <Stat label="Recovery" value={r.recovery} unit="%"
           toneName={r.recovery == null ? '' : r.recovery >= 67 ? 'good' : r.recovery >= 34 ? 'flat' : 'warn'} />
         <Stat label="HRV" value={r.hrv} unit=" ms"
           sub={r.hrvDeltaPct != null ? `${pct(r.hrvDeltaPct)} vs your ${r.hrvBaseline} ms` : null}
           toneName={tone(r.hrvDeltaPct, 'up')} />
-        <Stat label="resting HR" value={r.restingHr} unit=" bpm"
+        <Stat label="Resting HR" value={r.restingHr} unit=" bpm"
           sub={r.restingHrDelta != null
             ? `${r.restingHrDelta > 0 ? '+' : ''}${r.restingHrDelta} vs your ${r.restingHrBaseline}`
             : null}
           toneName={tone(r.restingHrDelta == null ? null : -r.restingHrDelta, 'up')} />
-        <Stat label="day strain" value={r.strain} unit="" />
+        <Stat label="Day strain" value={r.strain} unit="" />
       </div>
-      <p className="sub wh-card-note">
-        Against your own median over the last fortnight, not anyone else's. This nudges the ranking
-        below and can never put a hard finger day next to another one.
-        <button type="button" className="wh-pull" onClick={pull} disabled={pulling}>
-          {pulling ? 'pulling…' : 'pull'}
-        </button>
-      </p>
     </div>
   )
 }
@@ -493,8 +493,8 @@ const STAGES = [
   { key: 'awake', label: 'Awake', color: 'var(--series-2)' },
 ]
 
-/* WHOOP's own recovery bands: red to 33, yellow to 66, green above. */
-const recoveryColor = (v) => (v >= 67 ? 'var(--good)' : v >= 34 ? 'var(--warn)' : 'var(--bad)')
+/* WHOOP's own recovery bands: red to 33, yellow to 66, green above, on the viz tokens. */
+const recoveryColor = (v) => (v >= 67 ? 'var(--viz-good)' : v >= 34 ? 'var(--viz-warn)' : 'var(--viz-crit)')
 
 export const SLEEP_RANGES = [
   { days: 30, label: '30d' },
@@ -663,7 +663,7 @@ export function WhoopSleep({ date }) {
   return (
     <div className="card wh-card sleep-card" ref={ref}>
       <div className="sleep-head">
-        <h2><Icon name="Moon" size={16} /> Sleep</h2>
+        <h2>Sleep</h2>
         <div className="seg sleep-range" role="group" aria-label="Range">
           {SLEEP_RANGES.map(r => (
             <button key={r.days} className={days === r.days ? 'on' : ''} aria-pressed={days === r.days}
@@ -680,7 +680,7 @@ export function WhoopSleep({ date }) {
         )}
         <span className="faint"><b>{pct(stats.avg)}</b><small>average</small></span>
         <button className="viz-toggle" onClick={() => setShowTable(t => !t)} aria-pressed={showTable}>
-          {showTable ? 'chart' : 'table'}
+          {showTable ? 'Chart' : 'Table'}
         </button>
       </div>
 
@@ -706,8 +706,8 @@ export function WhoopSleep({ date }) {
             <defs>
               {/* Recovery's colour is a function of its value, so the gradient runs up the axis. */}
               <linearGradient id="sleep-recovery" gradientUnits="userSpaceOnUse" x1="0" x2="0" y1={y1(0)} y2={y1(100)}>
-                <stop offset="0.33" stopColor="var(--bad)" /><stop offset="0.34" stopColor="var(--warn)" />
-                <stop offset="0.66" stopColor="var(--warn)" /><stop offset="0.67" stopColor="var(--good)" />
+                <stop offset="0.33" stopColor="var(--viz-crit)" /><stop offset="0.34" stopColor="var(--viz-warn)" />
+                <stop offset="0.66" stopColor="var(--viz-warn)" /><stop offset="0.67" stopColor="var(--viz-good)" />
               </linearGradient>
             </defs>
             {mark}
@@ -795,7 +795,7 @@ export function WhoopSleep({ date }) {
                     ))}
                   </>
                 ) : <span>no night from WHOOP</span>}
-                {hover == null && <span className="faint">· touch another night for its numbers</span>}
+                {hover == null && <span className="faint">· touch a night for its numbers</span>}
               </>
             )}
           </div>
@@ -808,10 +808,11 @@ export function WhoopSleep({ date }) {
           </div>
         </>
       )}
-      <p className="sub wh-card-note">
-        Bar ends are the real bedtime and wake; segment sizes are real minutes, not the order the
-        stages came in.{shortHistory && ` History here starts ${dayLabel(firstNight, { month: 'short', day: 'numeric' })} and fills in as the app pulls from WHOOP.`}
-      </p>
+      {shortHistory && (
+        <p className="sub wh-card-note">
+          History starts {dayLabel(firstNight, { month: 'short', day: 'numeric' })} and fills in from WHOOP.
+        </p>
+      )}
     </div>
   )
 }

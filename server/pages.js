@@ -10,38 +10,66 @@
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
+/*
+ * The visual system's tokens (docs/DESIGN.md, "Visual system"), copied by value
+ * from app/src/styles.css :root. Copied rather than linked on purpose: these
+ * pages must render with no dist/ and under a stale service worker, so they can
+ * depend on nothing but this string. A token changed there is changed here too.
+ */
 const CSS = `
-:root{--bg:#0b0c0b;--panel:#131513;--panel-2:#1a1d1a;--line:#272b27;--ink:#e9ece7;--ink-dim:#99a295;--ink-faint:#61695e;--accent:#b8f23d;--good:#6fd66f;--warn:#f0b429;--bad:#e2614f}
+:root{--bg:#0b0c0b;--panel:#131513;--panel-2:#1a1d1a;--panel-3:#232723;--line:#272b27;--line-strong:#363c35;
+--ink:#e9ece7;--ink-dim:#99a295;--ink-faint:#808a7c;--accent:#b8f23d;--on-accent:#0f1409;
+--accent-soft:#2d3623;--accent-line:#72923e;--good:#6fd66f;--warn:#f0b429;--bad:#e2614f;--viz-crit:#e2564e;
+--fs-caption:12px;--fs-small:13px;--fs-body:15px;--fs-input:16px;--fs-title:17px;--fs-heading:22px;
+--sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-6:24px;--r-control:10px;--r-card:12px;--r-pill:999px;--tap:44px}
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
-main{max-width:640px;margin:0 auto;padding:32px 18px 64px}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:var(--fs-body)/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%}
+main{max-width:640px;margin:0 auto;padding:var(--sp-6) var(--sp-4) 64px}
 main.narrow{max-width:400px;padding-top:12vh}
-h1{font-size:22px;margin:0 0 4px}
-h2{font-size:16px;margin:0 0 6px}
-p{margin:0 0 12px}
-.sub{color:var(--ink-dim);font-size:14px}
-.faint{color:var(--ink-faint);font-size:13px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin:0 0 14px}
-label{display:block;font-size:14px;color:var(--ink-dim);margin:12px 0 4px}
-label.check{display:flex;gap:8px;align-items:center;color:var(--ink);margin:8px 0}
-input[type=text],input[type=password],input[type=url],textarea{width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink);font:inherit}
+.mark{display:flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-title);font-weight:600;margin:0 0 var(--sp-6)}
+.mark img{width:22px;height:22px}
+h1{font-size:var(--fs-heading);font-weight:600;line-height:1.25;margin:0 0 var(--sp-1)}
+h2{font-size:var(--fs-title);font-weight:600;line-height:1.25;margin:0 0 var(--sp-1)}
+p{margin:0 0 var(--sp-3)}
+.sub{color:var(--ink-dim);font-size:var(--fs-small)}
+.faint{color:var(--ink-faint);font-size:var(--fs-small)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-card);padding:var(--sp-4);margin:0 0 var(--sp-3)}
+label{display:block;font-size:var(--fs-small);color:var(--ink-dim);margin:var(--sp-3) 0 6px}
+label.check{display:flex;gap:var(--sp-2);align-items:center;color:var(--ink);font-size:var(--fs-body);min-height:var(--tap);margin:var(--sp-2) 0}
+label.check input{width:22px;height:22px;margin:0;accent-color:var(--accent)}
+input[type=text],input[type=password],input[type=url],textarea{width:100%;min-height:var(--tap);padding:10px 12px;border-radius:var(--r-control);border:1px solid var(--line);background:var(--panel-2);color:var(--ink);font:inherit;font-size:var(--fs-input)}
+input::placeholder,textarea::placeholder{color:var(--ink-faint)}
+input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
 input:disabled,textarea:disabled{color:var(--ink-faint)}
 textarea{min-height:110px;resize:vertical}
-button,.btn{display:inline-block;min-height:40px;padding:8px 16px;border-radius:8px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink);font:inherit;cursor:pointer;text-decoration:none}
-button.primary{background:var(--accent);border-color:var(--accent);color:#0b0c0b;font-weight:600}
-button:disabled{opacity:.6;cursor:default}
-.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center}
-.err{color:var(--bad);font-size:14px;margin:10px 0 0}
-.ok{color:var(--good);font-size:14px}
-.pill{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--ink-dim)}
-.pill.on{border-color:var(--good);color:var(--good)}
+button,.btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--sp-2);min-height:var(--tap);padding:0 var(--sp-4);border-radius:var(--r-control);border:1px solid var(--line-strong);background:var(--panel-3);color:var(--ink);font:inherit;font-weight:600;cursor:pointer;text-decoration:none;white-space:nowrap}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+button.ghost,.btn.ghost{background:transparent;color:var(--ink-dim)}
+button.bad{background:transparent;border-color:var(--line-strong);color:var(--viz-crit)}
+button:disabled{opacity:.4;cursor:not-allowed}
+button:focus-visible,.btn:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+form.card button.primary{width:100%;margin-top:var(--sp-4)}
+.row{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-4);align-items:center}
+.msg{font-size:var(--fs-small)}
+.err{color:var(--bad);font-size:var(--fs-small);margin:var(--sp-3) 0 0}
+.ok{color:var(--good);font-size:var(--fs-small)}
+.pill{display:inline-flex;align-items:center;font-size:var(--fs-caption);padding:2px var(--sp-2);border-radius:var(--r-pill);border:1px solid var(--line);color:var(--ink-dim)}
+.pill.on{border-color:var(--accent-line);background:var(--accent-soft);color:var(--ink)}
 .pill.off{color:var(--ink-faint)}
-.src{font-size:12px;color:var(--ink-faint);margin-top:3px}
-code{font-size:13px;background:var(--panel-2);padding:1px 5px;border-radius:5px}
-pre{white-space:pre-wrap;font-size:13px;background:var(--panel-2);padding:10px;border-radius:8px;margin:10px 0 0}
-header.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
-a{color:var(--accent)}
+.src{font-size:var(--fs-caption);color:var(--ink-faint);margin-top:var(--sp-1)}
+.person,.add{border-top:1px solid var(--line);margin-top:var(--sp-4);padding-top:var(--sp-1)}
+.add h2{margin-top:var(--sp-3)}
+code{font-size:var(--fs-small);background:var(--panel-2);padding:1px 5px;border-radius:4px}
+pre{white-space:pre-wrap;font-size:var(--fs-small);background:var(--panel-2);padding:10px;border-radius:var(--r-control);margin:10px 0 0}
+header.top{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-4)}
+header.top h1{margin:0}
+a{color:var(--ink);text-underline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 `
+
+/* The app's mark and name over the narrow pages, as the app's own header shows them.
+   The mark is a built asset, so with no dist/ it removes itself and the name stays. */
+const MARK = '<div class="mark"><img src="/icon.svg" alt="" width="22" height="22" onerror="this.remove()">Bushido</div>'
 
 function layout({ title, body, narrow = false, script = '' }) {
   return `<!doctype html>
@@ -49,7 +77,7 @@ function layout({ title, body, narrow = false, script = '' }) {
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0b0c0b"><meta name="robots" content="noindex">
 <title>${esc(title)} · Bushido</title><link rel="icon" href="/icon.svg"><style>${CSS}</style>
-</head><body><main class="${narrow ? 'narrow' : ''}">${body}</main>${script ? `<script>${script}</script>` : ''}</body></html>`
+</head><body><main class="${narrow ? 'narrow' : ''}">${narrow ? MARK : ''}${body}</main>${script ? `<script>${script}</script>` : ''}</body></html>`
 }
 
 function setupPage({ token, error = '', minPassword = 8 }) {
@@ -58,16 +86,16 @@ function setupPage({ token, error = '', minPassword = 8 }) {
     narrow: true,
     body: `
 <h1>Set up Bushido</h1>
-<p class="sub">Create the owner account. This is the only account; it signs in to every device you use.</p>
+<p class="sub">Create the owner account. It signs in on every device you use.</p>
 <form method="post" action="/setup" class="card">
   <input type="hidden" name="token" value="${esc(token)}">
   <label for="u">Username</label>
   <input id="u" name="username" type="text" autocomplete="username" required autofocus>
   <label for="p">Password</label>
   <input id="p" name="password" type="password" autocomplete="new-password" minlength="${minPassword}" required>
-  <p class="faint" style="margin-top:6px">At least ${minPassword} characters.</p>
+  <p class="src">At least ${minPassword} characters.</p>
   ${error ? `<p class="err">${esc(error)}</p>` : ''}
-  <div class="row"><button class="primary" type="submit">Create account</button></div>
+  <button class="primary" type="submit">Create account</button>
 </form>`,
   })
 }
@@ -90,8 +118,8 @@ function loginPage({ error = '', next = '/' }) {
     title: 'Sign in',
     narrow: true,
     body: `
-<h1>Bushido</h1>
-<p class="sub">Sign in to your training log.</p>
+<h1>Sign in</h1>
+<p class="sub">To your training log.</p>
 <form method="post" action="/login" class="card">
   <input type="hidden" name="next" value="${esc(next)}">
   <label for="u">Username</label>
@@ -99,7 +127,7 @@ function loginPage({ error = '', next = '/' }) {
   <label for="p">Password</label>
   <input id="p" name="password" type="password" autocomplete="current-password" required>
   ${error ? `<p class="err">${esc(error)}</p>` : ''}
-  <div class="row"><button class="primary" type="submit">Sign in</button></div>
+  <button class="primary" type="submit">Sign in</button>
 </form>`,
   })
 }
@@ -109,7 +137,7 @@ function refusedPage({ message }) {
   return layout({
     title: 'Not available',
     narrow: true,
-    body: `<h1>Bushido</h1><div class="card"><p>${esc(message)}</p><p class="faint">If this is wrong, ask whoever runs this install.</p></div>`,
+    body: `<h1>Not available</h1><div class="card"><p>${esc(message)}</p><p class="faint" style="margin:0">If this is wrong, ask whoever runs this install.</p></div>`,
   })
 }
 
@@ -181,25 +209,25 @@ function render() {
   else h += '<p class="sub">Signed in as <strong>' + esc(view.auth.user) + '</strong>.</p>' +
     '<label for="pw-cur">Current password</label><input id="pw-cur" type="password" autocomplete="current-password">' +
     '<label for="pw-new">New password</label><input id="pw-new" type="password" autocomplete="new-password">' +
-    '<div class="row"><button id="pw-save">Change password</button><a class="btn" href="/?signout=1">Sign out</a><span class="msg"></span></div>' +
-    '<p class="faint">Signing out syncs this device first, then removes the log, its cache and the offline copy from it.</p>'
+    '<div class="row"><button id="pw-save">Change password</button><a class="btn ghost" href="/?signout=1">Sign out</a><span class="msg"></span></div>' +
+    '<p class="src">Signing out saves this device\'s log to the server first, then takes it off the device.</p>'
   h += '</div>'
 
   // People
   const pp = view.people, ax = pp.access
   h += '<div class="card" id="c-people"><h2>People</h2>' +
-    '<p class="sub">Everyone here has their own training log. Behind Cloudflare Access, the email Access signed someone in with says who they are; add the same address to the Access application\'s policy too, or Cloudflare will not let them reach this page. You can act as anyone from the app\'s profile menu to log for them.</p>' +
+    '<p class="sub">Everyone here has their own training log. Behind Cloudflare Access, the email Access signed someone in with says who they are; add the same address to the Access application\'s policy too, or Cloudflare will not let them reach this page. You can log for anyone from Profile → Settings in the app.</p>' +
     '<p>' + pill(ax.enabled, 'Access identifies people', 'Access not set up: everyone is you') + '</p>' +
     field('access', 'team', 'Cloudflare Access team domain', { readonly: true, value: ax.team, source: ax.teamSource }) +
     field('access', 'aud', 'Access application AUD tag', { readonly: true, value: ax.aud, source: ax.audSource })
   for (const u of pp.users) {
-    h += '<div class="person" data-id="' + esc(u.id) + '" style="border-top:1px solid var(--line);margin-top:14px;padding-top:6px">' +
+    h += '<div class="person" data-id="' + esc(u.id) + '">' +
       '<label>' + (u.owner ? 'You (owner)' : 'Name') + '</label><input type="text" class="p-name" value="' + esc(u.owner ? (view.settings.athlete.name || '') : u.name) + '"' + (u.owner ? ' disabled placeholder="set under About you"' : '') + '>' +
       '<label>Emails they sign in to Access with</label><input type="text" class="p-emails" value="' + esc(u.emails.join(', ')) + '" placeholder="name@example.com" autocomplete="off">' +
       (u.owner ? '' : '<div class="src">Their log: <code>data/users/' + esc(u.id) + '/</code>. Removing them keeps it on disk.</div>') +
-      '<div class="row"><button class="p-save">Save</button>' + (u.owner ? '' : '<button class="p-del">Remove</button>') + '<span class="msg"></span></div></div>'
+      '<div class="row"><button class="p-save">Save</button>' + (u.owner ? '' : '<button class="p-del bad">Remove</button>') + '<span class="msg"></span></div></div>'
   }
-  h += '<div style="border-top:1px solid var(--line);margin-top:14px;padding-top:6px"><h2 style="margin-top:8px">Add someone</h2>' +
+  h += '<div class="add"><h2>Add someone</h2>' +
     '<label for="np-name">Name</label><input id="np-name" type="text" autocomplete="off">' +
     '<label for="np-emails">Email they sign in to Access with</label><input id="np-emails" type="text" autocomplete="off" placeholder="name@example.com">' +
     '<div class="row"><button class="primary" id="np-add">Add</button><span class="msg"></span></div></div>'
@@ -228,7 +256,7 @@ function render() {
     '<p>Now: <strong>' + esc(e.plan.label) + '</strong> <span class="faint">' + esc(e.plan.file) + '</span></p>' +
     (e.plan.source.startsWith('env ') ? '<p class="faint">Pinned by ' + esc(e.plan.source.slice(4)) + '.</p>' :
     '<div class="row"><a class="btn" href="/api/content" download="plan.json">Download</a>' +
-    '<label class="btn" style="margin:0;color:var(--ink)">Import a plan file<input id="plan-file" type="file" accept="application/json,.json" hidden></label>' +
+    '<label class="btn" style="margin:0;color:var(--ink);font-size:var(--fs-body)">Import a plan file<input id="plan-file" type="file" accept="application/json,.json" hidden></label>' +
     (e.plan.exampleAvailable ? '<button id="plan-example">Use the example plan</button>' : '') +
     (e.plan.source !== 'starter' ? '<button id="plan-reset">Back to the starter</button>' : '') +
     '<span class="msg"></span></div>' +
@@ -250,7 +278,7 @@ function render() {
   // Strava, everyone's own
   const sa = e.strava
   h += '<div class="card" id="c-strava"><h2>Strava</h2>' +
-    '<p class="sub">Everyone on this install, you included, connects their own Strava account from Profile → Settings in the app, through a Strava API app you create at <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener">strava.com/settings/api</a>. A new app accepts only one athlete (you) until you raise it to ten from that page. Set its Authorization Callback Domain to the host people open Bushido on. Totem reads your Strava from here.</p>' +
+    '<p class="sub">Everyone on this install, you included, connects their own Strava account from Profile → Connections in the app, through a Strava API app you create at <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener">strava.com/settings/api</a>. A new app accepts only one athlete (you) until you raise it to ten from that page. Set its Authorization Callback Domain to the host people open Bushido on. Totem reads your Strava from here.</p>' +
     '<p>' + pill(sa.configured, 'Strava app set', 'no Strava app') + '</p>' +
     field('strava', 'clientId', 'Client ID', { source: sa.clientIdSource }) +
     field('strava', 'clientSecret', 'Client secret', { secret: true, source: sa.secretSource }) +
@@ -260,7 +288,7 @@ function render() {
   // WHOOP, the owner's
   const wa = e.whoop
   h += '<div class="card" id="c-whoop"><h2>WHOOP</h2>' +
-    '<p class="sub">Your WHOOP, connected from Profile → Settings in the app through a WHOOP app you create at <a href="https://developer.whoop.com" target="_blank" rel="noopener">developer.whoop.com</a>. Add its Redirect URL exactly as shown below. Bushido is the only holder of the grant: Totem\'s sleep habit and Krakatoa read WHOOP from here, with <code>BUSHIDO_API_TOKEN</code>.</p>' +
+    '<p class="sub">Your WHOOP, connected from Profile → Connections in the app through a WHOOP app you create at <a href="https://developer.whoop.com" target="_blank" rel="noopener">developer.whoop.com</a>. Add its Redirect URL exactly as shown below. Bushido is the only holder of the grant: Totem\'s sleep habit and Krakatoa read WHOOP from here, with <code>BUSHIDO_API_TOKEN</code>.</p>' +
     '<p>' + pill(wa.configured, 'WHOOP app set', 'no WHOOP app') + ' ' + pill(wa.linked, 'connected', 'not connected') + '</p>' +
     field('whoop', 'clientId', 'Client ID', { source: wa.clientIdSource }) +
     field('whoop', 'clientSecret', 'Client secret', { secret: true, source: wa.secretSource }) +
@@ -346,7 +374,7 @@ load()
 function settingsPage() {
   return layout({
     title: 'Settings',
-    body: `<header class="top"><h1>Settings</h1><a class="btn" href="/">Back to the app</a></header><div id="root"><p class="sub">Loading…</p></div>`,
+    body: `<header class="top"><h1>Settings</h1><a class="btn ghost" href="/">Back to the app</a></header><div id="root"><p class="sub">Loading…</p></div>`,
     script: SETTINGS_SCRIPT,
   })
 }

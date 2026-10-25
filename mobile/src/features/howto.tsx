@@ -65,7 +65,7 @@ export function HowBody({ how, showFigure = true, style }: { how: any; showFigur
         <View style={[s.note, s.noteWarn]}>
           <Icon name="TriangleAlert" size={15} color={colors.vizWarn} style={s.noteIcon} />
           <View style={{ flex: 1 }}>
-            <T size={11} weight={700} caps color={colors.vizWarn} style={{ marginBottom: 2 }}>Most common mistake</T>
+            <T size={13} weight={600} color={colors.vizWarn} style={{ marginBottom: 2 }}>Most common mistake</T>
             <T size={13} dim lineHeight={20}>{how.watch}</T>
           </View>
         </View>
@@ -74,7 +74,7 @@ export function HowBody({ how, showFigure = true, style }: { how: any; showFigur
         <View style={s.note}>
           <Icon name="Feather" size={15} color={colors.inkFaint} style={s.noteIcon} />
           <View style={{ flex: 1 }}>
-            <T size={11} weight={700} caps style={{ marginBottom: 2 }}>Make it easier</T>
+            <T size={13} weight={600} style={{ marginBottom: 2 }}>Make it easier</T>
             <T size={13} dim lineHeight={20}>{how.easier}</T>
           </View>
         </View>

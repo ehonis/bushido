@@ -191,7 +191,7 @@ function Step({ text, index, stop }: { text: string; index: number; stop: boolea
     <View style={st.step}>
       <View style={st.stepN}><T size={11} weight={700} color={colors.accent} tabular lineHeight={13}>{n}</T></View>
       <View style={{ flex: 1, minWidth: 0 }}>
-        {lead && <T size={11} caps color={stop ? colors.vizCrit : colors.accent} style={{ marginBottom: 3 }}>{lead}</T>}
+        {lead && <T size={13} weight={600} color={stop ? colors.vizCrit : colors.ink} style={{ marginBottom: 3 }}>{lead}</T>}
         <T size={14} lineHeight={22}>{body}</T>
       </View>
     </View>
@@ -204,7 +204,7 @@ function Bullet({ text }: { text: string }) {
     <View style={{ flexDirection: 'row', gap: 8 }}>
       <T size={14} faint lineHeight={22}>•</T>
       <View style={{ flex: 1, minWidth: 0 }}>
-        {lead && <T size={11} caps style={{ marginBottom: 3 }}>{lead}</T>}
+        {lead && <T size={13} weight={600} style={{ marginBottom: 3 }}>{lead}</T>}
         <T size={14} dim lineHeight={22}>{body}</T>
       </View>
     </View>
@@ -249,7 +249,7 @@ export function SectionBody({ section, max, ceiling }: { section: any; max: any;
     <View>
       <View style={st.sectTitle}>
         <Icon name={section.icon} size={14} color={stop ? colors.vizCrit : colors.inkFaint} />
-        <T size={12} caps color={stop ? colors.vizCrit : colors.inkFaint} style={{ flex: 1 }}>{section.title}</T>
+        <T size={13} weight={600} color={stop ? colors.vizCrit : colors.inkDim} style={{ flex: 1 }}>{section.title}</T>
       </View>
       {section.loadPct != null && <LoadLine pct={section.loadPct} max={max} />}
       {section.loadCeiling && <CeilingLine spec={section.loadCeiling} ceiling={ceiling} />}
@@ -295,7 +295,7 @@ export function EvidenceNote({ evidence, open = false }: { evidence: any; open?:
       summary={(
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <View style={[st.grade, { borderColor: c }]}>
-            <T size={10} caps color={c} lineHeight={13}>{String(evidence.grade).replace(/-/g, ' ')}</T>
+            <T size={12} color={c} lineHeight={15}>{String(evidence.grade).replace(/-/g, ' ')}</T>
           </View>
           <T size={12} faint>why this is in the menu</T>
         </View>

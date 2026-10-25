@@ -138,7 +138,7 @@ export function RestPrompt({ opt, date: initialDate, entryFor, onSave, onClose }
   const valid = /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= today
 
   return (
-    <Modal title="Rest day" sub={existing ? 'Already a rest day — change the why' : 'Why are you resting?'}
+    <Modal title="Rest day" sub={existing ? 'Already a rest day' : undefined}
       icon={opt?.icon || 'Sunset'} tone="rest" onClose={onClose}
       footer={<Btn icon="Check" title={existing ? 'Save' : 'Log the rest day'} flex disabled={!valid} onPress={save} />}>
       {/* Any day up to today — a rest day the user forgot to log is still one they took. */}
@@ -156,7 +156,7 @@ export function RestPrompt({ opt, date: initialDate, entryFor, onSave, onClose }
           </View>
         </View>
       ) : null}
-      <NoteField label="In your own words" value={notes} onChangeText={setNotes} placeholder="Optional — what's going on?" />
+      <NoteField label="Notes" value={notes} onChangeText={setNotes} placeholder="Optional" />
     </Modal>
   )
 }

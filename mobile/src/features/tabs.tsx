@@ -5,18 +5,21 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { PanResponder, StyleSheet, View } from 'react-native'
-import { colors, mix } from '../theme'
+import { colors, font, space } from '../theme'
 import { T } from '../ui/Text'
-import { Btn, Card, H2, Press } from '../ui/kit'
+import { Btn, Card, Empty, IconBtn, Press, Row } from '../ui/kit'
 import { Modal } from '../ui/Sheet'
 import { success, tap } from '../ui/haptics'
 import { Icon } from '../lib/icons'
 import { LoadCalendar } from '../lib/viz'
 import { SessionView } from './session'
 import { SessionLog, PriorNote, DetailsSheet } from './sessionlog'
-import { sessionStats } from '../lib/stats.js'
+import { restStats } from '../lib/stats.js'
+import { totalSets } from './setlog'
+import { liftsLine } from '../lib/lifts.js'
+import { pushToast } from '../lib/toast'
 import { localIso, fromIso } from '../lib/dates.js'
-import { isDone, isRepeatable, repeatLabel, extraEntryId, doneWhenPlaced, markDone } from '../lib/store.js'
+import { isDone, extraEntryId, doneWhenPlaced, markDone } from '../lib/store.js'
 import { testEntryFor, testEntryId, testFor } from '../lib/tests.js'
 import { WorkoutMode } from './workout'
 import { openTimerAfterSheet, timerRequestFor } from './timer'
@@ -26,7 +29,7 @@ import { usePlan } from '../lib/planctx.jsx'
 import { optFor } from '../lib/menu.js'
 import { prescriptionLine, prescriptionSteps, runProgress, isLiftOnly } from '../lib/prescription.js'
 import { hasWorkout } from '../lib/workout.js'
-import { minutesFor, resolveMinutes } from '../lib/minutes.js'
+import { minutesFor, minutesSourceOf, resolveMinutes } from '../lib/minutes.js'
 import { levelFor } from '../lib/level.js'
 import { nameFor, titleFor, withCasualName } from '../lib/naming.js'
 import { disciplineFor } from '../lib/activities.js'
@@ -41,7 +44,7 @@ import { SidesWorkout, PeopleDays, usePersonLog } from './trainer'
 import * as trainerLib from '../lib/trainer.js'
 
 // Default parameters in the ported JS narrow TypeScript's inference (mobile/AGENTS.md).
-const { applyOut, applyRun, canStart, workoutSides, planPeople, plannedLine } = trainerLib as any
+const { applyOut, applyRun, canStart, workoutSides, planPeople, plannedLine, placeEntries } = trainerLib as any
 
 // The lib is the web's JS; its default-parameter destructuring makes TypeScript
 // infer narrower types than the functions take, so they are called through these.
@@ -221,11 +224,39 @@ export function TodayTab({
   }
 
   /*
-   * Taking a session off the day is simply removing it. It used to also record a
-   * dismissal for the recommender; with nothing offering anything, that entry
-   * kind has no reader and would be litter in a synced log.
+   * Taking a session off the day is simply removing it, with an Undo. The
+   * confirm asks first; the toast is the way back from a wrong answer: Undo
+   * writes the entry (and its test result) back as they were.
    */
-  const removeSession = (entry: any) => dropEntry(entry)
+  const removeSession = (entry: any) => {
+    const opt = optFor(menu, entry.data?.optId)
+    const test = (testFor as any)(plan, opt)
+    const result = test && entry.date
+      ? entries.find(e => e.id === testEntryId(entry.date, test.id) && !e.deleted) : null
+    dropEntry(entry)
+    const live = ({ deleted, ...rest }: any) => rest
+    const name = opt ? _titleFor(opt, entry.data?.out, entry.data?.plan) : entry.data?.name
+    pushToast(name ? `Removed ${name}` : 'Removed', 'info', {
+      duration: 6000,
+      action: { label: 'Undo', onClick: () => {
+        upsertEntry(live(entry))
+        if (result) upsertEntry(live(result))
+      } },
+    })
+  }
+
+  /*
+   * One tap from the empty day: a workout of that activity on the day being
+   * looked at, opened. The same write as + → Log a workout (`placeEntries`).
+   */
+  const [placed, setPlaced] = useState<string | null>(null)
+  const quickLog = (activity: string) => {
+    const [entry] = placeEntries({ menu, onDay: entries, date: iso,
+      items: [{ optId: 'log-workout', data: { out: { activity } } }] })
+    if (!entry) return
+    upsertEntry(entry)
+    setPlaced(entry.id)
+  }
 
   const setDone = (entry: any, done: boolean) => upsertEntry(markDone(entry, done))
 
@@ -281,7 +312,7 @@ export function TodayTab({
 
   return (
     <>
-      <DayNav viewIso={iso} today={today} onChange={setIso} plan={plan} />
+      <DayTitle viewIso={iso} today={today} onChange={setIso} />
 
       <DaySessions plan={plan} entries={entries}
         mainEntry={mainEntry} extraEntries={extraEntries}
@@ -290,20 +321,17 @@ export function TodayTab({
         onSetDone={setDone} onSetTraining={setTraining}
         onSaveEntry={upsertEntry}
         viewIso={iso} isFuture={isFuture}
-        openEntryId={openEntryId}
-        onOpened={onOpened}
-        onPlan={onPlan} onLog={onLog ? () => onLog(iso) : null} onRest={onRest} />
+        openEntryId={openEntryId || placed}
+        onOpened={() => { setPlaced(null); onOpened() }}
+        onQuickLog={menu.some((m: any) => m.id === 'log-workout') ? quickLog : null}
+        onLog={onLog ? () => onLog(iso) : null} onRest={onRest} />
 
-      {/* The owner's window onto someone else's days, to coach without acting as
-          them. Nothing for anyone else, while acting, or with one person. */}
-      <PeopleDays people={planPeople(currentMe())} date={iso} plan={plan} />
-
-      {/* How the user arrived. Renders nothing when there is no reading. */}
+      {/* Below the day, and compact: how the user arrived, what the services
+          recorded that the log lacks, and someone else's day. Each renders
+          nothing when it has nothing. */}
       {!isFuture && <WhoopReadiness date={iso} />}
       {!isFuture && <WhoopSleep date={iso} />}
 
-      {/* What the services recorded and the log has no entry for. Renders
-          nothing on a day with nothing outstanding — see unlogged.tsx. */}
       {!isFuture && (
         <UnloggedWorkouts plan={plan} entries={entries} iso={iso}
           onLog={logMeasured} onMerge={saveOutputs}
@@ -312,6 +340,10 @@ export function TodayTab({
           split={splitWorkouts} onSplit={splitWorkout} />
       )}
 
+      {/* The owner's window onto someone else's days, to coach without acting as
+          them. Nothing for anyone else, while acting, or with one person. */}
+      <PeopleDays people={planPeople(currentMe())} date={iso} plan={plan} />
+
       <Card style={{ marginBottom: 0 }}>
         <LoadCalendar days={calendar} start={firstLogged || iso} end={iso} />
       </Card>
@@ -319,22 +351,33 @@ export function TodayTab({
   )
 }
 
+/** `iso` moved by `n` days, in local days. */
+const isoShift = (iso: string, n: number) => {
+  const d = fromIso(iso)
+  d.setDate(d.getDate() + n)
+  return localIso(d)
+}
+
+/** A day in words: "Today", "Yesterday", "Tomorrow", else "Sat, Oct 24". */
+export function dayWords(iso: string, today: string = localIso()) {
+  const offset = Math.round((fromIso(iso).getTime() - fromIso(today).getTime()) / 86400000)
+  if (offset === 0) return 'Today'
+  if (offset === -1) return 'Yesterday'
+  if (offset === 1) return 'Tomorrow'
+  return fromIso(iso).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
 /**
- * Move between days. Backwards is for catching up a session you did but never
- * logged; forwards is preview only — you cannot have done tomorrow's work.
- *
- * On the phone the header also swipes: left for the next day, right for the
- * previous, the way a calendar's day view does. The arrows stay.
+ * The day as the screen's title, with ‹ › beside it (docs/DESIGN.md "Today",
+ * #41): the day switcher, no longer a card for two arrows. Backwards is for
+ * catching up a session done but never logged; forwards, two weeks at most, is a
+ * preview. On the phone the title also swipes, the way a calendar's day view does.
  */
-function DayNav({ viewIso, today, onChange, plan }: { viewIso: string; today: string; onChange: (iso: string) => void; plan: any }) {
+function DayTitle({ viewIso, today, onChange }: { viewIso: string; today: string; onChange: (iso: string) => void }) {
+  const max = isoShift(today, 14)
   const shift = (n: number) => {
-    const d = fromIso(viewIso)
-    d.setDate(d.getDate() + n)
-    const next = localIso(d)
-    const first = plan?.weeks?.[0]?.start
-    const maxAhead = fromIso(today); maxAhead.setDate(maxAhead.getDate() + 14)
-    if (first && next < first) return
-    if (next > localIso(maxAhead)) return
+    const next = isoShift(viewIso, n)
+    if (next > max) return
     tap()
     onChange(next)
   }
@@ -350,28 +393,20 @@ function DayNav({ viewIso, today, onChange, plan }: { viewIso: string; today: st
     },
   })).current
 
-  const offset = Math.round((fromIso(viewIso).getTime() - fromIso(today).getTime()) / 86400000)
-  const label = offset === 0 ? 'Today' : offset === 1 ? 'Tomorrow' : offset === -1 ? 'Yesterday'
-    : offset > 0 ? `In ${offset} days` : `${Math.abs(offset)} days ago`
-  const weekday = fromIso(viewIso).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })
-
+  const words = dayWords(viewIso, today)
+  const date = /^(Today|Yesterday|Tomorrow)$/.test(words)
+    ? fromIso(viewIso).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })
+    : null
   return (
-    <View {...swipe.panHandlers} style={[st.daynav, offset > 0 && st.daynavFuture]}>
-      <Press onPress={() => shift(-1)} accessibilityRole="button" accessibilityLabel="Previous day" style={st.daynavArrow}>
-        <Icon name="ChevronLeft" size={18} color={colors.inkDim} />
-      </Press>
-      <View style={{ flex: 1, minWidth: 0, alignItems: 'center' }}>
-        <T size={14} weight={600} lineHeight={17} color={offset > 0 ? colors.inkDim : colors.ink}>{label}</T>
-        <T size={12} faint>{weekday}</T>
+    <View {...swipe.panHandlers} style={st.daytitle}>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <T size={font.heading} weight={600} lineHeight={28} color={viewIso > today ? colors.inkDim : colors.ink}
+          accessibilityRole="header">{words}</T>
+        {date ? <T size={font.small} dim style={{ marginTop: 2 }}>{date}</T> : null}
       </View>
-      <Press onPress={() => shift(1)} accessibilityRole="button" accessibilityLabel="Next day" style={st.daynavArrow}>
-        <Icon name="ChevronRight" size={18} color={colors.inkDim} />
-      </Press>
-      {offset !== 0 && (
-        <Press haptic onPress={() => onChange(today)} accessibilityRole="button" style={st.daynavToday}>
-          <T size={12} dim>today</T>
-        </Press>
-      )}
+      {viewIso !== today && <Btn kind="quiet" title="Today" onPress={() => { tap(); onChange(today) }} />}
+      <IconBtn icon="ChevronLeft" size={20} label="Previous day" onPress={() => shift(-1)} />
+      <IconBtn icon="ChevronRight" size={20} label="Next day" onPress={() => shift(1)} disabled={isoShift(viewIso, 1) > max} />
     </View>
   )
 }
@@ -387,117 +422,92 @@ export { nameFor }
 /* Lives in lib/minutes.js now — the input to the training-load chart. */
 export { minutesFor }
 
-/** The tone colours of .t-rec / .t-extra / .t-rest / .t-adj: [edge, icon and tag]. */
-const ROW_TONE: Record<string, [string, string]> = {
-  rec: [colors.accent, colors.accent],
-  extra: [colors.series3, colors.series3],
-  rest: [colors.series1, colors.load3],
-  adj: [colors.line, colors.ink],
+/** What a row's leading icon says: done, in progress, or not (yet). */
+const ROW_STATE: Record<string, { icon: string; label: string; color: string }> = {
+  done: { icon: 'CircleCheck', label: 'Done', color: colors.good },
+  running: { icon: 'Play', label: 'In progress', color: colors.ink },
+  open: { icon: 'Circle', label: 'Not done', color: colors.inkFaint },
 }
 
 /**
- * Everything you are doing today, and nothing you are not.
- *
- * The rows used to mix what was on the day, what the week still owed and what
- * the engine also recommended. Two of those are gone, so every row is something
- * the user put there — which is what lets every row carry a completion circle
- * without reading as a checklist you are behind on.
+ * Everything on the day, and nothing that is not: one card of rows (the web's
+ * `.list-row`s). The name, one line of what it was (time · distance), and done
+ * said once, by the leading icon. Gone in #41: the MAIN/ADDED pill, the tick
+ * beside the chevron, the "planned" chip and the dashed "Log another workout",
+ * which said what the + beside the dock already does.
  */
-function DayList({ rows, onOpen, onPlan, onLog, onRest = null, isFuture, repeats = [], onAddAgain = null }: {
+function DayList({ rows, onOpen, isFuture, viewIso, onLog = null, onRest = null, onQuickLog = null }: {
   rows: any[]
   onOpen: (key: string) => void
-  onPlan?: (() => void) | null
+  isFuture: boolean
+  viewIso: string
   onLog?: (() => void) | null
   onRest?: (() => void) | null
-  isFuture: boolean
-  repeats?: any[]
-  onAddAgain?: ((optId: string) => void) | null
+  onQuickLog?: ((activity: string) => void) | null
 }) {
+  if (!rows.length) {
+    return <EmptyDay isFuture={isFuture} viewIso={viewIso} onLog={onLog} onRest={onRest} onQuickLog={onQuickLog} />
+  }
   return (
-    <Card>
-      <H2 style={{ marginBottom: 10 }}>Your day</H2>
-
-      {!rows.length && (
-        <View style={{ paddingTop: 6, paddingBottom: 2 }}>
-          <T size={14} dim style={{ marginBottom: 6 }}>Nothing on today yet.</T>
-          {!isFuture && (onPlan || onLog) && (
-            <>
-              <T size={13} dim>
-                {'Plan one and it arrives with the sets already written; log one you have already done, a climbing session from the plan or anything else; or take the day off on purpose. All of it also lives on the '}
-                <T size={13} weight={700} color={colors.ink}>+</T>
-                {' button.'}
-              </T>
-              <View style={st.emptyActs}>
-                {onPlan && <Btn icon="Sparkles" title="Plan a workout" onPress={onPlan} />}
-                {onLog && <Btn kind="ghost" icon="NotebookPen" title="Log a workout" onPress={onLog} />}
-                {onRest && <Btn kind="ghost" icon="Sunset" title="Log a rest day" onPress={onRest} />}
-              </View>
-            </>
-          )}
-          {isFuture && <T size={13} dim>Plan something for it, or come back on the day.</T>}
-        </View>
-      )}
-
-      {rows.length > 0 && (
-        <View style={{ gap: 8 }}>
-          {rows.map(r => {
-            const [edge, ink] = ROW_TONE[r.tone] || [colors.line, colors.ink]
-            // "not done yet" on a row that already says "6 of 16 sets" is the same
-            // fact twice, and the second one reads as nagging.
-            const stats = [...(r.stats?.length ? r.stats : [r.tier]), r.done || r.running ? null : 'not done yet']
-              .filter(Boolean).join(' · ')
-            return (
-              <Press key={r.key} haptic onPress={() => onOpen(r.key)} accessibilityRole="button"
-                style={[st.dlRow, { borderLeftColor: edge }, r.tone === 'adj' && { opacity: 0.8 }]}>
-                <Icon name={r.icon} size={16} color={ink} />
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <T size={r.tone === 'adj' ? 13 : 14} weight={r.tone === 'adj' ? 500 : 600} lineHeight={18}
-                      color={r.done ? colors.ink : colors.inkDim} style={{ flexShrink: 1 }}>{r.name}</T>
-                    {/* The tag already says "In progress" on a workout mid-way
-                        through, so the chip stays "planned". */}
-                    {r.planned && (
-                      <View style={[st.planned, r.running && { backgroundColor: colors.accent }]}>
-                        <T size={9.5} weight={700} caps lineHeight={12} color={r.running ? colors.bg : colors.accent}>planned</T>
-                      </View>
-                    )}
-                  </View>
-                  <T size={12} faint tabular style={{ marginTop: 2 }}>{stats}</T>
-                  {r.with ? (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                      <Icon name="Users" size={11} color={colors.inkFaint} />
-                      <T size={11} faint>{r.with}</T>
-                    </View>
-                  ) : null}
-                  {r.by ? (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                      <Icon name="ClipboardCheck" size={11} color={colors.inkFaint} />
-                      <T size={11} faint>{r.by}</T>
-                    </View>
-                  ) : null}
-                </View>
-                <View style={st.tag}><T size={10} caps lineHeight={13} color={r.tone === 'adj' ? colors.inkFaint : ink}>{r.tag}</T></View>
-                <Icon name={r.done ? 'CircleCheck' : 'Circle'} size={15} color={r.done ? colors.vizGood : colors.inkFaint} />
-                <Icon name="ChevronRight" size={15} color={colors.inkFaint} />
-              </Press>
-            )
-          })}
-        </View>
-      )}
-
-      {/*
-        * A SECOND one of a card that can be logged twice, in one tap, from the day
-        * itself. Shown only once one is already on the day: before that the +
-        * button is the way in.
-        */}
-      {!isFuture && onAddAgain && repeats.map(r => (
-        <Press key={r.optId} haptic onPress={() => onAddAgain(r.optId)} accessibilityRole="button" style={st.again}>
-          <Icon name="Plus" size={15} color={colors.accent} />
-          <T size={13} color={colors.accent}>{r.label}</T>
-          {r.count > 1 && <T size={10} caps faint style={{ marginLeft: 4 }}>{`${r.count} on today`}</T>}
-        </Press>
-      ))}
+    <Card style={{ paddingVertical: space[1] }}>
+      {rows.map((r, i) => {
+        const state = ROW_STATE[r.state] || ROW_STATE.open
+        return (
+          <Press key={r.key} haptic onPress={() => onOpen(r.key)} accessibilityRole="button"
+            accessibilityLabel={`${r.name}, ${state.label}${r.meta ? `, ${r.meta}` : ''}`}
+            style={[st.row, i > 0 && st.rowDivided]}>
+            <Icon name={state.icon} size={20} color={state.color} />
+            <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+              <T size={font.body} weight={500} numberOfLines={1}
+                color={r.state === 'open' ? colors.inkDim : colors.ink}>{r.name}</T>
+              {r.meta ? <T size={font.small} dim tabular numberOfLines={1}>{r.meta}</T> : null}
+            </View>
+            <Icon name="ChevronRight" size={16} color={colors.inkFaint} />
+          </Press>
+        )
+      })}
     </Card>
+  )
+}
+
+/*
+ * STUB(#42): batch B's quick-log rows (`features/quicklog.tsx`, "Logging in two
+ * taps" in docs/DESIGN.md): up to three recent activities, one tap each. Until it
+ * lands this renders nothing; the slot, the order and `onPick(activityKey)`
+ * (which places the workout on this day and opens it) are wired.
+ */
+function QuickLogSlot(_props: { onPick: (activity: string) => void }) {
+  return null
+}
+
+/**
+ * An empty day: what goes here, and the ways to put it there. The quick-log rows
+ * first, Log a workout as the one primary for anything else, a rest day as a
+ * quiet button. No paragraph: the + is on screen, and planning lives behind it.
+ */
+function EmptyDay({ isFuture, viewIso, onLog, onRest, onQuickLog }: {
+  isFuture: boolean
+  viewIso: string
+  onLog: (() => void) | null
+  onRest: (() => void) | null
+  onQuickLog: ((activity: string) => void) | null
+}) {
+  if (isFuture) {
+    return <Empty style={{ marginBottom: space[3] }}><T size={font.title} weight={600}>Nothing planned yet</T></Empty>
+  }
+  const words = dayWords(viewIso)
+  const when = words === 'Today' || words === 'Yesterday' ? words.toLowerCase() : `on ${words}`
+  return (
+    <Empty style={{ marginBottom: space[3] }}>
+      <T size={font.title} weight={600} align="center">{`Nothing logged ${when}`}</T>
+      {onQuickLog ? <QuickLogSlot onPick={onQuickLog} /> : null}
+      {onLog || onRest ? (
+        <View style={{ alignSelf: 'stretch', gap: space[2] }}>
+          {onLog ? <Btn title="Log a workout" onPress={onLog} /> : null}
+          {onRest ? <Btn kind="quiet" title="Rest day" onPress={onRest} /> : null}
+        </View>
+      ) : null}
+    </Empty>
   )
 }
 
@@ -624,12 +634,72 @@ export function SessionSheet({
   const setSync = (person: any, v: boolean) => onSaveEntry?.(withSync(latestEntry.current, person.id, v))
   const copyMine = () => { setDirty(true); theirs.update((cur: any) => copyExercises(cur, latestEntry.current)) }
 
-  const note = (text: string) => (
-    <View style={{ flex: 1, flexDirection: 'row', gap: 6, alignItems: 'flex-start' }}>
-      <Icon name="Info" size={13} color={colors.inkDim} style={{ marginTop: 3 }} />
-      <T size={13} dim style={{ flex: 1 }}>{text}</T>
-    </View>
+  /* A write to their log that did not land says so, with the way to send it again. */
+  useEffect(() => {
+    if (!theirs.error || !/^Not saved/.test(theirs.error)) return
+    pushToast(theirs.error, 'error', { duration: 0,
+      action: { label: 'Retry', onClick: () => theirs.update((cur: any) => cur) } })
+  }, [theirs.error])
+
+  /*
+   * The line under the name: the day, then the time as typed or measured, so the
+   * header can never say "45 min" over a typed 29. Never the card's estimate or
+   * tier ("any sport · counts anyway"). A planned session not yet timed says what
+   * it holds.
+   */
+  const out = entry?.data?.out
+  const timed = planned && (minutesSourceOf as any)(opt, out) !== 'estimate' ? `${_minutesFor(opt, out)} min` : null
+  const subLine = [
+    entry?.date ? dayWords(entry.date) : null,
+    timed || (pres ? prescriptionLine(pres) : null),
+  ].filter(Boolean).join(' · ')
+
+  /*
+   * The footer (docs/DESIGN.md "Session sheet"). Every field saves as typed, so
+   * the one thing left to do is close it: that is the primary, unless the session
+   * can be started, which is. Beside it, quiet, the rare undo: "Mark undone" on a
+   * session done by default (AGENTS.md §4), "Mark done" on one marked undone. A
+   * day still to come shows neither.
+   */
+  const close = <Btn title="Close" flex onPress={onClose} />
+  const start = (side: string | null = null) => (
+    <Btn icon="Play" title={pres ? 'Start the workout' : 'Start workout'} flex
+      onPress={() => { setDirty(true); onStartWorkout?.(opt, side) }} />
   )
+  const doneToggle = (isNowDone: boolean, onToggle: () => void, whose = '') => (
+    <Btn kind="quiet" title={isNowDone ? `Mark undone${whose}` : `Mark done${whose}`}
+      onPress={() => { if (isNowDone) tap(); else success(); onToggle() }} />
+  )
+  let footer: React.ReactNode
+  if (sidePerson) {
+    const theirsLive = theirs.entry && !theirs.entry.deleted
+    footer = (
+      <View style={st.sheetFoot}>
+        {!isFuture && theirsLive ? doneToggle(theirDone, () => setTheirsDone(!theirDone), ` for ${sidePerson.name}`) : null}
+        {/* Their side starts the same shared workout, on their side of the switcher. */}
+        {!isFuture && theirsLive && onStartWorkout && pres && theirPres && runnable(opt, theirPres) && canStart(theirs.entry)
+          ? start(sidePerson.id) : close}
+      </View>
+    )
+  } else if (!planned && onLog && !isFuture) {
+    // A card opened with nothing on the day yet: putting it there IS the action.
+    footer = (
+      <View style={st.sheetFoot}>
+        <Btn flex title={opt.role === 'rest' ? 'Take a rest day' : 'Add to today'}
+          onPress={() => { setDirty(true); onLog(opt) }} />
+      </View>
+    )
+  } else {
+    /* A planned session always offers the runner, whatever the CARD declares.
+       Not "while not done": today's session is done before it starts. */
+    const startable = !isFuture && onLog && onStartWorkout && runnable(opt, pres) && canStart(entry)
+    footer = (
+      <View style={st.sheetFoot}>
+        {planned && !isFuture && onLog ? doneToggle(done, () => { setDirty(true); onSetDone?.(entry, !done) }) : null}
+        {startable ? start() : close}
+      </View>
+    )
+  }
 
   return (
     <Modal
@@ -643,10 +713,10 @@ export function SessionSheet({
          scrolls (the web pins it with position: sticky). Only on a shared workout. */
       sub={on.length ? (
         <View>
-          <T size={12} faint style={{ marginTop: 2 }}>{pres ? prescriptionLine(pres) : `${opt.minutes} min · ${opt.tier}`}</T>
+          {subLine ? <T size={12} faint style={{ marginTop: 2 }}>{subLine}</T> : null}
           <PersonSwitch on={on} side={sidePerson?.id || null} onSide={setSide} />
         </View>
-      ) : pres ? prescriptionLine(pres) : `${opt.minutes} min · ${opt.tier}`}
+      ) : subLine || undefined}
       icon={opt.icon}
       tone={tone}
       dismissable={!dirty}
@@ -656,44 +726,7 @@ export function SessionSheet({
       onRename={planned && !isFuture && !sidePerson ? () => setRenaming(true) : null}
       onDelete={onRemove && entry && !sidePerson ? () => onRemove(entry) : null}
       deleteLabel="Remove from today"
-      footer={sidePerson ? (
-        isFuture ? note('Preview only — come back on the day to log it.')
-          : theirs.entry && !theirs.entry.deleted ? (
-            <View style={st.sheetActions}>
-              {/* Their side starts the same shared workout, on their side of the switcher. */}
-              {onStartWorkout && pres && theirPres && runnable(opt, theirPres) && canStart(theirs.entry) && (
-                <Btn icon="Play" title="Start the workout" style={st.action}
-                  onPress={() => { setDirty(true); onStartWorkout(opt, sidePerson.id) }} />
-              )}
-              <Btn kind={theirDone ? 'ghost' : 'primary'} icon={theirDone ? 'CircleCheck' : 'Circle'} style={st.action}
-                title={theirDone ? `Done for ${sidePerson.name} · Mark undone` : `Mark done for ${sidePerson.name}`}
-                onPress={() => setTheirsDone(!theirDone)} />
-            </View>
-          ) : null
-      ) : !onLog ? (
-        note('An add-on rides along with your main session — tick it there.')
-      ) : isFuture ? (
-        note('Preview only — come back on the day to log it.')
-      ) : (
-        <View style={st.sheetActions}>
-          {/* A planned session always offers the runner, whether or not the CARD
-              declares a timer — what it walks is the prescription on the entry.
-              Not "while not done": today's session is done before it starts. */}
-          {onStartWorkout && runnable(opt, pres) && (!planned || canStart(entry)) && (
-            <Btn icon="Play" title={pres ? 'Start the workout' : 'Start workout'} style={st.action}
-              onPress={() => { setDirty(true); onStartWorkout(opt) }} />
-          )}
-          <DoneButton opt={opt} planned={planned} done={done}
-            onLog={() => { setDirty(true); onLog(opt) }}
-            onSetDone={(v) => { setDirty(true); onSetDone?.(entry, v) }} />
-          {/* Any workout can use a clock. A card that declares one offers it as a
-              preset. One modal at a time on iOS: the sheet goes, then the timer comes. */}
-          {opt.role !== 'rest' && (
-            <Btn icon="Timer" kind="secondary" title="Interval timer" style={st.action}
-              onPress={() => { const req = timerRequestFor(opt, entry); onClose(); openTimerAfterSheet(req) }} />
-          )}
-        </View>
-      )}
+      footer={footer}
     >
       {on.map((p) => <SyncToggle key={p.id} person={p} on={isSynced(entry, p.id)} onChange={(v) => setSync(p, v)} />)}
 
@@ -731,8 +764,9 @@ export function SessionSheet({
         * "protocol" is boilerplate, and the activity row is the one control that
         * changes what the rest of the form asks.
         */}
+      {/* First in the sheet, so `bare`: no divider above it. */}
       {opt.logFirst && !isFuture && planned && (
-        <SessionLog session={opt} entry={entry} entries={entries} onSave={save} defaultOpen />
+        <SessionLog session={opt} entry={entry} entries={entries} onSave={save} bare />
       )}
 
       {/*
@@ -773,9 +807,19 @@ export function SessionSheet({
       )}
 
       {/*
-        * "Log another workout today" came off the sheet on 2026-09-21 — the day
-        * list's own button and the + are both one tap from here.
+        * "Log another workout today" came off the sheet on 2026-09-21: the + is
+        * one tap from here.
         */}
+
+      {/* Any workout can use a clock; a card that declares one offers it as a
+          preset. A tool, so a row at the foot of the sheet. One modal at a time
+          on iOS: the sheet goes, then the timer comes. */}
+      {!isFuture && onLog && opt.role !== 'rest' ? (
+        <View style={st.tools}>
+          <Row icon="Timer" label="Interval timer"
+            onPress={() => { const req = timerRequestFor(opt, entry); onClose(); openTimerAfterSheet(req) }} />
+        </View>
+      ) : null}
 
       {renaming && (
         <DetailsSheet session={opt} entry={entry} entries={entries}
@@ -788,37 +832,6 @@ export function SessionSheet({
       )}
       </>)}
     </Modal>
-  )
-}
-
-/**
- * Done, and the way to say it was not. A session on today or an earlier day is
- * done by default (AGENTS.md §4), so the control's job is mostly "Mark undone":
- * a workout the user skipped, which then stays undone however many days pass.
- * "Mark done" puts it back.
- */
-function DoneButton({ opt, planned, done, onLog, onSetDone }: {
-  opt: any
-  planned: boolean
-  done: boolean
-  onLog: () => void
-  onSetDone: (v: boolean) => void
-}) {
-  if (!planned) {
-    return <Btn title={opt.role === 'rest' ? 'Take a rest day' : 'Add to today'} style={st.action} onPress={onLog} />
-  }
-  const fg = done ? colors.vizGood : colors.onAccent
-  return (
-    <Press
-      onPress={() => { if (done) tap(); else success(); onSetDone(!done) }}
-      accessibilityRole="button"
-      accessibilityState={{ checked: done }}
-      style={[st.doneBtn, st.action, done
-        ? { backgroundColor: 'transparent', borderColor: mix(colors.vizGood, 40, colors.line) }
-        : { backgroundColor: colors.accent, borderColor: colors.accent }]}>
-      <Icon name={done ? 'CircleCheck' : 'Circle'} size={16} color={fg} />
-      <T size={15} weight={600} color={fg}>{done ? 'Done · Mark undone' : 'Mark done'}</T>
-    </Press>
   )
 }
 
@@ -847,7 +860,7 @@ function DaySessions({
   onPickMain, onAddExtra, onRemove, onSaveOutputs, onSaveRun, onSavePlan,
   onSetDone, onSetTraining, viewIso, isFuture, onSaveEntry = null,
   openEntryId = null, onOpened = () => {},
-  onPlan = null, onLog = null, onRest = null,
+  onLog = null, onRest = null, onQuickLog = null,
 }: any) {
   const [sheet, setSheet] = useState<string | null>(null)   // row key: 'main' | an extra entry id
   const [workout, setWorkout] = useState<string | null>(null) // same key, training in front of it
@@ -911,66 +924,50 @@ function DaySessions({
     .map((e: any) => ({ entry: e, opt: optFor(menu, e.data?.optId) }))
     .filter((x: any) => x.opt)
 
-  /** Log a SECOND one of a repeatable card, and open it. */
-  const addAnother = (opt: any) => {
-    if (!opt) return
-    const id = onAddExtra(opt, { fresh: true })
-    setSheet(id || null)
-  }
-
-  // How many of it are on the day, MAIN INCLUDED — a run as the day's main and a
-  // lift on top is two of the same card.
-  const onDayCount = (id: string) =>
-    (mainEntry?.data?.optId === id ? 1 : 0) + extras.filter((x: any) => x.opt.id === id).length
-
-  const repeats = menu
-    .filter((m: any) => isRepeatable(m) && !m.retired && onDayCount(m.id) > 0)
-    .map((m: any) => ({ optId: m.id, label: repeatLabel(m), count: onDayCount(m.id) }))
-
-  /*
-   * "And another one", from the day. For an ordinary session that is a second
-   * entry of the same card. For a CONTAINER — the planned card, the workout card
-   * — a blank one is a card with its whole question unanswered, so
-   * `sched.repeatVia` names the screen that asks the question instead.
-   */
-  const addAgain = (optId: string) => {
-    const opt = menu.find((m: any) => m.id === optId)
-    const via = opt?.sched?.repeatVia
-    if (via === 'plan' && onPlan) return onPlan()
-    if (via === 'log' && onLog) return onLog()
-    return addAnother(opt)
-  }
-
   const mainOpt = logged || null
 
-  const rowFor = (entry: any, opt: any, { tag, tone }: { tag: string; tone: string }) => ({
+  /*
+   * A row's one line: what it WAS (time · distance, or what was lifted), never
+   * the card's estimate dressed as a fact. A session in progress says where it is,
+   * a rest day says why, and one that is not done says so first: "Planned" on a
+   * day still to come, "Not done" once marked undone.
+   */
+  const metaFor = (entry: any, opt: any) => {
+    const out = entry.data?.out || {}
+    const me = currentMe()
+    if (isRunning(entry)) return [runLine(entry), (withLine as any)(entry, me.people)].filter(Boolean).join(' · ')
+    const bits: (string | null)[] = []
+    if (!isDone(entry)) bits.push(viewIso > localIso() ? 'Planned' : 'Not done')
+    if (opt.role === 'rest') bits.push(...(restStats as any)(entry, opt))
+    else {
+      const measured = (minutesSourceOf as any)(opt, out) !== 'estimate'
+      const sets = totalSets(out)
+      const work = Number(out.distance) > 0 ? `${out.distance} mi`
+        : (liftsLine as any)(out) || (sets ? `${sets} set${sets === 1 ? '' : 's'}` : null)
+      // A planned session nothing has been logged on yet says what it holds.
+      if (!measured && !work && entry.data?.plan) bits.push(prescriptionLine(entry.data.plan))
+      else bits.push(measured ? `${_minutesFor(opt, out)} min` : null, work)
+    }
+    // "with Sam" (lib/shared.js), or "planned by Alex" (lib/trainer.js).
+    bits.push((withLine as any)(entry, me.people), plannedLine(entry, me))
+    return bits.filter(Boolean).join(' · ')
+  }
+
+  const rowFor = (entry: any, opt: any) => ({
     key: entry.id === mainEntry?.id ? 'main' : entry.id,
-    icon: opt.icon,
     name: _titleFor(opt, entry.data?.out, entry.data?.plan),
-    tier: opt.tier,
-    tag: isRunning(entry) ? 'In progress' : tag,
-    tone,
-    planned: Boolean(entry.data?.plan),
-    running: isRunning(entry),
-    done: isDone(entry),
-    // Who else was on it, if anyone: "with Sam". See lib/shared.js.
-    with: (withLine as any)(entry, currentMe().people),
-    // A session the owner planned for this person: "planned by Alex". lib/trainer.js.
-    by: plannedLine(entry, currentMe()),
-    // A session in progress says where it is rather than what it added up to.
-    stats: isRunning(entry) ? [runLine(entry)].filter(Boolean) : (sessionStats as any)(entry, opt),
+    state: isRunning(entry) ? 'running' : isDone(entry) ? 'done' : 'open',
+    meta: metaFor(entry, opt),
   })
 
   const rows = [
-    ...(mainEntry && mainOpt
-      ? [rowFor(mainEntry, mainOpt, { tag: resting ? 'Rest' : 'Main', tone: resting ? 'rest' : 'rec' })]
-      : []),
-    ...extras.map(({ entry, opt }: any) => rowFor(entry, opt, { tag: 'Added', tone: 'extra' })),
+    ...(mainEntry && mainOpt ? [rowFor(mainEntry, mainOpt)] : []),
+    ...extras.map(({ entry, opt }: any) => rowFor(entry, opt)),
+    // Add-ons ticked on an old main session: history, so still listed.
     ...(mainEntry?.data?.adjuncts || [])
       .map((id: string) => adjuncts.find((a: any) => a.id === id))
       .filter(Boolean)
-      .map((a: any) => ({ key: `adj-${a.id}`, icon: a.icon, name: a.name, tier: a.tier,
-        tag: 'Add-on', tone: 'adj', planned: false, done: true, stats: [] })),
+      .map((a: any) => ({ key: `adj-${a.id}`, name: a.name, state: 'done', meta: 'Add-on' })),
   ]
 
   /** Resolve a row key back to the session and entry it stands for. */
@@ -978,15 +975,15 @@ function DaySessions({
     if (!key) return null
     if (key === 'main') {
       return mainEntry && mainOpt
-        ? { opt: mainOpt, entry: mainEntry, tone: resting ? 'rest' : 'rec', kind: 'main' }
+        ? { opt: mainOpt, entry: mainEntry, tone: resting ? 'rest' : null, kind: 'main' }
         : null
     }
     if (key.startsWith('adj-')) {
       const opt = adjuncts.find((a: any) => `adj-${a.id}` === key)
-      return opt && { opt, entry: null, tone: 'adj', kind: 'adjunct' }
+      return opt && { opt, entry: null, tone: null, kind: 'adjunct' }
     }
     const hit = extras.find((x: any) => x.entry.id === key)
-    return hit && { opt: hit.opt, entry: hit.entry, tone: 'extra', kind: 'extra' }
+    return hit && { opt: hit.opt, entry: hit.entry, tone: hit.opt.role === 'rest' ? 'rest' : null, kind: 'extra' }
   }
 
   /**
@@ -1074,13 +1071,11 @@ function DaySessions({
 
   return (
     <>
-      <DayList rows={rows} onOpen={openRow} isFuture={isFuture}
-        onPlan={onPlan} onLog={onLog}
+      <DayList rows={rows} onOpen={openRow} isFuture={isFuture} viewIso={viewIso}
+        onLog={onLog} onQuickLog={onQuickLog}
         // The day the user is LOOKING at, so a forgotten rest day can be logged
         // from the day it belongs to. Not a future one — resting is not a plan.
-        onRest={onRest && viewIso <= localIso() ? () => onRest(viewIso) : null}
-        repeats={repeats}
-        onAddAgain={addAgain} />
+        onRest={onRest && viewIso <= localIso() ? () => onRest(viewIso) : null} />
 
       {open && (
         <SessionSheet
@@ -1088,7 +1083,8 @@ function DaySessions({
           onLog={open.kind === 'adjunct' ? null : open.kind === 'extra' ? onAddExtra : onPickMain}
           onSave={onSaveOutputs}
           onSavePlan={onSavePlan}
-          onRemove={open.entry ? onRemove : null}
+          // Closed on removal, so an Undo puts the workout back without reopening it.
+          onRemove={open.entry ? (e: any) => { setSheet(null); onRemove(e) } : null}
           onSetDone={onSetDone}
           onSaveEntry={onSaveEntry}
           onStartWorkout={isFuture ? null : startWorkout(sheet)}
@@ -1103,41 +1099,12 @@ function DaySessions({
 }
 
 const st = StyleSheet.create({
-  daynav: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: 10,
-    padding: 6, marginBottom: 14,
-  },
-  daynavFuture: { borderStyle: 'dashed', borderColor: colors.inkFaint },
-  daynavArrow: { width: 44, height: 44, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  daynavToday: {
-    borderWidth: 1, borderColor: colors.line, borderRadius: 999,
-    paddingVertical: 5, paddingHorizontal: 10, minHeight: 32, justifyContent: 'center',
-  },
-  emptyActs: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
-  dlRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderLeftWidth: 3,
-    borderRadius: 8, paddingVertical: 11, paddingHorizontal: 12, minHeight: 44,
-  },
-  planned: {
-    marginLeft: 7, paddingHorizontal: 7, paddingVertical: 1, borderRadius: 999,
-    backgroundColor: mix(colors.accent, 14, colors.panel2),
-  },
-  tag: { backgroundColor: colors.panel, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
-  again: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    marginTop: 10, minHeight: 44, borderWidth: 1, borderColor: colors.line, borderRadius: 8,
-  },
-  sheetActions: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  action: { flexGrow: 1, flexBasis: 150 },
-  doneBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    borderWidth: 1, borderRadius: 8, paddingVertical: 11, paddingHorizontal: 16, minHeight: 44,
-  },
-  restbtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9,
-    marginBottom: 14, padding: 14, minHeight: 44,
-    borderWidth: 1, borderStyle: 'dashed', borderColor: colors.line, borderRadius: 10,
-  },
+  // The web's .daytitle: the day as the screen's title, ‹ › beside it.
+  daytitle: { flexDirection: 'row', alignItems: 'center', gap: space[1], marginBottom: space[3] },
+  // The web's .list-row inside one .card: 52pt, hairlines between.
+  row: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: 52, paddingVertical: space[2] },
+  rowDivided: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
+  // The sheet's foot: the one primary, the quiet undo beside it.
+  sheetFoot: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space[2] },
+  tools: { marginTop: space[4], borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
 })
