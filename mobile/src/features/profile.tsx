@@ -45,7 +45,7 @@ import { signOutDevice } from '../lib/signout.js'
 import { authHeaders, forgetCredential, getConnection, rawFetch, serverUrl, useConnection } from '../lib/connection'
 import { reloadApp } from '../shell/reload'
 import { GearSection } from './gear'
-import { TestingTab, WhyTab } from './tabs'
+import { TestingTab, WhyTab } from './testing'
 import { NotificationsSection } from './notifications'
 
 /* ---------------------------------------------------------- the menu */

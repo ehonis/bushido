@@ -70,7 +70,7 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
 ## Porting rules
 
 - **The web is the spec.** Same sections, copy, order, colours and states as the phone layout
-  (`@media (max-width: 719px)` in `styles.css`). A difference must be deliberate and native (a page
+  (`@media (max-width: 719px)` in `styles.css` and `app/src/css/*.css`). A difference must be deliberate and native (a page
   sheet, a system menu, a swipe, a haptic), not drift. Keep the web's comments that explain *why*,
   shortened if needed; they are the design history.
 - **Logic is not forked.** If the web component computes something, port the computation as is or
