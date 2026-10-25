@@ -15,7 +15,11 @@ export interface TProps extends TextProps {
   lineHeight?: number
   /** font-variant-numeric: tabular-nums, for clocks and counters. */
   tabular?: boolean
-  /** The small uppercase label the CSS uses for tags and section heads. */
+  /**
+   * The small uppercase label the CSS used for tags and section heads. Being
+   * retired: the visual system titles a group in sentence case (`SectionHeader`
+   * in ./kit). Wave 2 moves each screen off it; do not add new uses.
+   */
   caps?: boolean
   mono?: boolean
 }

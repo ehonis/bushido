@@ -66,7 +66,7 @@ export function PickerScreen({
         <Input value={q} onChangeText={setQ} placeholder={placeholder}
           accessibilityLabel={`Search ${title}`} returnKeyType="search" autoCorrect={false}
           style={st.searchInput} />
-        {q ? <IconBtn icon="X" size={16} bordered={false} label="Clear" onPress={() => setQ('')} /> : null}
+        {q ? <IconBtn icon="X" size={16} label="Clear" onPress={() => setQ('')} /> : null}
       </View>
 
       {lead && !query ? <T size={12.5} dim lineHeight={19} style={{ marginBottom: 18 }}>{lead}</T> : null}

@@ -6,15 +6,33 @@
    * Near-black neutral with a lime accent. The neutrals carry a trace of green so
    * the surfaces and the accent read as one family rather than as a colour laid
    * on top of a grey app.
+   *
+   * THE VISUAL SYSTEM (docs/DESIGN.md, "Visual system"). Every token below has
+   * a twin of the same name in mobile/src/theme.ts (`--ink-dim` is
+   * `colors.inkDim`, `--sp-4` is `space[4]`, `--fs-title` is `font.title`).
+   * Screens use these and the base components after them; a raw px or hex in a
+   * screen's CSS is a value the system is missing, so add it here first.
    */
+
+  /* Surfaces, lowest to highest. A card is --panel on --bg; a control or a
+     row inside a card is --panel-2; a pressed or selected control is --panel-3. */
   --bg: #0b0c0b;
   --panel: #131513;
   --panel-2: #1a1d1a;
+  --panel-3: #232723;
   --line: #272b27;
+  --line-strong: #363c35;
+  /* Three inks. --ink-faint was #61695e (3.2:1 on a card) and carried dates,
+     hints and placeholders everywhere; it now clears 4.5:1 on --bg, --panel and
+     --panel-2. It is NEVER text on --panel-3 or --accent-soft (4.2:1 and 3.5:1):
+     on those, text is --ink or --ink-dim. */
   --ink: #e9ece7;
   --ink-dim: #99a295;
-  --ink-faint: #61695e;
+  --ink-faint: #808a7c;
   --accent: #b8f23d;
+  /* Text and icons ON the accent. One value: the button was a warm #1a1509
+     left over from the old palette and the + was #0b0c0b. */
+  --on-accent: #0f1409;
   --good: #6fd66f;
   --warn: #f0b429;
   --bad: #e2614f;
@@ -24,8 +42,54 @@
   /* The sleep chart's mark for the day being viewed. A highlight, not a data
      series, so it takes the app's accent rather than a palette slot. */
   --sleep-today: var(--accent);
-  --radius: 10px;
+  /* Tints of the accent: a selected chip or an icon well, and its border. */
+  --accent-soft: color-mix(in oklab, var(--accent) 14%, var(--panel-2));
+  --accent-line: color-mix(in oklab, var(--accent) 55%, var(--line));
+  --scrim: rgb(0 0 0 / 0.62);
+
+  /* Type. Seven sizes; the CSS had twenty-seven. --fs-micro is for the dock's
+     labels and chart ticks only, never for something a person has to read to
+     decide. Weights are 400, 500 and 600; nothing is uppercase. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --fs-micro: 11px;
+  --fs-caption: 12px;
+  --fs-small: 13px;
+  --fs-body: 15px;
+  --fs-input: 16px;
+  --fs-title: 17px;
+  --fs-heading: 22px;
+  --fs-display: 32px;
+  --lh-tight: 1.25;
+  --lh-body: 1.5;
+
+  /* Space, on a 4px grid. --gutter is the screen's side margin. */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --gutter: 16px;
+
+  /* Radius, one rule: controls 10, containers 12, sheets 20, chips and round
+     buttons pill. --radius stays as the container value for older rules. */
+  --r-control: 10px;
+  --r-card: 12px;
+  --r-sheet: 20px;
+  --r-pill: 999px;
+  --radius: var(--r-card);
   --tap: 44px;
+
+  /* Elevation. Cards are flat (a line, no shadow). Only things that float over
+     the page cast one: the dock and the + (2), sheets and menus (3). */
+  --elev-2: 0 8px 24px rgb(0 0 0 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.07);
+  --elev-3: 0 -12px 40px rgb(0 0 0 / 0.55);
+
+  /* Motion explains a change (a sheet arriving, a toggle flipping); nothing loops. */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 120ms;
+  --dur: 220ms;
 
   /* Data-viz roles. VALIDATED — run `npm run palette` after changing any hex
      here, and note that the script is a real gate rather than a formality: it
@@ -58,7 +122,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: var(--fs-body)/var(--lh-body) var(--font-sans);
   -webkit-text-size-adjust: 100%;
   -webkit-font-smoothing: antialiased;
   /* Stop the whole page rubber-banding / pull-to-refresh inside the installed app. */
@@ -67,6 +131,13 @@ body {
 }
 
 button, a, input, select, label { touch-action: manipulation; }
+
+/* One focus ring for everything a keyboard can reach. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0ms !important; animation-duration: 0ms !important; }
+}
 
 .app {
   display: flex;
@@ -78,56 +149,65 @@ button, a, input, select, label { touch-action: manipulation; }
 
 /* ---------------------------------------------------------------- header */
 
+/*
+ * The mark, the name, the streak, the avatar. Nothing else earns a place up
+ * here: the screen's own title starts the page below it.
+ */
 .hdr {
   position: sticky;
   top: 0;
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 16px 10px;
-  background: linear-gradient(var(--bg) 78%, transparent);
-  padding-top: max(14px, env(safe-area-inset-top));
+  gap: var(--sp-3);
+  min-height: 56px;
+  padding: var(--sp-2) var(--gutter);
+  padding-top: max(var(--sp-2), env(safe-area-inset-top));
+  background: linear-gradient(var(--bg) 80%, transparent);
 }
 
 .hdr h1 {
-  font-size: 15px;
+  font-size: var(--fs-title);
   font-weight: 600;
-  letter-spacing: 0.02em;
+  line-height: var(--lh-tight);
   margin: 0;
   flex: 1;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--sp-2);
 }
 
-/* The mark takes the accent; the word stays ink. Two lime things in a 15px
+/* The mark takes the accent; the word stays ink. Two lime things in the
    header would be one thing too many. */
 .hdr-mark { color: var(--accent); flex: none; }
 
 /* Whose log is open, while the owner is acting as someone else. Loud on purpose:
-   logging into the wrong person's log is the mistake this has to prevent. */
+   logging into the wrong person's log is the mistake this has to prevent. It is
+   the one place outside a button the accent fills a surface. */
 .acting {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 0 16px 8px;
-  padding: 6px 6px 6px 12px;
-  border: 1px solid var(--accent);
-  border-radius: 10px;
-  background: var(--panel);
-  font-size: 14px;
+  gap: var(--sp-2);
+  margin: 0 var(--gutter) var(--sp-2);
+  padding: var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-3);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-card);
+  background: var(--accent-soft);
+  font-size: var(--fs-small);
 }
+.acting > svg { color: var(--accent); flex: none; }
 .acting > span { flex: 1; min-width: 0; }
 .acting-back {
-  min-height: 44px;
-  padding: 0 12px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
+  min-height: var(--tap);
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-control);
+  border: 1px solid var(--line-strong);
   background: var(--panel-2);
   color: var(--ink);
   font: inherit;
+  font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 /*
@@ -138,8 +218,8 @@ button, a, input, select, label { touch-action: manipulation; }
 .hdr-streak {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 14px;
+  gap: var(--sp-1);
+  font-size: var(--fs-body);
   font-weight: 600;
   line-height: 1;
   color: var(--ink);
@@ -175,7 +255,7 @@ button, a, input, select, label { touch-action: manipulation; }
 
 .tabs {
   position: sticky;
-  top: 48px;
+  top: 56px;
   z-index: 19;
   display: flex;
   gap: 2px;
@@ -194,10 +274,10 @@ button, a, input, select, label { touch-action: manipulation; }
   background: transparent;
   color: var(--ink-faint);
   font: inherit;
-  font-size: 14px;
-  padding: 8px 12px;
+  font-size: var(--fs-body);
+  padding: var(--sp-2) var(--sp-3);
   min-height: var(--tap);
-  border-radius: var(--radius) var(--radius) 0 0;
+  border-radius: var(--r-control) var(--r-control) 0 0;
   cursor: pointer;
   white-space: nowrap;
   border-bottom: 2px solid transparent;
@@ -214,7 +294,14 @@ button, a, input, select, label { touch-action: manipulation; }
    this app gets used one-handed, mid-session, with chalky hands. It floats there
    as a glass capsule rather than a bar welded to the screen edge: the session
    scrolls *underneath* it, which is what makes the translucency worth having and
-   what keeps the tallest chart from feeling boxed in. */
+   what keeps the tallest chart from feeling boxed in.
+
+   Three tabs (Today, Log, Progress) leave room for the + in the same row, at
+   the same height, beside the capsule: one row of things to press at the
+   bottom of the screen instead of a button floating over the content above a
+   bar. `.app[data-dock="wide"]` is the older layout for an install with more
+   than four tabs, where the capsule needs the whole width and the + sits above
+   it. */
 @media (max-width: 719px) {
   /* KEEP env() OUT OF THESE. iOS Safari fails to resolve an env() that reaches a
      calc() by way of a custom property: the whole declaration goes
@@ -226,6 +313,7 @@ button, a, input, select, label { touch-action: manipulation; }
   :root {
     --dock-h: 58px;
     --dock-bottom: 10px;
+    --dock-side: 12px;
     --dock-clear: calc(var(--dock-h) + var(--dock-bottom) + 16px);
   }
 
@@ -233,22 +321,24 @@ button, a, input, select, label { touch-action: manipulation; }
     position: fixed;
     top: auto;
     bottom: max(var(--dock-bottom), env(safe-area-inset-bottom));
-    left: max(10px, env(safe-area-inset-left));
-    right: max(10px, env(safe-area-inset-right));
+    left: max(var(--dock-side), env(safe-area-inset-left));
+    /* Room for the + beside it: its width and the gap between them. */
+    right: calc(max(var(--dock-side), env(safe-area-inset-right)) + var(--dock-h) + 10px);
     height: var(--dock-h);
     align-items: stretch;
     gap: 2px;
     overflow: visible;
-    padding: 0 5px;
-    border: 1px solid #ffffff1f;
-    border-radius: 26px;
+    padding: 5px;
+    border: 1px solid rgb(255 255 255 / 0.12);
+    border-radius: var(--r-pill);
     background: color-mix(in oklab, var(--panel) 92%, transparent);
     /* Halo biased upward so the capsule separates from content sliding under it,
        a drop shadow so it reads as lifted rather than inlaid, and a one-pixel
        specular inset along the top edge — the lit rim is what makes glass read
        as a solid pane rather than a hole in the page. */
-    box-shadow: 0 -4px 20px #00000073, 0 12px 30px #00000059, inset 0 1px 0 #ffffff1f;
+    box-shadow: 0 -4px 20px rgb(0 0 0 / 0.45), var(--elev-2);
   }
+  .app[data-dock='wide'] .tabs, .app[data-dock='alone'] .tabs { right: max(var(--dock-side), env(safe-area-inset-right)); }
 
   /* The glass. Behind @supports because the opaque fallback has to survive
      anywhere blur doesn't — a mostly-transparent bar with no blur is an
@@ -287,95 +377,162 @@ button, a, input, select, label { touch-action: manipulation; }
     /* --ink-faint is legible against a flat panel; against blurred, moving
        content it isn't, so inactive tabs sit a step brighter on the glass. */
     color: var(--ink-dim);
-    font-size: 11px;
+    font-size: var(--fs-micro);
     font-weight: 600;
-    letter-spacing: 0.01em;
     padding: 0 2px;
-    border-radius: 20px;
+    border-radius: var(--r-pill);
     border-bottom: 0;
     border-top: 0;
     text-align: center;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
   }
 
-  /* Colour alone marks the selected tab. The old accent underline and tinted
-     chip both read as a second surface stacked on the glass, and the underline
-     had nowhere square to sit once the bar became a capsule. */
+  /* The selected tab is a lit pill as well as a colour, so it does not rely on
+     colour alone; the icon takes the accent and the label stays ink. */
   .tab[aria-selected='true'] {
-    color: var(--accent);
-    background: none;
+    color: var(--ink);
+    background: rgb(255 255 255 / 0.09);
   }
+  .tab[aria-selected='true'] .tab-ico { color: var(--accent); }
+  /* Three tabs have room for a label a step bigger than seven did. */
+  .app:not([data-dock='wide']) .tab-label { font-size: var(--fs-caption); }
 
   /* Clear the floating bar so the last card is never trapped under it. The
      selector is `.app > main` rather than `main` on purpose: the base rule below
      sets `padding` as a shorthand and, being later in the file, was quietly
      beating this one — the old bar had the same bug and the last card really was
-     sitting under it. */
+     sitting under it. The wide layout also clears the + row above the bar. */
   .app > main { padding-bottom: calc(var(--dock-clear) + env(safe-area-inset-bottom)); }
+  .app[data-dock='wide'] > main { padding-bottom: calc(var(--dock-clear) + 76px + env(safe-area-inset-bottom)); }
 
 }
 
 /* ------------------------------------------------------------------ body */
 
-main { flex: 1; padding: 16px 16px 48px; }
+main { flex: 1; padding: var(--sp-4) var(--gutter) 48px; }
 
+/*
+ * THE BASE COMPONENTS. Each one is a pattern in docs/DESIGN.md with a twin of
+ * the same name in mobile/src/ui/kit.tsx. Screens compose these; a screen that
+ * needs a variant adds a modifier here rather than restyling a copy.
+ */
+
+/* Card: a group of related things on --panel. Flat: a line, no shadow. */
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 16px;
-  margin-bottom: 14px;
+  border-radius: var(--r-card);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-3);
 }
 
-.card h2 { font-size: 14px; margin: 0 0 4px; letter-spacing: 0.01em; }
-.card p.sub { margin: 0 0 14px; color: var(--ink-dim); font-size: 13px; }
+/* A card's title is a title: bigger than the body under it, never smaller. */
+.card h2 { font-size: var(--fs-title); font-weight: 600; line-height: var(--lh-tight); margin: 0 0 var(--sp-1); }
+.card p.sub { margin: 0 0 var(--sp-3); }
 
+/* Secondary text: the line under a title, a hint under a field. */
+.sub { color: var(--ink-dim); font-size: var(--fs-small); line-height: 1.45; }
+
+/* Section header: a title for a group inside a screen or a card, in sentence
+   case, with an optional count or action at the right. Replaces the small
+   tracked capitals the screens used for this (wave 2 moves them over). */
+.section-head {
+  display: flex; align-items: baseline; gap: var(--sp-2);
+  margin: var(--sp-6) 0 var(--sp-2);
+}
+.section-head:first-child { margin-top: 0; }
+.section-head h3 { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-body); font-weight: 600; }
+.section-head .sub { margin: 0; flex: none; }
+
+/* List: rows inside a card, divided by inset hairlines. A row is one thing you
+   can open: icon, name, the one fact that matters, chevron. */
+.list { display: flex; flex-direction: column; }
+.list-row {
+  display: flex; align-items: center; gap: var(--sp-3);
+  width: 100%; min-height: 52px; padding: var(--sp-2) 0;
+  background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.list-row + .list-row { border-top: 1px solid var(--line); }
+.list-row > svg:first-child { color: var(--ink-dim); flex: none; }
+.list-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.list-row-title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-row-meta { font-size: var(--fs-small); color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.list-row-chev { color: var(--ink-faint); flex: none; }
+
+/* Empty state: says what goes here and offers the one way to put it there. */
 .empty {
-  color: var(--ink-faint);
-  font-size: 14px;
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-3);
+  color: var(--ink-dim);
+  font-size: var(--fs-body);
   text-align: center;
-  padding: 40px 20px;
-  border: 1px dashed var(--line);
-  border-radius: var(--radius);
+  padding: var(--sp-8) var(--sp-5);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-card);
 }
+.empty > svg { color: var(--ink-faint); }
 
 /* --------------------------------------------------------------- controls */
 
 .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
 
-label.field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--ink-dim); flex: 1 1 110px; }
+/* Field: the label above its control, helper text under it. */
+label.field { display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-small); color: var(--ink-dim); flex: 1 1 110px; }
 
 input, select, textarea {
   font: inherit;
   /* 16px minimum, or iOS Safari zooms the whole viewport on focus and you have to
      pinch back out every time you log a number. */
-  font-size: 16px;
+  font-size: var(--fs-input);
   color: var(--ink);
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 10px;
+  border-radius: var(--r-control);
+  padding: 10px 12px;
   min-height: var(--tap);
   width: 100%;
 }
+input::placeholder, textarea::placeholder { color: var(--ink-faint); }
 
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
+/*
+ * Buttons. One primary per screen (the accent, filled). Secondary is a solid
+ * neutral for the other real choice; ghost is outlined for "back out" and
+ * "cancel"; quiet is text for a minor action; bad is a destructive confirm.
+ * All are 44px tall, one line, a verb.
+ */
 button.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2);
   font: inherit;
   font-weight: 600;
-  color: #1a1509;
+  color: var(--on-accent);
   background: var(--accent);
-  border: 0;
-  border-radius: 8px;
-  padding: 11px 16px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-control);
+  padding: 0 var(--sp-4);
   min-height: var(--tap);
   cursor: pointer;
+  white-space: nowrap;
+  transition: transform var(--dur-fast) var(--ease-out), filter var(--dur-fast) var(--ease-out);
 }
-
-button.btn.ghost { background: transparent; color: var(--ink-dim); border: 1px solid var(--line); }
+button.btn:hover { filter: brightness(1.06); }
+button.btn.secondary { background: var(--panel-3); color: var(--ink); border-color: var(--line-strong); }
+button.btn.ghost { background: transparent; color: var(--ink-dim); border: 1px solid var(--line-strong); }
+button.btn.quiet { background: transparent; color: var(--ink-dim); border-color: transparent; padding: 0 var(--sp-3); }
 button.btn:active { transform: translateY(1px); }
+
+/* Icon button: a 44px square with only an icon, and an aria-label always.
+   Quiet until pressed; `.modal-btn` is the same thing under its older name. */
+.iconbtn, .modal-btn {
+  flex: 0 0 auto; width: var(--tap); height: var(--tap);
+  display: inline-grid; place-items: center;
+  border-radius: var(--r-pill);
+  background: transparent; border: 0; color: var(--ink-dim);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.iconbtn:hover, .modal-btn:hover { color: var(--ink); background: var(--panel-3); }
+.iconbtn:active, .modal-btn:active { background: var(--panel-3); }
 
 /* ----------------------------------------------------------------- table */
 
@@ -494,11 +651,19 @@ td.num { font-variant-numeric: tabular-nums; }
 /* --------------------------------------------------------------- evidence */
 
 .filters { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+/* Chip: a filter or a short answer, pill-shaped. 36px tall in a filter row
+   (the row's gap keeps a miss from landing on a neighbour); an answer to a
+   question is `.out-chip`, the same pill at 44px. Selected is the accent tint,
+   never colour alone: the border and fill change too. */
 .chip {
-  font: inherit; font-size: 13px; color: var(--ink-dim); background: var(--panel);
-  border: 1px solid var(--line); border-radius: 999px; padding: 7px 13px; cursor: pointer; min-height: 36px;
+  display: inline-flex; align-items: center; gap: 6px;
+  font: inherit; font-size: var(--fs-small); color: var(--ink-dim); background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: var(--r-pill); padding: 0 var(--sp-3);
+  cursor: pointer; min-height: 36px; white-space: nowrap;
 }
-.chip.on { color: var(--ink); border-color: var(--accent); }
+.chip:hover { color: var(--ink); }
+.chip.on { color: var(--ink); border-color: var(--accent-line); background: var(--accent-soft); }
+.chip.ghost { border-style: dashed; background: transparent; }
 
 .ev-head { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 7px; }
 .ev-claim { font-weight: 600; font-size: 14px; flex: 1; }
@@ -536,7 +701,10 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
   /* Icon over label: 6 tabs across a 375px screen have ~60px each, and a glyph
      reads faster than 11px text when you're glancing at it mid-session. */
   .tab { flex-direction: column; gap: 3px; }
-  .tab-label { font-size: 10px; line-height: 1.1; }
+  .tab-label {
+    font-size: var(--fs-micro); line-height: 1.1;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
 }
 
 /* Inline glyphs sit on the text baseline rather than floating above it. */
@@ -579,14 +747,14 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .out-choices { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
 .out-chip {
   display: inline-flex; align-items: center; gap: 6px;
-  min-height: 44px; padding: 0 13px;
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px;
-  color: var(--ink-dim); font: inherit; font-size: 13px; cursor: pointer;
+  min-height: var(--tap); padding: 0 var(--sp-3);
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-pill);
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); cursor: pointer;
 }
 .out-chip svg { color: var(--ink-faint); }
 .out-chip.on {
-  border-color: color-mix(in oklab, var(--accent) 55%, var(--line));
-  background: color-mix(in oklab, var(--accent) 12%, var(--panel-2));
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
   color: var(--ink);
 }
 .out-chip.on svg { color: var(--accent); }
@@ -759,14 +927,16 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 
 /* --------------------------------------------------------- segmented control */
 
+/* Segmented: two to four mutually exclusive views of the same thing. The
+   selected segment is a raised surface, not a colour. */
 .seg { display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--line);
-  border-radius: 10px; padding: 4px; margin-bottom: 14px; }
+  border-radius: var(--r-control); padding: 3px; margin-bottom: var(--sp-3); }
 .seg button {
   flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  background: transparent; border: 0; border-radius: 7px; color: var(--ink-faint);
-  font: inherit; font-size: 13px; font-weight: 500; padding: 9px 8px; min-height: 40px; cursor: pointer;
+  background: transparent; border: 0; border-radius: 8px; color: var(--ink-dim);
+  font: inherit; font-size: var(--fs-small); font-weight: 500; padding: 0 var(--sp-2); min-height: 38px; cursor: pointer;
 }
-.seg button.on { background: var(--panel-2); color: var(--ink); }
+.seg button.on { background: var(--panel-3); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); }
 .seg button:hover:not(.on) { color: var(--ink-dim); }
 
 /* ------------------------------------------------------------ session outputs */
@@ -1422,7 +1592,7 @@ button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
    thing that has to clear the bar, and the sheet is simply whatever is left. */
 .modal-scrim {
   position: fixed; inset: 0; z-index: 60;
-  background: color-mix(in oklab, #000 62%, transparent);
+  background: var(--scrim);
   display: flex; align-items: flex-end; justify-content: center;
   padding: 0;
   /* Just past the status bar, not generously past it. On iOS 26 the installed
@@ -1431,45 +1601,55 @@ button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
      sheet does not have. */
   padding-top: max(24px, calc(env(safe-area-inset-top) + 12px));
 }
+
+/*
+ * Sheet: the frame every sheet, menu and popover shares. --panel, the sheet
+ * radius on the top corners, the highest elevation, and a short rise when it
+ * arrives (the one motion it has: it says where the thing came from).
+ */
 .modal {
-  background: var(--panel); border: 1px solid var(--line);
-  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--panel); border: 1px solid var(--line); border-bottom: 0;
+  border-radius: var(--r-sheet) var(--r-sheet) 0 0;
+  box-shadow: var(--elev-3);
   width: 100%; max-width: 640px; max-height: 100%;
   display: flex; flex-direction: column;
+  animation: sheet-in var(--dur) var(--ease-out);
 }
+@keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } }
+
+/* Sheet header: icon (optional), title over one line of context, then up to
+   three icon buttons with the close last. The title is the biggest text in the
+   sheet; nothing above it competes. */
 .modal-head {
-  display: flex; align-items: center; gap: 11px;
-  padding: 14px 16px; border-bottom: 1px solid var(--line); flex: 0 0 auto;
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-2) var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--line); flex: 0 0 auto;
 }
 .modal-ico {
-  flex: 0 0 auto; width: 38px; height: 38px; border-radius: 9px; display: grid; place-items: center;
-  background: color-mix(in oklab, var(--accent) 13%, var(--panel-2)); color: var(--accent);
+  flex: 0 0 auto; width: 40px; height: 40px; border-radius: var(--r-control); display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent);
 }
 .modal-titles { flex: 1; min-width: 0; }
-.modal-title { font-size: 16px; font-weight: 600; line-height: 1.25; }
-.modal-sub { font-size: 12px; color: var(--ink-faint); margin-top: 2px; }
-.modal-x {
-  flex: 0 0 auto; width: 38px; height: 38px; border-radius: 8px;
-  background: transparent; border: 1px solid var(--line); color: var(--ink-dim);
-  display: grid; place-items: center; cursor: pointer;
-}
-.modal-x:hover { color: var(--ink); border-color: var(--ink-faint); }
+.modal-title { font-size: var(--fs-title); font-weight: 600; line-height: var(--lh-tight); }
+.modal-sub { font-size: var(--fs-small); color: var(--ink-dim); margin-top: 2px; }
 .modal-body {
   flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain;
-  padding: 16px; -webkit-overflow-scrolling: touch;
+  padding: var(--sp-4); -webkit-overflow-scrolling: touch;
 }
 .modal-body .sess { margin-top: 4px; }
+/* Sheet footer: the sheet's one primary action, full width, with at most one
+   ghost beside it. Pinned, so the action is never below the fold. */
 .modal-foot {
-  flex: 0 0 auto; display: flex; gap: 9px; padding: 12px 16px;
+  flex: 0 0 auto; display: flex; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4);
   border-top: 1px solid var(--line); background: var(--panel);
-  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  padding-bottom: max(var(--sp-3), env(safe-area-inset-bottom));
 }
 .modal-foot .btn { flex: 1; }
 .modal-foot .btn.ghost { flex: 0 0 auto; }
 
 @media (min-width: 720px) {
   .modal-scrim { align-items: center; padding: 24px; }
-  .modal { border-radius: var(--radius); max-height: 100%; }
+  .modal { border-radius: var(--r-sheet); border-bottom: 1px solid var(--line); max-height: 100%; }
 }
 
 /* ---------------------------------------------------------- extra sessions */
@@ -1559,15 +1739,9 @@ button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .modal.t-extra .modal-ico { background: color-mix(in oklab, var(--series-3) 15%, var(--panel-2)); color: var(--series-3); }
 .modal.t-also .modal-ico { background: color-mix(in oklab, var(--series-3) 15%, var(--panel-2)); color: var(--series-3); }
 
-/* 44px, not 40: the one-handed rule (see AGENTS.md §5) applies hardest to the
-   button that gets you OUT of a screen. */
-.modal-btn {
-  flex: 0 0 auto; width: var(--tap); height: var(--tap); border-radius: 8px;
-  background: transparent; border: 1px solid var(--line); color: var(--ink-dim);
-  display: grid; place-items: center; cursor: pointer;
-}
-.modal-btn:hover { color: var(--ink); border-color: var(--ink-faint); }
-.modal-btn.danger:hover { color: var(--viz-crit); border-color: var(--viz-crit); }
+/* .modal-btn is the base icon button (top of this file): 44px, not 40, because
+   the one-handed rule applies hardest to the button that gets you OUT of a screen. */
+.modal-btn.danger:hover { color: var(--viz-crit); }
 
 /*
  * "Are you sure" as a SCREEN, not a system dialog.
@@ -1582,10 +1756,7 @@ button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .confirm .sub { margin: 0 auto; max-width: 30em; }
 .confirm-acts { display: flex; gap: 10px; margin-top: 20px; }
 .confirm-acts .btn { flex: 1; }
-button.btn.bad {
-  background: var(--viz-crit); color: #0b0c0b; border-color: var(--viz-crit);
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-}
+button.btn.bad { background: var(--viz-crit); color: var(--bg); border-color: var(--viz-crit); }
 .modal-foot .btn { flex: 1; }
 
 /* ------------------------------------------------------------- how-to */
@@ -1775,16 +1946,16 @@ button.btn.how-got {
   background: var(--bg); display: flex; flex-direction: column;
 }
 .fs-head {
-  flex: 0 0 auto; display: flex; align-items: center; gap: 11px;
-  padding: 12px 14px; border-bottom: 1px solid var(--line);
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4) var(--sp-2) var(--sp-2); border-bottom: 1px solid var(--line);
   /* A little past the inset, not flush to it: iOS 26 draws its status-bar glass
      a few pixels below the inset and a back button sitting on that line is a
      back button you cannot read. Same reason the sheet above keeps a gap. */
   padding-top: max(12px, calc(env(safe-area-inset-top) + 8px));
 }
 .fs-ico {
-  flex: 0 0 auto; width: 38px; height: 38px; border-radius: 9px; display: grid; place-items: center;
-  background: color-mix(in oklab, var(--accent) 13%, var(--panel-2)); color: var(--accent);
+  flex: 0 0 auto; width: 40px; height: 40px; border-radius: var(--r-control); display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent);
 }
 .fs.t-swapped .fs-ico { background: color-mix(in oklab, var(--load-3) 15%, var(--panel-2)); color: var(--load-3); }
 .fs.t-extra .fs-ico { background: color-mix(in oklab, var(--series-3) 15%, var(--panel-2)); color: var(--series-3); }
@@ -1797,17 +1968,18 @@ button.btn.how-got {
 .fs.t-branch { border-top: 3px solid var(--series-2); }
 .fs.t-branch .fs-ico { background: color-mix(in oklab, var(--series-2) 15%, var(--panel-2)); color: var(--series-2); }
 
+/* A full screen's sections are the segmented control, laid edge to edge. */
 .fs-tabs {
-  flex: 0 0 auto; display: flex; gap: 4px; padding: 8px 14px;
+  flex: 0 0 auto; display: flex; gap: 4px; padding: var(--sp-2) var(--sp-4);
   border-bottom: 1px solid var(--line);
 }
 .fs-tab {
   flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  background: transparent; border: 1px solid transparent; border-radius: 8px;
-  color: var(--ink-faint); font: inherit; font-size: 13px; font-weight: 500;
-  padding: 9px 6px; min-height: var(--tap); cursor: pointer;
+  background: transparent; border: 0; border-radius: var(--r-control);
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); font-weight: 500;
+  padding: 0 6px; min-height: var(--tap); cursor: pointer;
 }
-.fs-tab.on { color: var(--ink); background: var(--panel-2); border-color: var(--line); }
+.fs-tab.on { color: var(--ink); background: var(--panel-3); box-shadow: inset 0 0 0 1px var(--line-strong); }
 
 .fs-body {
   flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain;
@@ -1825,7 +1997,7 @@ button.btn.how-got {
 .v-full .sect-chip { font-size: 13px; padding: 9px 14px; }
 
 @media (min-width: 720px) {
-  .fs { inset: 24px; border-radius: var(--radius); border: 1px solid var(--line); }
+  .fs { inset: 24px; border-radius: var(--r-sheet); border: 1px solid var(--line); box-shadow: var(--elev-3); }
   .fs-body { max-width: 680px; margin: 0 auto; width: 100%; }
 }
 
@@ -2712,31 +2884,38 @@ button.btn.danger:hover { border-color: var(--bad); }
 
 /* ------------------------------------------- the user, in the header */
 
+/* The avatar: a 44px target around a 32px face. On a phone it is the face
+   alone; the name and the chevron come back where there is room for them. */
 .mebtn {
-  display: flex; align-items: center; gap: 8px;
-  min-height: 36px; padding: 2px 10px 2px 2px;
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px;
-  color: var(--ink); font: inherit; font-size: 13px; cursor: pointer;
+  display: flex; align-items: center; gap: var(--sp-2);
+  min-height: var(--tap); padding: 0 var(--sp-2) 0 6px;
+  background: transparent; border: 1px solid transparent; border-radius: var(--r-pill);
+  color: var(--ink); font: inherit; font-size: var(--fs-small); cursor: pointer;
 }
-.mebtn:hover { border-color: var(--ink-faint); }
-.mebtn-av { position: relative; width: 28px; height: 28px; flex: none; }
-.mebtn-av img { width: 28px; height: 28px; border-radius: 999px; object-fit: cover; display: block; }
+.mebtn:hover { background: var(--panel-2); border-color: var(--line); }
+.mebtn-av { position: relative; width: 32px; height: 32px; flex: none; }
+.mebtn-av img { width: 32px; height: 32px; border-radius: 999px; object-fit: cover; display: block; }
 .mebtn-ini {
-  width: 28px; height: 28px; border-radius: 999px;
+  width: 32px; height: 32px; border-radius: 999px;
   display: grid; place-items: center;
-  background: var(--panel); color: var(--ink-dim); font-size: 11px; font-weight: 600;
+  background: var(--panel-3); color: var(--ink); font-size: var(--fs-small); font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--line-strong);
 }
+.pop-av .mebtn-ini { width: 40px; height: 40px; font-size: var(--fs-body); }
 /* The sync state survives as a dot. Green is fine; anything else is worth opening. */
 .mebtn-dot {
   position: absolute; right: -1px; bottom: -1px;
-  width: 9px; height: 9px; border-radius: 999px;
-  border: 2px solid var(--panel-2); background: var(--good);
+  width: 10px; height: 10px; border-radius: 999px;
+  border: 2px solid var(--bg); background: var(--good);
 }
 .mebtn-dot.offline { background: var(--bad); }
 .mebtn-dot.syncing, .mebtn-dot.loading { background: var(--warn); }
 .mebtn-name { max-width: 9ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mebtn-chev { color: var(--ink-faint); flex: none; }
-@media (max-width: 420px) { .mebtn-name { display: none; } }
+@media (max-width: 420px) {
+  .mebtn-name, .mebtn-chev { display: none; }
+  .mebtn { padding: 0 6px; }
+}
 
 /* ------------------------------------------------------ the facts form */
 
@@ -2846,7 +3025,7 @@ button.btn.danger:hover { border-color: var(--bad); }
 
 .pop-scrim {
   position: fixed; inset: 0; z-index: 60;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--scrim);
 }
 .pop {
   position: fixed;
@@ -2854,26 +3033,28 @@ button.btn.danger:hover { border-color: var(--bad); }
   max-height: min(78vh, 720px);
   display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--line);
-  border-radius: 14px; overflow: hidden;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  border-radius: var(--r-sheet); overflow: hidden;
+  box-shadow: var(--elev-3);
+  animation: sheet-in var(--dur) var(--ease-out);
 }
 .pop.centred { top: 50%; left: 50%; transform: translate(-50%, -50%); }
 
 .pop-head {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 12px 12px 14px;
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-2) var(--sp-3) var(--sp-4);
   border-bottom: 1px solid var(--line); flex: none;
 }
 .pop-av { flex: none; }
 .pop-av img { width: 36px; height: 36px; border-radius: 999px; object-fit: cover; display: block; }
 .pop-who { display: grid; gap: 1px; min-width: 0; flex: 1; }
-.pop-who strong { font-size: 15px; }
-.pop-who .sub { margin: 0; font-size: 11px; }
+.pop-who strong { font-size: var(--fs-title); font-weight: 600; }
+.pop-who .sub { margin: 0; font-size: var(--fs-caption); }
+/* The popover's close is the base icon button, at its full 44px. */
 .pop-x {
-  width: 36px; height: 36px; display: grid; place-items: center;
-  background: none; border: none; color: var(--ink-faint); cursor: pointer; border-radius: 8px;
+  width: var(--tap); height: var(--tap); display: grid; place-items: center; flex: none;
+  background: none; border: none; color: var(--ink-dim); cursor: pointer; border-radius: var(--r-pill);
 }
-.pop-x:hover { color: var(--ink); background: var(--panel-2); }
+.pop-x:hover { color: var(--ink); background: var(--panel-3); }
 
 .pop-split { display: flex; min-height: 0; flex: 1; }
 
@@ -2894,7 +3075,8 @@ button.btn.danger:hover { border-color: var(--bad); }
   text-align: left; cursor: pointer;
 }
 .pop-railbtn:hover { background: var(--panel-2); color: var(--ink); }
-.pop-railbtn.on { background: var(--panel-2); color: var(--accent); }
+.pop-railbtn.on { background: var(--panel-3); color: var(--ink); }
+.pop-railbtn.on svg { color: var(--accent); }
 .pop-railbtn svg { flex: none; }
 
 /* `min-height: 0` is load-bearing, not tidiness. A flex item defaults to
@@ -2916,7 +3098,7 @@ button.btn.danger:hover { border-color: var(--bad); }
     top: auto !important; right: 0 !important; bottom: 0; left: 0;
     transform: none;
     width: 100%; max-height: 88vh;
-    border-radius: 14px 14px 0 0; border-bottom: none;
+    border-radius: var(--r-sheet) var(--r-sheet) 0 0; border-bottom: none;
     padding-bottom: env(safe-area-inset-bottom);
   }
   .pop-split { flex-direction: column; min-height: 0; }
@@ -3366,22 +3548,11 @@ button.btn.danger:hover { border-color: var(--bad); }
 .notifcopy .sub.dim { opacity: .65; font-size: 12px; }
 .notifchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .notifvote { display: flex; gap: 2px; flex: none; }
-.iconbtn {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; border-radius: 8px;
-  background: transparent; border: 1px solid transparent; color: var(--ink-2);
-  cursor: pointer;
-}
-.iconbtn:hover { border-color: var(--line); color: var(--ink); }
-.iconbtn.on { color: var(--good, #59d38b); }
-.iconbtn.on.down { color: var(--bad, #f0506e); }
-.chip {
-  padding: 4px 9px; font-size: 12px; border-radius: 999px;
-  background: var(--panel-2, transparent); border: 1px solid var(--line);
-  color: var(--ink-2); cursor: pointer;
-}
-.chip:hover { color: var(--ink); border-color: var(--ink-2); }
-.chip.ghost { border-style: dashed; }
+/* The base .iconbtn and .chip are the system's (top of this file); these
+   were once second, global definitions here that shrank every chip in the app
+   and coloured them with a variable that did not exist. */
+.notifvote .iconbtn.on { color: var(--good); }
+.notifvote .iconbtn.on.down { color: var(--bad); }
 .sub.warn { color: var(--warn, #e6b800); }
 
 /* While any modal, sheet or fullscreen page is open.
@@ -3496,17 +3667,18 @@ body.layer-open .coachbox { display: none; }
   display: flex; align-items: center; gap: 10px;
 }
 
+/* The + is the app's one primary action, on every screen that has it: the
+   accent, filled, round. */
 .fab {
-  width: 56px; height: 56px; border-radius: 999px;
+  width: 56px; height: 56px; border-radius: var(--r-pill);
   display: grid; place-items: center;
   border: none; cursor: pointer;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--elev-2);
+  transition: transform var(--dur-fast) var(--ease-out), filter var(--dur-fast) var(--ease-out);
 }
-/* The + is the action and the coach is the thing you ask when you do not know
-   what the action is, so only one of them is filled. */
-.fab.plus { background: var(--accent); color: #0b0c0b; }
-.fab.plus:hover { filter: brightness(1.08); }
-.fab.plus:active { transform: translateY(1px); }
+.fab.plus { background: var(--accent); color: var(--on-accent); }
+.fab.plus:hover { filter: brightness(1.06); }
+.fab.plus:active { transform: scale(0.96); }
 
 .fabs .coachfab {
   position: static; bottom: auto; right: auto;
@@ -3518,45 +3690,63 @@ body.layer-open .coachbox { display: none; }
 
 body.layer-open .fabs { display: none; }
 
+/* On a phone the + sits in the dock's row, beside the capsule and the same
+   height (see .tabs above). Anything else that floats (the coach bubble, while
+   it exists) stacks above the + rather than beside it, so the row stays one
+   capsule and one button. The wide dock keeps the older place above the bar. */
 @media (max-width: 719px) {
-  .fabs { bottom: calc(76px + env(safe-area-inset-bottom)); }
+  .fabs {
+    right: max(var(--dock-side), env(safe-area-inset-right));
+    bottom: max(var(--dock-bottom), env(safe-area-inset-bottom));
+    flex-direction: column-reverse; align-items: flex-end;
+  }
+  .fab.plus { width: var(--dock-h); height: var(--dock-h); }
+  .app[data-dock='wide'] .fabs {
+    flex-direction: row; align-items: center;
+    bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+  .app[data-dock='wide'] .fab.plus { width: 56px; height: 56px; }
 }
 
 /* ------------------------------------------------------------- + menu */
 
+/* A sheet from the bottom, because the + is at the bottom: rows, not cards. */
 .fabmenu-scrim {
   position: fixed; inset: 0; z-index: 60;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--scrim);
   display: flex; align-items: flex-end; justify-content: center;
-  padding: 16px;
+  padding: var(--sp-2);
+  padding-bottom: max(var(--sp-2), env(safe-area-inset-bottom));
 }
 .fabmenu {
   width: min(460px, 100%);
-  background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
-  padding: 10px; display: grid; gap: 8px;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6);
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sheet);
+  padding: var(--sp-2); display: grid; gap: 2px;
+  box-shadow: var(--elev-3);
+  animation: sheet-in var(--dur) var(--ease-out);
 }
 .fabmenu-row {
-  display: flex; align-items: flex-start; gap: 12px; text-align: left;
-  padding: 14px; border-radius: 12px;
-  background: var(--panel-2); border: 1px solid var(--line);
+  display: flex; align-items: center; gap: var(--sp-3); text-align: left;
+  min-height: 64px; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-card);
+  background: transparent; border: 0;
   color: inherit; font: inherit; cursor: pointer;
 }
-.fabmenu-row:hover { border-color: color-mix(in oklab, var(--accent) 45%, var(--line)); }
+.fabmenu-row:hover, .fabmenu-row:active { background: var(--panel-2); }
 .fabmenu-ico {
-  flex: 0 0 auto; width: 44px; height: 44px; border-radius: 12px;
+  flex: 0 0 auto; width: 44px; height: 44px; border-radius: var(--r-control);
   display: grid; place-items: center;
+  background: var(--panel-3); color: var(--ink-dim);
 }
-.fabmenu-ico.plan { background: color-mix(in oklab, var(--accent) 16%, transparent); color: var(--accent); }
-.fabmenu-ico.log { background: var(--panel); color: var(--ink-dim); }
-.fabmenu-body { display: grid; gap: 3px; min-width: 0; }
-.fabmenu-body strong { font-size: 15px; }
-.fabmenu-body .sub { font-size: 12.5px; line-height: 1.45; }
+/* Log a workout is the common case, first, and the only door in the accent. */
+.fabmenu-ico.log { background: var(--accent-soft); color: var(--accent); }
+.fabmenu-body { display: grid; gap: 2px; min-width: 0; }
+.fabmenu-body strong { font-size: var(--fs-body); font-weight: 600; }
+.fabmenu-body .sub { font-size: var(--fs-small); line-height: 1.4; }
 .fabmenu-cancel {
-  min-height: var(--tap); background: transparent; border: 0; border-radius: 10px;
-  color: var(--ink-faint); font: inherit; font-size: 14px; cursor: pointer;
+  min-height: var(--tap); margin-top: var(--sp-1); background: var(--panel-2); border: 0; border-radius: var(--r-card);
+  color: var(--ink); font: inherit; font-weight: 600; cursor: pointer;
 }
-.fabmenu-cancel:hover { color: var(--ink); background: var(--panel-2); }
+.fabmenu-cancel:hover { background: var(--panel-3); }
 
 /* --------------------------------------------------------- planner flow */
 
@@ -4554,8 +4744,7 @@ button.qb-row.pressable:hover .qb-chev { color: var(--accent); }
 
 /* -------------------------------------------------------------- + menu */
 
-.fabmenu-ico.rest { background: var(--panel); color: var(--ink-dim); }
-.fabmenu-ico.week { background: color-mix(in oklab, var(--series-2) 16%, transparent); color: var(--series-2); }
+/* .fabmenu-ico.rest and .week take the neutral well above. */
 
 /* -------------------------------------------------------- the week planner */
 

@@ -757,10 +757,10 @@ function AskStep({ picked, label, minutes, setMinutes, goal, setGoal, chips, pla
           })}
         </View>
         <View style={st.minstep}>
-          <IconBtn icon="Minus" size={16} color={colors.ink} label="five minutes less"
+          <IconBtn bordered icon="Minus" size={16} color={colors.ink} label="five minutes less"
             onPress={() => setMinutes((m: number) => Math.max(5, m - 5))} />
           <T size={14} dim tabular style={{ minWidth: 72, textAlign: 'center' }}>{minutes} min</T>
-          <IconBtn icon="Plus" size={16} color={colors.ink} label="five minutes more"
+          <IconBtn bordered icon="Plus" size={16} color={colors.ink} label="five minutes more"
             onPress={() => setMinutes((m: number) => Math.min(300, m + 5))} />
         </View>
       </View>

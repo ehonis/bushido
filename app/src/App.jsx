@@ -102,29 +102,22 @@ export function ActingBanner({ me }) {
  *
  * A sheet from the bottom on a phone, because the button is at the bottom and a
  * menu that opens away from your thumb is a menu you reach across the screen for.
+ *
+ * Log a workout leads (2026-10-25, docs/DESIGN.md D7 and "The + menu, final
+ * shape"): writing down what you did is what the + is pressed for most, so it is
+ * the first row and the only one in the accent. Logging doors, then planning,
+ * then tools. Each door says what it is in one line; the paragraphs that used to
+ * sit under each one made the menu something to read rather than to press.
  */
 export function FabMenu({ onClose, onPlan, onLog, onPlanWeek, onRest }) {
   return (
     <div className="fabmenu-scrim" onClick={onClose} role="presentation">
       <div className="fabmenu" onClick={e => e.stopPropagation()} role="dialog" aria-label="Add a workout">
-        <button className="fabmenu-row" onClick={onPlan}>
-          <span className="fabmenu-ico plan"><Icon name="Sparkles" size={22} /></span>
-          <span className="fabmenu-body">
-            <strong>Plan a workout</strong>
-            <span className="sub">
-              Say what you are doing, then build it yourself — the exercises, sets and
-              weights — or let the model read your log and write it for you.
-            </span>
-          </span>
-        </button>
         <button className="fabmenu-row" onClick={onLog}>
           <span className="fabmenu-ico log"><Icon name="NotebookPen" size={22} /></span>
           <span className="fabmenu-body">
             <strong>Log a workout</strong>
-            <span className="sub">
-              Something you already did: a climbing session from the plan, or any of 91
-              activities, and the form arrives the right shape.
-            </span>
+            <span className="sub">Something you already did</span>
           </span>
         </button>
         {/* A rest day the user chose is part of the week, and it used to be a link at the
@@ -135,22 +128,23 @@ export function FabMenu({ onClose, onPlan, onLog, onPlanWeek, onRest }) {
             <span className="fabmenu-ico rest"><Icon name="Sunset" size={22} /></span>
             <span className="fabmenu-body">
               <strong>Log a rest day</strong>
-              <span className="sub">
-                A day off on purpose. It counts as chosen rather than missed, and does not
-                mark Move Every Day.
-              </span>
+              <span className="sub">A day off on purpose</span>
             </span>
           </button>
         )}
+        <button className="fabmenu-row" onClick={onPlan}>
+          <span className="fabmenu-ico plan"><Icon name="Sparkles" size={22} /></span>
+          <span className="fabmenu-body">
+            <strong>Plan a workout</strong>
+            <span className="sub">Build it yourself, or have it written for you</span>
+          </span>
+        </button>
         {onPlanWeek && (
           <button className="fabmenu-row" onClick={onPlanWeek}>
             <span className="fabmenu-ico week"><Icon name="CalendarRange" size={22} /></span>
             <span className="fabmenu-body">
               <strong>Plan the week</strong>
-              <span className="sub">
-                Talk the quotas through. It reads what you set and what you actually did, how
-                you are recovering, and proposes the counts &mdash; you set them.
-              </span>
+              <span className="sub">Talk this week&rsquo;s counts through</span>
             </span>
           </button>
         )}
@@ -524,7 +518,10 @@ export default function App() {
         returns "no data", so nothing here is load-bearing. */}
     <WhoopProvider>
     <StravaProvider>
-    <div className="app">
+    {/* Three or four tabs fit beside the + in one row at the foot of a phone;
+        more than that need the whole width, and with no + (no plan yet, or the
+        coach) the capsule takes the row (styles.css, .tabs). */}
+    <div className="app" data-dock={tabs.length > 4 ? 'wide' : tab !== 'coach' && plan ? 'compact' : 'alone'}>
       <header className="hdr">
         <h1><BushidoMark size={18} className="hdr-mark" /> Bushido</h1>
         {/*

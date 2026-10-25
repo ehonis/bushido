@@ -6,12 +6,12 @@ import React, { useState } from 'react'
 import { RefreshControl, ScrollView, StyleSheet, View, type ScrollViewProps } from 'react-native'
 import { Image } from 'expo-image'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { colors } from '../theme'
+import { colors, font, space } from '../theme'
 import { T } from '../ui/Text'
 import { Icon } from '../lib/icons'
 import { streakDays } from '../lib/streak.js'
 import { useApp } from './AppData'
-import { ActingBanner } from '../features/app'
+import { ActingBanner, tabsFor } from '../features/app'
 import { ProfileMenu } from '../features/profile'
 
 /** The floating capsule's height, its gap to the screen edge, and the 16pt the CSS adds (--dock-clear). */
@@ -22,6 +22,12 @@ export const DOCK_CLEAR = DOCK_H + DOCK_BOTTOM + 16
 export const FAB_CLEAR = DOCK_CLEAR + 56 + 20
 
 /**
+ * Three or four tabs leave room for the + beside the capsule, in the same row
+ * (styles.css `.app[data-dock="compact"]`); more need the whole width and the +
+ * floats above. With the + in the row, nothing extra needs clearing.
+ */
+export const compactDock = (me: any) => tabsFor(me.features, me.owner).length <= 4
+/**
  * Days in a row, in the header. No background and no border: a reading, not a
  * control. Renders nothing at zero.
  */
@@ -31,7 +37,7 @@ function HeaderStreak({ entries }: { entries: any[] }) {
   return (
     <View style={st.streak} accessibilityLabel={`${n} day${n === 1 ? '' : 's'} trained in a row`}>
       <Icon name="Flame" size={15} color={colors.flame} />
-      <T size={14} weight={600} tabular lineHeight={16}>{String(n)}</T>
+      <T size={font.body} weight={600} tabular lineHeight={18}>{String(n)}</T>
     </View>
   )
 }
@@ -43,7 +49,7 @@ export function Header() {
       <View style={st.title}>
         {/* The mark takes the accent; the word stays ink. */}
         <Image source={require('../../assets/images/bushido-mark.png')} style={{ width: 18, height: 18 }} tintColor={colors.accent} />
-        <T size={15} weight={600} style={{ letterSpacing: 0.3 }}>Bushido</T>
+        <T size={font.title} weight={600}>Bushido</T>
       </View>
       <HeaderStreak entries={store.entries} />
       <ProfileMenu me={me} plan={plan} entries={store.entries}
@@ -73,7 +79,7 @@ export function Screen({ children, scroll = true, fabs = true, contentStyle, scr
     reloadPlan()
     try { await store.refresh() } finally { setRefreshing(false) }
   }
-  const foot = (fabs ? FAB_CLEAR : DOCK_CLEAR) + insets.bottom
+  const foot = (fabs && !compactDock(me) ? FAB_CLEAR : DOCK_CLEAR) + insets.bottom
   return (
     <View style={[st.screen, { paddingTop: insets.top }]}>
       <Header />
@@ -81,7 +87,7 @@ export function Screen({ children, scroll = true, fabs = true, contentStyle, scr
       {scroll ? (
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={[{ padding: 16, paddingBottom: foot }, contentStyle]}
+          contentContainerStyle={[{ padding: space.gutter, paddingBottom: foot }, contentStyle]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.inkDim} />}
@@ -96,7 +102,8 @@ export function Screen({ children, scroll = true, fabs = true, contentStyle, scr
 
 const st = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
-  hdr: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10 },
-  title: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 7 },
-  streak: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  // .hdr: the mark, the name, the streak, the avatar; nothing else.
+  hdr: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: 56, paddingHorizontal: space.gutter, paddingVertical: space[2] },
+  title: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space[2] },
+  streak: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
 })
