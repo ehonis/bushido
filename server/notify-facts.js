@@ -41,10 +41,14 @@ function daysBetween(a, b) {
   return Math.abs(Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / DAY
 }
 
-/** Sessions on a day that actually happened, ignoring plans and rest. */
+/**
+ * Sessions done on a day (`isDone`). Asked about a day that has arrived, so that
+ * day stands in for today: a planned session on it counts, one marked undone
+ * does not.
+ */
 export function doneEntriesFor(state, date) {
   return Object.values(state?.entries || {})
-    .filter((e) => e && e.kind === 'daily' && e.date === date && !e.deleted && e.data?.done !== false)
+    .filter((e) => e && e.kind === 'daily' && e.date === date && isDone(e, date))
 }
 
 /**
@@ -97,14 +101,75 @@ const round = (n) => Math.round(n * 10) / 10
 /** Days after the fact a "you just logged this" notification still makes sense. */
 const LOGGED_WINDOW_DAYS = 1
 
+/** This machine's calendar day as YYYY-MM-DD, the same as app/src/lib/dates.js. */
+function localIso(d = new Date()) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 /**
- * An entry counts as done unless it says otherwise.
+ * Did you do it? A workout is done once its day has arrived, unless you said it
+ * was not (docs/DESIGN.md D2, AGENTS.md §4).
  *
- * The same rule as `isDone` in the app and in server.js: `done` was added after
- * hundreds of entries had been written, and an absent one was only ever created
- * by pressing "log this".
+ * The stored flag and the answer are two different things:
+ *   - `done` absent or true: done. Absent is every entry written before the flag
+ *     existed, all of them by pressing "log this". True wins over everything,
+ *     including a marker an older client left behind.
+ *   - `done: false` with `undone: true`: NOT done, whatever the date. Only the
+ *     "Mark undone" tap writes that pair (`markDone`), and only "Mark done" takes
+ *     it off again. The day arriving never does.
+ *   - `done: false` alone: planned. Not done while its day is still to come,
+ *     done from that day on. A READ rule, so nothing has to wake at midnight to
+ *     flip it and two devices agree without having synced. It also reads every
+ *     entry stored with `done: false` before this rule existed, unchanged: a
+ *     session put on a past day and never ticked counts as done now, and a
+ *     skipped one is one "Mark undone" away. Old entries are never rewritten.
+ *
+ * `today` is a YYYY-MM-DD; anything else (the index `.filter(isDone)` would pass)
+ * means the local today. Identical in app/src/lib/store.js and
+ * mobile/src/lib/store.js; app/done.test.js holds the three to the same text.
+ * The server always passes the configured timezone's today (server.js `todayKey`).
  */
-const isDoneEntry = (entry) => !!entry && entry.data?.done !== false
+export const isDone = (entry, today) => {
+  if (!entry || entry.deleted) return false
+  const data = entry.data || {}
+  if (data.done !== false) return true
+  if (data.undone === true) return false
+  const day = typeof today === 'string' ? today : localIso()
+  return typeof entry.date === 'string' && entry.date <= day
+}
+
+/**
+ * Did a WRITE say done? The stored flag, read the way it always was (absent is
+ * done), and deliberately not `isDone`: a planned session's day arriving is not
+ * something the user did, so it is never news. See `completedDailyEntries`.
+ */
+const markedDone = (entry) => !!entry && entry.data?.done !== false
+
+/* What says nothing about whether it happened: the shape a card is created in. */
+const SHAPE_KEYS = new Set(['activity', 'category', 'title', 'titleFrom'])
+const filled = (v) => (Array.isArray(v) ? v.some(filled)
+  : v && typeof v === 'object' ? Object.values(v).some(filled)
+    : v !== null && v !== undefined && v !== '')
+
+/** Has anything been logged on it: an effort, a set, a note, a measurement attached. */
+const hasLogged = (out) => Object.entries(out || {}).some(([k, v]) => !SHAPE_KEYS.has(k) && filled(v))
+
+/**
+ * Is there something to announce? Marked done AND one of: its run has ended,
+ * someone tapped done (`doneAt`, stamped by `markDone` in the app), something
+ * has been logged on it, or it is about an earlier day (logging after the fact
+ * is the whole act). A session picked for today lands done (AGENTS.md §4) with
+ * nothing on it, and that is not yet news.
+ *
+ * `today` is the same for both sides of a comparison, so a day turning over
+ * cannot make an old entry look new.
+ */
+const announceable = (entry, today) => markedDone(entry) && Boolean(
+  entry.data?.run?.endedAt || entry.data?.doneAt || hasLogged(entry.data?.out) ||
+  (typeof entry.date === 'string' && entry.date < today))
 
 /**
  * The daily entries a write actually COMPLETED — the only ones worth announcing.
@@ -127,23 +192,30 @@ const isDoneEntry = (entry) => !!entry && entry.data?.done !== false
  * 2026-09-19 one: yesterday's ride was announced when the user logged it at 22:24, then
  * announced AGAIN at 09:20 the next morning when a second device caught up and
  * landed its own slightly newer copy of the same finished entry. Nothing had
- * happened. **A session is news exactly once, when it becomes done** — which is
- * the app's own rule that planning is not completing, read as an event. So an
- * entry that was ALREADY done in `before` can never be announced again, however
- * many times it is edited, re-synced or corrected afterwards.
+ * happened. **A session is news exactly once, when a write first makes it
+ * `announceable`.** An entry that already was in `before` can never be announced
+ * again, however many times it is edited, re-synced or corrected afterwards.
+ *
+ * Why `announceable` and not `isDone` (2026-10-25, docs/DESIGN.md D2). A session
+ * is done from the moment it lands on today, before any training: picking it is
+ * not news, so the push waits for the first set logged, the run finishing or a
+ * "Mark done" tap. One planned for a later day reads as done from its day on
+ * WITHOUT a write; that is never announced either, because nobody did anything at
+ * midnight. Logging a workout on an earlier day is announced as it lands (within
+ * `LOGGED_WINDOW_DAYS`). "Mark undone" then "Mark done" is a real second completion.
  *
  * Callers must pass `before`. The default is the empty state, which treats every
- * entry as new; that is right on first boot and wrong everywhere else.
+ * entry as new; that is right on first boot and wrong everywhere else. The server
+ * passes `today` in the configured timezone.
  */
-export function completedDailyEntries(incoming, before = {}) {
+export function completedDailyEntries(incoming, before = {}, today = localIso()) {
   const out = []
   for (const entry of Object.values(incoming?.entries || {})) {
     if (!entry || entry.kind !== 'daily' || entry.deleted) continue
     const prior = before?.entries?.[entry.id]
     if (prior && String(entry.updatedAt || '') <= String(prior.updatedAt || '')) continue
-    // Planning is not completing, and neither is editing something already done.
-    if (!isDoneEntry(entry)) continue
-    if (prior && !prior.deleted && isDoneEntry(prior)) continue
+    if (!announceable(entry, today)) continue
+    if (prior && !prior.deleted && announceable(prior, today)) continue
     out.push(entry)
   }
   return out

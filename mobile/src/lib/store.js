@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isSignedOut, makeLocalPersist } from './signout.js'
 import { cacheKeyFor, currentMe } from './whoami.js'
+import { localIso } from './dates.js'
 // Native: AppState stands in for visibilitychange (lib/foreground.ts). The
 // web's hostname handoff and cross-tab sign-out have no meaning in one app.
 import { onForeground } from './foreground'
@@ -244,17 +245,54 @@ export function useStore() {
 }
 
 /**
- * Did you actually do it?
+ * Did you do it? A workout is done once its day has arrived, unless you said it
+ * was not (docs/DESIGN.md D2, AGENTS.md §4).
  *
- * Putting a session on the day — picking the recommendation, swapping your main,
- * adding an extra — is planning. Completing it is a separate, explicit act, and
- * only completion counts towards the streak, the load calendar, the hard-finger
- * budget, the recommendation for tomorrow, or the Totem habit.
+ * The stored flag and the answer are two different things:
+ *   - `done` absent or true: done. Absent is every entry written before the flag
+ *     existed, all of them by pressing "log this". True wins over everything,
+ *     including a marker an older client left behind.
+ *   - `done: false` with `undone: true`: NOT done, whatever the date. Only the
+ *     "Mark undone" tap writes that pair (`markDone`), and only "Mark done" takes
+ *     it off again. The day arriving never does.
+ *   - `done: false` alone: planned. Not done while its day is still to come,
+ *     done from that day on. A READ rule, so nothing has to wake at midnight to
+ *     flip it and two devices agree without having synced. It also reads every
+ *     entry stored with `done: false` before this rule existed, unchanged: a
+ *     session put on a past day and never ticked counts as done now, and a
+ *     skipped one is one "Mark undone" away. Old entries are never rewritten.
  *
- * Entries written before this flag existed carry no `done` and were only ever
- * created by pressing "log this", so an absent flag means done.
+ * `today` is a YYYY-MM-DD; anything else (the index `.filter(isDone)` would pass)
+ * means the local today. Identical in server/notify-facts.js and
+ * mobile/src/lib/store.js; app/done.test.js holds the three to the same text.
  */
-export const isDone = (entry) => !entry?.deleted && entry?.data?.done !== false
+export const isDone = (entry, today) => {
+  if (!entry || entry.deleted) return false
+  const data = entry.data || {}
+  if (data.done !== false) return true
+  if (data.undone === true) return false
+  const day = typeof today === 'string' ? today : localIso()
+  return typeof entry.date === 'string' && entry.date <= day
+}
+
+/**
+ * The `done` a NEW entry is written with: true on today or an earlier day (it
+ * is in the log, so it happened), false on a day still to come, which `isDone`
+ * reads as done once that day arrives.
+ */
+export const doneWhenPlaced = (date, today = localIso()) => !(typeof date === 'string' && date > today)
+
+/**
+ * The "Mark done" / "Mark undone" tap, and the only writer of `undone`. Undone
+ * is `done: false` plus the marker, so it outlasts the day arriving; done takes
+ * the marker off again and stamps `doneAt`, which is what tells the server's
+ * "nice session" push that someone said so (a session put on today is done
+ * before anything happens, and that is not news; server/notify-facts.js).
+ */
+export function markDone(entry, done, at = new Date().toISOString()) {
+  const { undone: _undone, doneAt: _doneAt, ...data } = entry?.data || {}
+  return { ...entry, data: done ? { ...data, done: true, doneAt: at } : { ...data, done: false, undone: true } }
+}
 
 /*
  * Was this TRAINING, or just something the user did?

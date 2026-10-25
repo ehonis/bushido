@@ -5,9 +5,10 @@
  * Two logs, never one (AGENTS.md §3). A session or a week the owner plans for
  * someone lands in THEIR log, through `/api/people/:id/entry` (server.js
  * `peopleRoute`), as an ordinary entry carrying `data.plannedBy: { id, name }`,
- * stamped by the server. It is `done: false` (planning is not completing, §4),
- * takes the same derivable id the person's own "+" would have given it, and from
- * then on is theirs to edit, log or delete like anything else.
+ * stamped by the server. It arrives `done: false`, which `isDone` reads as done
+ * from its day on (§4) without it ever looking like their own tick; it takes the
+ * same derivable id the person's own "+" would have given it, and from then on
+ * is theirs to edit, log or delete like anything else.
  *
  * In a workout, each person's side is that person's own entry with its own
  * writer: the owner's goes through the owner's store, anyone else's through the
@@ -18,7 +19,8 @@
  * Pure: no fetch, no React.
  */
 
-import { extraEntryId } from './store.js'
+import { extraEntryId, isDone, doneWhenPlaced, markDone } from './store.js'
+import { localIso } from './dates.js'
 import { buildQuotaEntry } from './quota.js'
 import { nameFor, titleFor } from './naming.js'
 import { levelFor } from './level.js'
@@ -48,7 +50,7 @@ export const planPeople = (me) => sharePeople(me)
  *
  * `items` are `{ optId, data }`; unknown cards are skipped, as there.
  */
-export function placeEntries({ menu = [], onDay = [], items = [], date }) {
+export function placeEntries({ menu = [], onDay = [], items = [], date, today = localIso() }) {
   const day = (onDay || []).filter(e => e && e.kind === 'daily' && e.date === date && !e.deleted)
   const written = []
   for (const { optId, data = {} } of items) {
@@ -64,9 +66,10 @@ export function placeEntries({ menu = [], onDay = [], items = [], date }) {
         optId: opt.id,
         name: nameFor(opt, out),
         minutes: opt.minutes, level: opt.level ?? 1,
-        // Putting a session on the day does not complete it; a rest day is the
-        // exception, because choosing it is the whole action.
-        done: opt.role === 'rest',
+        // Done on today or an earlier day; planned on a later one, and done
+        // from its day on (`isDone`). A rest day is done whenever it is put
+        // down, because choosing it is the whole action.
+        done: opt.role === 'rest' || doneWhenPlaced(date, today),
         slot: hasMain ? 'extra' : 'main',
         ...data,
         out,
@@ -82,7 +85,9 @@ export const plannedByOf = (owner) => ({ id: String(owner?.id || 'owner'), name:
 /**
  * The entries a kept prescription becomes in someone else's log: one per part
  * (`parts` is `splitPrescription(pres)`), the same shape App.jsx's `keepPlan`
- * writes into the owner's own, plus `plannedBy`. Never done.
+ * writes into the owner's own, plus `plannedBy`. Written `done: false` (the
+ * server would make it so anyway, and `true` would read as their own tick in
+ * `hasOwnMarks`); `isDone` reads it as done from its day on.
  */
 export function plannedEntriesFor({ parts = [], theirDay = [], menu = [], date, owner }) {
   const items = parts.map(part => ({
@@ -155,12 +160,22 @@ export function applyRun(entry, opt, run, { out = null, done = undefined, plan =
     data.level = levelFor(opt, out)
     data.minutes = resolveMinutes(entry.data, opt, out)
   }
-  if (done !== undefined) data.done = done
+  if (done !== undefined) return markDone({ ...entry, data }, done)
   return { ...entry, data }
 }
 
-/** The done flag alone. */
-export const applyDone = (entry, done) => ({ ...entry, data: { ...entry.data, done } })
+/** The done flag alone: the "Mark done" / "Mark undone" tap (`markDone`). */
+export const applyDone = (entry, done) => markDone(entry, done)
+
+/**
+ * Does this session still offer "Start"?
+ *
+ * It used to be "while not done", but a session is done from the moment it lands
+ * on today (§4), and running it is the point of planning one. So: on today and
+ * later, until its run has ended; on an earlier day, only once marked undone.
+ */
+export const canStart = (entry, today = localIso()) => Boolean(entry && !entry.deleted &&
+  !entry.data?.run?.endedAt && ((entry.date && entry.date >= today) || !isDone(entry, today)))
 
 /* -------------------------------------------------------------- sides */
 
@@ -204,7 +219,7 @@ export function dayRow(entry, menu = [], me = null) {
   return {
     id: entry.id,
     name: entry.data?.name || opt?.name || 'Session',
-    done: entry.data?.done !== false,
+    done: isDone(entry),
     planned: Boolean(entry.data?.plan),
     plannedBy: plannedLine(entry, me),
     sharedFrom: Boolean(entry.data?.sharedFrom),

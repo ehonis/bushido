@@ -494,8 +494,8 @@ export function carryForward(run, steps, step) {
  * they do not — a swim in metres must not silently become yards.
  *
  * Only LOGGED sets count. A prescription the user never touched contributes nothing:
- * the log says what happened, and "planned but not done" is `done: false` on the
- * entry, not a row of zeroes in the volume chart.
+ * the log says what happened, and whether it was done is the entry's (`isDone`),
+ * not a row of zeroes in the volume chart.
  */
 export function runOutputs(pres, run, out = {}) {
   const next = { ...out }

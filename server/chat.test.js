@@ -68,9 +68,9 @@ const state = {
   entries: {
     a: { id: 'a', kind: 'daily', date: '2026-08-12', data: { optId: 'board', name: 'Gym: board', done: true,
       out: { rpe: 8, fingers: 3, notes: 'grip opened on the last circuit' } } },
-    // Planned but not done. A coach that reads this as training would be
+    // Marked undone. A coach that reads this as training would be
     // congratulating them for a session the user skipped.
-    b: { id: 'b', kind: 'daily', date: '2026-08-13', data: { optId: 'crawls', done: false, out: {} } },
+    b: { id: 'b', kind: 'daily', date: '2026-08-13', data: { optId: 'crawls', done: false, undone: true, out: {} } },
     // Older than the window.
     c: { id: 'c', kind: 'daily', date: '2026-06-01', data: { optId: 'crawls', done: true, out: {} } },
     // Deleted entries are gone, not "gone from the UI".
@@ -84,7 +84,7 @@ const state = {
 
 const digest = logDigest(state, TODAY)
 eq('the log window holds', digest.sessions.map(s => s.date), ['2026-08-12', '2026-08-13'])
-eq('planned is not completed', digest.sessions.find(s => s.date === TODAY).done, false)
+eq('marked undone is not completed', digest.sessions.find(s => s.date === TODAY).done, false)
 eq('his own words survive', digest.sessions[0].notes, 'grip opened on the last circuit')
 eq('bodyweight comes along', digest.bodyweight, [{ date: '2026-08-12', lb: 150 }])
 eq('what he told the coach before is readable', digest.checkins[0].said, ['gym moved to Sunday'])

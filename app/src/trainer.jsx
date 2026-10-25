@@ -23,14 +23,14 @@ import { SessionLog } from './sessionlog.jsx'
 import { usePersonCopy } from './sharedwith.jsx'
 import * as peopleApi from './lib/peopleapi.js'
 import { optFor } from './lib/menu.js'
-import { applyRun, applyOut, applyDone, dayOf, dayRow, runKind, plannedLine, toneFor } from './lib/trainer.js'
+import { applyRun, applyOut, applyDone, canStart, dayOf, dayRow, runKind, plannedLine, toneFor } from './lib/trainer.js'
+import { isDone } from './lib/store.js'
 import { prescriptionSteps, runProgress, restLeft, itemLine, prescriptionLine } from './lib/prescription.js'
 import { mondayOf, weekDays, shiftWeek } from './lib/quota.js'
 import { fromIso, localIso } from './lib/dates.js'
 import { currentMe } from './lib/whoami.js'
 
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).padStart(2, '0')}`
-const isDoneEntry = (e) => Boolean(e && !e.deleted && e.data?.done !== false)
 
 /* ------------------------------------------------------------ For: … */
 
@@ -90,10 +90,14 @@ export function usePersonLog(personId) {
 
 /* -------------------------------------------------- sides of a workout */
 
-/** What a side is up to, for the switcher: its rest clock, its sets, or done. */
-export function sideStatus(kind, entry, now = Date.now()) {
+/**
+ * What a side is up to, for the switcher: its rest clock, its sets, or done.
+ * "Done" is finished on this screen or a run that has ended, not `isDone`: every
+ * side of today's workout is done by default (§4) before anyone has lifted.
+ */
+export function sideStatus(kind, entry, now = Date.now(), finished = false) {
   if (!entry || entry.deleted) return ''
-  if (isDoneEntry(entry)) return 'done'
+  if (finished || entry.data?.run?.endedAt) return 'done'
   if (kind !== 'runner') return ''
   const run = entry.data?.run || null
   const left = restLeft(run, now)
@@ -138,7 +142,7 @@ export function SideSwitch({ sides = [], side = null, onSide, status = {} }) {
  * owner's through the owner's store (`onOwnerRun`/`onOwnerSave`/`onOwnerDone`), anyone
  * else's through the people endpoints (`usePersonCopy`). Two entries, two
  * writers, never one writer touching both (AGENTS.md §6.2). Finishing a side
- * hands over to the next one not done yet, and the last one closes the screen.
+ * hands over to the next one not yet finished, and the last one closes the screen.
  */
 export function SidesWorkout({
   kind, session, sides = [], ownerEntry = null, entries = [],
@@ -146,6 +150,8 @@ export function SidesWorkout({
 }) {
   const [side, setSide] = useState(() => (sides.some(s => s.id && s.id === initialSide) ? initialSide : sides[0]?.id ?? null))
   const [copies, setCopies] = useState({})
+  // The sides finished on this screen, by id ('' for the owner).
+  const [finished, setFinished] = useState([])
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     if (sides.length < 2) return undefined
@@ -156,7 +162,7 @@ export function SidesWorkout({
   const report = useCallback((id, e) => setCopies(c => (c[id] === e ? c : { ...c, [id]: e })), [])
   const entryOf = (s) => (s.id ? copies[s.id] : ownerEntry)
   const status = {}
-  for (const s of sides) status[s.id || ''] = sideStatus(kind, entryOf(s), now)
+  for (const s of sides) status[s.id || ''] = sideStatus(kind, entryOf(s), now, finished.includes(s.id || ''))
 
   const pick = (id) => {
     if ((id || null) === (side || null)) return
@@ -164,7 +170,9 @@ export function SidesWorkout({
     onSwitch?.(id)
   }
   const finishSide = (id) => () => {
-    const next = sides.find(s => (s.id || null) !== (id || null) && !isDoneEntry(entryOf(s)))
+    const over = [...finished, id || '']
+    setFinished(over)
+    const next = sides.find(s => !over.includes(s.id || '') && !entryOf(s)?.data?.run?.endedAt)
     if (next) pick(next.id || null)
     else onExit()
   }
@@ -345,21 +353,21 @@ export function PersonEntrySheet({ person, entryId, menu = [], entries = [], onC
     )
   }
 
-  const done = isDoneEntry(e)
+  const done = isDone(e)
   const pres = e?.data?.plan || null
   return (
     <Modal title={e?.data?.name || opt?.name || 'Session'} sub={`${person.name}’s log`} icon="Users" onClose={onClose}
       footer={e && !e.deleted ? (
         <div className="sheet-actions">
-          {kind && !done && (
+          {kind && canStart(e) && (
             <button className="btn" onClick={() => setRunning(true)}>
               <Icon name="Play" size={16} /> Start for {person.name}
             </button>
           )}
-          <button className={`btn done-btn ${done ? 'ghost on' : ''}`}
+          <button className={`btn done-btn ${done ? 'ghost on' : ''}`} aria-pressed={done}
             onClick={() => copy.update(cur => applyDone(cur, !done))}>
             <Icon name={done ? 'CircleCheck' : 'Circle'} size={16} />
-            {done ? `Done for ${person.name} — tap to undo` : `Mark done for ${person.name}`}
+            {done ? `Done for ${person.name} · Mark undone` : `Mark done for ${person.name}`}
           </button>
         </div>
       ) : null}>

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
   planPeople, placeEntries, plannedEntriesFor, plannedQuotaFor, keepPlanFor, plannedLine,
-  applyOut, applyRun, applyDone, workoutSides, toneFor, dayOf, dayRow, runKind,
+  applyOut, applyRun, applyDone, canStart, workoutSides, toneFor, dayOf, dayRow, runKind,
 } from './src/lib/trainer.js'
 import { splitPrescription } from './src/lib/prescription.js'
 
@@ -38,7 +38,12 @@ test('placing: the first session is the day\'s main, the next are extras, ids de
   const [a, b, c] = placeEntries({ menu, onDay: [], date: DATE, items: [{ optId: 'planned' }, { optId: 'planned' }, { optId: 'planned' }] })
   assert.deepEqual([a.id, b.id, c.id], [`daily-${DATE}`, `daily-${DATE}-planned`, `daily-${DATE}-planned-2`])
   assert.deepEqual([a.data.slot, b.data.slot], ['main', 'extra'])
-  assert.equal(a.data.done, false, 'placing a session completed it')
+  // Done by default on a day that has arrived; planned on a later one (AGENTS.md §4).
+  assert.equal(a.data.done, true, 'a session placed on today was not done')
+  const [later] = placeEntries({ menu, date: '2026-10-09', today: '2026-10-08', items: [{ optId: 'planned' }] })
+  assert.equal(later.data.done, false, 'a session placed on a later day was done before its day')
+  const [past] = placeEntries({ menu, date: '2026-10-01', today: '2026-10-08', items: [{ optId: 'planned' }] })
+  assert.equal(past.data.done, true, 'a session logged on an earlier day was not done')
   // A day that already has a main: everything is an extra. Tombstones and other days do not count.
   const day = [{ id: `daily-${DATE}`, kind: 'daily', date: DATE, data: { slot: 'main' } },
     { id: `daily-${DATE}-planned`, kind: 'daily', date: DATE, deleted: true, data: { slot: 'extra' } },
@@ -101,6 +106,10 @@ test('the runner\'s one write: position, outputs, done and a grown plan in a sin
   assert.ok('level' in b.data && 'minutes' in b.data, 'the outputs did not recompute level and minutes')
   assert.equal(entry.data.run, undefined, 'the entry passed in was mutated')
   assert.equal(applyDone(entry, true).data.done, true)
+  // The runner finishing a session marked undone takes the marker off with it.
+  const undone = applyDone(entry, false)
+  assert.deepEqual([undone.data.done, undone.data.undone], [false, true], '"Mark undone" did not mark it')
+  assert.equal('undone' in applyRun(undone, opt, run, { done: true }).data, false, 'finishing left the undo marker')
   assert.equal(applyOut(entry, opt, { rpe: 5 }).data.out.rpe, 5)
 })
 
@@ -117,7 +126,7 @@ test('sides: the owner and everyone the entry is shared with; one side for anyon
 
 test('someone\'s day: live entries, main first; a row says done, planned by, in progress', () => {
   const entries = [
-    { id: `daily-${DATE}-planned`, kind: 'daily', date: DATE, data: { slot: 'extra', name: 'Run', done: false, plan: pres, plannedBy: { id: 'owner', name: 'Alex' }, run: { startedAt: 1 } } },
+    { id: `daily-${DATE}-planned`, kind: 'daily', date: DATE, data: { slot: 'extra', name: 'Run', done: false, undone: true, plan: pres, plannedBy: { id: 'owner', name: 'Alex' }, run: { startedAt: 1 } } },
     { id: `daily-${DATE}`, kind: 'daily', date: DATE, data: { slot: 'main', name: 'Climb' } },
     { id: `daily-${DATE}-x`, kind: 'daily', date: DATE, deleted: true, data: {} },
     { id: 'quota-2026-10-05', kind: 'quota', date: DATE, data: {} },
@@ -127,6 +136,19 @@ test('someone\'s day: live entries, main first; a row says done, planned by, in 
   const [main, run] = day.map(e => dayRow(e, menu, OWNER_ME))
   assert.equal(main.done, true, 'an entry with no done flag is done (older entries predate it)')
   assert.deepEqual([run.done, run.plannedBy, run.running], [false, 'planned by you', true])
+  // A plan the owner made for them, on a day that has arrived and not marked undone, is done (§4).
+  const planned = { ...entries[0], data: { ...entries[0].data, undone: undefined } }
+  assert.equal(dayRow(planned, menu, OWNER_ME).done, true, 'their planned session is done once its day has come')
+})
+
+test('"Start" while the run has not ended: on today even though it is done, on an earlier day once undone', () => {
+  const today = '2026-10-08'
+  const on = (date, data = {}) => ({ id: `daily-${date}`, kind: 'daily', date, data: { optId: 'planned', done: true, plan: pres, ...data } })
+  assert.equal(canStart(on(today), today), true, 'today\'s session, done by default, lost its Start')
+  assert.equal(canStart(on(today, { run: { startedAt: 1, endedAt: 2 } }), today), false, 'a finished run offered Start again')
+  assert.equal(canStart(on('2026-10-01'), today), false, 'last week\'s done session offered Start')
+  assert.equal(canStart(on('2026-10-01', { done: false, undone: true }), today), true, 'an undone session lost its Start')
+  assert.equal(canStart(null, today), false)
 })
 
 test('which screen runs a session: the runner for a plan, workout mode for a clock, nothing for lifts only', () => {

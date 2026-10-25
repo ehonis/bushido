@@ -31,6 +31,7 @@ import { usePersonCopy } from './sharedwith'
 import * as peopleApi from '../lib/peopleapi.js'
 import { optFor } from '../lib/menu.js'
 import * as trainerLib from '../lib/trainer.js'
+import { isDone } from '../lib/store.js'
 import { prescriptionSteps, runProgress, restLeft, itemLine, prescriptionLine } from '../lib/prescription.js'
 import { mondayOf, weekDays, shiftWeek } from '../lib/quota.js'
 import { fromIso, localIso } from '../lib/dates.js'
@@ -41,10 +42,9 @@ type Side = { id: string | null; name: string; entryId: string | null; tone: num
 
 // Default parameters in the ported JS narrow TypeScript's inference; cast here
 // rather than edit the copied file (mobile/AGENTS.md).
-const { applyRun, applyOut, applyDone, dayOf, dayRow, runKind, plannedLine, toneFor } = trainerLib as any
+const { applyRun, applyOut, applyDone, canStart, dayOf, dayRow, runKind, plannedLine, toneFor } = trainerLib as any
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).padStart(2, '0')}`
-const isDoneEntry = (e: any) => Boolean(e && !e.deleted && e.data?.done !== false)
 
 /* ------------------------------------------------------------ For: … */
 
@@ -112,9 +112,13 @@ export function usePersonLog(personId?: string | null) {
 
 /* -------------------------------------------------- sides of a workout */
 
-export function sideStatus(kind: string, entry: any, now = Date.now()) {
+/**
+ * "Done" is finished on this screen or a run that has ended, not `isDone`: every
+ * side of today's workout is done by default (§4) before anyone has lifted.
+ */
+export function sideStatus(kind: string, entry: any, now = Date.now(), finished = false) {
   if (!entry || entry.deleted) return ''
-  if (isDoneEntry(entry)) return 'done'
+  if (finished || entry.data?.run?.endedAt) return 'done'
   if (kind !== 'runner') return ''
   const run = entry.data?.run || null
   const left = restLeft(run, now)
@@ -154,7 +158,7 @@ export function SideSwitch({ sides = [], side = null, onSide, status = {} }: {
  * A workout run from more than one person's side. Every side stays mounted so
  * each keeps its own clock; only the side on screen makes a sound. Each side is
  * that person's own entry with its OWN writer (§6.2). Finishing a side hands over
- * to the next one not done yet, and the last one closes the screen.
+ * to the next one not yet finished, and the last one closes the screen.
  */
 export function SidesWorkout({
   kind, session, sides = [], ownerEntry = null, entries = [],
@@ -174,6 +178,8 @@ export function SidesWorkout({
   const insets = useSafeAreaInsets()
   const [side, setSide] = useState<string | null>(() => (sides.some((s) => s.id && s.id === initialSide) ? initialSide as string : sides[0]?.id ?? null))
   const [copies, setCopies] = useState<Record<string, any>>({})
+  // The sides finished on this screen, by id ('' for the owner).
+  const [finished, setFinished] = useState<string[]>([])
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     if (sides.length < 2) return undefined
@@ -184,7 +190,7 @@ export function SidesWorkout({
   const report = useCallback((id: string, e: any) => setCopies((c) => (c[id] === e ? c : { ...c, [id]: e })), [])
   const entryOf = (s: Side) => (s.id ? copies[s.id] : ownerEntry)
   const status: Record<string, string> = {}
-  for (const s of sides) status[s.id || ''] = sideStatus(kind, entryOf(s), now)
+  for (const s of sides) status[s.id || ''] = sideStatus(kind, entryOf(s), now, finished.includes(s.id || ''))
 
   const pick = (id: string | null) => {
     if ((id || null) === (side || null)) return
@@ -193,7 +199,9 @@ export function SidesWorkout({
     setSide(id)
   }
   const finishSide = (id: string | null) => () => {
-    const next = sides.find((s) => (s.id || null) !== (id || null) && !isDoneEntry(entryOf(s)))
+    const over = [...finished, id || '']
+    setFinished(over)
+    const next = sides.find((s) => !over.includes(s.id || '') && !entryOf(s)?.data?.run?.endedAt)
     if (next) { success(); pick(next.id || null) } else onExit()
   }
   const switcher = <SideSwitch sides={sides} side={side} onSide={pick} status={status} />
@@ -382,18 +390,18 @@ export function PersonEntrySheet({ person, entryId, menu = [], entries = [], onC
     )
   }
 
-  const done = isDoneEntry(e)
+  const done = isDone(e)
   const pres = e?.data?.plan || null
   const by = e ? plannedLine(e, me) : null
   return (
     <Modal title={e?.data?.name || opt?.name || 'Session'} sub={`${person.name}’s log`} icon="Users" onClose={onClose}
       footer={e && !e.deleted ? (
         <View style={{ gap: 8 }}>
-          {kind && !done ? (
+          {kind && canStart(e) ? (
             <Btn icon="Play" title={`Start for ${person.name}`} onPress={() => { impact(); setRunning(true) }} />
           ) : null}
           <Btn kind={done ? 'ghost' : 'primary'} icon={done ? 'CircleCheck' : 'Circle'}
-            title={done ? `Done for ${person.name} — tap to undo` : `Mark done for ${person.name}`}
+            title={done ? `Done for ${person.name} · Mark undone` : `Mark done for ${person.name}`}
             onPress={() => { if (!done) success(); copy.update((cur: any) => applyDone(cur, !done)) }} />
         </View>
       ) : null}>

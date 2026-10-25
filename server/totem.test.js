@@ -5,9 +5,10 @@
  * These exist because two bugs shipped here and both produced *false training
  * history*, which is worse than no history:
  *
- *   1. Any daily entry marked the habit complete. Swapping your main session or
- *      adding an extra creates an entry, so planning a day silently claimed you
- *      had trained it.
+ *   1. Any daily entry marked the habit complete, including ones the user had
+ *      said they did not do. Since 2026-10-25 a session is done once its day
+ *      arrives unless marked undone (AGENTS.md §4): a plan for a later day is
+ *      not in that day's record until the day comes, and an undone one never is.
  *   2. Sync ran per entry, so on a two-session day the last write won and the
  *      other session's note was discarded.
  *
@@ -27,11 +28,14 @@ const S = (id, date, data, deleted) => [id, { id, kind: 'daily', date, data, del
 
 const state = {
   entries: Object.fromEntries([
-    // Swapped a main in and added an extra. Neither actually done.
+    // Planned ahead: a main and an extra, neither marked done by a tap.
     S('daily-2026-08-05', '2026-08-05',
       { slot: 'main', optId: 'four-by-four', name: 'Bouldering 4×4s', done: false, out: {} }),
     S('daily-2026-08-05-fun-boulder', '2026-08-05',
       { slot: 'extra', optId: 'fun-boulder', name: 'Bouldering with friends', done: false, out: {} }),
+    // Marked undone: the user said they did not do it.
+    S('daily-2026-08-04', '2026-08-04',
+      { slot: 'main', optId: 'four-by-four', name: 'Bouldering 4×4s', done: false, undone: true, out: {} }),
     // Written before `done` existed — only ever created by pressing "log this".
     S('daily-2026-08-03', '2026-08-03',
       { optId: 'hard-home', name: 'Max hangs + repeaters', out: { rpe: 7, fingers: 2 } }),
@@ -49,9 +53,13 @@ const state = {
   ]),
 }
 
-console.log('planning is not completing')
-eq('swapped + added but not done => count 0', habitBodyForDay('2026-08-05', state).count, 0)
-eq('...and an empty note, so Totem drops the day', habitBodyForDay('2026-08-05', state).note, '')
+console.log('done once the day arrives, unless marked undone')
+eq('planned for a later day => count 0 before it', habitBodyForDay('2026-08-05', state, '2026-08-04').count, 0)
+eq('...and an empty note, so Totem drops the day', habitBodyForDay('2026-08-05', state, '2026-08-04').note, '')
+eq('the same two on their day => count 2, nothing rewritten', habitBodyForDay('2026-08-05', state, '2026-08-05').count, 2)
+eq('and every day after', habitBodyForDay('2026-08-05', state, '2026-09-01').count, 2)
+eq('marked undone => count 0, however late', habitBodyForDay('2026-08-04', state, '2026-09-01').count, 0)
+eq('...and no note for it', habitBodyForDay('2026-08-04', state, '2026-09-01').note, '')
 eq('legacy entry with no done flag still counts', habitBodyForDay('2026-08-03', state).count, 1)
 eq('tombstoned entry contributes nothing', habitBodyForDay('2026-08-08', state),
   { id: 'move-every-day', date: '2026-08-08', count: 0, note: '' })

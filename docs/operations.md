@@ -184,7 +184,7 @@ install that never configured them. Without a CLI nothing changes for them: no C
 - plan a workout or a week FOR someone (the "For: You / Sam" choice at the top of both
   planners, shown only to the owner, only with more than one person, never while acting).
   The model run uses that person's log, plan and About you. Keeping it writes into their log:
-  a planned session lands as an ordinary entry, `done: false`, with the same derivable id
+  a planned session lands as an ordinary entry, `done: false` (done from its day on), with the same derivable id
   their own + would have given it and `data.plannedBy: { id, name }` stamped by the server;
   a week is their `quota-<monday>` with `plannedBy`. A week they set themselves is never
   overwritten (`409`). They see "planned by <owner>" on Today, the sheet and the feed, and

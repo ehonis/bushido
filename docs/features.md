@@ -47,6 +47,18 @@ workouts and a screen that opens with an argument every morning is a screen you 
 reading. `lib/recommend.js` is still there and still tested — the coach can reason with it,
 and it is where the two unbypassable finger rules live — but nothing on Today reads it.
 
+### Done by default
+
+A workout is done once its day has arrived. Logging one, planning one for today, a rest day,
+a ride the watch recorded: all of it is done the moment it lands, with nothing to tick. A
+workout planned for a later day shows as planned until that day, then counts as done
+without anything being written. If you skipped it, open it and tap **Mark undone**; it then
+stays undone however many days pass, and **Mark done** puts it back. The streak, the load,
+the habit in Totem and every chart read the same rule. The "nice session" notification waits
+until there is something to say: the first set or effort you log, the workout finishing in
+the runner, or a **Mark done** tap. A workout logged for an earlier day is announced as it
+lands, and a planned day arriving at midnight never is.
+
 ## Plan a workout
 
 **+ → Plan a workout.** Pick what — **as many as you like**. A gym trip that is legs, then

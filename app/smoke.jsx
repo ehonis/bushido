@@ -635,7 +635,7 @@ const cases = [
     entries={[
       buildQuotaEntry(mondayOf(TODAY), { bike: 2 }),
       { id: 'p1', kind: 'daily', date: TODAY, updatedAt: 'z',
-        data: { optId: 'log-workout', level: 2, done: false, out: { activity: 'bike' } } },
+        data: { optId: 'log-workout', level: 2, done: false, undone: true, out: { activity: 'bike' } } },
     ]} />,
     (html) => {
       if (!/class="qb-soon"/.test(html)) throw new Error('a planned workout draws no dotted segment')
@@ -2637,9 +2637,35 @@ const cases = [
           onClose={noop} />
       </PlanProvider>))
     if (/Start the workout/.test(t)) throw new Error('a lift session is offering a clock again')
-    if (!/Mark as done/.test(t)) throw new Error('with no runner, the sheet has to be able to finish it')
+    if (!/Mark undone/.test(t)) throw new Error('with no runner, the sheet has to say it is done and offer to undo it')
     // And no rest box anywhere in the editor.
     if (/rest sec/.test(t)) throw new Error('lifting grew a rest interval back')
+  }],
+  /*
+   * DONE BY DEFAULT (AGENTS.md §4). A session on today is done the moment it
+   * lands, so the sheet's control says so and offers "Mark undone"; one marked
+   * undone offers "Mark done"; a later day has no control at all, only the
+   * preview line. The old "tap to undo" toggle is pinned absent, and "Start"
+   * survives a session being done, because today's always is.
+   */
+  ['SessionSheet(Mark undone on today, Mark done once undone, nothing on a later day)', null, () => {
+    const sheet = (entry, isFuture = false) => text(renderToString(
+      <PlanProvider plan={plan}>
+        <SessionSheet opt={PLANNED_CARD} entry={entry} tone="rec" entries={rich} isFuture={isFuture}
+          onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={noop}
+          onClose={noop} />
+      </PlanProvider>))
+    const today = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false } })
+    if (!/Done · Mark undone/.test(today)) throw new Error('a session planned for today does not read as done with a way to undo it')
+    if (/tap to undo|Mark as done/.test(today)) throw new Error('the old done toggle is back')
+    if (!/Start the workout/.test(today)) throw new Error('a done-by-default session lost its Start')
+    const undone = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false, undone: true } })
+    if (!/Mark done/.test(undone) || /Mark undone/.test(undone)) throw new Error('a session marked undone does not offer "Mark done"')
+    const finished = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: true, run: { startedAt: 1, endedAt: 2 } } })
+    if (/Start the workout/.test(finished)) throw new Error('a finished run offers Start again')
+    const later = sheet({ ...PLANNED_ENTRY, date: '2999-01-01', data: { ...PLANNED_ENTRY.data, done: false } }, true)
+    if (/Mark (un)?done/.test(later)) throw new Error('a session on a later day offers a done control')
+    if (!/Preview only/.test(later)) throw new Error('a later day lost its preview line')
   }],
   ['TodayTab(a planned session on the day)', <TodayTab plan={plan} entries={[PLANNED_ENTRY]}
     upsertEntry={noop} deleteEntry={noop} onPlan={noop} onLog={noop} />,
@@ -2780,7 +2806,7 @@ const cases = [
         { id: 'r1', kind: 'daily', date: '2026-09-15', updatedAt: 'z',
           data: { optId: 'log-workout', level: 2, done: true, out: { activity: 'bike' } } },
         { id: 'r2', kind: 'daily', date: '2026-09-16', updatedAt: 'z',
-          data: { optId: 'log-workout', level: 2, done: false, out: { activity: 'bike' } } },
+          data: { optId: 'log-workout', level: 2, done: false, undone: true, out: { activity: 'bike' } } },
       ],
     })
     if (!/week of 2026-09-14: .*bike 1\/3/.test(s)) throw new Error(`done/set is wrong or missing: ${s}`)

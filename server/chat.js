@@ -54,6 +54,7 @@
 const { readinessFor, baselineFor, attachedIds, hardMinutes, recordedPct, attachedMinutes, isSplit } = require('./whoop.js')
 // Strava's half — the same shape of import for the same reason.
 const strava = require('./strava.js')
+const { isDone } = require('./notify-facts.js')
 const { speaker } = require('./prompting.js')
 
 const MAX_MESSAGES = 40
@@ -151,9 +152,10 @@ function logDigest(state, date, { days = LOG_DAYS } = {}) {
         session: d.optId || null,
         name: d.name || null,
         slot: d.slot === 'extra' ? 'extra' : 'main',
-        // Planning is not completing, and a coach that cannot tell the two apart
-        // will congratulate them for a week the user did not train.
-        done: d.done !== false,
+        // Done once its day arrives unless marked undone (`isDone`): a coach
+        // that cannot tell a skipped session from a done one will congratulate
+        // them for a week the user did not train.
+        done: isDone(e, date),
         minutes: num(d.minutes),
         level: num(d.level),
         rpe: num(out.rpe),

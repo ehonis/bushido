@@ -17,7 +17,7 @@ import { sessionStats } from './lib/stats.js'
 import { liftsLine } from './lib/lifts.js'
 import { localIso, fromIso } from './lib/dates.js'
 import { progress as quotaProgress, mondayOf, weekDays, shiftWeek, quotaCounts, quotaEntry, suggest, buildQuotaEntry } from './lib/quota.js'
-import { isDone, isRepeatable, repeatLabel, extraEntryId } from './lib/store.js'
+import { isDone, isRepeatable, repeatLabel, extraEntryId, doneWhenPlaced, markDone } from './lib/store.js'
 import { testEntryFor, testEntryId, testFor } from './lib/tests.js'
 import { WorkoutMode } from './workout.jsx'
 import { WorkoutRunner } from './runner.jsx'
@@ -38,7 +38,7 @@ import { UnloggedWorkouts } from './unlogged.jsx'
 import { achievements, unclaimed } from './lib/achievements.js'
 import { profileFacts } from './lib/profile.js'
 import { currentMe } from './lib/whoami.js'
-import { applyOut, applyRun, workoutSides, planPeople, plannedLine } from './lib/trainer.js'
+import { applyOut, applyRun, canStart, workoutSides, planPeople, plannedLine } from './lib/trainer.js'
 import { sharePeople, sharedPeopleOn, withLine, addPerson, removePerson, withSharedPerson, copyExercises, hasExercises } from './lib/shared.js'
 import * as peopleApi from './lib/peopleapi.js'
 import { WithControl, PersonSwitch, SharedNote, TheirSide, usePersonCopy } from './sharedwith.jsx'
@@ -185,8 +185,9 @@ export function TodayTab({
     return dates[0] || null
   }, [entries])
 
-  // Putting a session on the day does NOT complete it — that is a separate tap.
-  // A rest day is the exception: choosing it is the whole action.
+  // A session put on today or an earlier day is done; on a later day it is
+  // planned, and done from its day on (`isDone`). What an existing entry says is
+  // kept, a "Mark undone" included. A rest day is done whenever it is chosen.
   const sessionData = (opt, prev) => {
     const out = prev?.data?.out || {}
     return {
@@ -195,7 +196,7 @@ export function TodayTab({
       name: titleFor(opt, out, prev?.data?.plan),
       minutes: minutesFor(opt, out),
       level: levelFor(opt, out),
-      done: opt.role === 'rest' ? true : (prev?.data?.done ?? false),
+      done: opt.role === 'rest' ? true : (prev ? prev.data?.done ?? true : doneWhenPlaced(iso)),
       out,
     }
   }
@@ -240,8 +241,7 @@ export function TodayTab({
    */
   const removeSession = (entry) => dropEntry(entry)
 
-  const setDone = (entry, done) =>
-    upsertEntry({ ...entry, data: { ...entry.data, done } })
+  const setDone = (entry, done) => upsertEntry(markDone(entry, done))
 
   /*
    * "Just miles", from the day's own sheet.
@@ -642,7 +642,7 @@ export function SessionSheet({
   const saveTheirs = (out) => { setDirty(true); theirs.update(cur => ({ ...cur, data: {
     ...cur.data, out, level: levelFor(opt, out), name: titleFor(opt, out, cur.data?.plan),
     minutes: resolveMinutes(cur.data, opt, out) } })) }
-  const setTheirsDone = (v) => { setDirty(true); theirs.update(cur => ({ ...cur, data: { ...cur.data, done: v } })) }
+  const setTheirsDone = (v) => { setDirty(true); theirs.update(cur => markDone(cur, v)) }
   /* Their plan, edited from their side: the same write `savePlan` makes on the owner's. */
   const saveTheirPlan = (next) => { setDirty(true); theirs.update(cur => ({ ...cur, data: {
     ...cur.data, plan: next, name: next.title || cur.data?.name } })) }
@@ -682,14 +682,15 @@ export function SessionSheet({
         ) : theirs.entry && !theirs.entry.deleted ? (
           <div className="sheet-actions">
             {/* Her side starts the same shared workout, on her side of the switcher. */}
-            {onStartWorkout && pres && theirPres && runnable(opt, theirPres) && !theirDone && (
+            {onStartWorkout && pres && theirPres && runnable(opt, theirPres) && canStart(theirs.entry) && (
               <button className="btn wo-cta" onClick={() => { setDirty(true); onStartWorkout(opt, sidePerson.id) }}>
                 <Icon name="Play" size={17} /> Start the workout
               </button>
             )}
-            <button className={`btn done-btn ${theirDone ? 'ghost on' : ''}`} onClick={() => setTheirsDone(!theirDone)}>
+            <button className={`btn done-btn ${theirDone ? 'ghost on' : ''}`} aria-pressed={theirDone}
+              onClick={() => setTheirsDone(!theirDone)}>
               <Icon name={theirDone ? 'CircleCheck' : 'Circle'} size={16} />
-              {theirDone ? `Done for ${sidePerson.name} — tap to undo` : `Mark done for ${sidePerson.name}`}
+              {theirDone ? `Done for ${sidePerson.name} · Mark undone` : `Mark done for ${sidePerson.name}`}
             </button>
           </div>
         ) : null
@@ -704,8 +705,9 @@ export function SessionSheet({
       ) : (
         <div className="sheet-actions">
           {/* A planned session always offers the runner, whether or not the CARD
-              declares a timer — what it walks is the prescription on the entry. */}
-          {onStartWorkout && runnable(opt, pres) && !done && (
+              declares a timer — what it walks is the prescription on the entry.
+              Not "while not done": today's session is done before it starts. */}
+          {onStartWorkout && runnable(opt, pres) && (!planned || canStart(entry)) && (
             <button className="btn wo-cta" onClick={() => { setDirty(true); onStartWorkout(opt) }}>
               <Icon name="Play" size={17} /> {pres ? 'Start the workout' : 'Start workout'}
             </button>
@@ -820,9 +822,10 @@ export function SessionSheet({
 }
 
 /**
- * Completion, made explicit. Adding a session to the day and completing it are
- * two different acts — conflating them is what silently marked the habit done
- * for workouts that were only ever swapped in.
+ * Done, and the way to say it was not. A session on today or an earlier day is
+ * done by default (AGENTS.md §4), so the control's job is mostly "Mark undone":
+ * a workout the user skipped, which then stays undone however many days pass.
+ * "Mark done" puts it back.
  */
 function DoneButton({ opt, planned, done, onLog, onSetDone }) {
   if (!planned) {
@@ -833,9 +836,9 @@ function DoneButton({ opt, planned, done, onLog, onSetDone }) {
     )
   }
   return (
-    <button className={`btn done-btn ${done ? 'ghost on' : ''}`} onClick={() => onSetDone(!done)}>
+    <button className={`btn done-btn ${done ? 'ghost on' : ''}`} aria-pressed={done} onClick={() => onSetDone(!done)}>
       <Icon name={done ? 'CircleCheck' : 'Circle'} size={16} />
-      {done ? 'Done — tap to undo' : 'Mark as done'}
+      {done ? 'Done · Mark undone' : 'Mark done'}
     </button>
   )
 }

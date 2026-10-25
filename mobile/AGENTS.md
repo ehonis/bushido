@@ -69,6 +69,9 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
   shortened if needed; they are the design history.
 - **Logic is not forked.** If the web component computes something, port the computation as is or
   call the same `lib/` function. Never "simplify" a rule (`isDone`, `optFor`, the finger blocks).
+  `isDone` is done once a session's day arrives unless marked undone (`../AGENTS.md` §4);
+  write done through `markDone` and new entries through `doneWhenPlaced`, never a raw
+  `done:` flag, and gate "Start" on `canStart`, not on `done`.
 - **Never hand-draw an icon.** `<Icon name="…">` from `src/lib/icons.tsx` takes the web's lucide
   names. Missing one: add a deep import there after confirming the file exists in
   `node_modules/lucide-react-native/dist/esm/icons/`. Tabler (`@tabler/icons-react-native`, deep

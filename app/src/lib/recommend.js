@@ -309,7 +309,7 @@ export function buildContext({ plan, entries = [], iso, ignorePlanned = false, c
   const quota = quotaProgress({ plan, entries, iso })
 
   const daily = entries.filter(e => e.kind === 'daily' && e.date)
-  const done = daily.filter(isDone)
+  const done = daily.filter(e => isDone(e))
   const past = done.filter(e => e.date < iso)
   // What is already on today. The DAY's recommendation ignores this — it is the
   // answer to "what should today be", and it must not change out from under you

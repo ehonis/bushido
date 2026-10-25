@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useStore } from './lib/store.js'
+import { useStore, doneWhenPlaced } from './lib/store.js'
 import { TodayTab, WeekTab } from './tabs.jsx'
 import { LogTab } from './log.jsx'
 import { Icon, BushidoMark, TAB_ICONS } from './lib/icons.jsx'
@@ -313,8 +313,8 @@ export default function App() {
   /*
    * Taking a session the coach offered.
    *
-   * The coach does not write this — their tap does, through an ordinary entry with
-   * `done: false`, exactly as picking one off the day list produces. So there is
+   * The coach does not write this — their tap does, through an ordinary entry
+   * (done, because it lands on today), exactly as picking one off the day list produces. So there is
    * no such thing as a coach's write to the log: it lands as something the user chose
    * and can edit or delete like anything else.
    */
@@ -327,7 +327,7 @@ export default function App() {
       id, kind: 'daily', date,
       data: {
         optId: opt.id, name: opt.name, minutes: opt.minutes, level: opt.level ?? 1,
-        done: false, out: {}, slot: s.action === 'main' ? 'main' : 'extra',
+        done: doneWhenPlaced(date), out: {}, slot: s.action === 'main' ? 'main' : 'extra',
       },
     })
     setTab('today')
@@ -402,8 +402,8 @@ export default function App() {
      * The ids and the entry shape are `placeEntries` (lib/trainer.js), the same
      * function the owner planning for someone else runs against THEIR day, so
      * the two cannot mint different ids for the same act. A card that names
-     * itself from what you picked says so from the moment it lands, and putting
-     * a session on the day does NOT complete it (a rest day is the exception).
+     * itself from what you picked says so from the moment it lands, and it is
+     * done on today or an earlier day, planned on a later one (AGENTS.md §4).
      */
     const written = placeEntries({ menu: plan?.dailyMenu || [], onDay: store.entries, items, date })
     for (const entry of written) store.upsertEntry(entry)
@@ -416,8 +416,8 @@ export default function App() {
 
   /**
    * A rest day on the date RestPrompt was given (today from the +, the viewed day
-   * from Your day, and the user can change it there), with the why it asked for. Done on arrival (placeAll's
-   * rest exception) and no sheet opens — the prompt was the form. A day already
+   * from Your day, and the user can change it there), with the why it asked for. Done on arrival (a rest
+   * day is done whatever its date) and no sheet opens — the prompt was the form. A day already
    * resting gets its why edited rather than a second rest entry.
    */
   const restOpt = (plan?.dailyMenu || []).find(m => m.role === 'rest' && !m.retired) || null
@@ -649,8 +649,10 @@ export default function App() {
         * arrives the right shape. See picker.jsx and lib/folders.js.
         *
         * A climb from the unlogged card lands on its card with the measurement
-        * attached, NOT done: the hard-finger question is the reason it goes
-        * through a climbing card at all, so the sheet opens to ask it.
+        * attached, and the sheet opens: the hard-finger question is the reason
+        * it goes through a climbing card at all. Done like anything on a day
+        * that has arrived; until it is answered, the card's own `fingerLoad`
+        * stands in (`isHardEntry`).
         */}
       {fab === 'log' && (
         <ActivityChooser plan={plan} field={activityFieldOf(plan)}

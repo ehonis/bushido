@@ -9,7 +9,7 @@
 // are mounted here too, in the same order.
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { router } from 'expo-router'
-import { useStore } from '../lib/store.js'
+import { useStore, doneWhenPlaced } from '../lib/store.js'
 import { PrefsProvider } from '../lib/prefs.jsx'
 import { PlanProvider } from '../lib/planctx.jsx'
 import { CoachProvider } from '../lib/coachapi.jsx'
@@ -101,7 +101,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   /*
    * Taking a session the coach offered. The coach does not write this; the
-   * tap does, through an ordinary entry with `done: false`.
+   * tap does, through an ordinary entry (done, because it lands on today).
    */
   const placeFromCoach = (s: { optId: string; action?: string }) => {
     const opt = (plan?.dailyMenu || []).find((o: any) => o.id === s.optId)
@@ -112,7 +112,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       id, kind: 'daily', date,
       data: {
         optId: opt.id, name: opt.name, minutes: opt.minutes, level: opt.level ?? 1,
-        done: false, out: {}, slot: s.action === 'main' ? 'main' : 'extra',
+        done: doneWhenPlaced(date), out: {}, slot: s.action === 'main' ? 'main' : 'extra',
       },
     })
     setTab('today')
@@ -154,8 +154,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   entriesRef.current = store.entries
   const placeAll: AppData['placeAll'] = (items, { open = true, close = true, date = localIso() } = {}) => {
     // `placeEntries` (lib/trainer.js), the same function the owner planning for
-    // someone else runs against THEIR day, so the two mint the same ids. Placing
-    // a session does NOT complete it; a rest day is the exception.
+    // someone else runs against THEIR day, so the two mint the same ids. Done on
+    // today or an earlier day, planned on a later one (AGENTS.md §4).
     const written: any[] = placeEntries({ menu: plan?.dailyMenu || [], onDay: entriesRef.current, items, date })
     for (const entry of written) store.upsertEntry(entry)
 
