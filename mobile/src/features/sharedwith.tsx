@@ -27,6 +27,7 @@ import { Icon } from '../lib/icons'
 import { SessionLog } from './sessionlog'
 import { withLine, openSide } from '../lib/shared.js'
 import { getPersonEntry, putPersonEntry } from '../lib/peopleapi.js'
+import * as trainerLib from '../lib/trainer.js'
 
 type Person = { id: string; name: string; entryId?: string; tone?: number }
 
@@ -227,25 +228,30 @@ export function SharedNote({ entry, people = [] }: { entry: any; people?: Person
 /** Someone's copy of a shared workout, read and written through `/api/people/:id/entry`. */
 export function usePersonCopy(personId?: string | null, entryId?: string | null, name = '') {
   // Loading from the first frame: a sheet that reopens on their side must not flash "not in their log".
-  const [state, setState] = useState<{ entry: any; loading: boolean; error: string | null }>(
-    () => ({ entry: null, loading: Boolean(personId && entryId), error: null }))
+  // `server` is what the server last said, apart from `entry`, which may hold a
+  // write still on its way (or one that never landed): a side's "done" and a
+  // circuit done together read `server`.
+  const [state, setState] = useState<{ entry: any; server: any; loading: boolean; error: string | null }>(
+    () => ({ entry: null, server: null, loading: Boolean(personId && entryId), error: null }))
   const latest = useRef<any>(null)
   const writing = useRef(0)
 
   useEffect(() => {
     latest.current = null
-    if (!personId || !entryId) { setState({ entry: null, loading: false, error: null }); return undefined }
+    if (!personId || !entryId) { setState({ entry: null, server: null, loading: false, error: null }); return undefined }
     let live = true
-    setState({ entry: null, loading: true, error: null })
+    setState({ entry: null, server: null, loading: true, error: null })
     getPersonEntry(personId, entryId)
-      .then((e: any) => { if (!live) return; latest.current = e; setState({ entry: e, loading: false, error: null }) })
-      .catch((err: any) => { if (live) setState({ entry: null, loading: false, error: `Could not open ${name || 'their'} log: ${err.message}` }) })
+      .then((e: any) => { if (!live) return; latest.current = e; setState({ entry: e, server: e, loading: false, error: null }) })
+      .catch((err: any) => { if (live) setState({ entry: null, server: null, loading: false, error: `Could not open ${name || 'their'} log: ${err.message}` }) })
     // Re-read while open (and in the foreground), never over an edit still on its way.
     const iv = setInterval(() => {
       if (writing.current || AppState.currentState !== 'active') return
       const was = latest.current
       getPersonEntry(personId, entryId).then((e: any) => {
-        if (!live || writing.current || latest.current !== was || !e) return
+        if (!live || !e) return
+        setState((s) => (s.server === e ? s : { ...s, server: e }))
+        if (writing.current || latest.current !== was) return
         if (was && String(e.updatedAt || '') <= String(was.updatedAt || '')) return
         latest.current = e
         setState((s) => ({ ...s, entry: e }))
@@ -254,24 +260,73 @@ export function usePersonCopy(personId?: string | null, entryId?: string | null,
     return () => { live = false; clearInterval(iv) }
   }, [personId, entryId, name])
 
-  const update = useCallback(async (fn: (cur: any) => any) => {
+  /*
+   * Resolves true once the write landed, false if it did not (offline), so a
+   * caller writing for several people can say who it missed (a circuit done
+   * together, trainer.tsx). A `fn` that returns nothing has nothing to write;
+   * one that returns the entry unchanged re-sends it (the sheet's Retry).
+   */
+  const update = useCallback(async (fn: (cur: any) => any): Promise<boolean> => {
     const cur = latest.current
-    if (!cur || cur.deleted) return
+    if (!cur || cur.deleted) return false
     const next = fn(cur)
+    if (!next) return true
     latest.current = next
     writing.current += 1
     setState((s) => ({ ...s, entry: next, error: null }))
     try {
       const merged = await putPersonEntry(personId as string, next)
-      if (latest.current === next) { latest.current = merged; setState((s) => ({ ...s, entry: merged })) }
+      if (latest.current === next) { latest.current = merged; setState((s) => ({ ...s, entry: merged, server: merged })) }
+      else setState((s) => ({ ...s, server: merged }))
+      return true
     } catch (err: any) {
       setState((s) => ({ ...s, error: `Not saved to ${name || 'their'} log yet: ${err.message}` }))
+      return false
     } finally {
       writing.current -= 1
     }
   }, [personId, name])
 
-  return { ...state, update }
+  /** An entry the server just answered with, written elsewhere (a circuit done together). */
+  const accept = useCallback((e: any) => {
+    if (!e) return
+    if (!latest.current || String(e.updatedAt || '') >= String(latest.current.updatedAt || '')) {
+      latest.current = e
+      setState((s) => ({ ...s, entry: e, server: e }))
+    } else setState((s) => ({ ...s, server: e }))
+  }, [])
+
+  return { ...state, update, accept }
+}
+
+/**
+ * A circuit done together that did not reach someone (lib/trainer.js, rule 4),
+ * said on the workout's sheet until it has: tried again as the sheet opens
+ * (re-read, then fill), and on Try again. Nothing with nothing waiting.
+ */
+export function TogetherPending({ entry, session = null }: { entry: any; session?: any }) {
+  const { pendingFor, retryPending, andWords } = trainerLib as any
+  const storage = (globalThis as any).localStorage || null
+  // Read against the LIVE entry every render: a miss about a run this entry no
+  // longer carries (deleted and planned again, someone taken off) goes.
+  const [, setTried] = useState(0)
+  const left: any[] = pendingFor(storage, entry)
+  const [busy, setBusy] = useState(false)
+  const retry = async () => {
+    setBusy(true)
+    try {
+      await retryPending({ storage, ownerEntry: entry, readPerson: getPersonEntry, putPerson: putPersonEntry, session })
+    } catch { /* still waiting: the note stays */ } finally { setBusy(false); setTried((n) => n + 1) }
+  }
+  useEffect(() => { if (left.length) void retry() }, [entry?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  if (!left.length) return null
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2], marginBottom: space[3] }} accessibilityRole="alert">
+      <Icon name="TriangleAlert" size={12} color={colors.inkDim} />
+      <T size={font.small} style={{ flex: 1 }}>The circuit is not on {andWords([...new Set(left.map((p: any) => p.name))])}’s log yet</T>
+      <Btn kind="quiet" small title="Try again" disabled={busy} onPress={() => { void retry() }} />
+    </View>
+  )
 }
 
 /**

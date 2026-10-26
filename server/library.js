@@ -17,7 +17,8 @@
  *     what it fills (#64 writes them that way: no name, no group).
  *   - A library key the plan has under another spelling (`pushup` for a plan's
  *     `push-up`, or one of its `aka`) fills that exercise too, rather than
- *     adding a second one with no history.
+ *     adding a second one with no history, and the key and its aliases join
+ *     the exercise's own, so typing it still finds it.
  *   - A library exercise the plan lacks is added, and needs a `name` and a
  *     `group` for that; without them it is skipped, with a warning.
  *   - `aka` is the union of both. `groups` are the plan's, then the library's
@@ -112,6 +113,9 @@ function mergeField(field, lib, skipped) {
   const exercises = [...own]
   const filled = new Set()
   const fillAt = (i, entry) => { exercises[i] = fillExercise(exercises[i], entry); filled.add(i) }
+  // Joined by another spelling: that spelling is a name people type, so it
+  // becomes an alias too ("pushup" still finds Push-up).
+  const fillAs = (i, entry) => fillAt(i, entry.key === exercises[i].key ? entry : { ...entry, aka: [entry.key, ...(entry.aka || [])] })
   // Exact keys first, so a plan exercise is filled by its own entry before an alias's.
   const exact = new Map(own.map((ex, i) => [ex?.key, i]))
   const rest = []
@@ -121,7 +125,7 @@ function mergeField(field, lib, skipped) {
   }
   for (const entry of rest) {
     const at = exact.has(entry.key) ? exact.get(entry.key) : index.get(spelling(entry.key))
-    if (at !== undefined) { if (!filled.has(at)) fillAt(at, entry); continue }
+    if (at !== undefined) { if (!filled.has(at)) fillAs(at, entry); continue }
     if (!isStr(entry.name) || !isStr(entry.group)) { skipped.add(entry.key); continue }
     exercises.push(entry)
   }

@@ -1,0 +1,505 @@
+{
+  "version": 1,
+  "groups": [
+    "Chest",
+    "Back",
+    "Shoulders",
+    "Biceps",
+    "Triceps",
+    "Forearms & grip",
+    "Quads",
+    "Hamstrings & glutes",
+    "Calves & ankles",
+    "Core",
+    "Olympic & power",
+    "Carries & conditioning",
+    "Neck",
+    "Mobility & stretching"
+  ],
+  "exercises": [
+    {
+      "key": "bird-dog",
+      "measure": "reps",
+      "equipment": "Mat",
+      "tags": [
+        "core stability",
+        "lower back",
+        "glutes",
+        "beginner",
+        "no equipment",
+        "warm-up"
+      ],
+      "how": {
+        "gist": "On hands and knees, reach one arm forward and the opposite leg back without letting your hips or back move.",
+        "steps": [
+          "Kneel on all fours, hands under shoulders and knees under hips.",
+          "Brace gently so your back stays flat.",
+          "Reach one arm forward and the opposite leg straight back.",
+          "Pause, return without the hips tipping, and switch sides."
+        ],
+        "watch": "Hips rotating or the low back arching as the leg goes up.",
+        "easier": "Move only the leg, or only the arm, at first.",
+        "harder": "Hold each reach for 5 to 10 seconds."
+      }
+    },
+    {
+      "key": "cat-cow",
+      "name": "Cat-cow",
+      "group": "Mobility & stretching",
+      "aka": [
+        "cat camel"
+      ],
+      "implements": [
+        "bodyweight"
+      ],
+      "measure": "reps",
+      "muscles": {
+        "primary": [
+          "lower-back",
+          "upper-back"
+        ],
+        "secondary": [
+          "abs",
+          "neck"
+        ],
+        "from": "hand"
+      },
+      "equipment": "Mat",
+      "tags": [
+        "spine",
+        "back",
+        "warm-up",
+        "yoga",
+        "beginner",
+        "no equipment"
+      ],
+      "how": {
+        "gist": "On all fours, slowly arch your back with your belly down and eyes up, then round it up toward the ceiling.",
+        "steps": [
+          "Start on all fours, hands under shoulders and knees under hips.",
+          "Breathe in and let your belly drop, chest forward and eyes up (cow).",
+          "Breathe out and round your back up to the ceiling, chin toward chest (cat).",
+          "One arch and one round is one rep; move slowly through the whole spine."
+        ],
+        "watch": "Moving only the low back while the upper back stays still.",
+        "harder": "Move one segment at a time, starting from the tailbone."
+      }
+    },
+    {
+      "key": "cobra-stretch",
+      "name": "Cobra stretch",
+      "group": "Mobility & stretching",
+      "aka": [
+        "cobra",
+        "sphinx",
+        "prone press-up"
+      ],
+      "implements": [
+        "bodyweight"
+      ],
+      "measure": "time",
+      "muscles": {
+        "primary": [
+          "abs"
+        ],
+        "secondary": [
+          "lower-back"
+        ],
+        "from": "hand"
+      },
+      "equipment": "Mat",
+      "tags": [
+        "back",
+        "abs",
+        "spine",
+        "yoga",
+        "beginner",
+        "no equipment"
+      ],
+      "how": {
+        "gist": "Lying face down, press your chest up on your hands while your hips stay on the floor, arching the back gently.",
+        "steps": [
+          "Lie face down with your hands under your shoulders and legs straight behind you.",
+          "Press up slowly, lifting your chest while your hips stay on the floor.",
+          "Straighten your arms only as far as is comfortable; ease off if the low back pinches.",
+          "Hold and breathe with shoulders down, then lower slowly."
+        ],
+        "watch": "Shrugging the shoulders up to the ears as you press.",
+        "easier": "Stay on your forearms with elbows under your shoulders (sphinx).",
+        "harder": "Straighten your arms fully while your hips stay down."
+      }
+    },
+    {
+      "key": "dead-bug",
+      "measure": "reps",
+      "equipment": "None",
+      "tags": [
+        "anti-extension",
+        "lower abs",
+        "no equipment",
+        "beginner",
+        "core stability"
+      ],
+      "how": {
+        "gist": "Lie on your back, arms up and knees over hips, and slowly lower opposite arm and leg while your low back stays flat.",
+        "steps": [
+          "Lie on your back, arms pointing at the ceiling, knees bent 90° over your hips.",
+          "Breathe out and press your low back gently into the floor.",
+          "Slowly reach one arm overhead as you straighten the opposite leg toward the floor.",
+          "Stop just before your back starts to arch, return, and switch sides."
+        ],
+        "watch": "Low back arching off the floor as the leg goes down.",
+        "easier": "Keep the knee bent and just tap the heel to the floor.",
+        "harder": "Hold a light dumbbell or plate in the straight arms."
+      }
+    },
+    {
+      "key": "reverse-crunch",
+      "name": "Reverse crunch",
+      "group": "Core",
+      "aka": [
+        "bench reverse crunch"
+      ],
+      "implements": [
+        "bodyweight",
+        "band",
+        "cable"
+      ],
+      "measure": "reps",
+      "muscles": {
+        "primary": [
+          "abs"
+        ],
+        "secondary": [],
+        "from": "Reverse Crunch"
+      },
+      "equipment": "None",
+      "tags": [
+        "lower abs",
+        "crunch",
+        "no equipment",
+        "beginner",
+        "home"
+      ],
+      "how": {
+        "gist": "Lying on your back with knees bent, curl your hips off the floor to bring your knees toward your chest, then lower slowly.",
+        "steps": [
+          "Lie on your back, arms by your sides or holding a bench behind your head.",
+          "Lift your knees over your hips, bent to 90°.",
+          "Breathe out and curl your hips up off the floor, knees toward your chest.",
+          "Lower your hips slowly, one vertebra at a time."
+        ],
+        "watch": "Swinging the legs instead of curling the hips up.",
+        "easier": "Make the curl smaller, or do a Dead bug.",
+        "harder": "Do a Lying leg raise instead."
+      }
+    },
+    {
+      "key": "flutter-kick",
+      "measure": "reps",
+      "equipment": "Mat",
+      "tags": [
+        "lower abs",
+        "hip flexors",
+        "no equipment",
+        "home",
+        "beginner"
+      ],
+      "how": {
+        "gist": "Lie on your back with straight legs just off the floor and kick them up and down in small, quick alternating beats.",
+        "steps": [
+          "Lie on your back, hands under your hips or by your sides.",
+          "Press your low back down and lift both legs a few inches off the floor.",
+          "Kick the legs up and down in small, quick alternating beats.",
+          "Keep the low back down the whole time."
+        ],
+        "watch": "Low back arching off the floor as the legs tire.",
+        "easier": "Kick with the legs higher, closer to vertical.",
+        "harder": "Lift your shoulders too, as in a hollow hold."
+      }
+    },
+    {
+      "key": "lying-leg-raise",
+      "name": "Lying leg raise",
+      "group": "Core",
+      "aka": [
+        "leg raise",
+        "flat bench leg raise",
+        "bench leg raise"
+      ],
+      "implements": [
+        "bodyweight",
+        "dumbbell",
+        "band"
+      ],
+      "measure": "reps",
+      "muscles": {
+        "primary": [
+          "abs"
+        ],
+        "secondary": [],
+        "from": "hand"
+      },
+      "equipment": "None",
+      "tags": [
+        "lower abs",
+        "leg raise",
+        "no equipment",
+        "home",
+        "beginner"
+      ],
+      "how": {
+        "gist": "Lying on your back, raise your straight legs to vertical and lower them slowly without your back arching.",
+        "steps": [
+          "Lie on your back, hands under your hips or holding a bench behind your head.",
+          "Press your low back toward the floor and keep your legs straight.",
+          "Raise your legs until they point at the ceiling.",
+          "Lower them slowly, stopping before your low back arches."
+        ],
+        "watch": "Low back arching off the floor as the legs come down.",
+        "easier": "Do a Reverse crunch instead, or bend your knees.",
+        "harder": "Do a Hanging leg raise instead."
+      }
+    },
+    {
+      "key": "pelvic-tilt",
+      "name": "Pelvic tilt",
+      "group": "Core",
+      "aka": [
+        "posterior pelvic tilt",
+        "pelvic tilts"
+      ],
+      "implements": [
+        "bodyweight"
+      ],
+      "measure": "reps",
+      "muscles": {
+        "primary": [
+          "abs"
+        ],
+        "secondary": [
+          "gluteal"
+        ],
+        "from": "hand"
+      },
+      "equipment": "Mat",
+      "tags": [
+        "lower abs",
+        "posture",
+        "mobility",
+        "beginner",
+        "no equipment",
+        "warm-up"
+      ],
+      "how": {
+        "gist": "Lying with your knees bent, tilt your pelvis to flatten your low back into the floor, hold a moment, then let it go.",
+        "steps": [
+          "Lie on your back, knees bent and feet flat, hip-width apart.",
+          "Breathe out and tilt your pelvis back so your low back flattens into the floor.",
+          "Hold for a second or two without lifting your hips.",
+          "Breathe in and let your pelvis roll back to a small natural arch."
+        ],
+        "watch": "Lifting the hips off the floor into a bridge.",
+        "easier": "Make the movement smaller.",
+        "harder": "Do a Dead bug."
+      }
+    },
+    {
+      "key": "scissor-kick",
+      "name": "Scissor kick",
+      "group": "Core",
+      "aka": [
+        "scissors",
+        "cross kicks"
+      ],
+      "implements": [
+        "bodyweight"
+      ],
+      "measure": "reps",
+      "muscles": {
+        "primary": [
+          "abs"
+        ],
+        "secondary": [],
+        "from": "Scissor Kick"
+      },
+      "equipment": "None",
+      "tags": [
+        "lower abs",
+        "no equipment",
+        "home",
+        "beginner",
+        "leg raise"
+      ],
+      "how": {
+        "gist": "Lying on your back with straight legs just off the floor, cross them over and under each other side to side.",
+        "steps": [
+          "Lie on your back, hands under your hips, and press your low back toward the floor.",
+          "Lift both straight legs a few inches off the floor.",
+          "Open the legs a little and cross one over the other.",
+          "Open and cross again with the other leg on top, keeping a steady rhythm."
+        ],
+        "watch": "Low back arching off the floor.",
+        "easier": "Lift your legs higher.",
+        "harder": "Lift your head and shoulders off the floor too."
+      }
+    },
+    {
+      "key": "seated-knee-tuck",
+      "name": "Seated knee tuck",
+      "group": "Core",
+      "aka": [
+        "seated in and out",
+        "tuck-up",
+        "crunchy frog"
+      ],
+      "implements": [
+        "bodyweight",
+        "dumbbell"
+      ],
+      "measure": "reps",
+      "muscles": {
+        "primary": [
+          "abs"
+        ],
+        "secondary": [],
+        "from": "hand"
+      },
+      "equipment": "None",
+      "tags": [
+        "lower abs",
+        "no equipment",
+        "home",
+        "bench",
+        "beginner"
+      ],
+      "how": {
+        "gist": "Sit leaning back on your hands, then pull your knees in to your chest and push your legs back out without your feet touching down.",
+        "steps": [
+          "Sit on the floor or a bench edge, hands behind your hips, leaning back a little.",
+          "Lift your feet and stretch your legs out long.",
+          "Pull your knees in toward your chest as your chest comes toward them.",
+          "Push your legs back out, keeping your feet off the floor."
+        ],
+        "watch": "Leaning far back on the hands so the stomach does little.",
+        "easier": "Let your heels touch down between reps.",
+        "harder": "Hold a dumbbell between your feet, or do a V-up."
+      }
+    },
+    {
+      "key": "toe-tap",
+      "name": "Tabletop toe tap",
+      "group": "Core",
+      "aka": [
+        "toe taps",
+        "pilates toe taps",
+        "supine toe tap"
+      ],
+      "implements": [
+        "bodyweight"
+      ],
+      "measure": "reps",
+      "muscles": {
+        "primary": [
+          "abs"
+        ],
+        "secondary": [],
+        "from": "hand"
+      },
+      "equipment": "Mat",
+      "tags": [
+        "pilates",
+        "lower abs",
+        "core stability",
+        "beginner",
+        "no equipment"
+      ],
+      "how": {
+        "gist": "Lying with your legs in tabletop, lower one foot to tap the floor with the knee still bent, lift it back and switch.",
+        "steps": [
+          "Lie on your back, knees bent to 90° over your hips.",
+          "Breathe out and draw your stomach in so your low back stays still.",
+          "Keep the knee bent and lower one foot to tap the floor.",
+          "Lift it back to tabletop and tap the other foot."
+        ],
+        "watch": "Low back arching off the mat as the foot lowers.",
+        "easier": "Keep one foot on the floor and tap with the other only.",
+        "harder": "Tap both feet together, or do a Dead bug."
+      }
+    },
+    {
+      "key": "russian-twist",
+      "measure": "reps",
+      "equipment": "Medicine ball, plate or none",
+      "tags": [
+        "obliques",
+        "rotation",
+        "abs",
+        "home",
+        "no equipment"
+      ],
+      "how": {
+        "gist": "Sit leaning back with knees bent and turn your chest side to side, bringing the weight beside each hip.",
+        "steps": [
+          "Sit with knees bent and lean back about 45°, back long and straight.",
+          "Hold the weight at your chest.",
+          "Turn your shoulders to one side, then the other, bringing the weight beside each hip.",
+          "Keep your chest up and turn from the ribs, not just the arms."
+        ],
+        "watch": "Back rounding while only the arms swing side to side.",
+        "easier": "Keep your heels on the floor and use no weight.",
+        "harder": "Lift your feet off the floor."
+      }
+    },
+    {
+      "key": "hollow-hold",
+      "measure": "time",
+      "equipment": "Mat",
+      "tags": [
+        "abs",
+        "anti-extension",
+        "gymnastics",
+        "calisthenics",
+        "no equipment",
+        "isometric"
+      ],
+      "how": {
+        "gist": "Lie on your back, low back pressed down, and hold straight arms and legs just off the floor in a shallow banana shape.",
+        "steps": [
+          "Lie on your back and press your low back into the floor.",
+          "Lift your shoulders, arms overhead and straight legs a few inches off the floor.",
+          "If your low back starts to lift, raise the legs higher.",
+          "Hold the shape, breathing short and steady."
+        ],
+        "watch": "Low back peeling off the floor.",
+        "easier": "Bend your knees and keep your arms by your sides.",
+        "harder": "Do Hollow rock instead."
+      }
+    },
+    {
+      "key": "plank",
+      "measure": "time",
+      "equipment": "None",
+      "tags": [
+        "abs",
+        "anti-extension",
+        "no equipment",
+        "beginner",
+        "core stability",
+        "isometric"
+      ],
+      "how": {
+        "gist": "Hold a straight line from head to heels on your forearms and toes, ribs down and glutes tight.",
+        "steps": [
+          "Set your forearms on the floor, elbows under your shoulders, and step your feet back.",
+          "Squeeze your glutes and brace your stomach as if about to be poked.",
+          "Keep one straight line from head to heels, eyes on the floor.",
+          "Breathe steadily and hold until the line starts to sag."
+        ],
+        "watch": "Hips sagging toward the floor so the low back arches.",
+        "easier": "Hold it from your knees instead of your toes.",
+        "harder": "Do RKC plank instead, or rest a plate across your upper back."
+      }
+    }
+  ]
+}

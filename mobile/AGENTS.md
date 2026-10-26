@@ -109,6 +109,10 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
 - **The interval timer** (`features/timer.tsx`, `lib/timer.js` copied byte for byte) is mounted
   once as `TimerHost` in `app/(tabs)/_layout.tsx`. iOS presents one modal at a time, so the
   session sheet and the + menu close first and call `openTimerAfterSheet`.
+  Its `TimerRun` is exported for circuits (#68): the runner renders it inside its own frame
+  for a plan's circuit block (`CircuitRun` in `features/runner.tsx`), and `features/circuit.tsx`
+  is the web's `circuit.jsx`, the one circuit editor for the planner and the timer setup.
+  A circuit from the + timer logs through `logCircuit` / `placeCircuit` in `shell/AppData.tsx`.
 - Scrolling screens pad their foot by `FAB_CLEAR` (or `DOCK_CLEAR` with no + row) so nothing ends
   up under the floating bar.
 

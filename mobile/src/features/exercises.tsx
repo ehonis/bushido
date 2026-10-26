@@ -428,8 +428,10 @@ export function ExerciseCard({
             <T size={font.body} weight={600}>{item.name}</T>
             {muscles ? <T size={font.caption} weight={500} dim style={{ marginTop: 2 }}>{muscleWords(muscles)}</T> : null}
             {modeWords ? <T size={font.caption} dim style={{ marginTop: 2 }}>{modeWords}</T> : null}
+            {/* The summary sits under the name, on one line, so the name has the
+                width (#63 follow-up: a long name beside it and the ⓘ wrapped four lines). */}
+            {item.line ? <T size={font.small} faint tabular numberOfLines={1} style={{ marginTop: 2 }}>{item.line}</T> : null}
           </View>
-          <T size={font.small} faint tabular numberOfLines={1} align="right" style={{ flexShrink: 1, minWidth: 0, maxWidth: '45%' }}>{item.line}</T>
           <Icon name={open ? 'ChevronUp' : 'ChevronDown'} size={15} color={colors.inkFaint} style={{ marginTop: 1 }} />
         </Press>
         {item.exercise ? (

@@ -163,6 +163,7 @@ check('a library key the plan has under another spelling or alias fills it, neve
   const list = exercisesOf(mergeLibrary(planWith(liftsField([pushUp])), lib))
   eq(list.map(e => e.key), ['push-up'], 'a second push-up was added')
   eq([list[0].name, list[0].how.gist, list[0].tags], ['Push-up', 'Push.', undefined], 'filled once, by the first spelling')
+  eq(list[0].aka, ['press up', 'pushup'], 'the spelling it joined by is not an alias, so typing it finds nothing')
   // Its own key beats an alias that reaches it first.
   const own = exercisesOf(mergeLibrary(planWith(liftsField([pushUp])), { version: 1, exercises: [{ key: 'pushup', tags: ['alias'] }, { key: 'push-up', tags: ['own'] }] }))
   eq(own[0].tags, ['own'])

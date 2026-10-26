@@ -99,6 +99,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Runner | `app/src/runner.jsx` | Set-by-set screen for a planned session. One writer. |
 | Workout mode | `app/src/workout.jsx`, `app/src/lib/workout.js` | The climbing cards' rep clock and set log. |
 | Interval timer | `app/src/timer.jsx`, `app/src/timer.css`, `app/src/lib/timer.js` | The general timer: from any workout's sheet and the + menu. Pure model, `now` as an argument; presets are `kind: 'timer'` entries (§6.5). |
+| Circuits | `app/src/circuit.jsx`, `lib/timer.js` (`exercises`, `circuitDone`, `stopRun`), `lib/prescription.js` (`block.circuit`, `blockTimer`, `endCircuit`, `circuitPlan`, `loggedCircuit`) | #68. One editor (Work / Rest / Rounds, each exercise's own timing behind a tap) for a plan's block switched to Circuit and a timer preset with exercises; both run on `TimerRun` and log themselves (§6.5, §6.6). Tested by `app/circuit.test.js`. |
 | Planner UI | `app/src/planner.jsx`, `app/src/lib/plannerapi.js`, `app/src/lib/drafts.js` | + → Plan a workout; `AskStep` (one box: what you want to do) → `ReviewStep` (by model), `KindStep` → `BuildStep` (by hand); `DraftList` reopens a draft at its step. `plannerContext` sends the last week's logged workouts (`groupContext` one paragraph per person for a group). `lib/markdown.jsx` renders its reasoning. |
 | Pickers | `app/src/picker.jsx`, `app/src/lib/folders.js` | `PickerScreen`, `ActivityChooser` (Log a workout: the sports catalog, then the plan's cards under Climbing, in folders by `sched.discipline`). Declaration order, no ranking. |
 | Quick log | `app/src/quicklog.jsx`, `app/src/lib/quicklog.js` | `<QuickLog plan entries upsertEntry date onPlaced />`: up to three recent activities (then the catalog's pins), one tap each; under Log a workout in the + menu, Recent in Log a workout, and Today's empty day. Places through `placeEntries`, so the id and done-by-default are Log a workout's own. |
@@ -314,7 +315,11 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     and `syncBase` on the receiving entry. A set
     or exercise that arrives is blank (an interval keeps its own last set's shape); the
     implement is each person's own. A removal never takes an exercise (or a set) the other
-    side has logged on. Off, each side stays as it is, and **Copy my exercises to …**
+    side has logged on. **Whether a hold is counted in seconds or reps is each person's
+    own** (#63): an exercise arrives counted the way the sender has it, and after that the
+    "sec ⇆" / "reps ⇆" switch on either side changes that side only, like the implement. A
+    writer that sends no `measure` key (an app from before holds) keeps the stored one.
+    Off, each side stays as it is, and **Copy my exercises to …**
     (`copyExercises`, add-only) is the way to bring the owner's over; it is hidden while
     sync is on. A link without the flag (shared before sync existed) is off; turning sync
     on aligns the two by name once and adds what their side lacks.
@@ -421,6 +426,44 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     over to the next one not done. `applyOut`/`applyRun`/`applyDone` are the owner's write
     paths as pure functions, so both sides write the same shape. A workout nobody shares,
     and everyone but the owner, get the single screen they always had.
+  - **A circuit can be done together** (#68): on a shared workout whose link has sync on, a
+    circuit waits on its start screen with **Together with Sam** (on by default, remembered
+    per device under `bushido:circuit-together`). On, one clock runs on the side it was
+    started from, and at its end its result is offered to every other side
+    (`shareCircuit` → `togetherWrite`; the owner's through `onOwnerRun`, anyone else's
+    through `/api/people/:id/entry`). Off, each side starts its own clock (§6.5). **THE
+    TOGETHER RULE** (stated in full above `togetherWrite` in `lib/trainer.js`; written after
+    two review rounds in which each fix opened a new way to lose data):
+    1. **It fills, it never overwrites.** Seconds, reps and weight land only in blanks,
+       per exercise and per set (`endCircuit` `fill`, `fillOut`). A side whose circuit is
+       already ended or whose own clock is running is not written at all, and is reported
+       as "Sam already logged it" / "Sam is running it": not a miss, no Retry. Totals are
+       read off what is there (`run.circuitTimes`, set per block), never added to. The
+       shared-sync rule again: logged data is never removed by anyone else's write.
+    2. **It decides from fresh data.** Someone else's side is re-read from the server right
+       before it is written and rule 1 applied to THAT, never to a copy on screen that may
+       hold a write that never landed. This run's key (the clock's `startedAt`,
+       `run.circuitKeys`) with its result already there is done: success, nothing sent; the
+       key without the result is written. Retry is the same path, so a lost reply or a
+       second owner device ending the same run sends nothing.
+    3. **It is offered only where it can help** (`togetherSides`): sides ended or running
+       their own clock are left out, judged on what the SERVER last said (`usePersonCopy`'s
+       `server`, which the switcher's "done" reads too); nobody left, no switch. "Running"
+       means a LIVE clock: paused, or moved within `STALE_CLOCK_MS` (10 minutes); one that
+       ran out, or sat on a count-up, longer ago than that does not block anyone. Who was
+       offered it is kept on the run (`run.circuit.with`, the result's `with`), and only
+       they are written at its end.
+    4. **A miss survives Close**: kept on the device (`bushido:together-pending`, by run and
+       person) and tried again, re-read then fill, when the workout or its sheet next opens
+       (`retryPending`, `TogetherPending` on the sheet with Try again). A miss is kept only
+       while the owner's LIVE entry still carries that run (`circuitKeys` holds its key)
+       and the person is still in `sharedWith`, and for at most `PENDING_DAYS` (7);
+       otherwise it is dropped from the device, so a workout deleted and planned again
+       under the same derivable id never gets another run's numbers.
+    5. **Honest words** (`togetherSaid`): "Logged for you", then "and Sam", "Sam already
+       logged it", "Sam is running it" or "Not on Sam's log yet" with Try again; never
+       "for you and Sam" over a miss.
+    One write per side at most, so the owner's push fires once and nobody else's at all.
   - **"Sam's day"** (`PeopleDays` under the day list on Today, `PersonDay`) is a read-only
     week of their log from `/api/people/:id/state`; a session opens in `PersonEntrySheet`
     (their form without WHOOP/Strava, done, and Start, which runs it from their side). It
@@ -593,7 +636,8 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   `video`, `tags`, `equipment`, `measure`, and `muscles` when the plan has none), so an
   entry for an exercise the plan has needs only its `key` and what it fills (#64 writes
   most of them that way); a library key the plan has under another spelling or an `aka`
-  (`pushup` for `push-up`) fills that exercise rather than adding a second; a library
+  (`pushup` for `push-up`) fills that exercise rather than adding a second, and that key
+  and its `aka` become the exercise's aliases, so typing it still finds it; a library
   exercise the plan lacks is added, and needs a `name` and a `group` or it is left out with
   one warning; `aka` is unioned; groups are the plan's, then the library's new ones.
   `version: 1` is required. A field of the wrong shape (`aka` not a list of strings, a `how`
@@ -809,7 +853,47 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   (`at`, `pausedAt`, …) and `settle(program, run, now)` steps over every segment that
   ran out, each starting where the last ENDED, so backgrounding and a reload (the run is
   kept on the device under `bushido:timer-run`) land on the right second. A segment with
-  `seconds: null` counts up and waits for a tap. It writes nothing to a workout.
+  `seconds: null` counts up and waits for a tap. A plain timer writes nothing to a
+  workout; a circuit (below) is the one that does.
+- **A circuit is the same timer with exercises in the round** (#68). A config with
+  `exercises: [{ key, name, seconds | reps }]` (and `roundRest`) compiles each exercise to
+  a work segment carrying `ex`, its index, and `key`: its own seconds, `work`, or for reps
+  a count-up (`seconds: null`). Rest goes between exercises, `roundRest` (else `rest`)
+  between rounds, none after the last. Both keys exist only on a circuit, so every older
+  preset normalizes byte for byte as before; a circuit is one set with no cool-down and
+  no repeat (forced in `normalizeConfig`, hidden in the setup), so placing it as a plan
+  runs exactly what it ran. A circuit's run books the seconds worked on each exercise
+  segment as it leaves it (`spent`, by `<lap>:<index>`, the most ever booked there, so
+  Back then Skip cannot unlog one; a pause is not work), `stopRun` books the one on
+  screen and finishes it, and `circuitDone` turns that into seconds per exercise per
+  round; a pass under `DONE_AFTER` (3 s) is a skip, not done. The run screen
+  (`TimerRun`) shows the exercise to do now big, with its gist and ⓘ (the exercise sheet,
+  over the run, clock still going), and what is up next during a rest.
+- **A circuit logs itself, once, when it ends**, finished or stopped, and nothing when
+  nothing was done. From the + timer (no entry): App.jsx `logCircuit` places one planned
+  workout on the day the run STARTED (`loggedCircuit` → `circuitPlan`, `placeEntries`,
+  `applyRun` with `done: true`), filed by `circuitFiling` (a category named for the
+  exercises' commonest group, else the content's lifting activity: the one whose shape
+  the lift log asks for). From a plan: the runner (`CircuitRun` in runner.jsx) keeps the timer on
+  the entry as `data.run.circuit = { block, timer }` through its one writer, so a reload
+  or another device resumes it; at the end `endCircuit` marks each item's one set in
+  `run.sets` with `rounds` (seconds per round), skips one never reached, and `runOutputs`
+  writes ordinary `out.lifts` rows: `{ seconds, weight }` sets for a timed exercise,
+  `{ reps: '', weight: '' }` for one done to a count (theirs to fill in), never a weight
+  the app guessed (a planned weight is carried as the row's weight). A plan that is only
+  circuits (`circuitOnly`) runs one after the next (`nextCircuit`; the next one's
+  count-in says "Next: <block>"), is finished and done in the write that ends the last,
+  and its minutes are the circuits' own clock (`out.elapsedMin` from `circuitTimes`,
+  rounded up, never 0, so even thirty seconds beats the card's estimate).
+- **A shared circuit starts on its own side's Start.** `circuitToOpen(pres, run, { shown })`
+  decides what the runner opens: a timer already on the entry, else (circuit-only, not
+  finished) the first circuit, but only on the side on screen. A hidden side of
+  `SidesWorkout` waits on its circuit step; one person starting must not run, book or
+  log the other's seconds. Where **Together** is on offer (§3) every side waits on its
+  start screen, and a together run is the one exception: its result is offered to every
+  side at its end by the Together rule (§3: fill only blanks, decide from a fresh read,
+  never a side that is ended or running), never a clock on a hidden side. `endCircuit`'s
+  `key` makes any circuit result safe to write twice.
 - **The climbing cards' timers are presets of it.** `sessionTimer()` walks workout mode's
   own `startOf`/`advancePhase`/`afterSet` and drops only the review (where a set is
   logged), so the same card runs the same sequence from either door;
@@ -820,7 +904,9 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
 - **A lift always offers a weight box**, even when the prescription has no load
   (`setFieldsFor()` decides for both editor and runner).
 - **Lift-only planned sessions are not runnable** (`runnable(opt, pres)`, `isLiftOnly`,
-  judged on blocks that name a category).
+  judged on blocks that name a category), unless a block is a circuit: that runs on a clock
+  whatever is in it. A circuit-only plan's Start goes straight to the timer (open, Start, it
+  runs); in a mixed plan the circuit is a runner step with **Start the circuit**.
 
 ### 6.6 Planning (by hand or by model)
 
@@ -844,6 +930,21 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   device is refused and sent back to the list), and the placed plan carries
   `data.plan.draftId`. A draft whose id is on an entry is on a day: the app does not offer
   it and the server deletes it, which is what retires a draft kept offline.
+- **Any block can be a circuit** (#68): `block.circuit = { work, rest, rounds, roundRest,
+  countIn }`, only on a block that is one. Each of its items is ONE set saying how it is
+  timed (`circuitTiming`): `seconds` its own time, `reps` a count, blank the circuit's
+  `work`; `normalizePrescription` keeps a blank set there (anywhere else an item with no
+  sets is still nothing) and drops the rest, because rounds are the circuit's.
+  Seconds with at most one rep is timed (`{ reps: 1, seconds: 60 }` is sixty seconds).
+  `setCircuit` is the editor's switch: on, each item keeps its first set and the rounds
+  are the most sets any had (3 × 15 crunches is three rounds of fifteen); off, plain
+  sets, with the timing waiting on the block as `wasCircuit` so on again restores it
+  (`dropEmptyBlocks` drops it when the plan is kept). `blockTimer(block)` is the timer config, so a plan's circuit and the same preset
+  are one program, and "Put it on today" from the timer is `circuitPlan`, the same plan.
+  The model may write one (`circuit` in the reply schema, the prompt's CIRCUIT
+  paragraph); `noLoads` still applies. A circuit's timing is shared STRUCTURE in a synced
+  workout (`server/sharedsync.js` `circuitOf`, kept out of `BLOCK_KEYS` so stored bases
+  still compare equal); what each person did each round is in their own run.
 - **Kinds are a list**; the seam is the BLOCK, not the author. `splitPrescription()` cuts
   at block categories (consecutive same-category blocks merge; uncategorised blocks join
   a neighbour) and `placeAll()` writes one entry per part, so each part gets its own WHOOP

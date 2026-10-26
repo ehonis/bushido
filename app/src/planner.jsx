@@ -60,8 +60,10 @@ import {
   patchSet, addSet, removeSet, removeItem, patchItem, patchBlock, appendLift, setFieldsFor,
   reviseWeightModes,
   splitPrescription, moveItem, blankPrescription, appendPiece, dropEmptyBlocks,
+  setCircuit, setTiming, circuitTiming,
 } from './lib/prescription.js'
 import { ExerciseSection } from './exercises.jsx'
+import { CircuitSteppers, CircuitList, SecondsRow } from './circuit.jsx'
 import { useWhoop, readinessFor } from './lib/whoop.jsx'
 import { usePlan } from './lib/planctx.jsx'
 import { currentMe } from './lib/whoami.js'
@@ -1434,10 +1436,79 @@ export function KeptStep({ pres, count = 1, parts = [], onStart, onAnother, onDo
  */
 const distanceUnitFor = (block) => (/swim/i.test(block?.activity || '') ? 'yd' : 'mi')
 
-/** "1 set", "6 sets" — the header count. It read "1 sets" until 2026-09-22. */
+/** "1 set", "6 sets" — the header count. It read "1 sets" until 2026-09-22. A circuit counts rounds. */
 const setCount = (block) => {
+  if (block?.circuit) return `${block.circuit.rounds} round${block.circuit.rounds === 1 ? '' : 's'}`
   const n = (block?.items || []).reduce((sum, i) => sum + i.sets.length, 0)
   return `${n} set${n === 1 ? '' : 's'}`
+}
+
+/**
+ * Any block can be a circuit (issue #68): its exercises one after another on
+ * the interval timer, which is what Start runs. A switch, because it is on or
+ * off, with the words beside it.
+ */
+function CircuitSwitch({ on, onChange }) {
+  return (
+    <label className="cx-switch">
+      <span className="cx-switchwords">
+        <span>Circuit</span>
+        <span className="sub">Timed, one exercise after another</span>
+      </span>
+      <input type="checkbox" role="switch" className="switch" checked={on}
+        onChange={e => onChange(e.target.checked)} />
+    </label>
+  )
+}
+
+/**
+ * A block switched to Circuit: the same head and fold as any block, then the
+ * circuit's timing in one row, its exercises in order with their own timing
+ * behind a tap (circuit.jsx), and the two settings people rarely change folded.
+ */
+/** "10 lb": a circuit exercise's planned weight, which its logged rows carry. */
+const loadOf = (it) => {
+  const w = it.sets?.[0]?.weight
+  return w !== null && w !== undefined && w !== '' ? `${w} ${it.weightLabel || 'lb'}` : null
+}
+
+function CircuitBlock({ block: b, pres, onChange, liftField, entries, entryId, open, onToggle, extra }) {
+  const [more, setMore] = useState(false)
+  const c = b.circuit
+  const items = b.items.map(it => ({ id: it.id, key: it.exercise, name: it.name, timing: circuitTiming(it), load: loadOf(it) }))
+  const timing = (next) => onChange(patchBlock(pres, b.id, { circuit: { ...c, ...next } }))
+  return (
+    <div className={`presc-block cx-block ${open ? '' : 'shut'}`}>
+      <div className="presc-blockhead">
+        <button className="presc-blocktoggle" onClick={onToggle} aria-expanded={open}>
+          <span className={`alt-chev ${open ? 'open' : ''}`}><Icon name="ChevronDown" size={14} /></span>
+          <h3>{b.name}</h3>
+        </button>
+        <span className="presc-blockmeta"><span className="presc-blockn">{setCount(b)}</span></span>
+      </div>
+      {open && (
+        <>
+          {extra}
+          <CircuitSteppers circuit={c} onChange={timing} />
+          <button type="button" className="btn quiet it-more" aria-expanded={more} onClick={() => setMore(!more)}>
+            <Icon name="ChevronDown" size={16} style={{ transform: more ? 'rotate(180deg)' : 'none' }} />
+            {more ? 'Fewer options' : 'More options'}
+          </button>
+          {more && (
+            <div className="it-rows cx-more">
+              <SecondsRow label="Rest between rounds" value={c.roundRest} onChange={v => timing({ roundRest: v })} />
+              <SecondsRow label="Get ready" value={c.countIn} max={60} onChange={v => timing({ countIn: v })} />
+            </div>
+          )}
+          <CircuitList items={items} work={c.work} liftField={liftField}
+            onTiming={(i, t) => onChange(setTiming(pres, items[i].id, t))}
+            onRemove={(i) => onChange(removeItem(pres, items[i].id))}
+            onMove={(i, dir) => onChange(moveItem(pres, items[i].id, dir).pres)}
+            onAdd={(key) => onChange(appendLift(pres, liftField, key, { blockId: b.id, entries, excludeId: entryId }))} />
+        </>
+      )}
+    </div>
+  )
 }
 
 
@@ -1488,7 +1559,16 @@ export function PrescriptionEditor({
 
   return (
     <div className={`presc ${compact ? 'compact' : ''}`}>
-      {(pres.blocks || []).map(b => (
+      {(pres.blocks || []).map(b => (b.circuit ? (
+        <CircuitBlock key={b.id} block={b} pres={pres} onChange={onChange} liftField={liftField}
+          entries={entries} entryId={entryId}
+          open={!shut.has(b.id)} onToggle={() => toggleBlock(b.id)}
+          extra={<>
+            <CircuitSwitch on onChange={(on) => onChange(setCircuit(pres, b.id, on))} />
+            <BlockQuota categories={categories} value={b.category}
+              onChange={(key) => onChange(patchBlock(pres, b.id, { category: key }))} />
+          </>} />
+      ) : (
         <ExerciseSection key={b.id}
           title={b.name}
           count={b.items.length > 0 ? setCount(b) : null}
@@ -1496,10 +1576,11 @@ export function PrescriptionEditor({
           liftField={liftField} entries={entries} entryId={entryId}
           firstOpenId={firstItemId}
           open={!shut.has(b.id)} onToggle={() => toggleBlock(b.id)}
-          extra={
+          extra={<>
+            <CircuitSwitch on={false} onChange={(on) => onChange(setCircuit(pres, b.id, on))} />
             <BlockQuota categories={categories} value={b.category}
               onChange={(key) => onChange(patchBlock(pres, b.id, { category: key }))} />
-          }
+          </>}
           /* The hand-built route only. A session the model wrote already has its
              intervals in it, and the place to change one is the card. */
           foot={onAddPiece
@@ -1524,7 +1605,7 @@ export function PrescriptionEditor({
             const block = (next.blocks || []).find(x => x.name === b.name) || next.blocks?.[0]
             return block?.items?.at(-1)?.id || null
           }} />
-      ))}
+      )))}
       {/* Only where there is nothing to be done about it. A session the user is still
           building is empty because the user has not started, and every block on the
           screen is already offering them the two ways in. */}

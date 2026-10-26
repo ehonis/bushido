@@ -33,7 +33,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { colors, font, mix, radius, space, TAP } from '../theme'
 import { Icon } from '../lib/icons'
 import { T } from '../ui/Text'
-import { Btn, Card, Chip, IconBtn, Input, Press, SectionHeader } from '../ui/kit'
+import { Btn, Card, Chip, IconBtn, Input, Press, SectionHeader, Toggle } from '../ui/kit'
 import { FullScreen } from '../ui/Sheet'
 import { Fold } from '../ui/Fold'
 import { impact, success, tap, warn } from '../ui/haptics'
@@ -50,8 +50,10 @@ import {
   normalizePrescription, prescriptionLine, prescriptionSteps, itemLine, setLine,
   patchSet, addSet, removeSet, removeItem, patchItem, patchBlock, appendLift, reviseWeightModes,
   splitPrescription, moveItem, blankPrescription, appendPiece, dropEmptyBlocks,
+  setCircuit, setTiming, circuitTiming,
 } from '../lib/prescription.js'
 import { ExerciseSection } from './exercises'
+import { CircuitSteppers, CircuitList, SecondsRow } from './circuit'
 import { useWhoop, readinessFor } from '../lib/whoop.jsx'
 import { usePlan } from '../lib/planctx.jsx'
 import { currentMe } from '../lib/whoami.js'
@@ -1453,8 +1455,72 @@ const distanceUnitFor = (block: any) => (/swim/i.test(block?.activity || '') ? '
 
 /** "1 set", "6 sets" — the header count. */
 const setCount = (block: any) => {
+  if (block?.circuit) return `${block.circuit.rounds} round${block.circuit.rounds === 1 ? '' : 's'}`
   const n = (block?.items || []).reduce((sum: number, i: any) => sum + i.sets.length, 0)
   return `${n} set${n === 1 ? '' : 's'}`
+}
+
+/**
+ * Any block can be a circuit (issue #68): its exercises one after another on
+ * the interval timer, which is what Start runs. A switch, with the words beside it.
+ */
+function CircuitSwitch({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[3], minHeight: TAP, marginVertical: space[1] }}>
+      <View style={{ flexShrink: 1 }}>
+        <T size={font.body}>Circuit</T>
+        <T size={font.small} dim>Timed, one exercise after another</T>
+      </View>
+      <Toggle value={on} onChange={onChange} />
+    </View>
+  )
+}
+
+/**
+ * A block switched to Circuit: the same head and fold as any block, then the
+ * circuit's timing in one row, its exercises with their own timing behind a
+ * tap (circuit.tsx), and the two settings people rarely change folded.
+ */
+/** "10 lb": a circuit exercise's planned weight, which its logged rows carry. */
+const loadOf = (it: any) => {
+  const w = it.sets?.[0]?.weight
+  return w !== null && w !== undefined && w !== '' ? `${w} ${it.weightLabel || 'lb'}` : null
+}
+
+function CircuitBlock({ block: b, pres, onChange, liftField, entries, entryId, open, onToggle, extra }: any) {
+  const [more, setMore] = useState(false)
+  const c = b.circuit
+  const items = b.items.map((it: any) => ({ id: it.id, key: it.exercise, name: it.name, timing: (circuitTiming as any)(it), load: loadOf(it) }))
+  const timing = (next: any) => onChange((patchBlock as any)(pres, b.id, { circuit: { ...c, ...next } }))
+  return (
+    <View style={{ marginBottom: open ? 22 : 10 }}>
+      <Press onPress={() => { tap(); onToggle() }} accessibilityRole="button" accessibilityState={{ expanded: open }}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 7, minHeight: 34 }}>
+        <Icon name={open ? 'ChevronUp' : 'ChevronDown'} size={14} color={colors.inkFaint} />
+        <T size={font.body} weight={600} style={{ flex: 1, minWidth: 0 }}>{b.name}</T>
+        <T size={font.small} dim tabular>{setCount(b)}</T>
+      </Press>
+      {open ? (
+        <>
+          {extra}
+          <CircuitSteppers circuit={c} onChange={timing} />
+          <Btn kind="quiet" icon={more ? 'ChevronUp' : 'ChevronDown'} title={more ? 'Fewer options' : 'More options'}
+            style={{ alignSelf: 'flex-start', paddingHorizontal: space[1] }} onPress={() => setMore(!more)} />
+          {more ? (
+            <View style={{ backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.card, marginBottom: space[2] }}>
+              <SecondsRow label="Rest between rounds" value={c.roundRest} onChange={v => timing({ roundRest: v })} />
+              <SecondsRow label="Get ready" value={c.countIn} max={60} onChange={v => timing({ countIn: v })} first={false} />
+            </View>
+          ) : null}
+          <CircuitList items={items} work={c.work} liftField={liftField}
+            onTiming={(i, t) => onChange((setTiming as any)(pres, items[i].id, t))}
+            onRemove={(i) => onChange((removeItem as any)(pres, items[i].id))}
+            onMove={(i, dir) => onChange((moveItem as any)(pres, items[i].id, dir).pres)}
+            onAdd={(key) => onChange((appendLift as any)(pres, liftField, key, { blockId: b.id, entries, excludeId: entryId }))} />
+        </>
+      ) : null}
+    </View>
+  )
 }
 
 /**
@@ -1484,7 +1550,16 @@ export function PrescriptionEditor({
 
   return (
     <View style={compact ? { gap: 0 } : null}>
-      {(pres.blocks || []).map((b: any) => (
+      {(pres.blocks || []).map((b: any) => (b.circuit ? (
+        <CircuitBlock key={b.id} block={b} pres={pres} onChange={onChange} liftField={liftField}
+          entries={entries} entryId={entryId}
+          open={!shut.has(b.id)} onToggle={() => toggleBlock(b.id)}
+          extra={<>
+            <CircuitSwitch on onChange={(on) => onChange((setCircuit as any)(pres, b.id, on))} />
+            <BlockQuota categories={categories} value={b.category}
+              onChange={(key: string | null) => onChange((patchBlock as any)(pres, b.id, { category: key }))} />
+          </>} />
+      ) : (
         <ExerciseSection key={b.id}
           title={b.name}
           count={b.items.length > 0 ? setCount(b) : null}
@@ -1492,10 +1567,11 @@ export function PrescriptionEditor({
           liftField={liftField} entries={entries} entryId={entryId}
           firstOpenId={firstItemId}
           open={!shut.has(b.id)} onToggle={() => toggleBlock(b.id)}
-          extra={
+          extra={<>
+            <CircuitSwitch on={false} onChange={(on) => onChange((setCircuit as any)(pres, b.id, on))} />
             <BlockQuota categories={categories} value={b.category}
               onChange={(key: string | null) => onChange((patchBlock as any)(pres, b.id, { category: key }))} />
-          }
+          </>}
           /* The hand-built route only. A session the model wrote already has its
              intervals in it, and the place to change one is the card. */
           foot={onAddPiece
@@ -1520,7 +1596,7 @@ export function PrescriptionEditor({
             const block = (next.blocks || []).find((x: any) => x.name === b.name) || next.blocks?.[0]
             return block?.items?.at(-1)?.id || null
           }} />
-      ))}
+      )))}
       {/* Only where there is nothing to be done about it: a session still being
           built is empty because the user has not started. */}
       {!total && !onAddPiece && (

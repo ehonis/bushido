@@ -6,9 +6,13 @@
  * on it, and RUN, which is one number you can read from across a room.
  * Customising is steppers, never typing a number.
  *
- * It is a clock, not a log: the climbing cards' set log stays workout mode's,
- * and their declared timers are offered here as presets (lib/timer.js
- * `sessionTimer`). Presets and the last timer run are the person's own
+ * A plain timer is a clock, not a log: the climbing cards' set log stays
+ * workout mode's, and their declared timers are offered here as presets
+ * (lib/timer.js `sessionTimer`). A CIRCUIT (issue #68) is a workout: a preset
+ * with exercises from the library, whose run screen shows the exercise to do
+ * now, and which logs itself on today when it ends (`onLog`) or is put on
+ * today as a planned workout (`onPlace`). A plan's circuit block runs on this
+ * same `TimerRun` from the runner (runner.tsx). Presets and the last timer run are the person's own
  * entries in their own log, so the one-tap default follows them between
  * devices. The run is absolute instants kept in localStorage (expo-sqlite's,
  * see boot.ts), so a locked phone or a cold start comes back to the second.
@@ -34,12 +38,19 @@ import { CUES, acquireWakeLock, releaseWakeLock } from '../lib/cues'
 import { clock } from '../lib/workout.js'
 import { currentMe } from '../lib/whoami.js'
 import * as timer from '../lib/timer.js'
+import { exerciseOf } from '../lib/lifts.js'
+import { usePlan } from '../lib/planctx.jsx'
+import { ExerciseBody, musclesOf, muscleWords } from '../lib/bodymap'
+import { ExerciseSheet } from './exercises'
+import { CircuitList, SecondsRow } from './circuit'
+import { liftFieldOf } from './planner'
+import { SideRule, SideWho } from '../ui/Person'
 
 const {
   compile, normalizeConfig, sameConfig, totalSeconds, describe, secondsLabel, stepSeconds,
   startRun, settle, togglePause, skip, back, bump, view, cueFor, moved,
   presetList, lastTimer, buildTimerEntry, buildLastTimerEntry, newTimerId, sessionTimer,
-  runKeyFor, saveRun, loadRun, LIMITS, MAX_NAMED, KIND_LABEL,
+  runKeyFor, saveRun, loadRun, LIMITS, MAX_NAMED, KIND_LABEL, stopRun, isCircuit, MAX_EXERCISES,
 } = timer as any
 
 /** Each kind of segment's colour, the web's `.it.k-*`. */
@@ -85,7 +96,11 @@ export function timerRequestFor(opt: any, entry: any = null) {
 const storage = () => (globalThis as any).localStorage || null
 
 /** Mounted once, beside the + menu's overlays. */
-export function TimerHost({ entries, upsertEntry, deleteEntry }: { entries: any[]; upsertEntry: (e: any) => void; deleteEntry: (id: string) => void }) {
+export function TimerHost({ entries, upsertEntry, deleteEntry, onLog = null, onPlace = null }: {
+  entries: any[]; upsertEntry: (e: any) => void; deleteEntry: (id: string) => void
+  onLog?: ((name: string, config: any, run: any) => boolean) | null
+  onPlace?: ((name: string, config: any) => void) | null
+}) {
   const req = useSyncExternalStore(subscribe, getRequest, getRequest)
   const key = runKeyFor(currentMe().id)
   const [resumed, setResumed] = useState<any>(() => loadRun(storage(), key, Date.now()))
@@ -100,11 +115,17 @@ export function TimerHost({ entries, upsertEntry, deleteEntry }: { entries: any[
       title={resumed ? resumed.title : req!.title}
       sessionPresets={resumed ? [] : req!.presets}
       resumed={resumed} entries={entries} upsertEntry={upsertEntry} deleteEntry={deleteEntry}
+      onLog={onLog} onPlace={onPlace ? (name: string, config: any) => { onPlace(name, config); close() } : null}
       persist={(doc: any) => saveRun(storage(), key, doc)} onClose={close} />
   )
 }
 
-function IntervalTimer({ title, sessionPresets = [], resumed = null, entries = [], upsertEntry, deleteEntry, persist, onClose }: {
+/**
+ * Setup, then run. `onLog(name, config, run)` is how a circuit's run becomes a
+ * workout: called once when it ends, finished or stopped, and true if anything
+ * was logged (AppData `logCircuit`). `onPlace(name, config)` puts it on today.
+ */
+function IntervalTimer({ title, sessionPresets = [], resumed = null, entries = [], upsertEntry, deleteEntry, persist, onClose, onLog = null, onPlace = null }: {
   title: string | null
   sessionPresets?: any[]
   resumed?: any
@@ -113,10 +134,14 @@ function IntervalTimer({ title, sessionPresets = [], resumed = null, entries = [
   deleteEntry?: (id: string) => void
   persist: (doc: any) => void
   onClose: () => void
+  onLog?: ((name: string, config: any, run: any) => boolean) | null
+  onPlace?: ((name: string, config: any) => void) | null
 }) {
   const insets = useSafeAreaInsets()
   const [live, setLive] = useState<any>(resumed)
   const [confirming, setConfirming] = useState(false)
+  const [logged, setLogged] = useState<string | null>(null)
+  const ended = useRef<number | null>(null) // the run already logged, so a repaint cannot log it twice
 
   const start = (name: string, config: any) => {
     impact()
@@ -128,7 +153,19 @@ function IntervalTimer({ title, sessionPresets = [], resumed = null, entries = [
     const run = startRun(compile(clean), Date.now())
     const next = { name, title, config: clean, run }
     persist(next)
+    setLogged(null)
     setLive(next)
+  }
+
+  const onRun = (run: any) => {
+    if (run.finishedAt == null) { persist({ ...live, title, run }); return }
+    persist(null)
+    if (!isCircuit(live.config) || !onLog || ended.current === run.startedAt) return
+    ended.current = run.startedAt
+    const ok = onLog(live.name, live.config, run)
+    setLogged(ok ? 'Logged on today' : null)
+    // Stopped before anything was done: there is nothing to show a finish for.
+    if (!ok && run.stopped) onClose()
   }
 
   const askClose = () => {
@@ -142,13 +179,13 @@ function IntervalTimer({ title, sessionPresets = [], resumed = null, entries = [
       <GestureHandlerRootView style={{ flex: 1 }}>
         <View style={[st.it, { paddingTop: insets.top }]}>
           {live ? (
-            <TimerRun title={title} name={live.name} config={live.config} initialRun={live.run}
-              onRun={(run: any) => persist(run.finishedAt != null ? null : { ...live, title, run })}
+            <TimerRun key={live.run.startedAt} title={title} name={live.name} config={live.config} initialRun={live.run}
+              onRun={onRun} logged={logged}
               onAgain={() => start(live.name, live.config)} onStop={askClose} onClose={onClose}
               confirming={confirming} onKeep={() => setConfirming(false)} />
           ) : (
             <TimerSetup title={title} presets={presetList(entries, sessionPresets)}
-              onStart={start} onClose={onClose}
+              onStart={start} onClose={onClose} onPlace={onPlace}
               onSave={upsertEntry ? (id: string, name: string, config: any) => upsertEntry(buildTimerEntry(id, name, config)) : null}
               onDelete={deleteEntry || null} />
           )}
@@ -160,15 +197,17 @@ function IntervalTimer({ title, sessionPresets = [], resumed = null, entries = [
 
 /* ------------------------------------------------------------------ setup */
 
-function TimerSetup({ title, presets, onStart, onSave, onDelete, onClose }: {
+function TimerSetup({ title, presets, onStart, onSave, onDelete, onClose, onPlace = null }: {
   title: string | null
   presets: any[]
   onStart: (name: string, config: any) => void
   onSave: ((id: string, name: string, config: any) => void) | null
   onDelete: ((id: string) => void) | null
   onClose: () => void
+  onPlace?: ((name: string, config: any) => void) | null
 }) {
   const insets = useSafeAreaInsets()
+  const liftField = liftFieldOf(usePlan())
   const [pick, setPick] = useState<string | null>(presets[0]?.id || null)
   const chosen = presets.find(p => p.id === pick) || null
   const [config, setConfig] = useState<any>(() => normalizeConfig(presets[0]?.config))
@@ -180,8 +219,9 @@ function TimerSetup({ title, presets, onStart, onSave, onDelete, onClose }: {
   const total = totalSeconds(program)
   const set = (k: string, v: any) => setConfig((c: any) => normalizeConfig({ ...c, [k]: v }))
   const choose = (p: any) => { tap(); setPick(p.id); setConfig(normalizeConfig(p.config)); setNaming(null) }
-  const name = chosen && !edited ? chosen.name : (chosen?.saved ? chosen.name : 'Custom')
-  const named = config.intervals.length > 0
+  const circuit = isCircuit(config)
+  const name = chosen && !edited ? chosen.name : (chosen?.saved ? chosen.name : circuit ? 'Circuit' : 'Custom')
+  const named = config.intervals.length > 0 && !circuit
   const planSequence = config.intervals.length > MAX_NAMED
 
   const saveAs = () => {
@@ -240,26 +280,49 @@ function TimerSetup({ title, presets, onStart, onSave, onDelete, onClose }: {
           <Stepper label="Rounds" value={String(config.rounds)} {...count('rounds')} first={named} />
         </View>
 
+        {liftField ? (
+          <Exercises config={config} liftField={liftField}
+            onChange={(exercises: any[]) => setConfig((c: any) => normalizeConfig({
+              ...c, exercises,
+              // The first exercise makes it a circuit: its round is the exercises
+              // (lib/timer.js), with a minute between rounds until they say otherwise.
+              ...(!isCircuit(c) && exercises.length ? { intervals: [], roundRest: 60 } : {}),
+            }))} />
+        ) : null}
+        {circuit && onPlace ? (
+          <Link icon="CalendarDays" label="Put it on today" onPress={() => { impact(); onPlace(name, config) }} />
+        ) : null}
+
         <Btn kind="quiet" icon={more ? 'ChevronUp' : 'ChevronDown'} style={st.quiet} onPress={() => setMore(!more)}
           title={more ? 'Fewer options' : 'More options'} />
 
         {more ? (
           <View style={st.rows}>
-            <Stepper label="Get ready" value={orNone(config.countIn)} {...secs('countIn')} />
-            <Stepper label="Sets" value={String(config.sets)} {...count('sets')} first={false} />
-            {config.sets > 1 ? (
+            {circuit ? (
+              <SecondsRow label="Rest between rounds" value={config.roundRest || 0} max={LIMITS.roundRest[1]}
+                onChange={(v) => set('roundRest', v)} />
+            ) : null}
+            <Stepper label="Get ready" value={orNone(config.countIn)} {...secs('countIn')} first={!circuit} />
+            {/* A circuit is rounds of its exercises and nothing else (lib/timer.js
+                normalizeConfig), so placing it as a plan cannot drop part of it. */}
+            {!circuit ? <Stepper label="Sets" value={String(config.sets)} {...count('sets')} first={false} /> : null}
+            {!circuit && config.sets > 1 ? (
               <Stepper label="Rest between sets" value={orNone(config.setRest)} {...secs('setRest')} first={false} />
             ) : null}
-            {!config.repeat ? (
+            {!circuit && !config.repeat ? (
               <Stepper label="Cool-down" value={orNone(config.coolDown)} {...secs('coolDown')} first={false} />
             ) : null}
-            <View style={[st.row, st.rowLine]}>
-              <T size={font.body} dim>Repeat until I stop</T>
-              <Toggle value={config.repeat} onChange={(v) => set('repeat', v)} />
-            </View>
-            <View style={st.rowLine}>
-              <Intervals config={config} planSequence={planSequence} onChange={(list: any[]) => set('intervals', list)} />
-            </View>
+            {!circuit ? (
+              <View style={[st.row, st.rowLine]}>
+                <T size={font.body} dim>Repeat until I stop</T>
+                <Toggle value={config.repeat} onChange={(v) => set('repeat', v)} />
+              </View>
+            ) : null}
+            {!circuit ? (
+              <View style={st.rowLine}>
+                <Intervals config={config} planSequence={planSequence} onChange={(list: any[]) => set('intervals', list)} />
+              </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -317,6 +380,46 @@ function Stepper({ label, value, onDown, onUp, first = true }: {
         <T size={font.title} weight={600} tabular style={st.value}>{value}</T>
         <StepBtn icon="Plus" onPress={onUp} label={`More ${label.toLowerCase()}`} />
       </View>
+    </View>
+  )
+}
+
+/**
+ * A circuit's exercises (issue #68), picked from the library with the same
+ * searchable picker as everywhere else. A plain timer offers the way in and
+ * nothing else, so its screen stays as it was.
+ */
+function Exercises({ config, liftField, onChange }: { config: any; liftField: any; onChange: (list: any[]) => void }) {
+  const list: any[] = config.exercises || []
+  const [asked, setAsked] = useState(false)
+  const items = list.map((x, i) => ({
+    id: `${i}:${x.key || x.name}`, key: x.key || null, name: x.name,
+    timing: (x.reps ? { by: 'reps', reps: x.reps } : x.seconds ? { by: 'time', seconds: x.seconds } : { by: 'circuit' }) as any,
+  }))
+  const put = (i: number, patch: any) => onChange(list.map((x, n) => {
+    if (n !== i) return x
+    const { seconds: _s, reps: _r, ...rest } = x
+    return { ...rest, ...patch }
+  }))
+  const move = (i: number, dir: 'up' | 'down') => {
+    const to = dir === 'up' ? i - 1 : i + 1
+    if (to < 0 || to >= list.length) return
+    const next = [...list]
+    ;[next[i], next[to]] = [next[to], next[i]]
+    onChange(next)
+  }
+  if (!list.length && !asked) return <Link icon="Dumbbell" label="Add exercises" onPress={() => setAsked(true)} />
+  return (
+    <View style={{ gap: space[2] }}>
+      <SectionHeader title="Exercises" right={list.length ? <T size={font.small} dim>{String(list.length)}</T> : undefined} />
+      <CircuitList items={items} work={config.work} liftField={liftField} adding={!list.length}
+        onTiming={put}
+        onRemove={(i) => onChange(list.filter((_, n) => n !== i))}
+        onMove={move}
+        onAdd={list.length < MAX_EXERCISES ? (key: string) => {
+          const ex: any = (exerciseOf as any)(liftField, key)
+          if (ex) onChange([...list, { key, name: ex.name }])
+        } : null} />
     </View>
   )
 }
@@ -379,30 +482,65 @@ function Intervals({ config, planSequence, onChange }: { config: any; planSequen
 const counters = (seg: any, lap: number, repeat: boolean) => [
   seg.rounds > 1 ? `Round ${seg.round} of ${seg.rounds}` : null,
   seg.sets > 1 ? `Set ${seg.set} of ${seg.sets}` : null,
+  // A circuit's exercise says where it is in the round.
+  seg.ex != null && seg.exs > 1 ? `Exercise ${seg.ex + 1} of ${seg.exs}` : null,
   repeat ? `Lap ${lap}` : null,
 ].filter(Boolean).join(' · ')
 
-function TimerRun({ title, name, config, initialRun, onRun, onAgain, onStop, onClose, confirming, onKeep }: {
+/** The next exercise after segment `from` in a circuit, wrapping on repeat, or null. */
+export function exerciseAfter(program: any, from: number) {
+  const segs = program.segments
+  for (let i = from + 1; i < segs.length; i++) if (segs[i].ex != null) return segs[i]
+  if (program.loopFrom != null) {
+    for (let i = program.loopFrom; i <= from && i < segs.length; i++) if (segs[i].ex != null) return segs[i]
+  }
+  return null
+}
+
+/**
+ * The run screen. A CIRCUIT (issue #68) puts the exercise to do NOW on the face,
+ * its name big over the clock, with what it works and its gist under it and ⓘ
+ * for the whole how-to (the exercise sheet, over the run: the clock does not
+ * stop for it); a rest shows what is coming. Its stop logs what was done;
+ * `logged` is what the finish says landed, `onLeave` (a plan's entry) leaves it
+ * running, and with no `onAgain` there is no Again. `who`, `switcher`, `shown`:
+ * one side of a shared workout, as in the runner; a hidden side makes no cue.
+ */
+export function TimerRun({ title, name, config, initialRun, onRun, onAgain = null, onStop, onClose, confirming, onKeep,
+  logged = null, onLeave = null, closeLabel = 'Close', who = null, switcher = null, shown = true, intro = null, after = null }: {
   title: string | null
   name: string
   config: any
   initialRun: any
   onRun: (run: any) => void
-  onAgain: () => void
+  onAgain?: (() => void) | null
   onStop: () => void
   onClose: () => void
   confirming: boolean
   onKeep: () => void
+  logged?: string | null
+  onLeave?: (() => void) | null
+  closeLabel?: string
+  who?: { name: string; tone?: number } | null
+  switcher?: React.ReactNode
+  shown?: boolean
+  /** Replaces "Get ready" in the count-in: the next circuit of a plan of circuits says which. */
+  intro?: string | null
+  /** Under "Logged" on the finish screen: who a circuit done together did not reach, with Retry. */
+  after?: React.ReactNode
 }) {
   const insets = useSafeAreaInsets()
   const { width } = useWindowDimensions()
   const program = useMemo(() => compile(config), [config])
+  const circuit = isCircuit(config)
+  const liftField = liftFieldOf(usePlan())
   const [run, setRun] = useState<any>(() => settle(program, initialRun, Date.now()))
   const runRef = useRef(run)
   const [now, setNow] = useState(() => Date.now())
   const [muted, setMuted] = useState(false)
+  const [about, setAbout] = useState<{ key: string; name: string } | null>(null)
   const mutedRef = useRef(muted)
-  mutedRef.current = muted
+  mutedRef.current = muted || !shown
   const onRunRef = useRef(onRun)
   onRunRef.current = onRun
 
@@ -418,6 +556,12 @@ function TimerRun({ title, name, config, initialRun, onRun, onAgain, onStop, onC
     }
     setNow(t)
   }, [program])
+
+  // A run that moved on while nobody was looking (a cold start, a run left
+  // open) is stored where it got to, and a circuit that ran out meanwhile is logged.
+  useEffect(() => {
+    if (run !== initialRun) onRunRef.current(run)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const tick = useCallback(() => {
     const t = Date.now()
@@ -472,11 +616,18 @@ function TimerRun({ title, name, config, initialRun, onRun, onAgain, onStop, onC
   const k = KIND_COLOR[kind] || colors.inkDim
   const open = !v.finished && v.left == null
   const big = Math.min(220, Math.max(96, width * 0.34))
+  const exNow = circuit && seg?.ex != null
+  const coming = circuit && seg ? exerciseAfter(program, run.index) : null
+  const where = seg ? counters(seg, v.lap, config.repeat) : ''
+  // A circuit stops where it is and logs what was done; a plain timer just closes.
+  const stop = () => { onKeep(); if (circuit) act(stopRun); else onClose() }
 
   return (
     <View style={{ flex: 1, backgroundColor: mix(k, 13, colors.bg) }}>
+      <SideRule who={who} />
       <View style={st.head}>
         <View style={{ flex: 1, minWidth: 0 }}>
+          <SideWho who={who} />
           <T size={font.title} weight={600} numberOfLines={1}>{name}{title ? ` · ${title}` : ''}</T>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[1] }}>
             <Icon name="Timer" size={12} color={colors.inkDim} />
@@ -485,18 +636,21 @@ function TimerRun({ title, name, config, initialRun, onRun, onAgain, onStop, onC
         </View>
         <IconBtn icon={muted ? 'VolumeX' : 'Volume2'} size={20} onPress={() => setMuted(!muted)}
           label={muted ? 'Turn cues on' : 'Turn cues off'} />
-        <IconBtn icon="X" size={20} label="Stop the timer" onPress={active ? onStop : onClose} />
+        <IconBtn icon="X" size={20} label={circuit ? 'Stop the circuit' : 'Stop the timer'} onPress={active ? onStop : onClose} />
       </View>
+
+      {switcher}
 
       {confirming && active ? (
         // The visual system's confirm: a screen, not a system dialog. The clock keeps running behind it.
         <View style={[st.body, st.finish, { paddingBottom: space[5] + insets.bottom }]}>
           <Icon name="TriangleAlert" size={28} color={colors.vizCrit} />
-          <T size={font.title} weight={600}>Stop the timer?</T>
-          <Sub style={{ textAlign: 'center' }}>This run ends here. Your presets are kept.</Sub>
-          <View style={{ flexDirection: 'row', gap: space[2], alignSelf: 'stretch', marginTop: space[4] }}>
-            <Btn title="Keep it" kind="ghost" flex onPress={onKeep} />
-            <Btn title="Stop" kind="bad" flex onPress={onClose} />
+          <T size={font.title} weight={600}>{circuit ? 'Stop the circuit?' : 'Stop the timer?'}</T>
+          <Sub style={{ textAlign: 'center' }}>{circuit ? 'What you have done so far is logged.' : 'This run ends here. Your presets are kept.'}</Sub>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2], alignSelf: 'stretch', marginTop: space[4] }}>
+            <Btn title="Keep going" kind="ghost" flex onPress={onKeep} />
+            {onLeave ? <Btn title="Leave it open" kind="secondary" flex onPress={onLeave} /> : null}
+            <Btn title="Stop" kind="bad" flex onPress={stop} />
           </View>
         </View>
       ) : v.finished ? (
@@ -504,35 +658,50 @@ function TimerRun({ title, name, config, initialRun, onRun, onAgain, onStop, onC
           <Icon name="CircleCheck" size={56} color={k} />
           <T size={font.heading} weight={600} color={k}>Done</T>
           <T size={Math.min(120, big * 0.6)} weight={600} tabular color={k}>{clock(v.elapsed)}</T>
-          <Btn icon="RotateCw" title="Again" onPress={onAgain} style={[st.start, { alignSelf: 'stretch' }]} />
-          <Btn title="Close" kind="ghost" onPress={onClose} style={{ alignSelf: 'stretch' }} />
+          {logged ? <T size={font.body}>{logged}</T> : null}
+          {after}
+          {onAgain ? <Btn icon="RotateCw" title="Again" onPress={onAgain} style={[st.start, { alignSelf: 'stretch' }]} /> : null}
+          <Btn title={closeLabel} kind={onAgain ? 'ghost' : 'primary'} onPress={onClose} style={{ alignSelf: 'stretch' }} />
         </View>
       ) : (
         <View style={[st.body, { flex: 1, justifyContent: 'space-between', paddingBottom: space[5] + insets.bottom }]}>
           {/* Tap anywhere on the clock: pause or resume. A count-up has no end of its
               own, so there the tap IS the end, and pausing is the button below. */}
           <Press onPress={() => { impact(); act(open ? skip : togglePause) }} accessibilityRole="button"
-            accessibilityLabel={open ? 'Done, next' : v.paused ? 'Resume' : 'Pause'} style={st.face}>
-            <T size={Math.min(36, Math.max(font.heading, width * 0.08))} weight={600} color={k} numberOfLines={1}>{seg.name}</T>
+            accessibilityLabel={open ? 'Done, next' : v.paused ? 'Resume' : 'Pause'} style={[st.face, circuit && { gap: space[2] }]}>
+            {exNow && where ? <T size={font.body} weight={500} dim tabular>{where}</T> : null}
+            {exNow ? (
+              <T size={Math.min(44, Math.max(28, width * 0.09))} weight={600} align="center" numberOfLines={2}>{seg.name}</T>
+            ) : (
+              <T size={Math.min(36, Math.max(font.heading, width * 0.08))} weight={600} color={k} numberOfLines={1}>{intro && seg.kind === 'countin' ? intro : seg.name}</T>
+            )}
             <T size={big} weight={600} tabular color={k}
               style={{ lineHeight: big * 1.02, letterSpacing: -big * 0.03, opacity: v.paused ? 0.4 : 1 }}>
               {clock(open ? v.counted : Math.ceil(v.left))}
             </T>
-            {counters(seg, v.lap, config.repeat) ? <T size={font.title} weight={600} tabular>{counters(seg, v.lap, config.repeat)}</T> : null}
+            {!exNow && where ? <T size={font.title} weight={600} tabular>{where}</T> : null}
             {seg.note ? <Sub style={{ textAlign: 'center' }}>{seg.note}</Sub> : null}
             {v.progress != null ? (
               <View style={[st.bar, { backgroundColor: mix(k, 20, colors.bg) }]}>
                 <View style={{ width: `${v.progress * 100}%`, height: '100%', backgroundColor: k }} />
               </View>
             ) : null}
-            <T size={font.small} dim>{v.paused ? 'Paused · tap to carry on' : open ? 'No set time · tap when done' : 'Tap to pause'}</T>
+            <T size={font.small} dim>{v.paused ? 'Paused · tap to carry on' : open ? (exNow ? 'Tap when done' : 'No set time · tap when done') : 'Tap to pause'}</T>
           </Press>
 
-          <View style={st.next}>
-            <T size={font.body} dim align="center" numberOfLines={1}>
-              {v.next ? <>Next: <T size={font.body} weight={600}>{v.next.name}</T> {v.next.seconds != null ? secondsLabel(v.next.seconds) : ''}</> : 'Last one'}
-            </T>
-          </View>
+          {circuit && (exNow ? seg : coming) ? (
+            <ExerciseNow field={liftField} seg={exNow ? seg : coming} upNext={!exNow} onAbout={setAbout} />
+          ) : null}
+
+          {!circuit || exNow ? (
+            <View style={st.next}>
+              <T size={font.body} dim align="center" numberOfLines={1}>
+                {circuit
+                  ? (coming ? <>Next: <T size={font.body} weight={600}>{coming.name}</T> {coming.reps ? `${coming.reps} reps` : secondsLabel(coming.seconds)}</> : 'Last one')
+                  : (v.next ? <>Next: <T size={font.body} weight={600}>{v.next.name}</T> {v.next.seconds != null ? secondsLabel(v.next.seconds) : ''}</> : 'Last one')}
+              </T>
+            </View>
+          ) : null}
 
           <View style={st.ctl}>
             <CtlBtn icon="SkipBack" label="Back" onPress={() => { tap(); act(back) }} />
@@ -543,6 +712,32 @@ function TimerRun({ title, name, config, initialRun, onRun, onAgain, onStop, onC
           </View>
         </View>
       )}
+      {about ? <ExerciseSheet field={liftField} exercise={about.key} name={about.name} onClose={() => setAbout(null)} /> : null}
+    </View>
+  )
+}
+
+/**
+ * What the exercise is, on the run screen: what it works and its one-line gist
+ * from the library (#63), and ⓘ for the rest. During a rest or the count-in it
+ * is the exercise coming up, named, so the next forty seconds start ready.
+ */
+function ExerciseNow({ field, seg, upNext, onAbout }: { field: any; seg: any; upNext: boolean; onAbout: (x: { key: string; name: string }) => void }) {
+  const ex: any = seg.key ? (exerciseOf as any)(field, seg.key) : null
+  const m = musclesOf(field, seg.key)
+  const gist = ex?.how?.gist || (m ? `Works ${muscleWords(m, 4)}` : null)
+  if (!upNext && !gist && !m && !ex) return null
+  return (
+    <View style={[st.ex, upNext && { paddingVertical: space[3] }]}>
+      {m ? <ExerciseBody field={field} exercise={seg.key} name={seg.name} size={upNext ? 48 : 40} /> : null}
+      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+        {upNext ? <T size={font.small} dim>Up next</T> : null}
+        {upNext ? (
+          <T size={font.title} weight={600}>{seg.name}{seg.reps ? ` · ${seg.reps} reps` : seg.seconds != null ? ` · ${secondsLabel(seg.seconds)}` : ''}</T>
+        ) : null}
+        {gist ? <T size={font.small} dim>{gist}</T> : null}
+      </View>
+      {ex ? <IconBtn icon="Info" size={20} label={`How to do ${seg.name}`} onPress={() => onAbout({ key: seg.key, name: seg.name })} /> : null}
     </View>
   )
 }
@@ -584,6 +779,11 @@ const st = StyleSheet.create({
   face: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space[3] },
   bar: { width: '80%', maxWidth: 320, height: 6, borderRadius: radius.pill, overflow: 'hidden' },
   next: { padding: space[3], borderRadius: radius.card, backgroundColor: mix(colors.panel, 70, colors.bg) },
+  ex: {
+    flexDirection: 'row', alignItems: 'center', gap: space[3],
+    paddingVertical: space[2], paddingLeft: space[3], paddingRight: space[2],
+    borderRadius: radius.card, backgroundColor: mix(colors.panel, 70, colors.bg),
+  },
   ctl: { flexDirection: 'row', gap: space[2], justifyContent: 'center' },
   ctlBtn: {
     flex: 1, maxWidth: 92, minHeight: 60, gap: 2, alignItems: 'center', justifyContent: 'center',

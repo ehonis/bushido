@@ -72,6 +72,13 @@ const LIFT_KEYS = ['key', 'name', 'group']
  * must keep comparing equal to itself.
  */
 const measureOf = (it) => (it?.measure === 'time' || it?.measure === 'reps' ? { measure: it.measure } : {})
+/*
+ * A circuit block's timing (issue #68) is structure the same way: work, rest
+ * and rounds are one thing on both sides. Only on a block that has one, so the
+ * shape of every block written before circuits still compares equal. What each
+ * person did each round is in their own run, and stays there.
+ */
+const circuitOf = (b) => (isObj(b?.circuit) ? { circuit: b.circuit } : {})
 const withMeasure = (item, from) => {
   const { measure: _m, ...rest } = item
   return { ...rest, ...measureOf(from) }
@@ -104,7 +111,7 @@ function shapeOf(data) {
   if (hasPlan(data)) {
     return {
       plan: blocksOf(data.plan).map(b => ({
-        uid: b.uid || null, ...pick(b, BLOCK_KEYS),
+        uid: b.uid || null, ...pick(b, BLOCK_KEYS), ...circuitOf(b),
         items: itemsOf(b).map(it => ({ uid: it.uid || null, ...pick(it, ITEM_KEYS), sets: setsOf(it).length })),
       })),
     }
@@ -244,7 +251,7 @@ const freshLift = (s) => ({
 
 const freshBlock = (s, uid) => ({
   uid, name: s?.name ?? '', note: s?.note ?? '', category: s?.category ?? null, activity: s?.activity ?? null,
-  ...(s?.keep ? { keep: true } : {}), items: [],
+  ...circuitOf(s), ...(s?.keep ? { keep: true } : {}), items: [],
 })
 
 function indexPlan(shape) {
@@ -310,6 +317,10 @@ function applyPlan(target, base, next, src, logged = null) {
     const tb = blocks.find(b => b.uid === uid)
     if (!bb || !tb) continue
     for (const k of BLOCK_KEYS) if (!same(bb[k], nb[k])) tb[k] = nb[k]
+    if (!same(bb.circuit ?? null, nb.circuit ?? null)) {
+      if (isObj(nb.circuit)) tb.circuit = nb.circuit
+      else delete tb.circuit
+    }
   }
 
   // Exercises both sides had: renamed, more or fewer sets, moved to another block.
@@ -510,17 +521,23 @@ function setsOnto(storedSets, sentSets, keep = null) {
  * base said: logged data is never removed by anyone else's write. It stays on
  * the device's own side and is not carried.
  */
-function landPlan(merged, incoming) {
+function landPlan(merged, incoming, stored = null) {
   const sent = new Map(blocksOf(incoming.plan).flatMap(itemsOf).map(it => [it.uid, it]))
+  const had = new Map(blocksOf(stored).flatMap(itemsOf).map(it => [it.uid, it]))
   const logged = loggedOf(incoming.plan, incoming.run)
   const blocks = blocksOf(merged).map(b => ({
     ...b,
     items: itemsOf(b).map(it => {
       const x = sent.get(it.uid)
+      if (!x) return it
       // Its measure is the writer's own while the exercise is the one it sent:
       // its sets are in that measure, and a stale base must not take it away.
-      return x ? withMeasure({ ...x, ...pick(it, ITEM_KEYS), uid: it.uid, sets: setsOnto(setsOf(it), setsOf(x), logged.get(it.uid)) },
-        same(x.exercise, it.exercise) ? x : it) : it
+      // A writer that sent no `measure` key at all (an app from before holds,
+      // which drops keys it does not know) has not said one: the stored stays.
+      const stays = had.get(it.uid)
+      const own = 'measure' in x ? x : stays && same(stays.exercise, x.exercise) ? stays : it
+      return withMeasure({ ...x, ...pick(it, ITEM_KEYS), uid: it.uid, sets: setsOnto(setsOf(it), setsOf(x), logged.get(it.uid)) },
+        same(x.exercise, it.exercise) ? own : it)
     }),
   }))
   const inMerged = new Set(blocks.flatMap(b => b.items.map(i => i.uid)))
@@ -574,8 +591,8 @@ function rebase(stored, incoming, id) {
     const merged = intent === 'current' ? incoming.plan
       : intent === 'stale' ? applyPlan(stored.plan, incoming.syncBase.plan, mine.plan, incoming.plan)
       : stored.plan
-    const structural = intent === 'numbers' ? null : landPlan(merged, { ...incoming, run: null })
-    return { data: landPlan(merged, incoming), carry: structural, intent }
+    const structural = intent === 'numbers' ? null : landPlan(merged, { ...incoming, run: null }, stored.plan)
+    return { data: landPlan(merged, incoming, stored.plan), carry: structural, intent }
   }
   if (mine.lifts && now.lifts) {
     const merged = intent === 'current' ? liftsOf(incoming)

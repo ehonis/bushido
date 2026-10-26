@@ -45,7 +45,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Svg, { Circle } from 'react-native-svg'
 import { colors, font, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
-import { Btn, Card, IconBtn, Press, SectionHeader, Sub, s as kit, type BtnKind } from '../ui/kit'
+import { Btn, Card, IconBtn, Press, SectionHeader, Sub, Toggle, s as kit, type BtnKind } from '../ui/kit'
 import { Modal } from '../ui/Sheet'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { impact, success, tap } from '../ui/haptics'
@@ -59,7 +59,13 @@ import {
   markSet, unmarkSet, skipSet, unskipSet, nudgeRest, endRest, goToSet, finishRun,
   emptyRun, setDraft, carryForward, runOutputs, isLogged, isSkipped, setLine, itemLine,
   setFieldsFor, addSetLike, patchRunItem, measureOfItem,
+  blockTimer, circuitOnly, circuitTiming, endCircuit, circuitToOpen, nextCircuit,
 } from '../lib/prescription.js'
+import * as timerLib from '../lib/timer.js'
+import { clock } from '../lib/workout.js'
+import { TimerRun } from './timer'
+import { timingWords } from './circuit'
+import * as trainerLib from '../lib/trainer.js'
 import { Stepper, STEP, weightSwitch, ExerciseSheet, type WeightSwap } from './exercises'
 import { ExerciseBody, musclesOf, muscleWords } from '../lib/bodymap'
 import { liftFieldOf } from './planner'
@@ -90,7 +96,12 @@ const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).pa
  * Native: `embedded` drops this component's own full-screen modal, because
  * SidesWorkout presents ONE modal for every side (iOS presents one at a time).
  */
-export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onFinish = null, who = null, switcher = null, shown = true, embedded = false }: {
+/*
+ * `together` (trainer.tsx `SidesWorkout`, #68): on a shared workout with sync on,
+ * a circuit waits on its start screen, where "Together with Sam" is chosen, and
+ * one run in front of you is written to every side when it ends.
+ */
+export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onFinish = null, who = null, switcher = null, shown = true, embedded = false, together = null }: {
   session?: any
   entry: any
   entries?: any[]
@@ -101,6 +112,7 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
   switcher?: React.ReactNode
   shown?: boolean
   embedded?: boolean
+  together?: any
 }) {
   void session
   const insets = useSafeAreaInsets()
@@ -117,6 +129,29 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
   const [muted, setMuted] = useState(false)
   const lock = useRef<string | null>(null)
   const rangAt = useRef(0)
+
+  /*
+   * A circuit block (issue #68) runs on the interval timer's screen. A plan that
+   * is nothing but circuits goes straight to it (open, Start, it runs); in a plan
+   * with other work the circuit is a step that starts when asked, and so is a
+   * shared workout's side that is not on screen: each person's clock starts on
+   * their own Start (`circuitToOpen`). One whose timer is on the entry (left open, a cold start) comes back running.
+   */
+  // A circuit that can be done together waits on its start screen, where that is chosen.
+  const [circuitId, setCircuitId] = useState<string | null>(() => (circuitToOpen as any)(pres, run, { shown: shown && !together?.offer }))
+  // Each circuit done together on this screen: its result, and what each other
+  // side said (null while asking). Try again asks again (lib/trainer.js).
+  const [shared, setShared] = useState<{ result: any; said: any[] | null }[]>([])
+  const shareResult = async (result: any) => {
+    const same = (x: any) => x.result.key === result.key && x.result.block.id === result.block.id
+    setShared((list) => [...list.filter((x) => !same(x)), { result, said: null }])
+    let said: any[] | null
+    try { said = await together.write(result) } catch { said = null }
+    setShared((list) => list.map((x) => (same(x) ? { result, said: said || [] } : x)))
+  }
+  // Straight on from one circuit to the next in a plan of circuits, said in its count-in.
+  const [chained, setChained] = useState(false)
+  const circuitBlock = circuitId ? (pres?.blocks || []).find((b: any) => b.id === circuitId && b.circuit) || null : null
 
   const step = steps.find(s => s.setId === cursor) || steps[0] || null
   const progress: any = runProgress(run, steps)
@@ -270,6 +305,34 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
     </RNModal>
   )
 
+  if (circuitBlock) {
+    const only = circuitOnly(pres)
+    const body = (
+      <CircuitRun key={circuitBlock.id} pres={pres} block={circuitBlock} run={run} only={only}
+        together={together} onShare={shareResult}
+        shared={shared} onRetry={() => shared.filter((x) => x.said?.some((y: any) => y.status === 'missed')).forEach((x) => shareResult(x.result))}
+        intro={chained ? `Next: ${circuitBlock.name}` : null}
+        onNext={(id: string) => { setChained(true); setCircuitId(id) }}
+        who={who} switcher={switcher} shown={shown}
+        onRun={(next: any, opts: any) => (next ? commit(next, opts) : onRun(null, {}))}
+        onBack={() => {
+          setCircuitId(null)
+          setChained(false)
+          if (only) (onFinish || onExit)()
+          else setCursor((c: any) => (firstOpen as any)(entry?.data?.run, steps) || c)
+        }}
+        onLeave={onExit} />
+    )
+    // The timer pads its own foot, so its frame pads only the top.
+    return embedded ? <View style={{ flex: 1 }}>{body}</View> : (
+      <RNModal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={onExit}>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>{body}</View>
+        </GestureHandlerRootView>
+      </RNModal>
+    )
+  }
+
   if (!pres || !steps.length) {
     return frame(
       <View style={st.empty}>
@@ -311,6 +374,14 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
       ) : done ? (
         <FinishScreen progress={progress} elapsed={elapsed}
           onFinish={finish} onReview={() => setListOpen(true)} />
+      ) : step?.block?.circuit ? (
+        <CircuitStep block={step.block} together={together}
+          onStart={() => { impact(); setCircuitId(step.blockId) }}
+          onSkip={() => {
+            const next: any = (endCircuit as any)(run, pres, step.blockId, [], {})
+            commit(next)
+            setCursor(next.cursor)
+          }} />
       ) : step ? (
         <SetScreen
           step={step} steps={steps} run={run} draft={draft} entries={entries} entryId={entry?.id}
@@ -342,6 +413,150 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
         </View>
       )}
     </>,
+  )
+}
+
+/* --------------------------------------------------------------- circuits */
+
+/**
+ * A circuit block, run on the interval timer's screen (timer.tsx `TimerRun`),
+ * its program compiled from the block (lib/prescription.js `blockTimer`). The
+ * timer's position lives on the entry as `run.circuit`, written through the
+ * runner's one writer. When it ends, finished or stopped, what each exercise
+ * did each round is marked on the run (`endCircuit`) and the log follows in the
+ * same write; a plan that is nothing but circuits is finished and done in it
+ * too. Stopped before anything was done, it is as if it never started.
+ */
+function CircuitRun({ pres, block, run, only, intro, who, switcher, shown, onRun, onNext, onBack, onLeave,
+  together = null, onShare = null, shared = [], onRetry = null }: any) {
+  const { compile, startRun, circuitDone, view } = timerLib as any
+  const { andWords, togetherSaid } = trainerLib as any
+  const config = useMemo(() => blockTimer(block), [block])
+  const program = useMemo(() => compile(config), [config])
+  const live = run?.circuit?.block === block.id && run.circuit.timer ? run.circuit.timer : null
+  const [initial] = useState(() => live || startRun(program, Date.now()))
+  // Together or not is decided at Start, and kept on the entry so a cold start remembers it.
+  const [withThem] = useState(() => Boolean(together && (live ? run.circuit.together : together.offer && together.on)))
+  // Who was offered Together as it started (side ids, null the owner): the only
+  // people its result is written for, kept on the run for a reload.
+  const [withIds] = useState(() => (live ? run.circuit.with || null : together?.offerTo || null))
+  const [logged, setLogged] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const runRef = useRef(run)
+  runRef.current = run
+
+  const save = (timer: any) => {
+    const base = runRef.current || emptyRun(timer.startedAt)
+    onRun({ ...base, startedAt: base.startedAt || timer.startedAt,
+      circuit: { block: block.id, timer, ...(withThem ? { together: true, with: withIds } : {}) } }, {})
+  }
+  // Starting is a write: the entry says it is running from the first second.
+  useEffect(() => { if (!live) save(initial) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onTimer = (timer: any) => {
+    if (timer.finishedAt == null) { save(timer); return }
+    const done: any[][] = circuitDone(program, timer)
+    const base = runRef.current
+    if (!done.some(d => d.length)) {
+      const rest = { ...(base || {}), circuit: null }
+      const untouched = !Object.keys(rest.sets || {}).length && !(rest.skipped || []).length
+      onRun(untouched ? null : rest, {})
+      onBack()
+      return
+    }
+    const at = timer.finishedAt
+    const seconds = view(program, timer, at).elapsed
+    // Keyed by the clock's start, so writing this result again changes nothing.
+    const key = timer.startedAt
+    const next: any = (endCircuit as any)(base, pres, block.id, done, { at, seconds, key })
+    const all = (runProgress(next, prescriptionSteps(pres)) as any).left === 0
+    const then: any = only && !all ? (nextCircuit as any)(pres, next) : null
+    if (only && all) onRun((finishRun as any)(next, { at }), { outputs: true, done: true })
+    else onRun(next, { outputs: true })
+    success()
+    // Done together: the same result on every other side, each through its own writer.
+    if (withThem && onShare) {
+      onShare({
+        block: { uid: block.uid || null, id: block.id, name: block.name },
+        items: block.items.map((it: any) => ({ uid: it.uid || null, name: it.name })),
+        done, at, seconds, key, ...(withIds ? { with: withIds } : {}),
+      })
+    }
+    // A plan of circuits runs the next one straight after, not back to the day.
+    if (then) { onNext(then.id); return }
+    setLogged(only && all ? 'Logged' : 'Logged on this workout')
+  }
+
+  // Done together, the words come from what each side SAID (rule 5); never
+  // "for you and Sam" over a miss.
+  const mine = shared.find((x: any) => x.result.block.id === block.id)
+  const told = withThem && mine ? togetherSaid(together.host, mine.said) : null
+  const missedAll: string[] = [...new Set<string>(shared.flatMap((x: any) => (x.said || []).filter((y: any) => y.status === 'missed').map((y: any) => y.name)))]
+  const after = told || missedAll.length ? (
+    <View style={{ alignSelf: 'stretch', alignItems: 'center', gap: space[2] }}>
+      {told?.notes.map((n: string) => <T key={n} size={font.body}>{n}</T>)}
+      {mine && mine.said === null ? <T size={font.small} dim>Saving to {andWords(together.names)}’s log…</T> : null}
+      {missedAll.length ? (
+        <>
+          <T size={font.body} accessibilityRole="alert">Not on {andWords(missedAll)}’s log yet</T>
+          <Btn kind="secondary" icon="RotateCw" title="Try again" onPress={onRetry} style={{ alignSelf: 'stretch' }} />
+        </>
+      ) : null}
+    </View>
+  ) : null
+
+  return (
+    <TimerRun name={block.name} title={pres.title && pres.title !== block.name ? pres.title : null}
+      config={config} initialRun={initial} onRun={onTimer} logged={told && logged ? told.head : logged} intro={intro} after={after}
+      onStop={() => setConfirming(true)} confirming={confirming} onKeep={() => setConfirming(false)}
+      onClose={onBack} onLeave={onLeave} closeLabel={only ? 'Close' : 'Back to the workout'}
+      who={who} switcher={switcher} shown={shown} />
+  )
+}
+
+/**
+ * A circuit's start screen: what it is, and Start. On a shared workout with
+ * sync on it also asks whether it is done together: one clock, logged for
+ * everyone in it. Remembered per device; on until turned off.
+ */
+function CircuitStep({ block, onStart, onSkip, together = null }: any) {
+  const { compile, describe, totalSeconds } = timerLib as any
+  const { andWords } = trainerLib as any
+  const config = blockTimer(block)
+  const total = totalSeconds(compile(config))
+  return (
+    <ScrollView contentContainerStyle={{ padding: space.gutter, gap: space[3] }}>
+      <T size={font.small} dim>{block.name} · Circuit</T>
+      <T size={font.heading} weight={600}>{block.name}</T>
+      <T size={font.small} dim>{describe(config)}{total ? ` · ${clock(total)}` : ''}</T>
+      <Card style={{ padding: 0 }}>
+        {block.items.map((it: any, i: number) => (
+          <View key={it.id} style={[{ flexDirection: 'row', justifyContent: 'space-between', gap: space[3], padding: space[3] },
+            i > 0 && { borderTopWidth: 1, borderTopColor: colors.line }]}>
+            <T size={font.body} style={{ flexShrink: 1 }}>{it.name}</T>
+            <T size={font.small} dim tabular>{timingWords(circuitTiming(it) as any, block.circuit.work)}</T>
+          </View>
+        ))}
+      </Card>
+      {together?.offer && !together.busyOn ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[3],
+          padding: space[3], borderRadius: radius.card, backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line }}>
+          <View style={{ flexShrink: 1 }}>
+            <T size={font.body}>{together.words}</T>
+            <T size={font.small} dim>{together.on ? `One clock, logged for ${andWords([together.host, ...together.names])}` : 'Each of you starts your own'}</T>
+          </View>
+          <Toggle value={together.on} onChange={together.onToggle} />
+        </View>
+      ) : null}
+      {together?.busyOn ? (
+        <T size={font.small} dim>Running together on {together.busyOn === 'your' ? 'your' : `${together.busyOn}’s`} side. It logs here when it ends.</T>
+      ) : (
+        <>
+          <Btn icon="Play" title="Start the circuit" onPress={onStart} style={{ minHeight: 56 }} />
+          <Btn kind="quiet" icon="SkipForward" title="Skip" onPress={onSkip} />
+        </>
+      )}
+    </ScrollView>
   )
 }
 

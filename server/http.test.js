@@ -763,6 +763,75 @@ async function waitFor(fn, label, ms = 8000) {
     ok(ownerFile().state.entries[own.id].data.syncBase, 'sync never ran on the owner\'s entry, so this proves nothing')
   })
 
+  await step('sync: a circuit\'s timing is structure; the seconds each person did stay on their own side (#68)', async () => {
+    const C = { work: 40, rest: 20, rounds: 3, roundRest: 60, countIn: 10 }
+    const { id } = await freshShare('2026-10-25', { sync: true })
+    // The owner switches the block to a circuit, as the editor does: one set per exercise.
+    eq((await saveOwn(replan(ownOn(id), bs => { bs[0] = { ...bs[0], circuit: C, items: bs[0].items.map(i => ({ ...i, sets: i.sets.slice(0, 1) })) }; return bs }))).status, 200)
+    eq(theirsOn(id).data.plan.blocks[0].circuit, C, 'the circuit did not reach Sam')
+    // Sam runs it on Sam's phone: the seconds go on Sam's run and Sam's log.
+    const held = theirsOn(id)
+    const sid = held.data.plan.blocks[0].items[0].sets[0].id
+    const lifts = [{ uid: held.data.plan.blocks[0].items[0].id, key: 'squat', name: 'Squat', implement: '', sets: [{ seconds: 40, weight: '' }, { seconds: 38, weight: '' }] }]
+    eq((await saveSams({ ...held, data: { ...held.data, run: { sets: { [sid]: { seconds: 78, rounds: [40, 38], at: 1 } }, skipped: [] }, out: { lifts } } })).status, 200)
+    // Then makes it four rounds: the owner gets four rounds, and none of Sam's seconds.
+    eq((await saveSams(replan(theirsOn(id), bs => { bs[0] = { ...bs[0], circuit: { ...bs[0].circuit, rounds: 4 } }; return bs }))).status, 200)
+    eq(ownOn(id).data.plan.blocks[0].circuit, { ...C, rounds: 4 }, 'a change of rounds did not reach the owner')
+    ok(!/"rounds":\[|78/.test(JSON.stringify(ownOn(id).data.run || {})), 'Sam\'s seconds reached the owner\'s run')
+    ok(!JSON.stringify(ownOn(id).data.out || {}).includes('38'), 'Sam\'s seconds reached the owner\'s log')
+    eq(theirsOn(id).data.run.sets[sid].rounds, [40, 38], 'Sam\'s own seconds were lost')
+  })
+
+  await step('together (#68): a write that failed is tried again through the real people endpoint, lands once, and a lost reply sends nothing', async () => {
+    const { pathToFileURL } = require('url')
+    const TR = await import(pathToFileURL(path.join(__dirname, '..', 'app', 'src', 'lib', 'trainer.js')).href)
+    const C = { work: 40, rest: 20, rounds: 2, roundRest: 0, countIn: 0 }
+    const { id } = await freshShare('2026-10-27', { sync: true })
+    eq((await saveOwn(replan(ownOn(id), bs => { bs[0] = { ...bs[0], circuit: C, items: bs[0].items.map(i => ({ ...i, sets: i.sets.slice(0, 1).map(x => ({ ...x, reps: null })) })) }; return bs }))).status, 200)
+    const block = ownOn(id).data.plan.blocks[0]
+    ok(theirsOn(id).data.plan.blocks[0].circuit, 'the circuit did not reach Sam, so this proves nothing')
+    const result = { block: { uid: block.uid, id: 'b0', name: block.name }, items: block.items.map(i => ({ uid: i.uid, name: i.name })),
+      done: [[40, 40], [40, 38]], at: Date.parse('2026-10-27T09:03:00Z'), seconds: 178, key: Date.parse('2026-10-27T09:00:00Z') }
+    let puts = 0
+    let offline = true
+    let loseReply = false
+    const readPerson = async (pid, entryId) => (await (await get(`${two.base}/api/people/${pid}/entry?id=${encodeURIComponent(entryId)}`, owns())).json()).entry
+    const putPerson = async (pid, e) => {
+      if (offline) throw new Error('offline')
+      puts++
+      const r = await post(pid, { ...e, updatedAt: tick() })
+      if (r.status !== 200) throw new Error(`refused ${r.status}`)
+      if (loseReply) { loseReply = false; throw new Error('the reply was lost') }
+      return (await r.json()).entry
+    }
+    const sides = [{ id: null, name: 'You', entryId: id }, { id: 'sam', name: 'Sam', entryId: id }]
+    const share = () => TR.shareCircuit({ sides, result, ownerEntry: ownOn(id), readPerson, putPerson, writeOwner: () => {} })
+    const before = JSON.stringify(theirsOn(id))
+    eq((await share()).map(x => x.status), ['missed'])
+    eq(JSON.stringify(theirsOn(id)), before, 'a write that never left changed Sam\'s log')
+    offline = false
+    eq((await share()).map(x => x.status), ['logged'])
+    eq(puts, 1)
+    const sam = theirsOn(id)
+    ok(sam.data.run?.endedAt && sam.data.done === true, 'Sam\'s side is not done and ended')
+    // The rounds each did, on Sam's own run; the rows are Sam's own shape (Sam's plan counts these in reps).
+    eq(Object.values(sam.data.run.sets).map(x => x.rounds), [[40, 40], [40, 38]])
+    eq(sam.data.out.lifts.map(l => l.sets.length), [2, 2])
+    eq((await share()).map(x => x.status), ['logged'])
+    eq(puts, 1, 'a retry after it landed was sent again')
+    // A second circuit result whose reply is lost: the retry re-reads, finds it, sends nothing.
+    const { id: id2 } = await freshShare('2026-10-28', { sync: true })
+    eq((await saveOwn(replan(ownOn(id2), bs => { bs[0] = { ...bs[0], circuit: C, items: bs[0].items.map(i => ({ ...i, sets: i.sets.slice(0, 1).map(x => ({ ...x, reps: null })) })) }; return bs }))).status, 200)
+    const b2 = ownOn(id2).data.plan.blocks[0]
+    const r2 = { ...result, block: { uid: b2.uid, id: 'b0', name: b2.name }, items: b2.items.map(i => ({ uid: i.uid, name: i.name })), key: result.key + 1 }
+    const share2 = () => TR.shareCircuit({ sides: [sides[0], { ...sides[1], entryId: id2 }], result: r2, ownerEntry: ownOn(id2), readPerson, putPerson, writeOwner: () => {} })
+    loseReply = true
+    eq((await share2()).map(x => x.status), ['missed'])
+    eq(puts, 2)
+    eq((await share2()).map(x => x.status), ['logged'])
+    eq(puts, 2, 'the retry after a lost reply wrote again')
+  })
+
   /* ------------------------------------------ the owner as trainer (peopleRoute) */
   const planned = { id: 'daily-2026-10-08', kind: 'daily', date: '2026-10-08', updatedAt: '2026-10-08T07:00:00Z',
     data: { optId: 'planned', slot: 'main', done: true, name: 'Legs', plan: { title: 'Legs', blocks: [] }, out: {}, plannedBy: { id: 'sam', name: 'forged' } } }

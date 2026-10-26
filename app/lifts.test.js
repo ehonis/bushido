@@ -15,7 +15,7 @@
  * a runner for its sets.
  */
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import {
   fieldVisible, visibleOutputs, pruneHidden, pruneAttached, derivedValue, filledBy,
 } from './src/lib/outputs.js'
@@ -743,6 +743,51 @@ check('a hold: a Plank logged as reps before the library reads exactly as before
   eq(lastLift(entries.slice(0, 1), 'plank', null, merged).summary, '60, 45')
   // A row with no sets at all to read falls back to the catalog.
   eq(liftMeasure({ key: 'plank', sets: [] }, merged), 'time')
+})
+
+/*
+ * Ranking within a description match (#63 follow-up). The owner's own query
+ * against the library's beginner core work: everything lands in one rank, and
+ * the alphabet put Bird dog, Cat-cow and Cobra stretch first. A subset of #66's
+ * entries (test/fixtures/exercises-search.json, from d3697f9) until it lands,
+ * and the real file as well once it has.
+ */
+const topFor = (lib, q, n = 3) => {
+  const f = mergeLibrary(plan, lib).dailyMenu.find(m => m.id === 'log-workout').outputs.find(o => o.key === 'lifts')
+  return searchExercises(f, q, { limit: n }).map(e => e.key)
+}
+check('search: "lower abs no equipment" puts Dead bug and Reverse crunch in the top three', () => {
+  const sets = [JSON.parse(readFileSync(new URL('../test/fixtures/exercises-search.json', import.meta.url), 'utf8'))]
+  const real = new URL('../content/exercises.json', import.meta.url)
+  if (existsSync(real)) sets.push(JSON.parse(readFileSync(real, 'utf8')))
+  for (const lib of sets) {
+    const top = topFor(lib, 'lower abs no equipment')
+    ok(top.includes('dead-bug') && top.includes('reverse-crunch'), `top three: ${top.join(', ')}`)
+  }
+})
+
+check('search: a phrase from one tag beats the same words from two, then more places saying it', () => {
+  const ex = (key, name, extra) => ({ key, name, group: 'Core', ...extra })
+  const lib = { version: 1, exercises: [
+    ex('aa-split', 'Aa split', { tags: ['lower back', 'abs'], equipment: 'None' }),
+    ex('zz-phrase', 'Zz phrase', { tags: ['lower abs'], equipment: 'Mat' }),
+    ex('mm-mat', 'Mm mat', { tags: ['lower abs', 'no equipment'], equipment: 'Mat' }),
+    ex('nn-none', 'Nn none', { tags: ['lower abs', 'no equipment'], equipment: 'None' }),
+  ] }
+  eq(topFor(lib, 'lower abs', 10).filter(k => /^(aa|zz|mm|nn)-/.test(k)).at(-1), 'aa-split', '"lower" from "lower back" ranked with the phrase')
+  eq(topFor(lib, 'lower abs no equipment', 2), ['nn-none', 'mm-mat'], 'equipment "None" did not count for "no equipment"')
+  // A name match still comes first, whatever the tags say.
+  eq(searchExercises(merged, 'plank')[0].key, 'plank')
+})
+
+check('search: a library key joined to a plan exercise by another spelling still finds it', () => {
+  const pushUp = (aka) => ({ dailyMenu: [{ id: 'log-workout', outputs: [{ key: 'lifts', type: 'lifts', exercises: [{ key: 'push-up', name: 'Push-up', group: 'Chest', ...aka }] }] }] })
+  const field = (p, lib) => mergeLibrary(p, lib).dailyMenu[0].outputs[0]
+  const viaSpelling = field(pushUp({}), { version: 1, exercises: [{ key: 'pushup', name: 'Pushup', group: 'Chest', aka: ['floor press-up'] }] })
+  eq(keysOf(searchExercises(viaSpelling, 'pushup')), ['push-up'])
+  eq(keysOf(searchExercises(viaSpelling, 'floor press')), ['push-up'], 'the library\'s own aliases were lost')
+  const viaAlias = field(pushUp({ aka: ['press-up'] }), { version: 1, exercises: [{ key: 'pressup', tags: ['chest'] }] })
+  eq(keysOf(searchExercises(viaAlias, 'pressup')), ['push-up'])
 })
 
 check('the picker\'s group chips stay exact once the library adds descriptions (#63 review)', () => {

@@ -8,12 +8,19 @@
  * never typing a number, and the common settings are all there is until you
  * open "More".
  *
- * It is a clock, not a log. It writes nothing to a workout: the climbing cards'
- * set log is still workout mode's (workout.jsx), and their declared timers are
- * offered here as presets, run through the same sequence (lib/timer.js
- * `sessionTimer`). What it does write is the person's presets and the last one
- * run, as their own entries in their own log, so the one-tap default follows
- * them between devices.
+ * A plain timer is a clock, not a log. It writes nothing to a workout: the
+ * climbing cards' set log is still workout mode's (workout.jsx), and their
+ * declared timers are offered here as presets, run through the same sequence
+ * (lib/timer.js `sessionTimer`). What it does write is the person's presets and
+ * the last one run, as their own entries in their own log, so the one-tap
+ * default follows them between devices.
+ *
+ * A CIRCUIT (issue #68) is the exception, because it is a workout: a preset with
+ * exercises from the library. Its run screen says which exercise to do now and
+ * what comes next, and finishing it, or stopping it early, logs it as one
+ * workout on today (`onLog`). "Put it on today" places it as a planned workout
+ * instead (`onPlace`). A plan's circuit block runs on this same screen from the
+ * runner (runner.jsx), which logs it onto its own entry.
  *
  * The run itself is absolute instants (lib/timer.js), kept on the device as it
  * goes, so backgrounding, a locked phone and a reload all come back to the
@@ -28,10 +35,16 @@ import { clock } from './lib/workout.js'
 import { currentMe } from './lib/whoami.js'
 import {
   compile, normalizeConfig, sameConfig, totalSeconds, describe, secondsLabel, stepSeconds,
-  startRun, settle, togglePause, skip, back, bump, view, cueFor, moved,
+  startRun, settle, togglePause, skip, back, bump, view, cueFor, moved, stopRun, isCircuit,
   presetList, lastTimer, buildTimerEntry, buildLastTimerEntry, newTimerId, sessionTimer,
-  runKeyFor, saveRun, loadRun, LIMITS, MAX_NAMED, KIND_LABEL,
+  runKeyFor, saveRun, loadRun, LIMITS, MAX_NAMED, KIND_LABEL, MAX_EXERCISES,
 } from './lib/timer.js'
+import { exerciseOf } from './lib/lifts.js'
+import { usePlan } from './lib/planctx.jsx'
+import { ExerciseBody, musclesOf, muscleWords } from './lib/bodymap.jsx'
+import { ExerciseSheet } from './exercises.jsx'
+import { CircuitList, SecondsRow } from './circuit.jsx'
+import { liftFieldOf } from './planner.jsx'
 
 /* ----------------------------------------------------------- who opens it */
 
@@ -68,7 +81,7 @@ const storage = () => (typeof window === 'undefined' ? null : window.localStorag
  * Mounted once, at the top of the app. Shows nothing until the timer is asked
  * for, or until a run that was going when the page went away is found.
  */
-export function TimerHost({ entries, upsertEntry, deleteEntry }) {
+export function TimerHost({ entries, upsertEntry, deleteEntry, onLog = null, onPlace = null }) {
   const req = useSyncExternalStore(subscribe, getRequest, getRequest)
   const key = runKeyFor(currentMe().id)
   const [resumed, setResumed] = useState(() => loadRun(storage(), key, Date.now()))
@@ -83,13 +96,22 @@ export function TimerHost({ entries, upsertEntry, deleteEntry }) {
       title={resumed ? resumed.title : req.title}
       sessionPresets={resumed ? [] : req.presets}
       resumed={resumed} entries={entries} upsertEntry={upsertEntry} deleteEntry={deleteEntry}
+      onLog={onLog} onPlace={onPlace ? (name, config) => { onPlace(name, config); close() } : null}
       persist={(doc) => saveRun(storage(), key, doc)} onClose={close} />
   )
 }
 
-/** Setup, then run. `resumed` skips straight to the run that was going. */
-export function IntervalTimer({ title, sessionPresets = [], resumed = null, entries = [], upsertEntry, deleteEntry, persist = () => {}, onClose }) {
+/**
+ * Setup, then run. `resumed` skips straight to the run that was going.
+ *
+ * `onLog(name, config, run)` is how a circuit's run becomes a workout: called
+ * once when it ends, finished or stopped, and true if anything was logged
+ * (App.jsx `logCircuit`). `onPlace(name, config)` puts it on today instead.
+ */
+export function IntervalTimer({ title, sessionPresets = [], resumed = null, entries = [], upsertEntry, deleteEntry, persist = () => {}, onClose, onLog = null, onPlace = null }) {
   const [live, setLive] = useState(resumed) // { name, config, run } while running
+  const [logged, setLogged] = useState(null) // what the finish screen says was logged
+  const ended = useRef(null) // the run already logged, so a repaint cannot log it twice
 
   const start = (name, config) => {
     primeAudio()
@@ -102,20 +124,32 @@ export function IntervalTimer({ title, sessionPresets = [], resumed = null, entr
     const run = startRun(compile(clean), Date.now())
     const next = { name, title, config: clean, run }
     persist(next)
+    setLogged(null)
     setLive(next)
+  }
+
+  const onRun = (run) => {
+    if (run.finishedAt == null) { persist({ ...live, title, run }); return }
+    persist(null)
+    if (!isCircuit(live.config) || !onLog || ended.current === run.startedAt) return
+    ended.current = run.startedAt
+    const ok = onLog(live.name, live.config, run)
+    setLogged(ok ? 'Logged on today' : null)
+    // Stopped before anything was done: there is nothing to show a finish for.
+    if (!ok && run.stopped) onClose()
   }
 
   if (live) {
     return (
-      <TimerRun title={title} name={live.name} config={live.config} initialRun={live.run}
-        onRun={(run) => persist(run.finishedAt != null ? null : { ...live, title, run })}
+      <TimerRun key={live.run.startedAt} title={title} name={live.name} config={live.config} initialRun={live.run}
+        onRun={onRun} logged={logged}
         onAgain={() => start(live.name, live.config)}
         onClose={onClose} />
     )
   }
   return (
     <TimerSetup title={title} presets={presetList(entries, sessionPresets)}
-      onStart={start} onClose={onClose}
+      onStart={start} onClose={onClose} onPlace={onPlace}
       onSave={upsertEntry ? (id, name, config) => upsertEntry(buildTimerEntry(id, name, config)) : null}
       onDelete={deleteEntry || null} />
   )
@@ -123,7 +157,8 @@ export function IntervalTimer({ title, sessionPresets = [], resumed = null, entr
 
 /* ------------------------------------------------------------------ setup */
 
-export function TimerSetup({ title, presets, onStart, onSave = null, onDelete = null, onClose }) {
+export function TimerSetup({ title, presets, onStart, onSave = null, onDelete = null, onClose, onPlace = null }) {
+  const liftField = liftFieldOf(usePlan())
   const [pick, setPick] = useState(presets[0]?.id || null)
   const chosen = presets.find(p => p.id === pick) || null
   const [config, setConfig] = useState(() => normalizeConfig(presets[0]?.config))
@@ -135,8 +170,9 @@ export function TimerSetup({ title, presets, onStart, onSave = null, onDelete = 
   const total = totalSeconds(program)
   const set = (k, v) => setConfig(c => normalizeConfig({ ...c, [k]: v }))
   const choose = (p) => { setPick(p.id); setConfig(normalizeConfig(p.config)); setNaming(null) }
-  const name = chosen && !edited ? chosen.name : (chosen?.saved ? chosen.name : 'Custom')
-  const named = config.intervals.length > 0
+  const name = chosen && !edited ? chosen.name : (chosen?.saved ? chosen.name : isCircuit(config) ? 'Circuit' : 'Custom')
+  const circuit = isCircuit(config)
+  const named = config.intervals.length > 0 && !circuit
   const planSequence = config.intervals.length > MAX_NAMED
 
   const saveAs = () => {
@@ -194,6 +230,21 @@ export function TimerSetup({ title, presets, onStart, onSave = null, onDelete = 
             onUp={config.rounds < LIMITS.rounds[1] ? () => set('rounds', config.rounds + 1) : null} />
         </div>
 
+        {liftField && (
+          <Exercises config={config} liftField={liftField}
+            onChange={(exercises) => setConfig(c => normalizeConfig({
+              ...c, exercises,
+              // The first exercise makes it a circuit: its round is the exercises
+              // (lib/timer.js), with a minute between rounds until they say otherwise.
+              ...(!isCircuit(c) && exercises.length ? { intervals: [], roundRest: 60 } : {}),
+            }))} />
+        )}
+        {circuit && onPlace && (
+          <button className="btn quiet it-link" onClick={() => onPlace(name, config)}>
+            <Icon name="CalendarDays" size={15} /> Put it on today
+          </button>
+        )}
+
         <button className="btn quiet it-more" aria-expanded={more} onClick={() => setMore(!more)}>
           <Icon name="ChevronDown" size={16} style={{ transform: more ? 'rotate(180deg)' : 'none' }} />
           {more ? 'Fewer options' : 'More options'}
@@ -201,29 +252,41 @@ export function TimerSetup({ title, presets, onStart, onSave = null, onDelete = 
 
         {more && (
           <div className="it-rows">
+            {circuit && (
+              <SecondsRow label="Rest between rounds" value={config.roundRest || 0} max={LIMITS.roundRest[1]}
+                onChange={v => set('roundRest', v)} />
+            )}
             <Stepper label="Get ready" value={config.countIn ? secondsLabel(config.countIn) : 'None'}
               onDown={config.countIn > 0 ? () => set('countIn', stepSeconds(config.countIn, -1)) : null}
               onUp={config.countIn < LIMITS.countIn[1] ? () => set('countIn', stepSeconds(config.countIn, 1)) : null} />
-            <Stepper label="Sets" value={String(config.sets)}
-              onDown={config.sets > 1 ? () => set('sets', config.sets - 1) : null}
-              onUp={config.sets < LIMITS.sets[1] ? () => set('sets', config.sets + 1) : null} />
-            {config.sets > 1 && (
+            {/* A circuit is rounds of its exercises and nothing else (lib/timer.js
+                normalizeConfig), so placing it as a plan cannot drop part of it. */}
+            {!circuit && (
+              <Stepper label="Sets" value={String(config.sets)}
+                onDown={config.sets > 1 ? () => set('sets', config.sets - 1) : null}
+                onUp={config.sets < LIMITS.sets[1] ? () => set('sets', config.sets + 1) : null} />
+            )}
+            {!circuit && config.sets > 1 && (
               <Stepper label="Rest between sets" value={config.setRest ? secondsLabel(config.setRest) : 'None'}
                 onDown={config.setRest > 0 ? () => set('setRest', stepSeconds(config.setRest, -1)) : null}
                 onUp={config.setRest < LIMITS.setRest[1] ? () => set('setRest', stepSeconds(config.setRest, 1)) : null} />
             )}
-            {!config.repeat && (
+            {!circuit && !config.repeat && (
               <Stepper label="Cool-down" value={config.coolDown ? secondsLabel(config.coolDown) : 'None'}
                 onDown={config.coolDown > 0 ? () => set('coolDown', stepSeconds(config.coolDown, -1)) : null}
                 onUp={config.coolDown < LIMITS.coolDown[1] ? () => set('coolDown', stepSeconds(config.coolDown, 1)) : null} />
             )}
-            <label className="it-row it-toggle">
-              <span className="it-label">Repeat until I stop</span>
-              <input type="checkbox" role="switch" className="switch" checked={config.repeat} onChange={e => set('repeat', e.target.checked)} />
-            </label>
+            {!circuit && (
+              <label className="it-row it-toggle">
+                <span className="it-label">Repeat until I stop</span>
+                <input type="checkbox" role="switch" className="switch" checked={config.repeat} onChange={e => set('repeat', e.target.checked)} />
+              </label>
+            )}
 
-            <Intervals config={config} planSequence={planSequence}
-              onChange={(intervals) => set('intervals', intervals)} />
+            {!circuit && (
+              <Intervals config={config} planSequence={planSequence}
+                onChange={(intervals) => set('intervals', intervals)} />
+            )}
           </div>
         )}
 
@@ -274,6 +337,56 @@ function Stepper({ label, value, onDown, onUp }) {
           <Icon name="Plus" size={18} />
         </button>
       </span>
+    </div>
+  )
+}
+
+/**
+ * A circuit's exercises (issue #68), picked from the library with the same
+ * searchable picker as everywhere else. Each runs for Work unless its row says
+ * otherwise; the list is the round.
+ */
+function Exercises({ config, liftField, onChange }) {
+  const list = config.exercises || []
+  // A plain timer offers the way in and nothing else, so its screen stays as it was.
+  const [asked, setAsked] = useState(false)
+  const items = list.map((x, i) => ({
+    id: `${i}:${x.key || x.name}`, key: x.key || null, name: x.name,
+    timing: x.reps ? { by: 'reps', reps: x.reps } : x.seconds ? { by: 'time', seconds: x.seconds } : { by: 'circuit' },
+  }))
+  const put = (i, patch) => onChange(list.map((x, n) => {
+    if (n !== i) return x
+    const { seconds: _s, reps: _r, ...rest } = x
+    return { ...rest, ...patch }
+  }))
+  const move = (i, dir) => {
+    const to = dir === 'up' ? i - 1 : i + 1
+    if (to < 0 || to >= list.length) return
+    const next = [...list]
+    ;[next[i], next[to]] = [next[to], next[i]]
+    onChange(next)
+  }
+  if (!list.length && !asked) {
+    return (
+      <button className="btn quiet it-link" onClick={() => setAsked(true)}>
+        <Icon name="Dumbbell" size={15} /> Add exercises
+      </button>
+    )
+  }
+  return (
+    <div className="it-exercises">
+      <div className="section-head">
+        <h3>Exercises</h3>
+        {list.length > 0 && <span className="sub">{list.length}</span>}
+      </div>
+      <CircuitList items={items} work={config.work} liftField={liftField} adding={!list.length}
+        onTiming={put}
+        onRemove={(i) => onChange(list.filter((_, n) => n !== i))}
+        onMove={move}
+        onAdd={list.length < MAX_EXERCISES ? (key) => {
+          const ex = exerciseOf(liftField, key)
+          if (ex) onChange([...list, { key, name: ex.name }])
+        } : null} />
     </div>
   )
 }
@@ -353,22 +466,55 @@ function Intervals({ config, planSequence, onChange }) {
 const counters = (seg, lap, repeat) => [
   seg.rounds > 1 ? `Round ${seg.round} of ${seg.rounds}` : null,
   seg.sets > 1 ? `Set ${seg.set} of ${seg.sets}` : null,
+  // A circuit's exercise says where it is in the round.
+  seg.ex != null && seg.exs > 1 ? `Exercise ${seg.ex + 1} of ${seg.exs}` : null,
   repeat ? `Lap ${lap}` : null,
 ].filter(Boolean).join(' · ')
+
+/** The next exercise after segment `from` in a circuit, wrapping on repeat, or null. */
+export function exerciseAfter(program, from) {
+  const segs = program.segments
+  for (let i = from + 1; i < segs.length; i++) if (segs[i].ex != null) return segs[i]
+  if (program.loopFrom != null) {
+    for (let i = program.loopFrom; i <= from && i < segs.length; i++) if (segs[i].ex != null) return segs[i]
+  }
+  return null
+}
 
 /**
  * The run screen. Exported for the smoke suite, with `now` overridable for the
  * same reason: a server render has to be able to show a given second.
+ *
+ * A CIRCUIT (issue #68) puts the exercise to do NOW on the face, its name as
+ * big as the screen allows over the clock, with what it works and its one-line
+ * gist under it and ⓘ for the whole how-to (the exercise sheet, over the run:
+ * the clock does not stop for it). A rest shows what is coming instead. Its
+ * stop asks whether to log what was done; `logged` is what the finish screen
+ * says landed, `onLeave` (from a plan's entry) leaves it running, and with no
+ * `onAgain` there is no Again.
+ *
+ * `after` goes under it on the finish screen (who a circuit done together did
+ * not reach, with Retry). `intro` replaces "Get ready" in the count-in: the next circuit of a plan of
+ * circuits says which one it is.
+ *
+ * `who`, `switcher`, `shown`: one side of a shared workout (trainer.jsx), as in
+ * the runner. A side not on screen keeps its clock and makes no sound.
  */
-export function TimerRun({ title, name, config, initialRun, onRun = () => {}, onAgain, onClose, now: fixedNow = null }) {
+export function TimerRun({
+  title, name, config, initialRun, onRun = () => {}, onAgain = null, onClose, now: fixedNow = null,
+  logged = null, onLeave = null, closeLabel = 'Close', who = null, switcher = null, shown = true, intro = null, after = null,
+}) {
   const program = useMemo(() => compile(config), [config])
+  const circuit = isCircuit(config)
+  const liftField = liftFieldOf(usePlan())
   const [run, setRun] = useState(() => settle(program, initialRun, fixedNow ?? Date.now()))
   const runRef = useRef(run)
   const [now, setNow] = useState(() => fixedNow ?? Date.now())
   const [muted, setMuted] = useState(false)
   const mutedRef = useRef(muted)
-  mutedRef.current = muted
+  mutedRef.current = muted || !shown
   const [confirmStop, setConfirmStop] = useState(false)
+  const [about, setAbout] = useState(null) // the exercise whose sheet is open, over the run
   const lock = useRef(null)
   const onRunRef = useRef(onRun)
   onRunRef.current = onRun
@@ -386,6 +532,12 @@ export function TimerRun({ title, name, config, initialRun, onRun = () => {}, on
     }
     setNow(t)
   }, [program])
+
+  // A run that moved on while nobody was looking (a reload, a run left open)
+  // is stored where it got to, and a circuit that ran out meanwhile is logged.
+  useEffect(() => {
+    if (fixedNow == null && run !== initialRun) onRunRef.current(run)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const tick = useCallback(() => {
     const t = Date.now()
@@ -453,32 +605,51 @@ export function TimerRun({ title, name, config, initialRun, onRun = () => {}, on
   // Tap anywhere on the clock: pause or resume. A count-up has no end of its own,
   // so there the tap IS the end, and pausing is the button below.
   const onFace = () => act(open ? skip : togglePause)
+  const exNow = circuit && seg?.ex != null
+  const coming = circuit && seg ? exerciseAfter(program, run.index) : null
+  const where = seg ? counters(seg, v.lap, config.repeat) : ''
+  const stop = () => {
+    setConfirmStop(false)
+    // A circuit stops where it is and logs what was done; a plain timer just closes.
+    if (circuit) act(stopRun)
+    else onClose()
+  }
 
   return (
-    <div className={`it it-run k-${kind}`} role="dialog" aria-modal="true" aria-label={`${name} timer`}>
+    <div className={`it it-run k-${kind}${circuit ? ' it-circuit' : ''}`} role="dialog" aria-modal="true" aria-label={`${name} timer`}
+      data-tone={who ? who.tone : undefined}>
       <header className="it-head">
         <div className="it-title">
-          <div className="it-name">{name}{title ? ` · ${title}` : ''}</div>
+          <div className="it-name">
+            {who && <span className="side-who" data-tone={who.tone}>{who.name}</span>}
+            {name}{title ? ` · ${title}` : ''}
+          </div>
           <div className="it-sub it-tabular"><Icon name="Timer" size={12} /> {clock(v.elapsed)}</div>
         </div>
         <button className="iconbtn" onClick={() => setMuted(!muted)} aria-pressed={muted}
           aria-label={muted ? 'Turn sound on' : 'Turn sound off'}>
           <Icon name={muted ? 'VolumeX' : 'Volume2'} size={20} />
         </button>
-        <button className="iconbtn" onClick={() => (active ? setConfirmStop(true) : onClose())} aria-label="Stop the timer">
+        <button className="iconbtn" onClick={() => (active ? setConfirmStop(true) : onClose())}
+          aria-label={circuit ? 'Stop the circuit' : 'Stop the timer'}>
           <Icon name="X" size={20} />
         </button>
       </header>
+
+      {switcher}
 
       {confirmStop ? (
         <div className="it-body">
           <div className="confirm">
             <span className="confirm-ico"><Icon name="TriangleAlert" size={28} /></span>
-            <h3>Stop the timer?</h3>
-            <p className="sub">This run ends here. Your presets are kept.</p>
+            <h3>{circuit ? 'Stop the circuit?' : 'Stop the timer?'}</h3>
+            <p className="sub">
+              {circuit ? 'What you have done so far is logged.' : 'This run ends here. Your presets are kept.'}
+            </p>
             <div className="confirm-acts">
-              <button className="btn ghost" onClick={() => setConfirmStop(false)}>Keep it</button>
-              <button className="btn bad" onClick={onClose}>Stop</button>
+              <button className="btn ghost" onClick={() => setConfirmStop(false)}>Keep going</button>
+              {onLeave && <button className="btn secondary" onClick={onLeave}>Leave it open</button>}
+              <button className="btn bad" onClick={stop}>Stop</button>
             </div>
           </div>
         </div>
@@ -487,26 +658,38 @@ export function TimerRun({ title, name, config, initialRun, onRun = () => {}, on
           <Icon name="CircleCheck" size={56} />
           <div className="it-phase">Done</div>
           <div className="it-count">{clock(v.elapsed)}</div>
-          <button className="btn it-start" onClick={onAgain}><Icon name="RotateCw" size={18} /> Again</button>
-          <button className="btn ghost it-wide" onClick={onClose}>Close</button>
+          {logged && <p className="it-logged">{logged}</p>}
+          {after}
+          {onAgain && <button className="btn it-start" onClick={onAgain}><Icon name="RotateCw" size={18} /> Again</button>}
+          <button className={`btn ${onAgain ? 'ghost' : ''} it-wide`} onClick={onClose}>{closeLabel}</button>
         </div>
       ) : (
         <div className="it-body it-live">
           <button className={`it-face ${v.paused ? 'paused' : ''}`} onClick={onFace}
             aria-label={open ? 'Done, next' : v.paused ? 'Resume' : 'Pause'}>
-            <span className="it-phase">{seg.name}</span>
+            {exNow && where && <span className="it-where">{where}</span>}
+            <span className={exNow ? 'it-exname' : 'it-phase'}>{intro && seg.kind === 'countin' ? intro : seg.name}</span>
             <span className="it-count">{clock(open ? v.counted : Math.ceil(v.left))}</span>
-            {counters(seg, v.lap, config.repeat) && <span className="it-where">{counters(seg, v.lap, config.repeat)}</span>}
+            {!exNow && where && <span className="it-where">{where}</span>}
             {seg.note && <span className="it-note">{seg.note}</span>}
             {v.progress != null && <span className="it-bar"><span style={{ width: `${v.progress * 100}%` }} /></span>}
             <span className="it-hint">
-              {v.paused ? 'Paused · tap to carry on' : open ? 'No set time · tap when done' : 'Tap to pause'}
+              {v.paused ? 'Paused · tap to carry on' : open ? (exNow ? 'Tap when done' : 'No set time · tap when done') : 'Tap to pause'}
             </span>
           </button>
 
-          <div className="it-next">
-            {v.next ? <>Next: <strong>{v.next.name}</strong> {v.next.seconds != null ? secondsLabel(v.next.seconds) : ''}</> : 'Last one'}
-          </div>
+          {circuit && (exNow ? seg : coming) && (
+            <ExerciseNow field={liftField} seg={exNow ? seg : coming} upNext={!exNow}
+              onAbout={(x) => setAbout(x)} />
+          )}
+
+          {(!circuit || exNow) && (
+            <div className="it-next">
+              {circuit
+                ? (coming ? <>Next: <strong>{coming.name}</strong> {coming.reps ? `${coming.reps} reps` : secondsLabel(coming.seconds)}</> : 'Last one')
+                : (v.next ? <>Next: <strong>{v.next.name}</strong> {v.next.seconds != null ? secondsLabel(v.next.seconds) : ''}</> : 'Last one')}
+            </div>
+          )}
 
           <div className="it-ctl">
             <button className="it-btn" onClick={() => act(back)} aria-label="Back">
@@ -528,6 +711,35 @@ export function TimerRun({ title, name, config, initialRun, onRun = () => {}, on
         </div>
       )}
 
+      {about && <ExerciseSheet field={liftField} exercise={about.key} name={about.name} onClose={() => setAbout(null)} />}
+    </div>
+  )
+}
+
+/**
+ * What the exercise is, on the run screen: what it works and its one-line gist
+ * from the library (#63), and ⓘ for the rest. During a rest or the count-in it
+ * is the exercise coming up, named, so the next forty seconds start ready.
+ */
+function ExerciseNow({ field, seg, upNext, onAbout }) {
+  const ex = seg.key ? exerciseOf(field, seg.key) : null
+  const m = musclesOf(field, seg.key)
+  const gist = ex?.how?.gist || (m ? `Works ${muscleWords(m, 4)}` : null)
+  if (!upNext && !gist && !m && !ex) return null
+  return (
+    <div className={`it-ex ${upNext ? 'up' : ''}`}>
+      {m && <ExerciseBody field={field} exercise={seg.key} name={seg.name} size={upNext ? 48 : 40} />}
+      <div className="it-exwords">
+        {upNext && <span className="it-exlabel">Up next</span>}
+        {upNext && <strong className="it-exnext">{seg.name}{seg.reps ? ` · ${seg.reps} reps` : seg.seconds != null ? ` · ${secondsLabel(seg.seconds)}` : ''}</strong>}
+        {gist && <span className="it-exgist">{gist}</span>}
+      </div>
+      {ex && (
+        <button type="button" className="iconbtn it-exabout" onClick={() => onAbout({ key: seg.key, name: seg.name })}
+          aria-label={`How to do ${seg.name}`}>
+          <Icon name="Info" size={20} />
+        </button>
+      )}
     </div>
   )
 }

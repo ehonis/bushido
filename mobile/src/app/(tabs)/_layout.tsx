@@ -11,7 +11,7 @@ import { useAccessReauth } from '../../shell/accessReauth'
 import { colors } from '../../theme'
 
 function Inner() {
-  const { store } = useApp()
+  const { store, plan, logCircuit, placeCircuit } = useApp()
   useAccessReauth(() => { void store.refresh() })
   return (
     <>
@@ -22,7 +22,8 @@ function Inner() {
       </Tabs>
       <Overlays />
       {/* The interval timer, and a run that was going when the app went away. */}
-      <TimerHost entries={store.entries} upsertEntry={store.upsertEntry} deleteEntry={store.deleteEntry} />
+      <TimerHost entries={store.entries} upsertEntry={store.upsertEntry} deleteEntry={store.deleteEntry}
+        onLog={plan ? logCircuit : null} onPlace={plan ? placeCircuit : null} />
     </>
   )
 }

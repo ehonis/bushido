@@ -70,6 +70,26 @@ const ITEM = {
   additionalProperties: false,
 }
 
+/*
+ * A circuit (issue #68): the block's exercises one after another on the
+ * interval timer, its timing set once for the whole block. Each item is then
+ * ONE set (its own `seconds`, its `reps`, or none for the circuit's `work`);
+ * normalizePrescription keeps that shape whatever arrives.
+ */
+const CIRCUIT = {
+  type: 'object',
+  description: 'ONLY for a timed circuit: the exercises in this block done one after another on a clock, for rounds (an ab circuit, a bodyweight circuit). Leave it out on every other block.',
+  properties: {
+    work: { type: 'number', description: 'Seconds each exercise lasts, unless the exercise gives its own.' },
+    rest: { type: 'number', description: 'Seconds of rest between exercises. 0 for none.' },
+    rounds: { type: 'number', description: 'How many times through the whole list.' },
+    roundRest: { type: 'number', description: 'Seconds of rest between rounds. Leave out for the ordinary rest.' },
+    countIn: { type: 'number', description: 'Seconds to get ready before the first exercise.' },
+  },
+  required: ['work', 'rest', 'rounds'],
+  additionalProperties: false,
+}
+
 const BLOCK = {
   type: 'object',
   properties: {
@@ -78,6 +98,7 @@ const BLOCK = {
     note: { type: 'string', description: 'What this block is for, in one sentence. Anything without sets goes here rather than becoming an item.' },
     category: { type: 'string', description: 'Which category THIS BLOCK is — exact key from the list below. A block with a category BECOMES ITS OWN WORKOUT on the day: a trip that is lifting then a run lands as a lift entry and a run entry, each with its own log. A warm-up or cool-down that belongs to the block beside it must leave this out, or it becomes a third workout nobody did.' },
     activity: { type: 'string', description: 'The activity key for THIS BLOCK, from the list below — it decides what the block\'s own log form asks for. `run` on a run block, `lift` on a lifting block. Leave it out on a block with no category.' },
+    circuit: CIRCUIT,
     items: { type: 'array', items: ITEM },
   },
   required: ['name', 'items'],
@@ -232,6 +253,16 @@ HOW TO WRITE IT
 One entry in \`sets\` per set they will actually do — three sets of eight is three
 entries. Put rest on the set it FOLLOWS. Anything without sets (a mobility flow,
 "swim easy until you feel loose") belongs in the block's \`note\`, not as an item.
+
+A CIRCUIT is a block whose exercises are done one after another on a clock and
+repeated for rounds: "a 20 minute ab circuit", "a bodyweight circuit". Give that
+block \`circuit\` (\`work\` seconds per exercise, \`rest\` between exercises,
+\`rounds\`, and \`roundRest\` if the rounds need a longer rest) and give each
+exercise ONE entry in \`sets\`: empty (\`{}\`) to run for the circuit's \`work\`,
+\`seconds\` for its own time, or \`reps\` for one done to a count. The rounds come
+from \`circuit.rounds\`, so never repeat a set per round. Count the time budget as
+rounds × (each exercise + the rest after it). Only write \`circuit\` when a circuit
+is what was asked for or plainly fits; ordinary sets are the default.
 
 \`why\` is one short paragraph and it is the part ${N} will actually read. Name what
 you looked at. Grade your claims: say which came off the log and which is your

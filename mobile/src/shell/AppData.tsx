@@ -15,7 +15,10 @@ import { PlanProvider } from '../lib/planctx.jsx'
 import { WhoopProvider } from '../lib/whoop.jsx'
 import { StravaProvider } from '../lib/strava.jsx'
 import { localIso, fromIso } from '../lib/dates.js'
-import { splitPrescription } from '../lib/prescription.js'
+import { splitPrescription, circuitPlan, loggedCircuit, circuitFiling } from '../lib/prescription.js'
+import { activityFieldOf } from '../features/picker'
+import { optFor } from '../lib/menu.js'
+import { liftFieldOf } from '../features/planner'
 import { currentMe } from '../lib/whoami.js'
 import * as trainerLib from '../lib/trainer.js'
 import * as peopleApi from '../lib/peopleapi.js'
@@ -55,6 +58,10 @@ export interface AppData {
   placeToday: (optId: string, data?: any, opts?: { open?: boolean; close?: boolean; date?: string }) => string | null
   keepPlan: (pres: any) => { ids: string[]; count: number; first: string | null; entries: any[] }
   startPlanned: (id: string) => void
+  /** A circuit from the + timer (#68): put on today as a planned workout. */
+  placeCircuit: (name: string, config: any) => void
+  /** A circuit from the + timer, run: logged on today when it ends; false if nothing was done. */
+  logCircuit: (name: string, config: any, run: any) => boolean
   /** Who the owner can plan for (lib/trainer.js): nobody unless this is the owner, on the owner's own log, with someone else on the install. */
   people: { id: string; name: string }[]
   /** Keep a plan in someone else's log, through the people endpoints. */
@@ -191,6 +198,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     owner: { id: me.real.id, name: me.real.name }, api: peopleApi, save: store.upsertEntry,
   })
 
+  /*
+   * A circuit from the + timer (issue #68), as App.jsx: "Put it on today" places
+   * it as a planned workout; run, it logs itself when it ends, placed the same
+   * way with its run finished and its log in the same write (`applyRun`, the
+   * runner's own). Nothing done, nothing placed. It lands on the day it was
+   * started, filed by what its exercises are (`circuitFiling`).
+   */
+  const filingOf = (config: any) => (circuitFiling as any)(config, liftFieldOf(plan),
+    { categories: plan?.quotaCategories || [], activities: (activityFieldOf as any)(plan)?.activities || [] })
+  const placeCircuit: AppData['placeCircuit'] = (name, config) => {
+    placeWritten(plannedItems(splitPrescription((circuitPlan as any)(name, config, liftFieldOf(plan), filingOf(config)))), { open: false })
+  }
+  const logCircuit: AppData['logCircuit'] = (name, config, timerRun) => {
+    const done: any = (loggedCircuit as any)(name, config, timerRun, liftFieldOf(plan), filingOf(config))
+    if (!done) return false
+    const menu = plan?.dailyMenu || []
+    const [entry]: any[] = placeEntries({ menu, onDay: entriesRef.current, items: plannedItems(splitPrescription(done.pres)), date: done.date })
+    if (!entry) return false
+    store.upsertEntry((trainerLib as any).applyRun(entry, optFor(menu, entry.data.optId), done.run, { out: { ...entry.data.out, ...done.out }, done: true }))
+    return true
+  }
+
   /** "Start it now", from the planner's last screen. */
   const startPlanned = (id: string) => {
     setFab(null)
@@ -201,7 +230,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const value: AppData = {
     store, plan, reloadPlan: loadPlan, me, fab, setFab, openMenu, menuFrom, viewDay, setViewDay,
     logAt, openLog, dayLabel, openEntryId, setOpenEntryId, setTab,
-    placeAll, placeToday, keepPlan, startPlanned, people, keepPlanFor: keepPlanForPerson, shareKeptWith,
+    placeAll, placeToday, keepPlan, startPlanned, placeCircuit, logCircuit, people, keepPlanFor: keepPlanForPerson, shareKeptWith,
     restOpt, restOn, restDate, askRest, takeRest,
   }
 
