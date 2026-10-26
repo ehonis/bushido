@@ -6,7 +6,7 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { createDrafts, keptIdsIn, RESTARTED, CLAIM_MS } = require('./drafts.js')
+const { createDrafts, rememberedModes, keptIdsIn, RESTARTED, CLAIM_MS } = require('./drafts.js')
 
 let failed = 0
 const ok = (v, m) => { if (!v) throw new Error(m || 'expected truthy') }
@@ -129,6 +129,54 @@ const ASK = { picked: [{ key: 'legs', label: 'Legs', prompt: 'a leg day', catego
     const r = s.read(dir, d.id)
     eq([r.status, r.pres.title, r.pres.category], ['ready', 'Shorter', 'run'])
     eq(r.pres.thread.map(m => [m.role, m.text]), [['you', 'shorter'], ['coach', 'Cut a set.']])
+  })
+
+  await step('weight modes (#58): a first draft gets memory; a revision keeps what it kept, a default included', async () => {
+    const dir = tmp(); const s = createDrafts(); const p = fakePlanner()
+    const lift = (o = {}) => ({ kind: 'lift', name: 'Split squat', exercise: 'split-squat', implement: 'dumbbell', sets: [{ reps: 8 }], ...o })
+    const remembered = new Map([['split-squat|dumbbell', 'one'], ['goblet-squat|dumbbell', 'one'], ['row|dumbbell', null]])
+    const answer = (items) => ({ ...PLAN({ blocks: [{ name: 'Main', items }] }), remembered })
+    const d = s.create(dir, ASK, p.fn)
+    await tick()
+    p.calls[0].resolve(answer([lift(), lift({ exercise: 'row', name: 'Row' }), lift({ exercise: 'split-squat', implement: 'barbell' })]))
+    await tick()
+    const first = s.read(dir, d.id)
+    eq(first.pres.blocks[0].items.map(it => it.weightMode ?? null), ['one', null, null], 'memory on a first draft, and only where it has one')
+    // The user switches the split squat back to per hand on purpose, and asks for a change.
+    const mine = { ...first.pres, blocks: [{ name: 'Main', items: [lift(), lift({ exercise: 'row', name: 'Row', weightMode: 'one' })] }] }
+    s.revise(dir, d.id, { message: 'harder', pres: mine }, p.fn)
+    await tick()
+    // It keeps both, adds a goblet squat, and moves nothing to another implement.
+    p.calls[1].resolve(answer([lift({ sets: [{ reps: 10 }] }), lift({ exercise: 'row', name: 'Row' }), lift({ exercise: 'goblet-squat', name: 'Goblet squat' })]))
+    await tick()
+    const r = s.read(dir, d.id)
+    eq(r.pres.blocks[0].items.map(it => it.weightMode ?? null), [null, 'one', 'one'],
+      'a deliberate default was overridden, a chosen mode lost, or the new exercise got no memory')
+    eq(r.pres.blocks[0].items[0].sets, [{ reps: 10 }], 'the revision itself was lost')
+    // On disk, so another device or a reopened page sees it.
+    eq(JSON.parse(fs.readFileSync(path.join(dir, `${d.id}.json`), 'utf8')).pres.blocks[0].items.map(it => it.weightMode ?? null), [null, 'one', 'one'])
+  })
+
+  await step('weight-mode memory: the server reads a log exactly as the app does (#58)', async () => {
+    const { rememberedWeightMode } = await import('../app/src/lib/lifts.js')
+    const TODAY = '2026-10-28'
+    const row = (key, implement, mode, sets = [{ reps: 8, weight: 25 }]) => ({ uid: `${key}-1`, key, implement, ...(mode ? { weightMode: mode } : {}), sets })
+    const day = (id, date, lifts, data = {}) => ({ id, kind: 'daily', date, updatedAt: `${date}T09:00:00.000Z`, data: { out: { lifts }, ...data } })
+    const log = [
+      day('a', '2026-10-20', [row('bss', 'dumbbell', 'one'), row('dl', 'barbell', 'side')]),
+      day('b', '2026-10-22', [row('bss', 'dumbbell', null)]),
+      day('c', '2026-10-23', [row('bss', 'dumbbell', 'one')], { done: false, undone: true }),
+      day('d', '2026-10-24', [row('dl', 'barbell', null, [{ reps: '', weight: '' }]), row('row', 'dumbbell', 'one')]),
+      day('e', '2026-10-30', [row('row', 'dumbbell', null)]),
+      { ...day('f', '2026-10-25', [row('curl', 'dumbbell', 'one')]), deleted: true },
+      day('g', '2026-10-26', [row('press', 'kettlebell', 'one'), row('press', 'kettlebell', null)]),
+      { id: 'p', kind: 'daily', date: '2026-10-27', data: { plan: { blocks: [{ items: [{ kind: 'lift', exercise: 'bss', implement: 'dumbbell', weightMode: 'one' }] }] } } },
+    ]
+    const server = rememberedModes(Object.fromEntries(log.map(e => [e.id, e])), TODAY)
+    const pairs = [['bss', 'dumbbell'], ['dl', 'barbell'], ['row', 'dumbbell'], ['curl', 'dumbbell'], ['press', 'kettlebell']]
+    const app = pairs.map(([k, i]) => rememberedWeightMode(null, log, k, i, null, TODAY))
+    eq(pairs.map(([k, i]) => server.get(`${k}|${i}`) ?? null), app, 'the server and the app remember differently')
+    eq(app, [null, 'side', 'one', null, 'one'])
   })
 
   await step('a failed revision keeps the plan, takes the message off the thread, and retries it', async () => {

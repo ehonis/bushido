@@ -701,6 +701,28 @@ button.btn.danger:hover { border-color: var(--bad); }
 }
 .stepper-mid input:focus { outline: none; color: var(--accent); }
 .stepper-label { font-size: var(--fs-caption); color: var(--ink-dim); line-height: 1; }
+/* What a lift's weight means, switched on its own label (#58): the words are the
+   button, raised so they read as one. At most 84px wide, wrapping onto a second
+   line with the last word and the swap mark kept together, so reps, weight and
+   the set number still fit one row on a 390px phone. The tap area reaches past
+   the pill to the sides and below, never up into the number box. The runner's is
+   a full 44px on one line. */
+.stepper-swap {
+  position: relative; display: inline-block; max-width: 84px;
+  padding: 3px 5px; margin-top: 2px;
+  background: var(--panel-3); border: 1px solid var(--line-strong); border-radius: 9px;
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-caption); line-height: 1.2;
+  text-align: center; cursor: pointer;
+}
+.stepper-swap-end { white-space: nowrap; }
+.stepper-swap svg { vertical-align: -1px; margin-left: 2px; }
+.stepper-swap::after { content: ''; position: absolute; inset: -2px -10px -12px; }
+.stepper-swap:hover, .stepper-swap:active { color: var(--ink); }
+.bigstep .stepper-swap {
+  max-width: none; min-height: var(--tap); padding: 0 var(--sp-4); border-radius: var(--r-pill);
+  font-size: var(--fs-small); white-space: nowrap;
+}
+.bigstep .stepper-swap::after { display: none; }
 
 .expick { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .expick-head { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--line); }
@@ -1113,6 +1135,9 @@ button.btn.danger:hover { border-color: var(--bad); }
   font-size: var(--fs-caption); font-weight: 500; color: var(--ink-dim);
   text-transform: lowercase;
 }
+/* What the weight means, when it is not the default (#58): under the name, so
+   the summary beside it stays short. */
+.presc-mode { display: block; margin-top: 2px; font-size: var(--fs-caption); font-weight: 400; color: var(--ink-dim); }
 
 .run-body-map {
   display: flex; align-items: center; justify-content: center; gap: 10px;

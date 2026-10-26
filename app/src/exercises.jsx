@@ -34,7 +34,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
 import { NumInput } from './numinput.jsx'
 import { setFieldsFor } from './lib/prescription.js'
-import { searchExercises, implementsFor, lastLift, catalogOf } from './lib/lifts.js'
+import {
+  searchExercises, implementsFor, lastLift, catalogOf,
+  weightModesFor, weightPatch, nextWeightMode, rememberedWeightMode, weightModeWords, weightBoxOf,
+} from './lib/lifts.js'
 import { ExerciseBody, musclesOf, muscleWords } from './lib/bodymap.jsx'
 
 /**
@@ -43,7 +46,8 @@ import { ExerciseBody, musclesOf, muscleWords } from './lib/bodymap.jsx'
  * Five pounds at a time and twenty-five yards at a time because that is what a
  * plate and a length are; one rep and five seconds because that is what those
  * are. The weight's label comes off the IMPLEMENT — "30 lb per hand" and
- * "135 lb on the bar" are different numbers and the box has to say which.
+ * "135 lb on the bar" are different numbers and the box has to say which — and
+ * the mode the user switched it to (`weightSwitch`).
  */
 export const STEP = {
   reps: () => ({ label: 'reps', step: 1, min: 0 }),
@@ -67,15 +71,42 @@ export const STEP = {
 }
 
 /**
+ * The tap that changes what a lift's weight means (issue #58), or null where
+ * its implement has one meaning. Hands the stepper the label to show as a
+ * button and what one tap does; the same for the editor, the log and the runner.
+ */
+export function weightSwitch(liftField, item, onPatch) {
+  if (item?.kind !== 'lift' || weightModesFor(liftField, item.implement).length < 2) return null
+  const next = weightPatch(liftField, item.implement, nextWeightMode(liftField, item))
+  return { box: weightBoxOf(liftField, item), next: next.weightLabel, onSwitch: () => onPatch(next) }
+}
+
+/** A switch's words, the last one held to the swap mark so a wrap never strands it. */
+export function SwapWords({ label, size }) {
+  const words = String(label).split(' ')
+  const last = words.pop()
+  return (
+    <>
+      {words.length ? `${words.join(' ')} ` : ''}
+      <span className="stepper-swap-end">{last}<Icon name="ArrowLeftRight" size={size} /></span>
+    </>
+  )
+}
+
+/**
  * One number, moved with thumbs.
  *
  * 44px targets either side of an input that is still an input. The minus goes
  * inert at the floor rather than disappearing — a control that vanishes under
  * your thumb mid-session moves everything next to it.
+ *
+ * `swap` (from `weightSwitch`) turns the label under the number into the
+ * switch for what it means: the words are the button, so the thing you read is
+ * the thing you tap, and one tap moves to the other meaning.
  */
 export function Stepper({
   label, value, step = 1, min = null, max = null, suffix = '', quiet = false,
-  blank = null, placeholder = '—', onChange,
+  blank = null, placeholder = '—', onChange, swap = null,
 }) {
   const n = Number(value) || 0
   const bump = (d) => {
@@ -90,7 +121,12 @@ export function Stepper({
         aria-label={`less ${label}`}><Icon name="Minus" size={15} /></button>
       <span className="stepper-mid">
         <NumInput value={value} aria-label={label} placeholder={placeholder} blank={blank} onChange={onChange} />
-        <span className="stepper-label">{label}{suffix}</span>
+        {swap ? (
+          <button type="button" className="stepper-label stepper-swap" onClick={swap.onSwitch}
+            aria-label={`Weight in ${label}. Switch to ${swap.next}`}>
+            <SwapWords label={swap.box} size={10} />
+          </button>
+        ) : <span className="stepper-label">{label}{suffix}</span>}
       </span>
       <button className="stepper-btn" onClick={() => bump(1)} disabled={max !== null && n >= max}
         aria-label={`more ${label}`}><Icon name="Plus" size={15} /></button>
@@ -179,8 +215,12 @@ export function ExerciseCard({
    * Same `lastLift` everywhere, so no two of them can disagree about last time.
    */
   const prior = useMemo(
-    () => (item.exercise ? lastLift(entries, item.exercise, entryId) : null),
-    [entries, item.exercise, entryId])
+    () => (item.exercise ? lastLift(entries, item.exercise, entryId, liftField) : null),
+    [entries, item.exercise, entryId, liftField])
+  const swap = weightSwitch(liftField, item, onPatch)
+  // A mode other than the default, said under the name, so the summary beside it
+  // stays short enough not to squeeze the name on a phone.
+  const modeWords = item.kind === 'lift' ? weightModeWords(liftField, item) : null
 
   return (
     <div className={`presc-item k-${item.kind || 'lift'}`}>
@@ -190,6 +230,7 @@ export function ExerciseCard({
         <span className="presc-itemname">
           {item.name}
           {muscles && <span className="presc-muscles">{muscleWords(muscles)}</span>}
+          {modeWords && <span className="presc-mode">{modeWords}</span>}
         </span>
         <span className="presc-itemline">{item.line}</span>
         <span className={`alt-chev ${open ? 'open' : ''}`}><Icon name="ChevronDown" size={15} /></span>
@@ -226,7 +267,10 @@ export function ExerciseCard({
                 (b.value === item.implement) - (a.value === item.implement)).map(i => (
                 <button key={i.value} className={`implchip ${item.implement === i.value ? 'on' : ''}`}
                   onClick={() => onPatch({
-                    implement: i.value, implementLabel: i.label, weightLabel: i.weightLabel || null,
+                    implement: i.value, implementLabel: i.label,
+                    // In the mode this exercise was last done in with it (lib/lifts.js).
+                    ...weightPatch(liftField, i.value,
+                      rememberedWeightMode(liftField, entries, item.exercise, i.value, entryId)),
                   })}>
                   {i.label}
                 </button>
@@ -241,6 +285,7 @@ export function ExerciseCard({
                 {setFieldsFor(item, s).map(f => (
                   <Stepper key={f} {...STEP[f](item, s)} value={s[f]} blank={blank}
                     placeholder={s.hint?.[f] != null && s.hint[f] !== '' ? String(s.hint[f]) : '—'}
+                    swap={f === 'weight' ? swap : null}
                     onChange={v => onPatchSet(s.id, { [f]: v })} />
                 ))}
                 {/* Lifting has no programmed rest — see `normalizeSet`. An

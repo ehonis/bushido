@@ -1035,6 +1035,64 @@ const cases = [
       // plan side uses, rather than a search box always taking up the page.
       if (!/Add an exercise/.test(t)) throw new Error('no way to add an exercise')
     }],
+  /* What the weight MEANS is switched on its own label (#58): a Bulgarian split
+   * squat with ONE dumbbell. The label under the weight is the button, says
+   * what it is now, and one tap is the other meaning. */
+  ['SessionLog(a dumbbell lift: the weight label is the switch, in the mode it was logged in)', <SessionLog session={otherCard}
+    entry={{ id: 'ot58', kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { optId: 'log-workout', level: 2, out: { activity: 'lift', lifts: [
+        { uid: 'bulgarian-split-squat-1', key: 'bulgarian-split-squat', name: 'Bulgarian split squat', group: 'Quads',
+          implement: 'dumbbell', implementLabel: 'Dumbbell', weightMode: 'one', weightLabel: 'lb · one dumbbell',
+          sets: [{ reps: 8, weight: 25 }] },
+      ] } } }}
+    entries={[]} onSave={noop} bare />,
+    html => {
+      const t = text(html)
+      if ((html.match(/class="stepper-label stepper-swap"/g) || []).length !== 1) {
+        throw new Error('a dumbbell lift has no switch on its weight label (one set, one switch)')
+      }
+      if (!/<button[^>]*class="stepper-label stepper-swap"/.test(html)) throw new Error('the switch is not a button')
+      // The box says it in a word or two, so reps and weight keep one row on a phone;
+      // the full wording is the summary's and "last time"'s (review of #60).
+      const box = (html.match(/class="stepper-label stepper-swap"[^>]*>(.*?)<\/button>/) || [])[1] || ''
+      if (box.replace(/<[^>]+>/g, '').replace(/<!--.*?-->/g, '').trim() !== '1 DB') throw new Error(`the weight box says "${box.replace(/<[^>]+>/g, '').replace(/<!--.*?-->/g, '').trim()}", not "1 DB"`)
+      if (!/aria-label="Weight in lb · one dumbbell\. Switch to lb per hand"/.test(html)) {
+        throw new Error('the switch does not say what a tap does')
+      }
+      // The header says the mode under the name, and keeps its summary short so a
+      // long name is not squeezed on a phone (review of #60).
+      if (!/<span class="presc-mode">one dumbbell<\/span>/.test(html)) throw new Error('the header does not say the meaning')
+      if (!/<span class="presc-itemline">1 × 8 @ 25 lb<\/span>/.test(html)) throw new Error('the header summary is not the short one')
+      if (/role="dialog"|<dialog/.test(html)) throw new Error('a dialog for a one-tap switch')
+    }],
+  ['SessionLog(a dumbbell lift in its default: the switch offers one dumbbell)', <SessionLog session={otherCard}
+    entry={{ id: 'ot58b', kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { optId: 'log-workout', level: 2, out: { activity: 'lift', lifts: [
+        { uid: 'bent-over-row-1', key: 'bent-over-row', name: 'Bent-over row', group: 'Back',
+          implement: 'dumbbell', implementLabel: 'Dumbbell', sets: [{ reps: 10, weight: 30 }] },
+      ] } } }}
+    entries={[]} onSave={noop} bare />,
+    html => {
+      const box = (html.match(/class="stepper-label stepper-swap"[^>]*>(.*?)<\/button>/) || [])[1] || ''
+      if (box.replace(/<[^>]+>/g, '').replace(/<!--.*?-->/g, '').trim() !== 'per hand') throw new Error(`the default's box says "${box.replace(/<[^>]+>/g, '').replace(/<!--.*?-->/g, '').trim()}"`)
+      if (!/aria-label="Weight in lb per hand\. Switch to lb · one dumbbell"/.test(html)) {
+        throw new Error('an old row with no mode is not in the default, or offers nothing')
+      }
+    }],
+  /* And the absence: a machine has one meaning, so no switch is invented. */
+  ['SessionLog(a machine lift: no switch, just its label)', <SessionLog session={otherCard}
+    entry={{ id: 'ot58c', kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { optId: 'log-workout', level: 2, out: { activity: 'lift', lifts: [
+        { uid: 'leg-extension-1', key: 'leg-extension', name: 'Leg extension', group: 'Quads',
+          implement: 'machine', implementLabel: 'Machine', sets: [{ reps: 12, weight: 90 }] },
+      ] } } }}
+    entries={[]} onSave={noop} bare />,
+    html => {
+      if (!/class="presc-sets"/.test(html)) throw new Error('the card is not open, so this proves nothing')
+      if (/stepper-swap|ArrowLeftRight|Switch to/.test(html)) throw new Error('a machine lift grew a weight switch')
+      if (!/<span class="stepper-label">lb<\/span>/.test(html)) throw new Error('the machine weight lost its plain label')
+      if (/presc-mode/.test(html)) throw new Error('a machine lift says a weight mode')
+    }],
   /* A number a service measured says so. Attaching is the whole point — time
    * should not need entering when WHOOP already measured it — and a value the
    * user did not type must never look like one they did. */
@@ -2213,6 +2271,30 @@ const cases = [
       if (!/class="bigstep-in"[^>]*type="text"|type="text"[^>]*class="bigstep-in"/.test(html)) {
         throw new Error('the weight box is not a text box, so a decimal point will not survive typing')
       }
+    }],
+  /* The runner has the same switch, a full 44px, on the plan item (#58). */
+  ['WorkoutRunner(a dumbbell lift: the weight label is the switch)', <PlanProvider plan={plan}><WorkoutRunner session={PLANNED_CARD}
+    entry={{ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, plan: normalizePrescription({
+      title: 'Legs', blocks: [{ name: 'Main', items: [{ kind: 'lift', exercise: 'bulgarian-split-squat', implement: 'dumbbell',
+        weightMode: 'one', sets: [{ reps: 8, weight: 25 }] }] }],
+    }, { liftField: liftFieldOf(plan) }) } }}
+    entries={rich} onRun={noop} onExit={noop} /></PlanProvider>,
+    (html) => {
+      if (!/<button[^>]*class="bigstep-label stepper-swap"/.test(html)) throw new Error('the runner has no weight switch')
+      if (!/Switch to lb per hand/.test(html)) throw new Error('the runner switch does not say what a tap does')
+      const box = (html.match(/class="bigstep-label stepper-swap"[^>]*>(.*?)<\/button>/) || [])[1] || ''
+      if (box.replace(/<[^>]+>/g, '').replace(/<!--.*?-->/g, '').trim() !== '1 DB') throw new Error(`the runner's box says "${box.replace(/<[^>]+>/g, '').replace(/<!--.*?-->/g, '').trim()}"`)
+      if (!/25 lb · one dumbbell/.test(text(html))) throw new Error('the target does not say one dumbbell')
+    }],
+  ['WorkoutRunner(a machine lift: no switch)', <PlanProvider plan={plan}><WorkoutRunner session={PLANNED_CARD}
+    entry={{ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, plan: normalizePrescription({
+      title: 'Legs', blocks: [{ name: 'Main', items: [{ kind: 'lift', exercise: 'leg-extension', implement: 'machine',
+        sets: [{ reps: 12, weight: 90 }] }] }],
+    }, { liftField: liftFieldOf(plan) }) } }}
+    entries={rich} onRun={noop} onExit={noop} /></PlanProvider>,
+    (html) => {
+      if (!/class="bigstep-in"/.test(html)) throw new Error('the set screen did not render, so this proves nothing')
+      if (/stepper-swap|Switch to/.test(html)) throw new Error('a machine lift grew a weight switch in the runner')
     }],
   ['WorkoutRunner(resting)', <WorkoutRunner session={PLANNED_CARD}
     entry={{ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, run: RESTING_RUN } }}

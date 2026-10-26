@@ -58,7 +58,9 @@
 
 const BLOCK_KEYS = ['name', 'note', 'category', 'activity']
 // What an exercise IS. The implement is each person's own (one on a barbell,
-// one with dumbbells), like the weight that only means something against it.
+// one with dumbbells), like the weight that only means something against it,
+// and so is what that weight means (`weightMode`, lib/lifts.js): never carried,
+// and an exercise that arrives is in the receiver's default.
 const ITEM_KEYS = ['kind', 'name', 'exercise', 'group']
 const LIFT_KEYS = ['key', 'name', 'group']
 const MAX_SETS = 30

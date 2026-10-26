@@ -155,6 +155,12 @@ The form follows what you pick, via one of four **shapes**:
 | `lift` | the exercise chooser | lift, functional fitness |
 | `time` | how long, how hard | dance, yoga, pickleball |
 
+A lift's weight box says what the number means ("lb per hand", "lb on the bar"). Where an
+implement can mean more than one thing, that label is a button: one tap switches a
+dumbbell or kettlebell between per hand and one dumbbell, and a bar between on the bar and
+per side. The choice is remembered per exercise, so the next Bulgarian split squat starts
+the way the last one was logged.
+
 A treadmill run asks its incline and never its elevation; an outdoor run is the reverse.
 The old card gated incline on `activity: ["run","walk"]` and got both backwards.
 

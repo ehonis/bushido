@@ -249,6 +249,29 @@ test('a planned workout: copying never takes out what they removed or added', ()
   assert.deepEqual(names(copyExercises(bare, planned([item('b0i0', 'Hip thrust', [100, 100])]))), ['Hip thrustx2'])
 })
 
+test('what a weight means is the owner\'s: no copy carries their mode, first share, Copy my exercises or a plan (#58)', () => {
+  const one = { implement: 'dumbbell', implementLabel: 'Dumbbell', weightMode: 'one', weightLabel: 'lb · one dumbbell' }
+  const hasMode = (x) => 'weightMode' in x || x.weightLabel === 'lb · one dumbbell'
+  // The first share of a logged workout.
+  const bss = (sets, extra = {}) => ({ uid: 'bss-1', key: 'bss', name: 'Bulgarian split squat', ...one, sets, ...extra })
+  let copy = sharedCopy(gym([bss([set(8, 25)])]), { session: workoutCard })
+  assert.equal(liftsOf(copy)[0].implement, 'dumbbell', 'the exercise did not arrive, so this proves nothing')
+  assert.ok(!hasMode(liftsOf(copy)[0]), 'the owner\'s mode crossed on the first share')
+  // Copy my exercises, onto a copy that has one exercise already.
+  copy = copyExercises(editTheirs(copy, []), gym([bss([set(8, 25)]), { ...bss([set(10, 30)]), uid: 'row-1', key: 'row', name: 'Row' }]))
+  assert.deepEqual(liftsOf(copy).map(l => [l.uid, hasMode(l)]), [['bss-1', false], ['row-1', false]], 'Copy my exercises carried the mode')
+  // Their own mode on a lift they already have stays theirs.
+  const theirs = editTheirs(copy, [{ ...liftsOf(copy)[0], weightMode: 'pair', weightLabel: 'lb per hand', sets: [set(10, 20)] }])
+  assert.equal(liftsOf(copyExercises(theirs, gym([bss([set(8, 25), set(8, 25)])])))[0].weightMode, 'pair')
+  // A planned share, and Copy my exercises on a plan.
+  const mine = planned([{ ...item('b0i0', 'Bulgarian split squat', [25, 25]), exercise: 'bss', ...one }])
+  const pcopy = sharedCopy(mine, { session: plannedCard })
+  assert.ok(!hasMode(pcopy.data.plan.blocks[0].items[0]), 'the owner\'s mode crossed on a planned share')
+  const more = planned([mine.data.plan.blocks[0].items[0], { ...item('b0i1', 'Goblet squat', [40]), exercise: 'goblet', ...one }])
+  const grown = copyExercises(pcopy, more)
+  assert.deepEqual(grown.data.plan.blocks[0].items.map(i => hasMode(i)), [false, false], 'Copy my exercises carried a planned mode')
+})
+
 let failed = 0
 for (const [name, fn] of tests) {
   try { await fn(); console.log(`  ok    ${name}`) } catch (err) { failed++; console.log(`  FAIL  ${name}\n        ${err.message}`) }

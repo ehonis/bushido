@@ -31,7 +31,12 @@
  * future chart would group by; the names are what the log reads back as.
  */
 
+import { localIso } from './dates.js'
+
 export const LIFT_FIELD = 'lifts'
+
+/** The `type: "lifts"` field on a session card, or null. */
+export const liftFieldIn = (opt) => (opt?.outputs || []).find(f => f?.type === 'lifts') || null
 
 const num = (v) => {
   if (v === null || v === undefined || v === '') return null
@@ -90,6 +95,172 @@ export function implementLabel(field, value) {
  */
 export function weightLabelFor(field, value) {
   return implementOf(field, value)?.weightLabel || 'lb'
+}
+
+/* ------------------------------------------------------ what the weight means */
+
+/*
+ * The other things the weight can mean, by implement (issue #58).
+ *
+ * The implement alone does not settle it. A Bulgarian split squat holding ONE
+ * dumbbell is "25 lb, one dumbbell", and the app insisting on "lb per hand"
+ * left no way to say so; a loaded bar is counted on the bar or per side
+ * depending on the gym. So a lift row may carry a `weightMode`, switched on the
+ * label beside the weight box, and the label says which.
+ *
+ * In code, because the owner's plan file is not in the repository and must keep
+ * working unchanged; an implement may override them with its own `weightModes`
+ * (`[{ value, label }]`, the first being the default, `[]` for no switch).
+ * Anything not listed here has its declared label and no switch: a cable stack
+ * or a band has one honest meaning, and offering another would be the app
+ * inventing a choice. A mode is `{ value, label, short, box, partial }`: `short`
+ * is the words a card's header uses ("one dumbbell"), `box` the few under the
+ * weight box itself ("1 DB", so it fits one line beside the reps), and `partial`
+ * marks a number that is not the whole load (per side), which `liftsLine` says
+ * out loud. Summaries and "last time" use the full `label`.
+ */
+const PER_HAND = { value: 'pair', label: 'lb per hand', short: 'per hand', box: 'per hand' }
+const ONE = (what, box) => ({ value: 'one', label: `lb · one ${what}`, short: `one ${what}`, box })
+const BAR = [
+  { value: 'total', label: 'lb on the bar', short: 'on the bar', box: 'on the bar' },
+  { value: 'side', label: 'lb per side', short: 'per side', box: 'per side', partial: true },
+]
+const WEIGHT_MODES = {
+  dumbbell: [PER_HAND, ONE('dumbbell', '1 DB')],
+  kettlebell: [PER_HAND, ONE('kettlebell', '1 KB')],
+  barbell: BAR, 'ez-bar': BAR, 'trap-bar': BAR, smith: BAR, landmine: BAR,
+}
+
+/**
+ * The meanings on offer for an implement, default first; empty when there is
+ * nothing to switch. The default reads as the plan file declares it, so a row
+ * that never had a mode keeps the label it always had.
+ */
+export function weightModesFor(field, implement) {
+  if (!implement) return []
+  const impl = implementOf(field, implement)
+  if (Array.isArray(impl?.weightModes)) {
+    const own = impl.weightModes
+      .filter(m => m?.value && m?.label)
+      .map(m => ({
+        value: String(m.value), label: String(m.label), short: String(m.short || m.label),
+        box: String(m.box || m.short || m.label), partial: Boolean(m.partial),
+      }))
+    return own.length > 1 ? own : []
+  }
+  const coded = WEIGHT_MODES[implement]
+  if (!coded) return []
+  return [{ ...coded[0], label: impl?.weightLabel || coded[0].label }, ...coded.slice(1)]
+}
+
+/**
+ * A row's mode when it is one its implement offers and NOT the default, else
+ * null. Only a departure from the default is stored, so a row with no mode (every
+ * row logged before #58) reads exactly as it did.
+ */
+export function weightModeOf(field, row) {
+  const mode = row?.weightMode
+  if (!mode) return null
+  return weightModesFor(field, row.implement).slice(1).some(m => m.value === mode) ? mode : null
+}
+
+/** The row's mode as defined for its implement, when it is not the default; else null. */
+const modeOf = (field, row) => {
+  const mode = weightModeOf(field, row)
+  return mode ? weightModesFor(field, row.implement).find(m => m.value === mode) : null
+}
+
+/**
+ * The label of a row's mode when it is not the default, else null. A mode its
+ * implement does not offer (one dumbbell stored on a barbell row) is no mode.
+ * The row's own stored label stands only where neither the catalog nor the
+ * coded modes know the implement any more, so history still reads back what
+ * was meant.
+ */
+function modeLabel(field, row) {
+  const mode = modeOf(field, row)
+  if (mode) return mode.label
+  const known = implementOf(field, row?.implement) || WEIGHT_MODES[row?.implement]
+  if (row?.weightMode && row?.weightLabel && !known) return String(row.weightLabel)
+  return null
+}
+
+/** What the weight on this row means. */
+export function weightLabelOf(field, row) {
+  return modeLabel(field, row) || weightLabelFor(field, row?.implement)
+}
+
+/** The words under the weight box for a row's mode, the default's included ("per hand", "1 DB"); null with no switch. */
+export function weightBoxOf(field, row) {
+  const modes = weightModesFor(field, row?.implement)
+  if (modes.length < 2) return null
+  return (modeOf(field, row) || modes[0]).box
+}
+
+/** A card header's words for a row's mode when it is not the default ("one dumbbell"), else null. */
+export function weightModeWords(field, row) {
+  return modeOf(field, row)?.short || null
+}
+
+/** `{ weightMode, weightLabel }` for an implement in a mode; an invalid or default mode is null. */
+export function weightPatch(field, implement, mode = null) {
+  const weightMode = weightModeOf(field, { implement, weightMode: mode })
+  return { weightMode, weightLabel: weightLabelOf(field, { implement, weightMode }) }
+}
+
+/**
+ * The mode one tap on the label moves to: the next one round, back to the
+ * default after the last. Two meanings is a toggle, which is every coded case.
+ */
+export function nextWeightMode(field, row) {
+  const modes = weightModesFor(field, row?.implement)
+  if (modes.length < 2) return null
+  const at = Math.max(0, modes.findIndex(m => m.value === (weightModeOf(field, row) || modes[0].value)))
+  const next = modes[(at + 1) % modes.length].value
+  return next === modes[0].value ? null : next
+}
+
+/**
+ * The mode this exercise was last LOGGED in with this implement, or null for the
+ * default (issue #58: a new Bulgarian split squat starts as "one dumbbell" if
+ * that is how the last one was done). Per implement, because a mode belongs to one.
+ *
+ * THE RULE, the result of two rounds of review in which every heuristic opened
+ * a new case:
+ *
+ *   - Memory is READ one way only: from logged rows (`out.lifts`) with a number
+ *     on them, on entries that are done (not marked undone) and dated on or
+ *     before `today`. The newest decides; a row with no mode was logged in the
+ *     default, and going back to the default is a choice too. Plan items are not
+ *     choices. A planned exercise that was done reaches memory anyway, because
+ *     the runner and the sheet keep its logged row in step (prescription.js
+ *     `runOutputs`, `followWeightModes`).
+ *   - Memory is APPLIED once, when an exercise is created, and never again: a new
+ *     row in the lift log (`addLift`, or picking its implement), a new exercise in
+ *     the editor (`appendLift`), each lift of a model's FIRST draft
+ *     (server/drafts.js). On a revision, an exercise the model kept keeps exactly
+ *     what it had, a deliberate default included; only one new in the revision
+ *     gets memory (`reviseWeightModes`, and server/drafts.js for a draft).
+ *   - A mode is per person: whatever copies a lift to someone else strips it
+ *     (lib/shared.js, server/sharedsync.js).
+ *
+ * `undone` and `done` are read as `isDone` (lib/store.js) reads them for a day
+ * that has arrived. server/drafts.js `rememberedModes` is the same rule for a
+ * whole log, and server/drafts.test.js holds the two to the same answers.
+ */
+export function rememberedWeightMode(field, entries = [], key, implement, excludeId = null, today = localIso()) {
+  if (!key || !implement) return null
+  let best = null
+  for (const e of entries) {
+    if (e?.deleted || e?.kind !== 'daily' || e.id === excludeId || !(String(e.date || '') <= today)) continue
+    if (e.data?.done === false && e.data?.undone === true) continue
+    const row = liftsIn(e.data?.out).find(l => l?.key === key && l.implement === implement
+      && (l.sets || []).some(r => num(r?.reps) !== null || num(r?.weight) !== null))
+    if (!row) continue
+    const at = `${e.date || ''}|${e.updatedAt || ''}`
+    if (!best || at > best.at) best = { at, row }
+  }
+  return best ? weightModeOf(field, best.row) : null
 }
 
 /* -------------------------------------------------------------- the search */
@@ -171,21 +342,36 @@ function nextUid(list, key) {
  * One set and not three, and blank rather than seeded: there is no prescription
  * here to confirm, so any number in the box would be the app's invention. The
  * implement defaults to the movement's first offered one only when the catalog
- * gives it exactly one honest answer — otherwise it is a question.
+ * gives it exactly one honest answer — otherwise it is a question. An implement
+ * chosen that way starts in the weight mode the exercise was last logged in
+ * (`rememberedWeightMode`, from `entries`).
  */
-export function addLift(field, list, key) {
+export function addLift(field, list, key, { entries = [], excludeId = null } = {}) {
   const ex = exerciseOf(field, key)
   if (!ex) return list
   const offered = implementsFor(field, key)
   const rows = liftsIn({ [LIFT_FIELD]: list })
-  return [...rows, {
+  const implement = offered.length === 1 ? offered[0].value : ''
+  return [...rows, withWeightMode(field, {
     uid: nextUid(rows, key),
     key,
     name: ex.name,
     group: ex.group || null,
-    implement: offered.length === 1 ? offered[0].value : '',
+    implement,
     sets: [blankSet()],
-  }]
+  }, rememberedWeightMode(field, entries, key, implement, excludeId))]
+}
+
+/**
+ * A row in a mode: `weightMode` and its label stored only for a departure from
+ * the implement's default, and taken off otherwise, so a default row is the
+ * shape every row had before modes existed.
+ */
+function withWeightMode(field, row, mode) {
+  const { weightMode, weightLabel } = weightPatch(field, row.implement, mode)
+  const { weightMode: _m, ...rest } = row
+  if (weightMode) return { ...rest, weightMode, weightLabel }
+  return 'weightLabel' in rest ? { ...rest, weightLabel } : rest
 }
 
 export const blankSet = () => ({ reps: '', weight: '' })
@@ -203,6 +389,9 @@ export function patchLift(field, list, uid, patch) {
     // The label travels with the value for the same reason the exercise name
     // does — the log has to read back without the catalog.
     if ('implement' in patch) next.implementLabel = implementLabel(field, patch.implement) || null
+    // A new implement starts in the mode it is given, else its default: one
+    // dumbbell means nothing on a barbell.
+    if ('implement' in patch || 'weightMode' in patch) return withWeightMode(field, next, patch.weightMode ?? null)
     return next
   })
 }
@@ -272,11 +461,15 @@ export const liftReps = (out) =>
 /**
  * Total tonnage — reps × load, summed.
  *
- * As ENTERED, which for dumbbells is per hand. Doubling it here would be the app
+ * As ENTERED, whatever the weight means (`weightLabelOf`): per hand is not
+ * doubled and one dumbbell is not halved. Doubling here would be the app
  * deciding that two 30s is 60, which is true of the tonnage and false of the
- * number the user will compare against next week, and the weight column already says
- * which it is (see `weightLabelFor`). Only sets with both numbers count; a set
- * logged as reps alone contributes nothing rather than zero-weight noise.
+ * number the user will compare against next week, and the weight column already
+ * says which it is. "Per side" is counted as entered too, which makes the sum
+ * plainly not the load moved, so `liftsLine` says "as entered" whenever a set
+ * in it was per side rather than present it as the total. Only sets with both
+ * numbers count; a set logged as reps alone contributes nothing rather than
+ * zero-weight noise.
  */
 export function liftVolume(out) {
   let total = 0
@@ -290,12 +483,18 @@ export function liftVolume(out) {
   return Math.round(total)
 }
 
-/** "3 × 10 @ 30 lb", or "3 × 10" where no load was logged. Collapses equal sets. */
-export function liftSummary(lift) {
+/**
+ * "3 × 10 @ 30 lb", or "3 × 10" where no load was logged. Collapses equal sets.
+ * A row in a mode other than its default says so ("3 × 8 @ 25 lb · one
+ * dumbbell"), unless `mode: false` (a card's header, which says the mode under
+ * the name instead). `field` is the catalog; without one, the coded modes.
+ */
+export function liftSummary(lift, field = null, { mode = true } = {}) {
   const rows = (lift?.sets || []).filter(r => num(r.reps) !== null || num(r.weight) !== null)
   if (!rows.length) return ''
   const same = rows.every(r => String(r.reps) === String(rows[0].reps) && String(r.weight) === String(rows[0].weight))
-  const load = (r) => (num(r.weight) === null ? '' : ` @ ${num(r.weight)} lb`)
+  const unit = (mode && modeLabel(field, lift)) || 'lb'
+  const load = (r) => (num(r.weight) === null ? '' : ` @ ${num(r.weight)} ${unit}`)
   if (same) {
     const reps = num(rows[0].reps)
     return `${rows.length} × ${reps ?? '—'}${load(rows[0])}`
@@ -303,16 +502,19 @@ export function liftSummary(lift) {
   return rows.map(r => `${num(r.reps) ?? '—'}${load(r)}`).join(', ')
 }
 
-/** One line for the whole session: "6 exercises · 18 sets · 4,120 lb". */
-export function liftsLine(out) {
+/** One line for the whole session: "6 exercises · 18 sets · 4,120 lb". `field` as for `liftSummary`. */
+export function liftsLine(out, field = null) {
   const n = liftsIn(out).length
   if (!n) return ''
   const sets = liftSets(out)
   const vol = liftVolume(out)
+  // See `liftVolume`: a per-side set makes the sum something other than a total.
+  const perSide = liftsIn(out).some(l => modeOf(field, l)?.partial
+    && (l.sets || []).some(r => num(r.reps) !== null && num(r.weight) !== null))
   return [
     `${n} exercise${n === 1 ? '' : 's'}`,
     sets ? `${sets} set${sets === 1 ? '' : 's'}` : null,
-    vol ? `${vol.toLocaleString()} lb` : null,
+    vol ? `${vol.toLocaleString()} lb${perSide ? ' as entered' : ''}` : null,
   ].filter(Boolean).join(' · ')
 }
 
@@ -324,13 +526,13 @@ export function liftsLine(out) {
  * the history tab mid-set is not something that happens. Newest first, the entry
  * being edited excluded.
  */
-export function lastLift(entries = [], key, excludeId = null) {
+export function lastLift(entries = [], key, excludeId = null, field = null) {
   const hits = []
   for (const e of entries) {
     if (e?.deleted || e?.kind !== 'daily' || e.id === excludeId) continue
     for (const l of liftsIn(e.data?.out)) {
       if (l?.key !== key) continue
-      const summary = liftSummary(l)
+      const summary = liftSummary(l, field)
       if (summary) hits.push({ date: e.date, implement: l.implementLabel || l.implement || null, summary })
     }
   }

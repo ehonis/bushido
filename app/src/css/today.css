@@ -224,6 +224,11 @@
  */
 .liftlog { gap: 14px; }
 .liftlog .presc-block { margin-bottom: 0; }
+/* Both are grid items, which never shrink below their content by default: the
+   implement chips' scroller and a card's one-line summary ("2 × 8 @ 25 lb · one
+   dumbbell") then widened the whole log past a 390px phone, pushing the weight
+   box and the set's × off the right edge (#58). */
+.liftlog, .liftlog .presc-block { min-width: 0; }
 
 /* A number the app answered for the user, and one it worked out. Both are labelled
    rather than silent: a value the user did not type must never look like one they did. */

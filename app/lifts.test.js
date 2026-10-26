@@ -23,6 +23,8 @@ import {
   catalogOf, exerciseOf, implementsFor, implementLabel, weightLabelFor, searchExercises,
   addLift, removeLift, patchLift, addLiftSet, removeLiftSet, setLiftSet, moveLift,
   liftsIn, liftSets, liftReps, liftVolume, liftSummary, liftsLine, lastLift, LIFT_FIELD,
+  weightModesFor, weightModeOf, weightLabelOf, weightPatch, nextWeightMode, rememberedWeightMode,
+  weightModeWords, liftFieldIn, weightBoxOf,
 } from './src/lib/lifts.js'
 import { isRepeatable, extraEntryId } from './src/lib/store.js'
 import { gateResolver, catalogOf as activityCatalog } from './src/lib/activities.js'
@@ -468,6 +470,180 @@ check('what he lifted last time is findable, newest first', () => {
   eq(lastLift(entries, 'bench-press', 'b').date, '2026-09-01', 'the entry being edited is not its own history')
   eq(lastLift(entries, 'deadlift'), null, 'a movement he has never done')
   eq(lastLift([], 'bench-press'), null)
+})
+
+/* ================================================ what the weight means === */
+// Issue #58: a Bulgarian split squat with ONE dumbbell, while the box insisted
+// on "lb per hand".
+
+const BSS = 'bulgarian-split-squat'
+const day = (id, date, lifts) => ({ id, kind: 'daily', date, updatedAt: `${date}T10:00:00.000Z`, data: { out: { [LIFT_FIELD]: lifts } } })
+
+check('weight modes: offered where they apply, nowhere else, the default first', () => {
+  eq(weightModesFor(liftField, 'dumbbell'), [
+    { value: 'pair', label: 'lb per hand', short: 'per hand', box: 'per hand' },
+    { value: 'one', label: 'lb · one dumbbell', short: 'one dumbbell', box: '1 DB' },
+  ])
+  eq(weightModesFor(liftField, 'barbell').map(m => Boolean(m.partial)), [false, true], 'per side is the partial one')
+  eq(weightModesFor(liftField, 'kettlebell').map(m => m.label), ['lb per hand', 'lb · one kettlebell'])
+  for (const bar of ['barbell', 'ez-bar', 'trap-bar', 'smith', 'landmine']) {
+    eq(weightModesFor(liftField, bar).map(m => m.value), ['total', 'side'], bar)
+  }
+  for (const one of ['machine', 'cable', 'bodyweight', 'band', 'assisted', '', undefined]) {
+    eq(weightModesFor(liftField, one), [], `${one} has one meaning`)
+  }
+  // The default reads as the plan file declares it, whatever the code says.
+  const own = { implements: [{ value: 'dumbbell', label: 'DB', weightLabel: 'lb each' }] }
+  eq(weightModesFor(own, 'dumbbell')[0].label, 'lb each')
+  // And content may replace the choices, or turn the switch off.
+  const custom = { implements: [
+    { value: 'dumbbell', label: 'DB', weightLabel: 'lb', weightModes: [{ value: 'a', label: 'lb A' }, { value: 'b', label: 'lb B' }] },
+    { value: 'barbell', label: 'Bar', weightLabel: 'lb', weightModes: [] },
+  ] }
+  eq(weightModesFor(custom, 'dumbbell').map(m => m.value), ['a', 'b'])
+  eq(weightModesFor(custom, 'barbell'), [])
+})
+
+check('weight modes: a new row is in the default and stores nothing new', () => {
+  const [row] = addLift(liftField, [], 'bench-press')
+  ok(!('weightMode' in row) && !('weightLabel' in row), `a fresh row grew mode keys: ${JSON.stringify(row)}`)
+  const db = patchLift(liftField, addLift(liftField, [], BSS), `${BSS}-1`, { implement: 'dumbbell' })[0]
+  ok(!('weightMode' in db), 'the default is not stored')
+  eq(weightLabelOf(liftField, db), 'lb per hand')
+  eq(nextWeightMode(liftField, db), 'one')
+})
+
+check('weight modes: one tap switches, the row says so, and a second tap comes back', () => {
+  let list = patchLift(liftField, addLift(liftField, [], BSS), `${BSS}-1`, { implement: 'dumbbell' })
+  list = patchLift(liftField, list, `${BSS}-1`, { weightMode: nextWeightMode(liftField, list[0]) })
+  eq([list[0].weightMode, list[0].weightLabel], ['one', 'lb · one dumbbell'])
+  eq(weightLabelOf(liftField, list[0]), 'lb · one dumbbell')
+  list = setLiftSet(list, `${BSS}-1`, 0, { reps: 8, weight: 25 })
+  eq(liftSummary(list[0]), '1 × 8 @ 25 lb · one dumbbell', 'the summary says the meaning when it is not the default')
+  eq(nextWeightMode(liftField, list[0]), null, 'two meanings is a toggle')
+  list = patchLift(liftField, list, `${BSS}-1`, { weightMode: null })
+  ok(!('weightMode' in list[0]), 'back to the default leaves no mode behind')
+  eq(list[0].weightLabel, 'lb per hand')
+  eq(liftSummary(list[0]), '1 × 8 @ 25 lb')
+  // A mode the implement does not have is not a mode.
+  eq(patchLift(liftField, list, `${BSS}-1`, { weightMode: 'side' })[0].weightMode, undefined)
+  eq(weightPatch(liftField, 'machine', 'one'), { weightMode: null, weightLabel: 'lb' })
+})
+
+check('weight modes: legacy rows read exactly as before', () => {
+  // Every row logged before #58: no mode, sometimes no label at all.
+  const old = { uid: 'x-1', key: BSS, name: 'Bulgarian split squat', implement: 'dumbbell', implementLabel: 'Dumbbell', sets: [{ reps: '10', weight: '30' }] }
+  eq(weightModeOf(liftField, old), null)
+  eq(weightLabelOf(liftField, old), 'lb per hand')
+  eq(liftSummary(old), '1 × 10 @ 30 lb')
+  eq(weightLabelOf(liftField, { ...old, implement: 'barbell' }), 'lb on the bar')
+  eq(weightLabelOf(liftField, { ...old, implement: '' }), 'lb')
+  // A stored mode the catalog has since dropped still reads as what was meant.
+  eq(weightLabelOf({ implements: [] }, { ...old, weightMode: 'one', weightLabel: 'lb · one dumbbell' }), 'lb · one dumbbell')
+  eq(liftVolume({ [LIFT_FIELD]: [old] }), 300)
+})
+
+check('weight modes, the rule: memory is read from LOGGED rows only, done and on or before today', () => {
+  const TODAY = '2026-10-28'
+  const rm = (es, o = {}) => rememberedWeightMode(liftField, es, o.key || BSS, o.implement || 'dumbbell', o.exclude ?? null, TODAY)
+  const one = { uid: `${BSS}-1`, key: BSS, implement: 'dumbbell', weightMode: 'one', weightLabel: 'lb · one dumbbell', sets: [{ reps: 8, weight: 25 }] }
+  const plain = { uid: `${BSS}-1`, key: BSS, implement: 'dumbbell', sets: [{ reps: 8, weight: 25 }] }
+  // The tap test: one dumbbell yesterday, a new BSS today starts there.
+  const log = [day('a', '2026-10-25', [one])]
+  eq(rm(log), 'one')
+  const [fresh] = patchLift(liftField, addLift(liftField, [], BSS), `${BSS}-1`,
+    { implement: 'dumbbell', ...weightPatch(liftField, 'dumbbell', rm(log)) })
+  eq([fresh.weightMode, weightLabelOf(liftField, fresh)], ['one', 'lb · one dumbbell'])
+  // Per exercise and implement; never the entry being edited, never a deleted one.
+  eq(rm(log, { key: 'split-squat' }), null)
+  eq(rm(log, { implement: 'kettlebell' }), null)
+  eq(rm(log, { exclude: 'a' }), null)
+  eq(rm([{ ...log[0], deleted: true }]), null)
+  // The newest logged row decides, and logging in the default again is a choice.
+  eq(rm([...log, day('b', '2026-10-26', [plain])]), null)
+  eq(rm([day('b', '2026-10-20', [plain]), ...log]), 'one')
+  // Plan items are never choices: neither a model's default nor a switched one.
+  const planned = (date, item) => ({ id: `p-${date}`, kind: 'daily', date, updatedAt: `${date}T09:00:00.000Z`,
+    data: { plan: { blocks: [{ items: [{ kind: 'lift', exercise: BSS, implement: 'dumbbell', sets: [{ id: 'b0i0s0' }], ...item }] }] } } })
+  eq(rm([...log, planned('2026-10-27', {})]), 'one', 'an untouched plan reset the memory')
+  eq(rm([planned('2026-10-27', { weightMode: 'one' })]), null, 'a plan item counted as a choice')
+  // Not after today, not on an entry marked undone, not a row with no number on it.
+  eq(rm([...log, day('f', '2026-10-30', [plain])]), 'one', 'a future row reset the memory')
+  const undone = { ...day('u', '2026-10-26', [plain]), data: { done: false, undone: true, out: { [LIFT_FIELD]: [plain] } } }
+  eq(rm([...log, undone]), 'one', 'an entry marked undone reset the memory')
+  eq(rm([...log, { ...undone, data: { ...undone.data, undone: undefined } }]), null, 'a past entry not marked undone is done (isDone)')
+  eq(rm([...log, day('e', '2026-10-26', [{ ...plain, sets: [{ reps: '', weight: '' }] }])]), 'one', 'a blank row reset the memory')
+  // A carried, implement-less row is nobody's choice either.
+  eq(rm([...log, day('c', '2026-10-26', [{ ...plain, implement: '' }])]), 'one')
+  // addLift applies it when the catalog picks the implement itself.
+  const solo = { ...liftField, exercises: [{ key: 'solo', name: 'Solo', implements: ['dumbbell'] }] }
+  const remembered = addLift(solo, [], 'solo', { entries: [day('a', '2026-10-25', [{ ...one, key: 'solo' }])] })[0]
+  eq([remembered.implement, remembered.weightMode, remembered.weightLabel], ['dumbbell', 'one', 'lb · one dumbbell'])
+})
+
+check('weight modes: the box says it in a word or two, summaries in full', () => {
+  const one = { key: BSS, implement: 'dumbbell', weightMode: 'one', sets: [{ reps: 8, weight: 25 }] }
+  eq(weightBoxOf(liftField, one), '1 DB')
+  eq(weightBoxOf(liftField, { ...one, weightMode: undefined }), 'per hand')
+  eq(weightBoxOf(liftField, { ...one, implement: 'kettlebell' }), '1 KB')
+  eq(weightBoxOf(liftField, { ...one, implement: 'barbell', weightMode: 'side' }), 'per side')
+  eq(weightBoxOf(liftField, { ...one, implement: 'barbell', weightMode: undefined }), 'on the bar')
+  eq(weightBoxOf(liftField, { ...one, implement: 'machine' }), null, 'no switch, no box words')
+  eq(liftSummary(one, liftField), '1 × 8 @ 25 lb · one dumbbell')
+})
+
+check('weight modes: a new implement resets to its own default or remembered mode', () => {
+  let list = patchLift(liftField, addLift(liftField, [], BSS), `${BSS}-1`, { implement: 'dumbbell', weightMode: 'one' })
+  eq(list[0].weightMode, 'one')
+  list = patchLift(liftField, list, `${BSS}-1`, { implement: 'barbell' })
+  ok(!('weightMode' in list[0]), 'one dumbbell does not mean anything on a bar')
+  eq(weightLabelOf(liftField, list[0]), 'lb on the bar')
+  list = patchLift(liftField, list, `${BSS}-1`, { implement: 'smith', weightMode: 'side' })
+  eq([list[0].weightMode, list[0].weightLabel], ['side', 'lb per side'])
+  list = patchLift(liftField, list, `${BSS}-1`, { implement: 'bodyweight', weightMode: 'side' })
+  ok(!('weightMode' in list[0]), 'bodyweight has no modes')
+})
+
+check('weight modes: a mode the implement does not offer reads as its default, and cycles from there', () => {
+  const stale = { uid: 'r-1', key: 'bent-over-row', implement: 'barbell', weightMode: 'one', weightLabel: 'lb · one dumbbell', sets: [{ reps: 8, weight: 95 }] }
+  eq(weightModeOf(liftField, stale), null)
+  eq(weightLabelOf(liftField, stale), 'lb on the bar', 'a barbell row read as one dumbbell')
+  eq(weightModeWords(liftField, stale), null)
+  eq(nextWeightMode(liftField, stale), 'side')
+  eq(liftSummary(stale, liftField), '1 × 8 @ 95 lb', 'the summary disagreed with the implement')
+  eq(liftSummary(stale), '1 × 8 @ 95 lb', 'without a catalog the coded modes still apply')
+  // Where the catalog no longer knows the implement at all, the stored label is what was meant.
+  eq(weightLabelOf(liftField, { ...stale, implement: 'gone' }), 'lb · one dumbbell')
+  // The header's words, and the summary without them.
+  const one = { ...stale, implement: 'dumbbell' }
+  eq(weightModeWords(liftField, one), 'one dumbbell')
+  eq(liftSummary(one, liftField, { mode: false }), '1 × 8 @ 95 lb')
+  eq(liftSummary(one, liftField), '1 × 8 @ 95 lb · one dumbbell')
+  eq(lastLift([day('a', '2026-10-25', [stale])], 'bent-over-row', null, liftField).summary, '1 × 8 @ 95 lb')
+})
+
+check('weight modes: "as entered" follows what a mode means, not what it is called', () => {
+  const custom = { ...liftField, implements: liftField.implements.map(i => (i.value === 'barbell'
+    ? { ...i, weightModes: [{ value: 'bar', label: 'kg on the bar' }, { value: 'each', label: 'kg each side', short: 'each side', partial: true }] }
+    : i)) }
+  const each = { uid: 'z-1', key: 'deadlift', implement: 'barbell', weightMode: 'each', weightLabel: 'kg each side', sets: [{ reps: 5, weight: 60 }] }
+  eq(liftsLine({ [LIFT_FIELD]: [each] }, custom), '1 exercise · 1 set · 300 lb as entered')
+  eq(weightModeWords(custom, each), 'each side')
+  // And a coded per side without the catalog to hand.
+  eq(liftsLine({ [LIFT_FIELD]: [{ ...each, weightMode: 'side' }] }), '1 exercise · 1 set · 300 lb as entered')
+  eq(liftFieldIn(other), liftField)
+  eq(liftFieldIn(null), null)
+})
+
+check('weight modes: volume is as entered, and per side is not called a total', () => {
+  const pair = { uid: 'a-1', key: 'a', implement: 'dumbbell', sets: [{ reps: 10, weight: 30 }] }
+  const one = { uid: 'b-1', key: 'b', implement: 'dumbbell', weightMode: 'one', weightLabel: 'lb · one dumbbell', sets: [{ reps: 10, weight: 30 }] }
+  const side = { uid: 'c-1', key: 'c', implement: 'barbell', weightMode: 'side', weightLabel: 'lb per side', sets: [{ reps: 5, weight: 45 }] }
+  eq(liftVolume({ [LIFT_FIELD]: [pair, one] }), 600, 'per hand not doubled, one dumbbell not halved')
+  eq(liftsLine({ [LIFT_FIELD]: [pair, one] }), '2 exercises · 2 sets · 600 lb')
+  eq(liftVolume({ [LIFT_FIELD]: [pair, side] }), 525)
+  eq(liftsLine({ [LIFT_FIELD]: [pair, side] }), '2 exercises · 2 sets · 525 lb as entered')
+  eq(liftSummary(side), '1 × 5 @ 45 lb per side')
 })
 
 check('the catalog resolves by key', () => {

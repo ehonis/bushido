@@ -56,7 +56,7 @@ const fsp = require('fs/promises')
 const path = require('path')
 const { spawn } = require('child_process')
 const planner = require('./planner.js')
-const { createDrafts, dirOf: draftsDir, keptIdsIn } = require('./drafts.js')
+const { createDrafts, dirOf: draftsDir, keptIdsIn, rememberedModes } = require('./drafts.js')
 const { createBushidoNotify } = require('./notify.js')
 const notifyFacts = require('./notify-facts.js')
 const { createConfig } = require('./config.js')
@@ -2217,6 +2217,9 @@ const server = http.createServer(async (req, res) => {
             ? { revise: { plan: current, message, thread: thread.slice(0, -1).slice(-8) } }
             : { kinds: draft.ask.kinds, minutes: draft.ask.minutes, goal: draft.ask.goal, context: draft.context }),
         })
+          // The person's weight-mode memory (#58), read from their own log as the
+          // answer lands, for drafts.js to lay onto it.
+          .then(r => ({ ...r, remembered: rememberedModes(readStateSync(target).state.entries, todayKey()) }))
       }
       const answer = (fn) => {
         try { return send(res, 200, { draft: fn() }) } catch (err) {

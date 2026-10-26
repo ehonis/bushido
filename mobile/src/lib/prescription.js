@@ -35,7 +35,9 @@
  * deadline is stored as `restUntil` rather than as "90 seconds remaining".
  */
 
-import { catalogOf, exerciseOf, implementLabel, weightLabelFor, implementsFor } from './lifts.js'
+import {
+  catalogOf, exerciseOf, implementLabel, implementsFor, weightPatch, rememberedWeightMode,
+} from './lifts.js'
 
 export const PRESCRIPTION_VERSION = 1
 
@@ -163,6 +165,7 @@ function normalizeItem(it, id, liftField) {
   let implement = ''
   let implementLbl = null
   let weightLbl = null
+  let weightMode = null
   let group = null
 
   if (kind === 'lift') {
@@ -181,7 +184,9 @@ function normalizeItem(it, id, liftField) {
     implement = offered.some(o => o.value === wanted) ? wanted
       : offered.length === 1 ? offered[0].value : ''
     implementLbl = implement && liftField ? (implementLabel(liftField, implement) || null) : null
-    weightLbl = implement && liftField ? (weightLabelFor(liftField, implement) || null) : null
+    // What the weight means: the implement's default unless the item says
+    // otherwise (lib/lifts.js, `weightModesFor`).
+    if (implement && liftField) ({ weightMode, weightLabel: weightLbl } = weightPatch(liftField, implement, it.weightMode))
   }
 
   if (!name) return null
@@ -200,6 +205,7 @@ function normalizeItem(it, id, liftField) {
     id, ...uidOf(it.uid), kind, name, note: str(it.note, 300),
     exercise, group, implement,
     implementLabel: implementLbl, weightLabel: weightLbl,
+    ...(weightMode ? { weightMode } : {}),
     unit, sets,
   }
 }
@@ -532,6 +538,8 @@ export function runOutputs(pres, run, out = {}) {
           group: it.group || null,
           implement: it.implement || '',
           implementLabel: it.implementLabel || null,
+          // A mode travels with its label, as the lift log stores it (lib/lifts.js).
+          ...(it.weightMode ? { weightMode: it.weightMode, weightLabel: it.weightLabel || null } : {}),
           // The same `{reps, weight}` rows the lift log writes. Strings there,
           // numbers here; `liftVolume` runs both through `Number()`.
           sets: rows.map(r => ({ reps: r.reps ?? '', weight: r.weight ?? '' })),
@@ -831,7 +839,106 @@ export function isLiftOnly(pres) {
   return items.length > 0 && items.every(it => it.kind === 'lift')
 }
 
-export const patchItem = (pres, itemId, patch) => mapItem(pres, itemId, it => ({ ...it, ...patch }))
+export const patchItem = (pres, itemId, patch) => mapItem(pres, itemId, it => {
+  const next = { ...it, ...patch }
+  // Only a departure from the default is stored (lib/lifts.js `weightModeOf`).
+  if (next.weightMode == null) delete next.weightMode
+  return next
+})
+
+/** The plan item and the logged row it became (`runOutputs`: the row's uid is the item's id), as pairs. */
+function loggedPairs(data) {
+  const rows = Array.isArray(data?.out?.lifts) ? data.out.lifts : []
+  return (data?.plan?.blocks || []).flatMap(b => b?.items || []).filter(it => it?.kind === 'lift').flatMap(item => {
+    const row = rows.find(r => r?.uid === item.id && r.key === item.exercise && r.implement === item.implement)
+    return row ? [{ item, row }] : []
+  })
+}
+
+/** An item or row in a mode: only a departure from the default is stored. */
+function inMode(x, liftField, mode) {
+  const { weightMode, weightLabel } = weightPatch(liftField, x.implement, mode)
+  const { weightMode: _m, ...rest } = x
+  return weightMode ? { ...rest, weightMode, weightLabel } : { ...rest, weightLabel }
+}
+
+/**
+ * ONE meaning for one exercise on an entry that was run (#58).
+ *
+ * A planned session's sheet shows the plan AND the log its run wrote, so one
+ * exercise has a weight switch in each. They are kept as one value rather than
+ * one of them hidden: whichever side this write switched (`before` → `after`,
+ * both an entry's `data`), the other follows, and nothing else on either moves,
+ * so numbers edited on the log afterwards and lifts added by hand stay as they
+ * are. A pair that already disagreed and that this write did not touch is left
+ * alone (stored data is never rewritten to suit the code). Returns `after`
+ * itself when there is nothing to follow.
+ */
+export function followWeightModes(before, after, liftField) {
+  const pairs = loggedPairs(after)
+  if (!pairs.length) return after
+  const was = new Map(loggedPairs(before).map(p => [p.item.id, p]))
+  let plan = after.plan
+  let lifts = after.out.lifts
+  for (const { item, row } of pairs) {
+    const im = item.weightMode || null
+    const rm = row.weightMode || null
+    if (im === rm) continue
+    const old = was.get(item.id)
+    if (old && (old.item.weightMode || null) !== im) {
+      lifts = lifts.map(r => (r === row ? inMode(r, liftField, im) : r))
+    } else if (old && (old.row.weightMode || null) !== rm) {
+      plan = mapItem(plan, item.id, it => inMode(it, liftField, rm))
+    }
+  }
+  if (plan === after.plan && lifts === after.out.lifts) return after
+  return { ...after, plan, out: { ...after.out, lifts } }
+}
+
+/**
+ * Something about one exercise changed mid-run (its weight mode, #58): the plan,
+ * and its logged row in the same write (`followWeightModes`), or the log, "last
+ * time" and memory would keep the old meaning; `runOutputs` only runs again when
+ * a set is marked, and the label is often tapped after the last one.
+ */
+export function patchRunItem(pres, run, itemId, patch, out = {}, liftField = null) {
+  const plan = patchItem(pres, itemId, patch)
+  const next = followWeightModes({ plan: pres, out }, { plan, out }, liftField)
+  return next.out === out ? { plan } : { plan, out: next.out }
+}
+
+/**
+ * A model's revision, with the weight modes put back (#58).
+ *
+ * The model is never asked what a weight means, so its answer is in every
+ * implement's default. An exercise it kept, on the same implement, keeps exactly
+ * what it had, a deliberate default included: matched by `uid` where there are
+ * uids, else by exercise, each earlier item used once. Only an exercise new in
+ * the revision (or moved to another implement) gets memory
+ * (`rememberedWeightMode`, from `entries`). server/drafts.js does the same to a
+ * draft, where it survives the page closing.
+ */
+export function reviseWeightModes(before, after, liftField, entries = [], { excludeId = null, today } = {}) {
+  if (!after?.blocks) return after
+  const left = (before?.blocks || []).flatMap(b => b.items || []).filter(it => it.kind === 'lift')
+  const take = (it) => {
+    const at = it.uid ? left.findIndex(o => o.uid === it.uid) : left.findIndex(o => !o.uid && o.exercise === it.exercise)
+    return at < 0 ? null : left.splice(at, 1)[0]
+  }
+  return {
+    ...after,
+    blocks: after.blocks.map(b => ({
+      ...b,
+      items: b.items.map(it => {
+        if (it.kind !== 'lift' || !it.exercise || !it.implement) return it
+        const old = take(it)
+        const mode = old && old.implement === it.implement ? (old.weightMode || null)
+          : rememberedWeightMode(liftField, entries, it.exercise, it.implement, excludeId, today)
+        return inMode(it, liftField, mode)
+      }),
+    })),
+  }
+}
 
 /** Change something about a block itself — its name, its note, its quota. */
 export const patchBlock = (pres, blockId, patch) => ({
@@ -839,17 +946,24 @@ export const patchBlock = (pres, blockId, patch) => ({
   blocks: (pres.blocks || []).map(b => (b.id === blockId ? { ...b, ...patch } : b)),
 })
 
-/** A blank lift row, for adding a movement the planner did not think of. */
-export function appendLift(pres, liftField, key, { blockId = null } = {}) {
+/**
+ * A blank lift row, for adding a movement the planner did not think of. An
+ * implement chosen for it starts in the weight mode the exercise was last
+ * logged in, as on the log (`addLift`).
+ */
+export function appendLift(pres, liftField, key, { blockId = null, entries = [], excludeId = null } = {}) {
   const ex = exerciseOf(liftField, key)
   if (!ex) return pres
   const offered = implementsFor(liftField, key)
   const implement = offered.length === 1 ? offered[0].value : ''
+  const { weightMode, weightLabel } = implement
+    ? weightPatch(liftField, implement, rememberedWeightMode(liftField, entries, key, implement, excludeId))
+    : { weightMode: null, weightLabel: null }
   const item = {
     id: 'new', kind: 'lift', name: ex.name, note: '',
     exercise: key, group: ex.group || null, implement,
     implementLabel: implement ? implementLabel(liftField, implement) : null,
-    weightLabel: implement ? weightLabelFor(liftField, implement) : null,
+    weightLabel, ...(weightMode ? { weightMode } : {}),
     unit: null,
     sets: [{ id: 'new-s0', reps: null, weight: null, seconds: null, distance: null, restSec: null, unit: null, note: '' }],
   }

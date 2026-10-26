@@ -122,8 +122,16 @@ function keyed(pres) {
   }))
 }
 
-/** One of the owner's exercises on their side: the target, not the owner's weight. */
-const theirItem = (item) => ({ ...item, sets: (item.sets || []).map(s => ({ ...s, weight: null })) })
+/*
+ * What the owner's weight means is the owner's (#58), as the implement-free
+ * exercise arriving through sync is (server/sharedsync.js): a copy is in the
+ * implement's default, with no mode and no label of the owner's. The box under
+ * the weight still offers the switch, from the implement.
+ */
+const noMode = ({ weightMode: _m, weightLabel: _l, ...rest }) => rest
+
+/** One of the owner's exercises on their side: the target, not the owner's weight or what it meant. */
+const theirItem = (item) => ({ ...noMode(item), sets: (item.sets || []).map(s => ({ ...s, weight: null })) })
 
 /**
  * The owner's plan as the start of theirs: the exercises, never the owner's
@@ -171,7 +179,7 @@ function copyLifts(theirs, mine) {
     if (!m?.uid) continue
     const t = out.find(r => r?.uid === m.uid)
     const want = Math.max(1, (m.sets || []).length)
-    if (!t) out = [...out, { ...m, sets: Array.from({ length: want }, blankSet) }]
+    if (!t) out = [...out, { ...noMode(m), sets: Array.from({ length: want }, blankSet) }]
     else if ((t.sets || []).length < want) {
       const sets = [...(t.sets || [])]
       while (sets.length < want) sets.push(blankSet())

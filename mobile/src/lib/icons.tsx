@@ -125,6 +125,7 @@ import Lock from 'lucide-react-native/icons/lock'
 import Server from 'lucide-react-native/icons/server'
 import Weight from 'lucide-react-native/icons/weight'
 import Vibrate from 'lucide-react-native/icons/vibrate'
+import ArrowLeftRight from 'lucide-react-native/icons/arrow-left-right'
 
 const REGISTRY: Record<string, React.ComponentType<any>> = {
   CalendarDays, Map, Gauge, NotebookPen, ShoppingBag, FlaskConical, Feather, Shield, Dumbbell, Mountain, Moon, LogOut, Flame, Target, Timer, Check, Circle, ChevronDown, TriangleAlert, CircleCheck, CircleSlash, Info, ExternalLink, Eye, EyeOff, X, Pencil, Footprints, Hand, Sunrise, RotateCw, ClipboardCheck, PersonStanding, Move, Sunset, Umbrella, Repeat, Grid2x2, Sprout, Users, Route, Plus, Layers, Expand, Activity, Bike, Sparkles, Waypoints, MoveHorizontal, ArrowUpDown, Play, Pause, SkipForward, SkipBack, Minus, Flag, Volume2, VolumeX, HeartPulse, House, GitBranch, Bell, BellOff, Send, ThumbsUp, ThumbsDown, Zap, Wind, TrendingUp, Droplets, CalendarRange, MessagesSquare, ListPlus, BatteryLow, Thermometer, Plane, Briefcase, Bandage, Infinity: InfinityIcon,
@@ -132,6 +133,8 @@ const REGISTRY: Record<string, React.ComponentType<any>> = {
   // Native chrome.
   History,
   ChevronRight, ChevronLeft, ChevronUp, ArrowLeft, Search, Settings, User, RefreshCw, Cloud, CloudOff, Copy, MessageCircle, ArrowUp, Square, Wifi, WifiOff, Link, Unlink, Star, Clock, Ellipsis, GripVertical, ArrowDown, Lock, Server, Weight, Vibrate,
+  // What a lift's weight means, switched on its label (#58).
+  ArrowLeftRight,
 }
 
 /** Is this a name plan.json may use? */
