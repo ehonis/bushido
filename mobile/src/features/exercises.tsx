@@ -22,7 +22,9 @@
  * ticks, and a set that becomes complete buzzes.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Animated, FlatList, ScrollView, StyleSheet, View } from 'react-native'
+import { Animated, FlatList, Linking, ScrollView, StyleSheet, View } from 'react-native'
+import * as WebBrowser from 'expo-web-browser'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable'
 import { colors, font, mix, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
@@ -31,12 +33,13 @@ import { Popover } from '../ui/Sheet'
 import { impact, success, tap } from '../ui/haptics'
 import { Icon } from '../lib/icons'
 import { NumInput } from './numinput'
-import { setFieldsFor } from '../lib/prescription.js'
+import { setFieldsFor, measureOfItem } from '../lib/prescription.js'
 import {
-  searchExercises, implementsFor, lastLift, catalogOf,
+  searchExercises, implementsFor, lastLift, catalogOf, exerciseOf, muscleName, measureFor,
   weightModesFor, weightPatch, nextWeightMode, rememberedWeightMode, weightModeWords, weightBoxOf,
 } from '../lib/lifts.js'
-import { ExerciseBody, musclesOf, muscleWords } from '../lib/bodymap'
+import { ExerciseBody, BodyMap, musclesOf, muscleWords } from '../lib/bodymap'
+import { HowBody } from './howto'
 
 /**
  * What each field is called and how far one press moves it.
@@ -99,7 +102,7 @@ const sw = StyleSheet.create({
   },
 })
 
-export type WeightSwap = { box: string; next: string; onSwitch: () => void } | null
+export type WeightSwap = { box: string; next: string; aria?: string; onSwitch: () => void } | null
 
 /**
  * The tap that changes what a lift's weight means (issue #58), or null where
@@ -123,6 +126,25 @@ export function implementPick(liftField: any, item: any, impl: any, entries: any
     implement: impl.value, implementLabel: impl.label,
     ...(weightPatch as any)(liftField, impl.value,
       (rememberedWeightMode as any)(liftField, entries, item.exercise, impl.value, entryId)),
+  }
+}
+
+/**
+ * The tap that counts a hold in reps instead, or back (issue #63 review), or
+ * null. Offered on a movement the catalog calls a hold while nothing is counted
+ * on it yet, under the count's own box, like the weight's meaning.
+ */
+export function countSwitch(liftField: any, item: any, onPatch: (patch: any) => void): WeightSwap {
+  if (item?.kind !== 'lift' || !item.exercise || measureFor(liftField, item.exercise) !== 'time') return null
+  const counted = (item.sets || []).some((s: any) => (s.reps !== null && s.reps !== undefined && s.reps !== '')
+    || (s.seconds !== null && s.seconds !== undefined && s.seconds !== ''))
+  if (counted) return null
+  const now = measureOfItem(item)
+  const next = now === 'time' ? 'reps' : 'time'
+  return {
+    box: now === 'time' ? 'sec' : 'reps',
+    aria: `Counted in ${now === 'time' ? 'seconds' : 'reps'}. Switch to ${next === 'time' ? 'seconds' : 'reps'}`,
+    next, onSwitch: () => { tap(); onPatch({ measure: next }) },
   }
 }
 
@@ -173,7 +195,7 @@ export function Stepper({
         />
         {swap ? (
           <Press onPress={swap.onSwitch} style={st.swap} hitSlop={{ top: 2, bottom: 12, left: 10, right: 10 }}
-            accessibilityRole="button" accessibilityLabel={`Weight in ${label}. Switch to ${swap.next}`}>
+            accessibilityRole="button" accessibilityLabel={swap.aria || `Weight in ${label}. Switch to ${swap.next}`}>
             <T size={font.caption} dim align="center" style={{ flexShrink: 1 }}>{swap.box}</T>
             <Icon name="ArrowLeftRight" size={10} color={colors.inkDim} />
           </Press>
@@ -187,6 +209,82 @@ export function Stepper({
   )
 }
 
+/* ------------------------------------------------------- what the movement is */
+
+/**
+ * One exercise, explained (issue #63): what it works, what it needs, how to do
+ * it, the one thing to watch, and a video when the library has one.
+ *
+ * Reference, so a page sheet (the web's popover), never a full screen. It opens
+ * from a lift card's name, the runner's, and the picker's "what is this?" before
+ * the exercise is added. Read between sets, so the gist leads. No how-to still
+ * shows the body and the muscles. `onAdd` (the picker) puts the one primary in
+ * the foot. The video opens in the in-app browser, as Settings does; a link the
+ * browser cannot take goes to the system.
+ */
+export function ExerciseSheet({ field, exercise, name = null, onClose, onAdd = null, visible = true, onDismiss }: {
+  field: any; exercise: string; name?: string | null; onClose: () => void; onAdd?: (() => void) | null
+  visible?: boolean; onDismiss?: () => void
+}) {
+  const insets = useSafeAreaInsets()
+  const ex: any = (exerciseOf as any)(field, exercise)
+  const title = ex?.name || name || 'Exercise'
+  const m = musclesOf(field, exercise)
+  const video = ex?.video?.url && /^https:\/\//.test(ex.video.url) ? ex.video : null
+  const context = [ex?.group, ex?.measure === 'time' ? 'Held for time' : null].filter(Boolean).join(' · ')
+  const watch = () => {
+    impact()
+    WebBrowser.openBrowserAsync(video.url).catch(() => { Linking.openURL(video.url).catch(() => {}) })
+  }
+  const fact = (k: string, v: string) => (
+    <View style={st.fact}>
+      <T size={font.small} dim style={{ width: 44 }}>{k}</T>
+      <T size={font.small} style={{ flex: 1 }}>{v}</T>
+    </View>
+  )
+
+  return (
+    <Popover label={`About ${title}`} onClose={onClose} visible={visible} onDismiss={onDismiss}>
+      <View style={st.sheetHead}>
+        <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+          <T size={font.title} weight={600}>{title}</T>
+          {context ? <T size={font.caption} dim>{context}</T> : null}
+        </View>
+        <IconBtn icon="X" label="Close" onPress={onClose} />
+      </View>
+      <ScrollView contentContainerStyle={st.sheetBody}>
+        {m ? (
+          <View style={st.works}>
+            <BodyMap primary={m.primary} secondary={m.secondary} size={56} label={`${title} works ${m.primary.join(', ')}`} />
+            <View style={{ flex: 1, gap: space[1] }}>
+              {fact('Works', m.primary.map(muscleName).join(', '))}
+              {m.secondary.length ? fact('Also', m.secondary.map(muscleName).join(', ')) : null}
+              {ex?.equipment ? fact('Needs', ex.equipment) : null}
+            </View>
+          </View>
+        ) : ex?.equipment ? fact('Needs', ex.equipment) : null}
+
+        {ex?.how ? <HowBody how={ex.how} showFigure={false} />
+          : <T size={font.small} dim>No step-by-step for this one yet.</T>}
+
+        {video ? (
+          <View style={{ gap: space[1], alignItems: 'flex-start' }}>
+            <Btn kind="secondary" icon="Play" title="Watch how" onPress={watch} />
+            {video.channel || video.title ? (
+              <T size={font.caption} dim>{[video.title, video.channel].filter(Boolean).join(' · ')}</T>
+            ) : null}
+          </View>
+        ) : null}
+      </ScrollView>
+      {onAdd ? (
+        <View style={[st.sheetFoot, { paddingBottom: Math.max(insets.bottom, space[3]) }]}>
+          <Btn icon="Plus" title={`Add ${title}`} onPress={() => { impact(); onAdd() }} />
+        </View>
+      ) : null}
+    </Popover>
+  )
+}
+
 /* ------------------------------------------------------------- the picker */
 
 /**
@@ -197,14 +295,32 @@ export function Stepper({
  */
 export function ExercisePicker({ field, onPick, onClose }: any) {
   const [q, setQ] = useState('')
-  const hits = useMemo(() => (searchExercises as any)(field, q, { limit: 24 }), [field, q])
+  // A tapped group chip is that group exactly; typing makes it a search again.
+  const [chip, setChip] = useState<string | null>(null)
+  const hits = useMemo(() => (searchExercises as any)(field, chip ? '' : q, { limit: 24, group: chip }), [field, q, chip])
   const { exercises, groups } = catalogOf(field) as any
+  /*
+   * "What is this?" before adding it (issue #63): the sheet, with Add in its
+   * foot. Add slides the sheet away FIRST and adds once it is gone (onDismiss):
+   * closing the picker under a sheet still on its way out leaves iOS stuck
+   * mid-transition. `about` stays set while it slides, so it keeps its words.
+   */
+  const [about, setAbout] = useState<string | null>(null)
+  const [showing, setShowing] = useState(false)
+  const adding = useRef<string | null>(null)
+  const ask = (key: string) => { setAbout(key); setShowing(true) }
+  const gone = () => {
+    const key = adding.current
+    adding.current = null
+    setAbout(null)
+    if (key) onPick(key)
+  }
 
   return (
     <View style={{ flex: 1 }}>
       <View style={st.pickHead}>
         <Input
-          autoFocus value={q} onChangeText={setQ}
+          autoFocus value={q} onChangeText={(t: string) => { setQ(t); setChip(null) }}
           accessibilityLabel="Search for an exercise"
           placeholder={`search ${exercises.length} exercises…`}
           autoCorrect={false} autoCapitalize="none" returnKeyType="search" clearButtonMode="while-editing"
@@ -216,7 +332,7 @@ export function ExercisePicker({ field, onPick, onClose }: any) {
       {!q.trim() && groups.length > 0 && (
         <View style={st.pickGroups}>
           {groups.map((g: string) => (
-            <Press key={g} haptic onPress={() => setQ(g)} style={[st.implchip, { minHeight: 36 }]}>
+            <Press key={g} haptic onPress={() => { setQ(g); setChip(g) }} style={[st.implchip, { minHeight: 36 }]}>
               <T size={font.small} faint>{g}</T>
             </Press>
           ))}
@@ -229,18 +345,26 @@ export function ExercisePicker({ field, onPick, onClose }: any) {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         renderItem={({ item: ex }: any) => (
-          <Press onPress={() => onPick(ex.key)} style={st.pickRow} accessibilityRole="button">
-            <ExerciseBody field={field} exercise={ex.key} name={ex.name} size={26} />
-            <T size={15} style={{ flex: 1, minWidth: 0 }}>{ex.name}</T>
-            {ex.group ? <T size={font.small} dim>{ex.group}</T> : null}
-          </Press>
+          <View style={st.pickLine}>
+            <Press onPress={() => onPick(ex.key)} style={st.pickRow} accessibilityRole="button">
+              <ExerciseBody field={field} exercise={ex.key} name={ex.name} size={26} />
+              <T size={15} style={{ flex: 1, minWidth: 0 }}>{ex.name}</T>
+              {ex.group ? <T size={font.small} dim>{ex.group}</T> : null}
+            </Press>
+            <IconBtn icon="Info" label={`What is ${ex.name}?`} onPress={() => { tap(); ask(ex.key) }} />
+          </View>
         )}
         ListEmptyComponent={q.trim() ? (
           <T size={font.small} dim style={{ padding: 12 }}>
-            Nothing called that. Try the movement’s other name — or add it to the catalog in plan.json, which is where this list lives.
+            Nothing matches that. Try the movement’s other name, or what it works (“lower abs”, “no equipment”).
           </T>
         ) : null}
       />
+      {about ? (
+        <ExerciseSheet field={field} exercise={about} visible={showing} onDismiss={gone}
+          onClose={() => setShowing(false)}
+          onAdd={() => { adding.current = about; setShowing(false) }} />
+      ) : null}
     </View>
   )
 }
@@ -262,16 +386,19 @@ export function ExerciseCard({
   onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove,
 }: any) {
   const [open, setOpen] = useState(defaultOpen)
+  const [about, setAbout] = useState(false)
   const offered: any[] = liftField && item.exercise ? implementsFor(liftField, item.exercise) : []
   const muscles = musclesOf(liftField, item.exercise)
   /*
    * What the user did last time, while still DECIDING the numbers. Same
    * `lastLift` everywhere, so no two screens can disagree about last time.
    */
+  const measure = item.kind === 'lift' ? measureOfItem(item) : null
   const prior = useMemo(
-    () => (item.exercise ? (lastLift as any)(entries, item.exercise, entryId, liftField) : null),
-    [entries, item.exercise, entryId, liftField])
+    () => (item.exercise ? (lastLift as any)(entries, item.exercise, entryId, liftField, measure) : null),
+    [entries, item.exercise, entryId, liftField, measure])
   const swap = weightSwitch(liftField, item, onPatch)
+  const count = countSwitch(liftField, item, onPatch)
   // A mode other than the default, said under the name, so the summary beside it
   // stays short enough not to squeeze the name on a phone.
   const modeWords = item.kind === 'lift' ? weightModeWords(liftField, item) : null
@@ -286,18 +413,30 @@ export function ExerciseCard({
 
   const card = (
     <View style={st.item}>
-      <Press onPress={() => { tap(); setOpen((v: boolean) => !v) }} style={st.itemHead}
-        accessibilityRole="button" accessibilityState={{ expanded: open }}>
-        {/* What it works, on the row, wherever the name is. */}
-        <ExerciseBody field={liftField} exercise={item.exercise} name={item.name} size={30} />
-        <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0 }}>
-          <T size={font.body} weight={600}>{item.name}</T>
-          {muscles ? <T size={font.caption} weight={500} dim style={{ marginTop: 2, textTransform: 'lowercase' }}>{muscleWords(muscles)}</T> : null}
-          {modeWords ? <T size={font.caption} dim style={{ marginTop: 2 }}>{modeWords}</T> : null}
-        </View>
-        <T size={font.small} faint tabular numberOfLines={1} align="right" style={{ flexShrink: 1, minWidth: 0, maxWidth: '45%' }}>{item.line}</T>
-        <Icon name={open ? 'ChevronUp' : 'ChevronDown'} size={15} color={colors.inkFaint} style={{ marginTop: 1 }} />
-      </Press>
+      {/*
+        * The whole head folds the card, as it always has: cards start folded,
+        * so this is the tap made most. A movement out of the catalog also has
+        * what it is (issue #63), on its own 44pt ⓘ beside the head, as in the
+        * picker.
+        */}
+      <View style={st.itemRow}>
+        <Press onPress={() => { tap(); setOpen((v: boolean) => !v) }} style={[st.itemHead, { flex: 1 }]}
+          accessibilityRole="button" accessibilityState={{ expanded: open }}>
+          {/* What it works, on the row, wherever the name is. */}
+          <ExerciseBody field={liftField} exercise={item.exercise} name={item.name} size={30} />
+          <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0 }}>
+            <T size={font.body} weight={600}>{item.name}</T>
+            {muscles ? <T size={font.caption} weight={500} dim style={{ marginTop: 2 }}>{muscleWords(muscles)}</T> : null}
+            {modeWords ? <T size={font.caption} dim style={{ marginTop: 2 }}>{modeWords}</T> : null}
+          </View>
+          <T size={font.small} faint tabular numberOfLines={1} align="right" style={{ flexShrink: 1, minWidth: 0, maxWidth: '45%' }}>{item.line}</T>
+          <Icon name={open ? 'ChevronUp' : 'ChevronDown'} size={15} color={colors.inkFaint} style={{ marginTop: 1 }} />
+        </Press>
+        {item.exercise ? (
+          <IconBtn icon="Info" label={`What is ${item.name}?`} style={st.about} onPress={() => { tap(); setAbout(true) }} />
+        ) : null}
+      </View>
+      {about ? <ExerciseSheet field={liftField} exercise={item.exercise} name={item.name} onClose={() => setAbout(false)} /> : null}
 
       {open && (
         <>
@@ -347,7 +486,7 @@ export function ExerciseCard({
                   {setFieldsFor(item, s).map((f: string) => (
                     <Stepper key={f} {...(STEP[f] ? STEP[f](item, s) : { label: f, step: 1, min: 0 })} value={s[f]} blank={blank}
                       placeholder={s.hint?.[f] != null && s.hint[f] !== '' ? String(s.hint[f]) : '—'}
-                      swap={f === 'weight' ? swap : null}
+                      swap={f === 'weight' ? swap : (f === 'reps' || f === 'seconds') ? count : null}
                       onChange={(v) => patchSet(s, { [f]: v })} />
                   ))}
                   {/* Lifting has no programmed rest — see `normalizeSet`. An
@@ -569,10 +708,20 @@ const st = StyleSheet.create({
   },
   pickHead: { flexDirection: 'row', gap: 6, padding: 8, borderBottomWidth: 1, borderBottomColor: colors.line, alignItems: 'center' },
   pickGroups: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, padding: 8, borderBottomWidth: 1, borderBottomColor: colors.line },
+  // The picker row and its "what is this?" share one line and one divider.
+  pickLine: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: colors.line, paddingRight: space[1] },
   pickRow: {
+    flex: 1, minWidth: 0,
     flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingHorizontal: 12, minHeight: TAP,
-    borderBottomWidth: 1, borderBottomColor: colors.line,
   },
+  sheetHead: {
+    flexDirection: 'row', alignItems: 'center', gap: space[3],
+    paddingLeft: space[4], paddingRight: space[2], paddingVertical: space[3], borderBottomWidth: 1, borderBottomColor: colors.line,
+  },
+  sheetBody: { padding: space[4], gap: space[4] },
+  sheetFoot: { paddingHorizontal: space[4], paddingTop: space[3], borderTopWidth: 1, borderTopColor: colors.line },
+  works: { flexDirection: 'row', alignItems: 'center', gap: space[4] },
+  fact: { flexDirection: 'row', gap: space[3] },
   implchip: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: space[3], minHeight: 36, borderRadius: radius.pill, justifyContent: 'center',
@@ -584,6 +733,9 @@ const st = StyleSheet.create({
     borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 8,
   },
   itemHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, minHeight: 34 },
+  itemRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space[1] },
+  // The base 44pt icon button, pulled into the card's padding so the head keeps its height.
+  about: { marginVertical: -5, marginRight: -8 },
   prior: { flexDirection: 'row', gap: 6, alignItems: 'flex-start', marginTop: 6, marginBottom: 2 },
   impl: { marginVertical: 8, marginRight: -12, flexGrow: 0 },
   sets: { gap: 7, marginTop: 8 },

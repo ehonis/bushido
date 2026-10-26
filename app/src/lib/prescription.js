@@ -36,7 +36,7 @@
  */
 
 import {
-  catalogOf, exerciseOf, implementLabel, implementsFor, weightPatch, rememberedWeightMode,
+  catalogOf, exerciseOf, implementLabel, implementsFor, weightPatch, rememberedWeightMode, measureFor,
 } from './lifts.js'
 
 export const PRESCRIPTION_VERSION = 1
@@ -201,13 +201,53 @@ function normalizeItem(it, id, liftField) {
   // to put those in the block's note.
   if (!sets.length) return null
 
+  const known = kind === 'lift' && liftField && exercise ? exerciseOf(liftField, exercise) : null
+  const measure = kind === 'lift' ? itemMeasure(it, sets, known) : 'reps'
+  // Seconds win on a hold: a reps count beside them would be read instead.
+  if (measure === 'time') sets.forEach(s => { if (s.seconds !== null) s.reps = null })
+
   return {
     id, ...uidOf(it.uid), kind, name, note: str(it.note, 300),
     exercise, group, implement,
     implementLabel: implementLbl, weightLabel: weightLbl,
     ...(weightMode ? { weightMode } : {}),
+    // Only a hold says so, as only a departure from the default weight mode
+    // does: an item without it is reps, which every item before #63 was. A hold
+    // someone switched to reps says that, or the catalog would switch it back.
+    ...(measure === 'time' || (it.measure === 'reps' && known?.measure === 'time') ? { measure } : {}),
     unit, sets,
   }
+}
+
+/**
+ * A lift item held for time (issue #63) or done for reps, as it is READ: what
+ * its sets carry first (seconds and no reps is a hold, reps and no seconds is
+ * not, whatever the item says, so a hold whose `measure` was lost still asks
+ * for seconds), then what the item says. A blank is `''` on a logged row and
+ * `null` on a plan, and a logged row's blank still has its key, which is its
+ * measure (lib/lifts.js `liftMeasure`).
+ */
+export function measureOfItem(item) {
+  const sets = Array.isArray(item?.sets) ? item.sets : []
+  const has = (f) => sets.some(s => s?.[f] !== null && s?.[f] !== undefined)
+  if (has('seconds') && !has('reps')) return 'time'
+  if (has('reps') && !has('seconds')) return 'reps'
+  return item?.measure === 'time' ? 'time' : 'reps'
+}
+
+/**
+ * The same, as it is WRITTEN by `normalizePrescription`: the sets, then the
+ * item's word, then the catalog, so a planned Plank written as reps before the
+ * catalog called it a hold stays reps. A set with both (a model's `{ reps: 1,
+ * seconds: 45 }`) is a hold when the catalog says so, and its reps go.
+ */
+function itemMeasure(it, sets, ex) {
+  const has = (f) => sets.some(s => s[f] !== null && s[f] !== undefined)
+  if (has('seconds') && !has('reps')) return 'time'
+  if (has('reps') && !has('seconds')) return 'reps'
+  if (has('reps')) return ex?.measure === 'time' || it.measure === 'time' ? 'time' : 'reps'
+  if (it.measure === 'time' || it.measure === 'reps') return it.measure
+  return ex?.measure === 'time' ? 'time' : 'reps'
 }
 
 /**
@@ -307,7 +347,8 @@ export function setLine(set, item = null) {
  * exists on the review screen and not in the runner is a number the user can plan and
  * cannot record.
  *
- * A LIFT always shows reps and weight, present or not. The planner is told to
+ * A LIFT always shows reps and weight, present or not (seconds and weight for
+ * one held for time, `measure: "time"`, issue #63). The planner is told to
  * leave `weight` out rather than invent one when it has no history for the
  * movement — which is right, and it happened on the very first real run — but a
  * field that only appears once it has a value means the blank it deliberately
@@ -320,7 +361,7 @@ export function setLine(set, item = null) {
  * was handed. Failing everything, it gets a clock.
  */
 export function setFieldsFor(item, set) {
-  if (item?.kind === 'lift') return ['reps', 'weight']
+  if (item?.kind === 'lift') return measureOfItem(item) === 'time' ? ['seconds', 'weight'] : ['reps', 'weight']
   const has = (k) => set?.[k] !== null && set?.[k] !== undefined
   const shown = ['distance', 'seconds', 'reps'].filter(has)
   return shown.length ? shown : ['seconds']
@@ -540,9 +581,12 @@ export function runOutputs(pres, run, out = {}) {
           implementLabel: it.implementLabel || null,
           // A mode travels with its label, as the lift log stores it (lib/lifts.js).
           ...(it.weightMode ? { weightMode: it.weightMode, weightLabel: it.weightLabel || null } : {}),
-          // The same `{reps, weight}` rows the lift log writes. Strings there,
-          // numbers here; `liftVolume` runs both through `Number()`.
-          sets: rows.map(r => ({ reps: r.reps ?? '', weight: r.weight ?? '' })),
+          // The same `{reps, weight}` rows the lift log writes (`{seconds,
+          // weight}` for a hold). Strings there, numbers here; `liftVolume`
+          // runs both through `Number()`.
+          sets: rows.map(r => (measureOfItem(it) === 'time'
+            ? { seconds: r.seconds ?? '', weight: r.weight ?? '' }
+            : { reps: r.reps ?? '', weight: r.weight ?? '' })),
         })
         continue
       }
@@ -979,6 +1023,7 @@ export function appendLift(pres, liftField, key, { blockId = null, entries = [],
     exercise: key, group: ex.group || null, implement,
     implementLabel: implement ? implementLabel(liftField, implement) : null,
     weightLabel, ...(weightMode ? { weightMode } : {}),
+    ...(measureFor(liftField, key) === 'time' ? { measure: 'time' } : {}),
     unit: null,
     sets: [{ id: 'new-s0', reps: null, weight: null, seconds: null, distance: null, restSec: null, unit: null, note: '' }],
   }

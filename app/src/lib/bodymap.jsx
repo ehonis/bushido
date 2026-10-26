@@ -28,6 +28,7 @@
  */
 
 import { memo, useMemo } from 'react'
+import { muscleName } from './lifts.js'
 import * as bodyHighlighter from 'react-body-highlighter'
 
 /*
@@ -132,11 +133,14 @@ export function ExerciseBody({ field, exercise, size = 34, name }) {
     label={name ? `${name} works ${m.primary.join(', ')}` : undefined} />
 }
 
-/** "Chest, front delts" — the words, for where a picture is too small to read. */
+/**
+ * "Chest, front delts" — the words, for where a picture is too small to read.
+ * The same words as the exercise sheet's (lib/lifts.js `muscleName`): "quads",
+ * never "quadriceps" on the card and "quads" on the sheet.
+ */
 export function muscleWords(m, limit = 3) {
   if (!m) return ''
-  const pretty = (s) => s.replace(/-/g, ' ').replace('deltoids', 'delts')
-  const list = m.primary.slice(0, limit).map(pretty)
+  const list = m.primary.slice(0, limit).map(muscleName)
   const more = m.primary.length - list.length
   return list.join(', ') + (more > 0 ? ` +${more}` : '')
 }

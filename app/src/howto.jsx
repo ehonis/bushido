@@ -71,6 +71,12 @@ export function HowBody({ how, showFigure = true }) {
           <span><strong>Make it easier</strong> {how.easier}</span>
         </p>
       )}
+      {how.harder && (
+        <p className="how-note">
+          <Icon name="TrendingUp" size={15} />
+          <span><strong>Make it harder</strong> {how.harder}</span>
+        </p>
+      )}
     </div>
   )
 }

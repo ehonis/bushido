@@ -58,9 +58,9 @@ import {
   prescriptionSteps, runProgress, firstOpen, restLeft, runElapsed,
   markSet, unmarkSet, skipSet, unskipSet, nudgeRest, endRest, goToSet, finishRun,
   emptyRun, setDraft, carryForward, runOutputs, isLogged, isSkipped, setLine, itemLine,
-  setFieldsFor, addSetLike, patchRunItem,
+  setFieldsFor, addSetLike, patchRunItem, measureOfItem,
 } from '../lib/prescription.js'
-import { Stepper, STEP, weightSwitch, type WeightSwap } from './exercises'
+import { Stepper, STEP, weightSwitch, ExerciseSheet, type WeightSwap } from './exercises'
 import { ExerciseBody, musclesOf, muscleWords } from '../lib/bodymap'
 import { liftFieldOf } from './planner'
 import { usePlan } from '../lib/planctx.jsx'
@@ -384,10 +384,11 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
   const logged = isLogged(run, step.setId)
   const liftField = liftFieldOf(usePlan())
   const prior: any = useMemo(
-    () => (item.exercise ? (lastLift as any)(entries, item.exercise, entryId, liftField) : null),
-    [entries, item.exercise, entryId, liftField])
+    () => (item.exercise ? (lastLift as any)(entries, item.exercise, entryId, liftField, item.kind === 'lift' ? measureOfItem(item) : null) : null),
+    [entries, item, entryId, liftField])
   const muscles = musclesOf(liftField, item.exercise)
   const swap = weightSwitch(liftField, item, onPatchItem)
+  const [about, setAbout] = useState(false)
 
   const target = setLine(step.set, item)
   const mine = steps.filter((s: any) => s.itemId === item.id)
@@ -411,7 +412,18 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
           </Press>
         </View>
 
-        <T size={font.heading} weight={600} lineHeight={28} align="center" style={{ marginTop: space[3], marginBottom: 2 }}>{item.name}</T>
+        {/* A catalog movement's name opens what it is (issue #63), for the set
+            you are about to do; nothing else on this screen moves. */}
+        {item.exercise ? (
+          <Press onPress={() => { tap(); setAbout(true) }} style={st.moveAbout}
+            accessibilityRole="button" accessibilityLabel={`${item.name}: how to do it`}>
+            <T size={font.heading} weight={600} lineHeight={28} align="center" style={{ flexShrink: 1 }}>{item.name}</T>
+            <Icon name="Info" size={18} color={colors.inkFaint} />
+          </Press>
+        ) : (
+          <T size={font.heading} weight={600} lineHeight={28} align="center" style={{ marginTop: space[3], marginBottom: 2 }}>{item.name}</T>
+        )}
+        {about ? <ExerciseSheet field={liftField} exercise={item.exercise} name={item.name} onClose={() => setAbout(false)} /> : null}
         {item.implementLabel ? <T size={font.small} dim align="center">{item.implementLabel}</T> : null}
 
         {/* What it works. Bigger here than anywhere else, because this is the one
@@ -736,6 +748,7 @@ function SetList({ pres, steps, run, cursor, onJump, onUnmark, onUnskip, onClose
 }
 
 const st = StyleSheet.create({
+  moveAbout: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[2], marginTop: space[3], marginBottom: 2, minHeight: TAP, alignSelf: 'center' },
   run: { flex: 1, backgroundColor: colors.bg },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space[3], padding: space[6] },
   head: {

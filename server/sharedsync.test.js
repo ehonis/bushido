@@ -296,6 +296,62 @@ check('what a weight means is each person\'s own: a mode never crosses, a carrie
   eq([row.name, row.weightMode, row.weightLabel], ['Bulgarian split squat', 'pair', 'lb per hand'])
 })
 
+check('a hold is structure; its seconds are numbers and stay on their own side, like reps (#63)', () => {
+  // A plan: Alex adds a plank held for 45 s. Sam gets a plank held for time, no seconds.
+  const before = alex()
+  const plank = { ...lift('PL', 'Plank', [set({ seconds: 45 }), set({ seconds: 45, weight: 25 })]), measure: 'time', implement: 'bodyweight' }
+  const added = edit(before, bs => { bs[0].items.push(plank); return bs })
+  eq(shapeOf(added), shapeOf(edit(before, bs => { bs[0].items.push({ ...plank, measure: undefined }); return bs })),
+    'measure is not in the shape, so every stored base still compares equal')
+  const got = itemNamed(carry(sam(), shapeOf(before), added), 'Plank')
+  ok(got, 'the plank did not arrive, so this proves nothing')
+  eq(got.measure, 'time', 'it arrived as reps')
+  eq(got.sets.map(s => [s.reps, s.seconds, s.weight]), [[null, null, null], [null, null, null]], 'Alex\'s seconds crossed')
+  // Sam held it for 30 s; Alex adds a set. Sam's 30 stays, the new set is blank.
+  const samHas = edit(carry(sam(), shapeOf(before), added), bs => { bs[0].items[2].sets[0] = { ...bs[0].items[2].sets[0], seconds: 30 }; return bs })
+  const more = edit(added, bs => { bs[0].items[2].sets.push(set({ seconds: 60 })); return bs })
+  const after = itemNamed(carry(samHas, shapeOf(added), more), 'Plank')
+  eq(after.sets.map(s => s.seconds), [30, null, null], 'Sam\'s seconds changed or Alex\'s arrived')
+  eq(after.measure, 'time')
+  // Swapped for another exercise over there: the hold goes with the old exercise.
+  const swapped = edit(added, bs => { const { measure: _m, ...it } = bs[0].items[2]; bs[0].items[2] = { ...it, name: 'Dead bug', exercise: 'dead-bug' }; return bs })
+  const bug = itemNamed(carry(samHas, shapeOf(added), swapped), 'Dead bug')
+  ok(bug && !('measure' in bug), 'a swap to a reps exercise kept the hold')
+
+  // Logged lifts: a held row arrives with blank seconds, and grows blank seconds.
+  const held = { uid: 'p-1', key: 'plank', name: 'Plank', group: 'Core', implement: 'bodyweight', sets: [{ seconds: '45', weight: '' }, { seconds: '40', weight: '' }] }
+  const arrived = carry({ sharedFrom: { id: 'owner' }, out: { lifts: [] } }, { lifts: [] }, { out: { lifts: [held] } }).out.lifts[0]
+  eq(arrived, { uid: 'p-1', key: 'plank', name: 'Plank', group: 'Core', implement: '', sets: [{ seconds: '', weight: '' }, { seconds: '', weight: '' }] })
+  const samRow = { ...held, sets: [{ seconds: '30', weight: '' }, { seconds: '', weight: '' }] }
+  const base = { lifts: [{ uid: 'p-1', key: 'plank', name: 'Plank', group: 'Core', sets: 2 }] }
+  const three = { out: { lifts: [{ ...held, sets: [...held.sets, { seconds: '35', weight: '' }] }] } }
+  const row = carry({ sharedFrom: { id: 'owner' }, out: { lifts: [samRow] } }, base, three).out.lifts[0]
+  eq(row.sets, [{ seconds: '30', weight: '' }, { seconds: '', weight: '' }, { seconds: '', weight: '' }])
+  // Seconds are a logged number: taking the exercise out over there keeps Sam's.
+  const gone = carry({ sharedFrom: { id: 'owner' }, out: { lifts: [samRow] } }, base, { out: { lifts: [] } }).out.lifts
+  eq(gone.map(l => l.uid), ['p-1'], 'a hold Sam logged seconds on was removed by the other side')
+  // A plank logged as reps before it was a hold is reps on the way over too.
+  const legacy = { ...held, sets: [{ reps: '60', weight: '' }] }
+  eq(carry({ sharedFrom: { id: 'owner' }, out: { lifts: [] } }, { lifts: [] }, { out: { lifts: [legacy] } }).out.lifts[0].sets, [{ reps: '', weight: '' }])
+})
+
+check('a writer\'s own hold survives its own write with a stale base (#63 review)', () => {
+  // Rev 1: Plank in reps. Rev 2 (stored): a Dead bug arrived. Alex's device,
+  // still on rev 1, makes the plank a 45 s hold and writes.
+  const id = 'daily-2026-10-26'
+  const p = (items) => ({ optId: 'planned', plan: planOf([{ uid: 'B1', name: 'Main', items }]) })
+  const plankReps = lift('PL', 'Plank', [set({ reps: 1 }), set({ reps: 1 })])
+  const v1 = p([plankReps])
+  const base1 = nextBase(id, null, v1)
+  const v2 = p([plankReps, lift('DB', 'Dead bug', [set()])])
+  const stored = { ...v2, syncBase: nextBase(id, base1, v2) }
+  const held = { ...plankReps, measure: 'time', sets: [set({ seconds: 45 }), set({ seconds: 45 })] }
+  const r = rebase(stored, { ...p([held]), syncBase: base1 }, id)
+  const mine = itemNamed(r.data, 'Plank')
+  eq([mine.measure, mine.sets.map(s => s.seconds)], ['time', [45, 45]], 'the writer\'s hold was dropped while its seconds stayed')
+  eq(names(r.data), ['Plank', 'Dead bug'])
+})
+
 check('THE RULE: only a write whose base lines up with the stored entry changes or carries structure', () => {
   // Rev 1: Squat, Deadlift. Since then Row arrived from the other side: rev 2.
   const old = alex()

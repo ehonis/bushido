@@ -66,6 +66,7 @@ const { createUsers, createAccessVerifier, identify, actAsCookie, OWNER } = requ
 const { mergeDaily } = require('./whoop.js')
 const sharedSync = require('./sharedsync.js')
 const pages = require('./pages.js')
+const { mergeLibrary, createLibrary } = require('./library.js')
 
 const ROOT = path.resolve(__dirname, '..')
 const DATA_DIR = process.env.BUSHIDO_DATA_DIR ? path.resolve(process.env.BUSHIDO_DATA_DIR) : path.join(ROOT, 'data')
@@ -104,6 +105,42 @@ const users = createUsers({ dataDir: DATA_DIR, ownerName: () => config.athlete()
 // BUSHIDO_ACCESS_CERTS_URL is for the test suite, which plays Cloudflare on localhost.
 const access = createAccessVerifier({ settings: () => config.access(), certsUrl: process.env.BUSHIDO_ACCESS_CERTS_URL || '' })
 const STARTER_PLAN = path.join(ROOT, 'content', 'starter.json')
+/*
+ * The shared exercise library (server/library.js), merged into every plan as it
+ * is served and as the planner reads it. BUSHIDO_EXERCISES_FILE points at
+ * another one (the test suites use a fixture); absent is an install without.
+ */
+const readLibrary = createLibrary(process.env.BUSHIDO_EXERCISES_FILE
+  ? path.resolve(process.env.BUSHIDO_EXERCISES_FILE)
+  : path.join(ROOT, 'content', 'exercises.json'))
+
+/*
+ * A library exercise the plan lacks and the library does not name is left out
+ * (server/library.js). Said once per distinct list, not on every request.
+ */
+const skipWarned = new Set()
+const onSkip = (keys) => {
+  const line = `[bushido] exercise library: ${keys.length} exercise${keys.length === 1 ? '' : 's'} the plan does not have and the library gives no name or group, left out: ${keys.slice(0, 5).join(', ')}${keys.length > 5 ? ', …' : ''}`
+  if (skipWarned.has(line)) return
+  skipWarned.add(line)
+  console.warn(line)
+}
+
+/** A plan file's text with the exercise library in it; unchanged text when there is nothing to merge. */
+function servedPlan(raw) {
+  const lib = readLibrary()
+  if (!lib) return raw
+  let plan
+  try { plan = JSON.parse(raw) } catch { return raw }
+  const merged = mergeLibrary(plan, lib, { onSkip })
+  return merged === plan ? raw : JSON.stringify(merged)
+}
+
+/** A plan file, parsed, with the library merged in; null when it cannot be read. */
+const readPlanMerged = (file) => {
+  const plan = planner.readPlanJson(file)
+  return plan ? mergeLibrary(plan, readLibrary(), { onSkip }) : null
+}
 
 /**
  * Everything that belongs to one person: their log, its backups and their plan.
@@ -1586,7 +1623,7 @@ async function peopleRoute(req, res, url, ctx) {
     if (req.method !== 'GET') return send(res, 405, { error: 'GET only' })
     try {
       const raw = await fsp.readFile(space.planFile().file, 'utf8')
-      return send(res, 200, raw, { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-store' })
+      return send(res, 200, servedPlan(raw), { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-store' })
     } catch { return send(res, 404, { error: 'no plan for them yet' }) }
   }
   if (what === 'about') {
@@ -2125,7 +2162,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/content' && req.method === 'GET') {
       try {
         const raw = await fsp.readFile(space.planFile().file, 'utf8')
-        return send(res, 200, raw, { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-cache' })
+        return send(res, 200, servedPlan(raw), { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-cache' })
       } catch {
         return send(res, 404, { error: 'plan.json not present yet' })
       }
@@ -2190,7 +2227,7 @@ const server = http.createServer(async (req, res) => {
       if (!ai.installed) return send(res, 503, { error: AI_MISSING, code: 'ai-not-configured' })
 
       try {
-        const plan = planner.readPlanJson(planFileFor(target.space, target.group)) || {}
+        const plan = readPlanMerged(planFileFor(target.space, target.group)) || {}
         const built = await planner.planWorkout({
           ...common, model: ai.plannerModel, effort: PLANNER_EFFORT,
           timeoutMs: PLANNER_TIMEOUT_MS,
@@ -2225,7 +2262,7 @@ const server = http.createServer(async (req, res) => {
       if (!ai.installed) return send(res, 503, { error: AI_MISSING, code: 'ai-not-configured' })
 
       try {
-        const plan = planner.readPlanJson(planFileFor(target.space, target.group)) || {}
+        const plan = readPlanMerged(planFileFor(target.space, target.group)) || {}
         const built = await planner.planWorkout({
           ...common, model: ai.plannerModel, effort: PLANNER_EFFORT,
           timeoutMs: PLANNER_TIMEOUT_MS,
@@ -2289,7 +2326,7 @@ const server = http.createServer(async (req, res) => {
       const runner = (target, group = null) => ({ kind, draft, message, signal }) => {
         const { ai, common } = aiRun(target, group)
         if (!ai.installed) throw new Error(AI_MISSING)
-        const plan = planner.readPlanJson(planFileFor(target, group)) || {}
+        const plan = readPlanMerged(planFileFor(target, group)) || {}
         const { thread = [], ...current } = draft.pres || {}
         return planner.planWorkout({
           ...common, model: ai.plannerModel, effort: PLANNER_EFFORT,

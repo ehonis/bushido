@@ -937,6 +937,8 @@ button.btn.bad { background: var(--viz-crit); color: var(--bg); border-color: va
   animation: sheet-in var(--dur) var(--ease-out);
 }
 .pop.centred { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+/* Focus moves into a popover when it opens (modal.jsx); the box itself needs no ring. */
+.pop:focus { outline: none; }
 
 .pop-head {
   display: flex; align-items: center; gap: var(--sp-3);

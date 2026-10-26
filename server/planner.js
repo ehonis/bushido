@@ -45,7 +45,7 @@ const SET = {
   properties: {
     reps: { type: 'number', description: 'Repetitions in this set.' },
     weight: { type: 'number', description: 'Load in POUNDS, in the units the implement implies — per hand for dumbbells, on the bar for a barbell, added weight for a weighted pull-up.' },
-    seconds: { type: 'number', description: 'How long the work lasts, for holds, intervals and carries.' },
+    seconds: { type: 'number', description: 'How long the work lasts, for holds, intervals and carries. For a timed exercise in the catalog this is the set, instead of reps.' },
     distance: { type: 'number', description: 'Distance covered in this set, in `unit`.' },
     restSec: { type: 'number', description: 'Rest AFTER this set, in seconds. The runner counts it down.' },
     unit: { type: 'string', description: 'yd, m, mi or km. Use yd for a pool unless they swim metric.' },
@@ -132,7 +132,12 @@ function liftCatalog(plan) {
     .map(([g, keys]) => `  ${g}: ${keys.join(', ')}`)
     .join('\n')
   const impls = (field.implements || []).map(i => `${i.value} (${i.label})`).join(', ')
-  return `EXERCISE CATALOG — \`exercise\` must be one of these keys, exactly:\n${groups}\n\nIMPLEMENTS — \`implement\` must be one of these keys:\n  ${impls}\n`
+  // Holds and stretches are done for time (issue #63): their sets are seconds.
+  const timed = (field.exercises || []).filter(ex => ex.measure === 'time').map(ex => ex.key)
+  const held = timed.length
+    ? `\nTIMED EXERCISES — each set is \`seconds\` (how long it is held), never \`reps\`:\n  ${timed.join(', ')}\n`
+    : ''
+  return `EXERCISE CATALOG — \`exercise\` must be one of these keys, exactly:\n${groups}\n${held}\nIMPLEMENTS — \`implement\` must be one of these keys:\n  ${impls}\n`
 }
 
 const liftField = (plan) => {

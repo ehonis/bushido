@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "groups": ["Chest", "Core", "Quads", "Mobility & stretching"],
+  "exercises": [
+    {
+      "key": "plank",
+      "name": "Front plank",
+      "group": "Core",
+      "aka": ["front hold"],
+      "measure": "time",
+      "muscles": { "primary": ["abs"], "secondary": ["obliques", "front-deltoids"], "from": "Plank" },
+      "equipment": "None",
+      "tags": ["anti-extension", "no equipment", "beginner", "hold"],
+      "how": {
+        "gist": "Hold a straight line from head to heels on your forearms and toes.",
+        "steps": [
+          "Forearms under your shoulders, feet hip-width apart.",
+          "Squeeze your glutes and brace as if about to be poked in the stomach.",
+          "Breathe behind the brace and hold the line."
+        ],
+        "watch": "Hips sagging toward the floor.",
+        "easier": "Knees down, same straight line from the knees.",
+        "harder": "A plate on your upper back."
+      }
+    },
+    {
+      "key": "dead-bug",
+      "name": "Dead bug",
+      "group": "Core",
+      "aka": ["deadbug"],
+      "implements": ["bodyweight", "band", "dumbbell", "plate"],
+      "measure": "reps",
+      "muscles": { "primary": ["abs"], "secondary": ["obliques"], "from": "Dead Bug" },
+      "equipment": "None",
+      "tags": ["anti-extension", "lower abs", "no equipment", "beginner"],
+      "how": {
+        "gist": "Lie on your back and slowly lower opposite arm and leg while your low back stays pinned.",
+        "steps": [
+          "Lie on your back, arms up, knees bent over your hips.",
+          "Press your low back into the floor.",
+          "Lower one arm and the opposite leg until just above the floor.",
+          "Return and switch sides."
+        ],
+        "watch": "Low back lifting off the floor.",
+        "easier": "Move only the legs, arms stay up.",
+        "harder": "Hold a light plate overhead."
+      },
+      "video": {
+        "url": "https://www.youtube.com/watch?v=00000000000",
+        "channel": "Example channel",
+        "title": "Example: the dead bug",
+        "checked": "2026-10-26"
+      }
+    },
+    {
+      "key": "bench-press",
+      "name": "Barbell bench press",
+      "group": "Chest",
+      "aka": ["bench"],
+      "muscles": { "primary": ["triceps"], "secondary": [], "from": "library" },
+      "equipment": "Barbell and bench",
+      "tags": ["push", "horizontal press"],
+      "how": {
+        "gist": "Lower the bar to your lower chest and press it back over your shoulders.",
+        "steps": [
+          "Eyes under the bar, shoulder blades pinched, feet planted.",
+          "Lower the bar to your lower chest with elbows under the bar.",
+          "Press up and slightly back to over your shoulders."
+        ],
+        "watch": "Bouncing the bar off your chest."
+      }
+    },
+    {
+      "key": "reverse-crunch",
+      "name": "Reverse crunch",
+      "group": "Core",
+      "implements": ["bodyweight", "band"],
+      "muscles": { "primary": ["abs"], "secondary": [], "from": "Reverse Crunch" },
+      "equipment": "None",
+      "tags": ["lower abs", "no equipment", "beginner"],
+      "how": {
+        "gist": "Curl your hips off the floor toward your ribs, then lower them slowly.",
+        "steps": [
+          "Lie on your back, knees bent at ninety degrees, hands by your sides.",
+          "Curl your hips up and toward your chest.",
+          "Lower slowly until your feet nearly touch the floor."
+        ],
+        "watch": "Swinging the legs instead of curling the hips."
+      }
+    },
+    {
+      "key": "couch-stretch",
+      "name": "Couch stretch",
+      "group": "Mobility & stretching",
+      "aka": ["kneeling hip flexor stretch"],
+      "implements": ["bodyweight"],
+      "measure": "time",
+      "muscles": { "primary": ["quadriceps"], "secondary": [], "from": "library" },
+      "equipment": "A wall or a couch",
+      "tags": ["hip flexors", "quads", "stretch", "no equipment"],
+      "how": {
+        "gist": "Kneel with your back shin up a wall and lift your chest to stretch the front of the hip.",
+        "steps": [
+          "Back knee in the corner of wall and floor, shin up the wall.",
+          "Front foot flat, knee over the ankle.",
+          "Squeeze the back glute and lift your chest tall."
+        ],
+        "watch": "Arching the low back instead of opening the hip.",
+        "easier": "Move the back knee a little away from the wall."
+      }
+    },
+    {
+      "key": "wall-sit",
+      "name": "Wall sit",
+      "group": "Quads",
+      "implements": ["bodyweight", "plate", "dumbbell"],
+      "measure": "time",
+      "muscles": { "primary": ["quadriceps"], "secondary": ["gluteal"], "from": "library" },
+      "equipment": "A wall",
+      "tags": ["isometric", "no equipment"]
+    }
+  ]
+}

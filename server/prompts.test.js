@@ -44,6 +44,19 @@ check('a revision can hand back each block\'s and exercise\'s uid, and is told t
   if (!/keeps its `uid`/.test(planner.revisePrompt({ plan: { blocks: [] }, message: 'shorter', thread: [] }))) throw new Error('the revise prompt does not ask for the uid back')
 })
 
+check('the shared exercise library reaches the planner as keys, holds named as timed (#63)', () => {
+  const { mergeLibrary } = require('./library.js')
+  const lib = require('../test/fixtures/exercises.json')
+  const text = planner.systemPrompt({ ...ctx, plan: mergeLibrary(starter, lib), name: '', notes: '' })
+  ok(/couch-stretch/.test(text), 'a library-only exercise is not offered')
+  const timed = text.split('TIMED EXERCISES')[1]?.split('\n')[1] || ''
+  ok(/\bplank\b/.test(timed) && /\bcouch-stretch\b/.test(timed) && /\bwall-sit\b/.test(timed), `the holds are not named as timed: ${timed}`)
+  ok(!/\bdead-bug\b/.test(timed), 'a reps exercise was called timed')
+  ok(!/TIMED EXERCISES/.test(planner.systemPrompt({ ...ctx, name: '', notes: '' })), 'a catalog with no holds still talks about them')
+  const m = text.match(GENDERED)
+  ok(!m, `the library brought a gendered word into the prompt: ${m && m[0]}`)
+})
+
 check('no prompt assumes a gender or names the original user', () => {
   const bad = []
   for (const [k, text] of Object.entries(prompts('', ''))) {

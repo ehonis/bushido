@@ -19,8 +19,10 @@ import {
   patchSet, addSet, addSetLike, removeSet, removeItem, appendLift, reindex, setFieldsFor,
   splitPrescription, moveItem, isLiftOnly,
   blankPrescription, appendPiece, dropEmptyBlocks, patchItem, reviseWeightModes, followWeightModes, patchRunItem,
+  measureOfItem,
 } from './src/lib/prescription.js'
 import { liftVolume, liftsIn, liftSummary, rememberedWeightMode } from './src/lib/lifts.js'
+import { createRequire } from 'node:module'
 
 const plan = JSON.parse(readFileSync(new URL('../test/fixtures/plan.json', import.meta.url), 'utf8'))
 
@@ -861,6 +863,88 @@ t('weight mode: an edit that moves items follows nothing; a row pairs only with 
   // And a plain switch on an unmoved plan still follows.
   const plain = followWeightModes(data, { ...data, plan: patchItem(data.plan, 'b0i1', { weightMode: 'one', weightLabel: 'lb · one dumbbell' }) }, liftField)
   assert.deepEqual(rows(plain), ['b0i0:one', 'b0i1:one'])
+})
+
+/* ------------------------------------------- held for time (issue #63) */
+
+const { mergeLibrary } = createRequire(import.meta.url)('../server/library.js')
+const library = JSON.parse(readFileSync(new URL('../test/fixtures/exercises.json', import.meta.url), 'utf8'))
+const heldField = (() => {
+  for (const opt of mergeLibrary(plan, library).dailyMenu) for (const f of opt.outputs || []) if (f.type === 'lifts') return f
+  return null
+})()
+const one = (items) => normalizePrescription({ title: 'Core', minutes: 20, why: '', blocks: [{ name: 'Main', items }] }, { liftField: heldField })
+
+t('held for time: a model\'s seconds make a hold; its sets are seconds and weight', () => {
+  const p = one([{ kind: 'lift', name: 'plank', exercise: 'plank', sets: [{ seconds: 45 }, { seconds: 45, weight: 25 }] }])
+  const item = p.blocks[0].items[0]
+  assert.equal(item.measure, 'time')
+  assert.deepEqual(setFieldsFor(item, item.sets[0]), ['seconds', 'weight'])
+  assert.equal(itemLine(item), '45 s, 45 s @ 25 lb')
+  assert.equal(itemLine({ ...item, sets: [item.sets[0], item.sets[0], item.sets[0]] }), '3 × 45 s')
+  // Normalising again keeps it a hold (what is stored is what comes back).
+  assert.equal(normalizePrescription(p, { liftField: heldField }).blocks[0].items[0].measure, 'time')
+})
+
+t('held for time: reps the model wrote stay reps, and nothing is stored on a reps item', () => {
+  const p = one([
+    { kind: 'lift', name: 'plank', exercise: 'plank', sets: [{ reps: 3 }] },
+    { kind: 'lift', name: 'dead bug', exercise: 'dead-bug', sets: [{ reps: 10 }] },
+  ])
+  assert.deepEqual(p.blocks[0].items.map(i => 'measure' in i), [false, false])
+  assert.deepEqual(setFieldsFor(p.blocks[0].items[0], p.blocks[0].items[0].sets[0]), ['reps', 'weight'])
+  // Only a weight: the catalog decides.
+  const w = one([{ kind: 'lift', name: 'wall sit', exercise: 'wall-sit', implement: 'dumbbell', sets: [{ weight: 20 }] }])
+  assert.equal(w.blocks[0].items[0].measure, 'time')
+})
+
+t('held for time: added by hand it is a hold, and the run writes seconds to the log', () => {
+  const pres = appendLift(blankPrescription(), heldField, 'couch-stretch')
+  const item = pres.blocks.at(-1).items.at(-1)
+  assert.equal(item.measure, 'time')
+  assert.deepEqual(setFieldsFor(item, item.sets[0]), ['seconds', 'weight'])
+  const p = one([
+    { kind: 'lift', name: 'plank', exercise: 'plank', sets: [{ seconds: 45 }, { seconds: 45 }] },
+    { kind: 'lift', name: 'dead bug', exercise: 'dead-bug', sets: [{ reps: 10 }] },
+  ])
+  const steps = prescriptionSteps(p)
+  let run = emptyRun(0)
+  run = markSet(run, steps[0], { seconds: 50 }, { at: 1, steps })
+  run = markSet(run, steps[1], { seconds: 40, weight: 10 }, { at: 2, steps })
+  run = markSet(run, steps[2], { reps: 10 }, { at: 3, steps })
+  const out = runOutputs(p, run)
+  assert.deepEqual(out.lifts[0].sets, [{ seconds: 50, weight: '' }, { seconds: 40, weight: 10 }])
+  assert.deepEqual(out.lifts[1].sets, [{ reps: 10, weight: '' }])
+  assert.equal(liftSummary(out.lifts[0], heldField), '50 s, 40 s @ 10 lb')
+  assert.equal(liftVolume(out), 0, 'a hold added to the volume')
+  // The draft a timed set opens with is its target seconds.
+  assert.deepEqual(setDraft(emptyRun(0), steps[0]), { seconds: 45 })
+})
+
+t('held for time, the read rule: the sets decide, then the item (#63 review)', () => {
+  const lost = { kind: 'lift', exercise: 'plank', sets: [{ id: 'a', reps: null, seconds: 45, weight: null }] }
+  assert.equal(measureOfItem(lost), 'time', 'a hold whose measure was lost asked for reps')
+  assert.deepEqual(setFieldsFor(lost, lost.sets[0]), ['seconds', 'weight'])
+  const said = { kind: 'lift', exercise: 'plank', measure: 'time', sets: [{ id: 'a', reps: 3, seconds: null }] }
+  assert.equal(measureOfItem(said), 'reps', 'reps-only sets read as a hold')
+  const blank = { kind: 'lift', exercise: 'plank', measure: 'time', sets: [{ id: 'a', reps: null, seconds: null, weight: 20 }] }
+  assert.equal(measureOfItem(blank), 'time', 'blank sets: the item says')
+  assert.equal(measureOfItem({ ...blank, measure: undefined }), 'reps')
+})
+
+t('held for time, the write rule: a model\'s { reps: 1, seconds: 45 } is a hold where the catalog says so (#63 review)', () => {
+  const p = one([
+    { kind: 'lift', name: 'plank', exercise: 'plank', sets: [{ reps: 1, seconds: 45 }] },
+    { kind: 'lift', name: 'dead bug', exercise: 'dead-bug', sets: [{ reps: 10, seconds: 3 }] },
+    { kind: 'lift', name: 'plank', exercise: 'plank', measure: 'time', sets: [{ reps: 3 }] },
+    { kind: 'lift', name: 'plank', exercise: 'plank', measure: 'reps', sets: [{ weight: 10 }] },
+  ])
+  const [plank, bug, said, switched] = p.blocks[0].items
+  assert.deepEqual([plank.measure, plank.sets[0].reps, plank.sets[0].seconds], ['time', null, 45], 'the reps beside the seconds stayed')
+  assert.equal('measure' in bug, false, 'a reps exercise became a hold')
+  assert.equal(said.measure, undefined, 'reps-only sets resolve as reps, whatever the item said')
+  assert.equal(switched.measure, 'reps', 'a hold counted in reps lost that, so the catalog would switch it back')
+  assert.deepEqual(setFieldsFor(switched, switched.sets[0]), ['reps', 'weight'])
 })
 
 console.log(`prescription: ${pass} checks passed`)

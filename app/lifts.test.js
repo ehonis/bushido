@@ -24,13 +24,14 @@ import {
   addLift, removeLift, patchLift, addLiftSet, removeLiftSet, setLiftSet, moveLift,
   liftsIn, liftSets, liftReps, liftVolume, liftSummary, liftsLine, lastLift, LIFT_FIELD,
   weightModesFor, weightModeOf, weightLabelOf, weightPatch, nextWeightMode, rememberedWeightMode,
-  weightModeWords, liftFieldIn, weightBoxOf,
+  weightModeWords, liftFieldIn, weightBoxOf, liftMeasure, measureFor, muscleName, blankSet, canSwitchMeasure,
 } from './src/lib/lifts.js'
 import { isRepeatable, extraEntryId } from './src/lib/store.js'
 import { gateResolver, catalogOf as activityCatalog } from './src/lib/activities.js'
 import { levelFor } from './src/lib/level.js'
 import { minutesFor } from './src/lib/minutes.js'
 import { acceptNumberText, numOrNull } from './src/lib/numtext.js'
+import { createRequire } from 'node:module'
 
 const plan = JSON.parse(readFileSync(new URL('../test/fixtures/plan.json', import.meta.url), 'utf8'))
 const other = plan.dailyMenu.find(m => m.id === 'log-workout')
@@ -310,10 +311,17 @@ check('a multi-word search has to match every word', () => {
 })
 
 check('a muscle group is a way in, and no query browses', () => {
-  const back = searchExercises(liftField, 'Back')
-  ok(back.length > 10, 'searching a group finds almost nothing')
-  ok(back.every(e => e.group === 'Back' || e.name.toLowerCase().includes('back')),
-    'a group search returned something from elsewhere')
+  // The picker's chip: that group and only that group (#63 review).
+  const back = searchExercises(liftField, '', { group: 'Back' })
+  ok(back.length > 10, 'a group chip finds almost nothing')
+  ok(back.every(e => e.group === 'Back'), 'a group chip returned something from elsewhere')
+  // The same word TYPED is a search: the group (and names with the word) first;
+  // since #63 anything after them matched on what it works ("lower back").
+  const typed = searchExercises(liftField, 'Back')
+  const named = (e) => e.group === 'Back' || e.name.toLowerCase().includes('back')
+  const firstOther = typed.findIndex(e => !named(e))
+  ok(firstOther === -1 || typed.slice(firstOther).every(e => !named(e)),
+    'a description match ranked ahead of the group')
   eq(searchExercises(liftField, '').length, 60, 'an empty query returns the catalog, capped')
   eq(searchExercises(liftField, 'zzzz'), [], 'a miss is a miss, not everything')
 })
@@ -649,6 +657,129 @@ check('weight modes: volume is as entered, and per side is not called a total', 
 check('the catalog resolves by key', () => {
   eq(exerciseOf(liftField, 'bench-press').name, 'Bench press')
   eq(exerciseOf(liftField, 'nope'), null)
+})
+
+/* ======================================= the shared exercise library (#63) === */
+
+// The fixture plan with the test library merged in, exactly as /api/content serves it.
+const { mergeLibrary } = createRequire(import.meta.url)('../server/library.js')
+const library = JSON.parse(readFileSync(new URL('../test/fixtures/exercises.json', import.meta.url), 'utf8'))
+const merged = mergeLibrary(plan, library).dailyMenu.find(m => m.id === 'log-workout').outputs.find(f => f.key === 'lifts')
+const keysOf = (list) => list.map(e => e.key)
+
+check('search: what it works and needs finds it, every word somewhere', () => {
+  const hits = keysOf(searchExercises(merged, 'lower abs no equipment'))
+  ok(hits.includes('dead-bug') && hits.includes('reverse-crunch'), `missed: ${hits}`)
+  ok(!hits.includes('plank'), 'a word that matches nothing on Plank still found it')
+  ok(keysOf(searchExercises(merged, 'hip flexors')).includes('couch-stretch'), 'tags')
+  ok(keysOf(searchExercises(merged, 'glutes', { limit: 1000 })).includes('wall-sit'), 'muscles in words: "glutes" for gluteal')
+  // The plan names Dead bug's muscles (abs alone), so the library's are not read.
+  ok(!keysOf(searchExercises(merged, 'obliques', { limit: 1000 })).includes('dead-bug'), 'the library\'s muscles beat the plan\'s')
+  ok(keysOf(searchExercises(merged, 'wall')).includes('couch-stretch'), 'equipment')
+  ok(keysOf(searchExercises(merged, 'shin')).includes('couch-stretch'), 'the steps')
+  eq(searchExercises(merged, 'zzzz'), [], 'a miss is still a miss')
+})
+
+check('search: names still rank first, then what it works, then how it is done', () => {
+  const plank = keysOf(searchExercises(merged, 'plank'))
+  eq(plank[0], 'plank', 'the name no longer leads')
+  const abs = searchExercises(merged, 'lower abs')
+  ok(abs.every(e => !/lower abs/i.test(e.name)), 'precondition: nothing is CALLED lower abs')
+  // "Crunch" names it; "lower abs" is said about it: a name match beats it.
+  const crunch = keysOf(searchExercises(merged, 'crunch'))
+  ok(crunch.indexOf('crunch') < crunch.indexOf('dead-bug') || !crunch.includes('dead-bug'), 'a description beat a name')
+  // A step's word is the weakest evidence: tags rank above it.
+  const hip = keysOf(searchExercises(merged, 'hip'))
+  ok(hip.includes('couch-stretch'))
+  // Description words match from their start: "abs" is not "tabs".
+  const tabs = { exercises: [{ key: 'x', name: 'X', how: { gist: 'Hold the tabs.', steps: [] } }] }
+  eq(searchExercises(tabs, 'abs'), [], 'matched inside a word')
+})
+
+check('search: fast enough over five hundred exercises', () => {
+  const big = { ...merged, exercises: Array.from({ length: 5 }, (_, i) => merged.exercises.map(e => ({ ...e, key: `${e.key}-${i}` }))).flat().slice(0, 600) }
+  searchExercises(big, 'warm')
+  const t = Date.now()
+  for (const q of ['l', 'lo', 'low', 'lowe', 'lower', 'lower a', 'lower ab', 'lower abs', 'lower abs no', 'lower abs no equipment']) searchExercises(big, q, { limit: 24 })
+  ok(Date.now() - t < 200, `ten keystrokes took ${Date.now() - t} ms`)
+})
+
+check('muscles in words: the vocabulary people use', () => {
+  eq(['gluteal', 'front-deltoids', 'quadriceps', 'lower-back', 'chest'].map(muscleName), ['glutes', 'front delts', 'quads', 'lower back', 'chest'])
+})
+
+check('a hold: a new one is seconds, summed as "3 × 45 s", with no volume', () => {
+  eq(measureFor(merged, 'plank'), 'time')
+  eq(measureFor(merged, 'dead-bug'), 'reps')
+  eq(measureFor(liftField, 'plank'), 'reps', 'the plan alone has no holds')
+  let list = addLift(merged, [], 'plank')
+  eq(list[0].sets, [{ seconds: '', weight: '' }])
+  eq(liftMeasure(list[0], merged), 'time')
+  list = setLiftSet(list, list[0].uid, 0, { seconds: 45 })
+  list = addLiftSet(addLiftSet(list, list[0].uid), list[0].uid)
+  eq(list[0].sets, [{ seconds: 45, weight: '' }, { seconds: 45, weight: '' }, { seconds: 45, weight: '' }], 'a set carries the seconds forward')
+  eq(liftSummary(list[0], merged), '3 × 45 s')
+  list = setLiftSet(list, list[0].uid, 2, { seconds: 30, weight: 25 })
+  eq(liftSummary(list[0], merged), '45 s, 45 s, 30 s @ 25 lb')
+  eq(liftVolume({ lifts: list }), 0, 'seconds times a plate is not volume')
+  eq(liftReps({ lifts: list }), 0)
+  eq(liftsLine({ lifts: list }, merged), '1 exercise · 3 sets')
+  const one = removeLiftSet(removeLiftSet(removeLiftSet(list, list[0].uid, 0), list[0].uid, 0), list[0].uid, 0)
+  eq(one[0].sets, [{ seconds: '', weight: '' }], 'the last set out leaves a blank HOLD')
+  eq(blankSet(), { reps: '', weight: '' }, 'the default is reps, as it always was')
+})
+
+check('a hold: a Plank logged as reps before the library reads exactly as before', () => {
+  const old = { uid: 'plank-1', key: 'plank', name: 'Plank', group: 'Core', implement: 'bodyweight', sets: [{ reps: '60', weight: '' }, { reps: '45', weight: '' }] }
+  eq(liftMeasure(old, merged), 'reps', 'the row\'s own sets decide, not the catalog')
+  eq(liftSummary(old, merged), liftSummary(old, liftField), 'it reads differently once the catalog calls it a hold')
+  eq(liftSummary(old, merged), '60, 45')
+  eq(addLiftSet([old], 'plank-1')[0].sets.at(-1), { reps: '45', weight: '' })
+  eq(removeLiftSet([{ ...old, sets: [old.sets[0]] }], 'plank-1', 0)[0].sets, [{ reps: '', weight: '' }])
+  eq(liftVolume({ lifts: [old] }), 0)
+  const entries = [{ id: 'a', kind: 'daily', date: '2026-10-01', data: { out: { lifts: [old] } } },
+    { id: 'b', kind: 'daily', date: '2026-10-20', data: { out: { lifts: [{ ...old, uid: 'plank-2', sets: [{ seconds: '50', weight: '' }] }] } } }]
+  eq(lastLift(entries, 'plank', null, merged).summary, '1 × 50 s', 'last time reads the newest, held')
+  eq(lastLift(entries.slice(0, 1), 'plank', null, merged).summary, '60, 45')
+  // A row with no sets at all to read falls back to the catalog.
+  eq(liftMeasure({ key: 'plank', sets: [] }, merged), 'time')
+})
+
+check('the picker\'s group chips stay exact once the library adds descriptions (#63 review)', () => {
+  for (const g of ['Triceps', 'Chest', 'Core']) {
+    const hits = searchExercises(merged, '', { group: g, limit: 1000 })
+    ok(hits.length && hits.every(e => e.group === g), `the ${g} chip listed another group's exercise`)
+  }
+})
+
+check('last time beside a hold is a hold; beside reps, reps (#63 review)', () => {
+  const day = (id, date, sets) => ({ id, kind: 'daily', date, data: { out: { lifts: [{ uid: `${id}-1`, key: 'plank', name: 'Plank', sets }] } } })
+  const entries = [day('a', '2026-10-20', [{ seconds: '45', weight: '' }]), day('b', '2026-10-24', [{ reps: '60', weight: '' }])]
+  eq(lastLift(entries, 'plank', null, merged).summary, '1 × 60', 'with no measure, the newest of either')
+  eq(lastLift(entries, 'plank', null, merged, 'time').summary, '1 × 45 s')
+  eq(lastLift(entries, 'plank', null, merged, 'reps').summary, '1 × 60')
+})
+
+check('a new hold can be counted in reps instead, one tap, stored as the row\'s own sets (#63 review)', () => {
+  let list = addLift(merged, [], 'plank')
+  ok(canSwitchMeasure(merged, list[0]), 'a fresh hold offers no switch')
+  list = patchLift(merged, list, list[0].uid, { measure: 'reps' })
+  eq(list[0].sets, [{ reps: '', weight: '' }])
+  eq(liftMeasure(list[0], merged), 'reps')
+  ok(!('measure' in list[0]), 'the switch stored a field; the sets are the measure')
+  list = setLiftSet(addLiftSet(list, list[0].uid), list[0].uid, 0, { weight: 10 })
+  list = patchLift(merged, list, list[0].uid, { measure: 'time' })
+  eq(list[0].sets, [{ seconds: '', weight: 10 }, { seconds: '', weight: '' }], 'a weight was lost on the way back')
+  list = setLiftSet(list, list[0].uid, 0, { seconds: 30 })
+  ok(!canSwitchMeasure(merged, list[0]), 'a switch offered with a count on the row')
+  eq(patchLift(merged, list, list[0].uid, { measure: 'reps' }), list, 'a counted row was switched')
+  ok(!canSwitchMeasure(merged, addLift(merged, [], 'dead-bug')[0]), 'a reps movement offers to be held')
+})
+
+check('a hold remembers its weight mode like any lift, from a row with seconds on it', () => {
+  const row = { uid: 'w-1', key: 'wall-sit', name: 'Wall sit', implement: 'dumbbell', weightMode: 'one', weightLabel: 'lb · one dumbbell', sets: [{ seconds: '60', weight: '' }] }
+  const entries = [{ id: 'a', kind: 'daily', date: '2026-10-01', updatedAt: '1', data: { done: true, out: { lifts: [row] } } }]
+  eq(rememberedWeightMode(merged, entries, 'wall-sit', 'dumbbell', null, '2026-10-26'), 'one')
 })
 
 console.log(failed ? `\n${failed} lift/output test(s) failed` : '\nall lift and output tests pass')

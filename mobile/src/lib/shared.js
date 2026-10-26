@@ -28,7 +28,7 @@
  */
 
 import { extraEntryId } from './store.js'
-import { blankSet } from './lifts.js'
+import { blankSet, liftMeasure } from './lifts.js'
 import { reindex, remapRun } from './prescription.js'
 
 /** Facts of the workout itself, as opposed to how it went for one person. */
@@ -109,7 +109,7 @@ const blank = (v) => v === undefined || v === null || v === ''
 
 /** Have they put a number on any of these logged lifts? */
 export const liftsMarked = (lifts) => Array.isArray(lifts)
-  && lifts.some(l => (l?.sets || []).some(s => !blank(s?.reps) || !blank(s?.weight)))
+  && lifts.some(l => (l?.sets || []).some(s => !blank(s?.reps) || !blank(s?.seconds) || !blank(s?.weight)))
 
 /** Each plan item with its key: the name, numbered when it appears twice, as `remapRun` matches them. */
 function keyed(pres) {
@@ -179,10 +179,11 @@ function copyLifts(theirs, mine) {
     if (!m?.uid) continue
     const t = out.find(r => r?.uid === m.uid)
     const want = Math.max(1, (m.sets || []).length)
-    if (!t) out = [...out, { ...noMode(m), sets: Array.from({ length: want }, blankSet) }]
+    // A hold arrives as a hold: its blank sets are seconds, read off the owner's row.
+    if (!t) out = [...out, { ...noMode(m), sets: Array.from({ length: want }, () => blankSet(liftMeasure(m))) }]
     else if ((t.sets || []).length < want) {
       const sets = [...(t.sets || [])]
-      while (sets.length < want) sets.push(blankSet())
+      while (sets.length < want) sets.push(blankSet(liftMeasure(t)))
       out = out.map(r => (r === t ? { ...t, sets } : r))
     }
   }

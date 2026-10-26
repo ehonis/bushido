@@ -50,9 +50,9 @@ import {
   prescriptionSteps, runProgress, firstOpen, restLeft, runElapsed,
   markSet, unmarkSet, skipSet, unskipSet, nudgeRest, endRest, goToSet, finishRun,
   emptyRun, setDraft, carryForward, runOutputs, isLogged, isSkipped, setLine, itemLine,
-  setFieldsFor, addSetLike, patchRunItem,
+  setFieldsFor, addSetLike, patchRunItem, measureOfItem,
 } from './lib/prescription.js'
-import { Stepper, STEP, weightSwitch, SwapWords } from './exercises.jsx'
+import { Stepper, STEP, weightSwitch, SwapWords, ExerciseSheet } from './exercises.jsx'
 import { ExerciseBody, musclesOf, muscleWords } from './lib/bodymap.jsx'
 import { liftFieldOf } from './planner.jsx'
 import { usePlan } from './lib/planctx.jsx'
@@ -353,10 +353,11 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
   const liftField = liftFieldOf(usePlan())
   const logged = isLogged(run, step.setId)
   const prior = useMemo(
-    () => (item.exercise ? lastLift(entries, item.exercise, entryId, liftField) : null),
-    [entries, item.exercise, entryId, liftField])
+    () => (item.exercise ? lastLift(entries, item.exercise, entryId, liftField, item.kind === 'lift' ? measureOfItem(item) : null) : null),
+    [entries, item, entryId, liftField])
   const muscles = musclesOf(liftField, item.exercise)
   const swap = weightSwitch(liftField, item, onPatchItem)
+  const [about, setAbout] = useState(false)
 
   const target = setLine(step.set, item)
   const mine = steps.filter(s => s.itemId === item.id)
@@ -375,7 +376,17 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
         </button>
       </div>
 
-      <h2 className="run-move">{item.name}</h2>
+      {/* A catalog movement's name opens what it is (issue #63), for the set
+          you are about to do; nothing else on this screen moves. */}
+      {item.exercise ? (
+        <h2 className="run-move">
+          <button type="button" className="run-moveabout" onClick={() => setAbout(true)}
+            aria-label={`${item.name}: how to do it`}>
+            {item.name} <Icon name="Info" size={18} />
+          </button>
+        </h2>
+      ) : <h2 className="run-move">{item.name}</h2>}
+      {about && <ExerciseSheet field={liftField} exercise={item.exercise} name={item.name} onClose={() => setAbout(false)} />}
       {item.implementLabel && <div className="run-impl">{item.implementLabel}</div>}
 
       {/* What it works. Bigger here than anywhere else, because this is the one

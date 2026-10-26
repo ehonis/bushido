@@ -24,6 +24,7 @@ import React, { memo, useMemo } from 'react'
 import { View } from 'react-native'
 import Svg, { Polygon } from 'react-native-svg'
 import { anteriorData, posteriorData, type BodySide } from './bodymapData'
+import { muscleName } from './lifts.js'
 
 /** The catalog's answer for one exercise key, or null. */
 export function musclesOf(field: any, key: any): { primary: string[]; secondary: string[] } | null {
@@ -132,8 +133,8 @@ export function ExerciseBody({ field, exercise, size = 34, name }: { field: any;
 /** "Chest, front delts" — the words, for where a picture is too small to read. */
 export function muscleWords(m: { primary: string[] } | null | undefined, limit = 3) {
   if (!m) return ''
-  const pretty = (s: string) => s.replace(/-/g, ' ').replace('deltoids', 'delts')
-  const list = m.primary.slice(0, limit).map(pretty)
+  // The exercise sheet's words (lib/lifts.js `muscleName`): "quads" on both.
+  const list = m.primary.slice(0, limit).map((x) => (muscleName as any)(x))
   const more = m.primary.length - list.length
   return list.join(', ') + (more > 0 ? ` +${more}` : '')
 }

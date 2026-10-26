@@ -63,6 +63,19 @@ const BLOCK_KEYS = ['name', 'note', 'category', 'activity']
 // and an exercise that arrives is in the receiver's default.
 const ITEM_KEYS = ['kind', 'name', 'exercise', 'group']
 const LIFT_KEYS = ['key', 'name', 'group']
+/*
+ * A movement held for time (issue #63) is structure too: a plan item says so
+ * with `measure: "time"`, which goes wherever its `exercise` goes; a logged row
+ * says so by its sets being `{ seconds, weight }` (lib/lifts.js `liftMeasure`).
+ * The seconds themselves are numbers, and stay on their own side like reps.
+ * Not in ITEM_KEYS, because the shape every stored `syncBase` was written with
+ * must keep comparing equal to itself.
+ */
+const measureOf = (it) => (it?.measure === 'time' || it?.measure === 'reps' ? { measure: it.measure } : {})
+const withMeasure = (item, from) => {
+  const { measure: _m, ...rest } = item
+  return { ...rest, ...measureOf(from) }
+}
 const MAX_SETS = 30
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
@@ -211,7 +224,7 @@ function freshItem(s) {
   const rows = setsOf(s).length ? setsOf(s) : [{}]
   const unit = typeof s.unit === 'string' ? s.unit : null
   return {
-    uid: s.uid, ...pick(s, ITEM_KEYS), unit,
+    uid: s.uid, ...pick(s, ITEM_KEYS), ...measureOf(s), unit,
     // The implement is each person's own; they pick theirs.
     implement: '', implementLabel: null, weightLabel: null, note: '',
     sets: rows.map(x => {
@@ -223,10 +236,10 @@ function freshItem(s) {
   }
 }
 
-/** A logged lift arriving from the other side: which exercise, blank sets. */
+/** A logged lift arriving from the other side: which exercise, blank sets (held ones stay held). */
 const freshLift = (s) => ({
   uid: s.uid, ...pick(s, LIFT_KEYS), implement: '',
-  sets: Array.from({ length: Math.max(1, setsOf(s).length) }, blankLiftSet),
+  sets: Array.from({ length: Math.max(1, setsOf(s).length) }, () => blankLiftSet(s)),
 })
 
 const freshBlock = (s, uid) => ({
@@ -304,8 +317,9 @@ function applyPlan(target, base, next, src, logged = null) {
     const bi = B.items.get(uid)
     const at = bi && find(uid)
     if (!at) continue
-    const item = { ...at.b.items[at.i] }
+    let item = { ...at.b.items[at.i] }
     for (const k of ITEM_KEYS) if (!same(bi[k], ni[k])) item[k] = ni[k]
+    if (!same(bi.exercise, ni.exercise) && srcItems.has(uid)) item = withMeasure(item, srcItems.get(uid))
     if (bi.sets !== ni.sets) {
       const sets = [...setsOf(item)]
       const want = wantSets(sets.length, bi.sets, ni.sets)
@@ -387,8 +401,11 @@ function remapRun(run, before, after) {
 
 /* ----------------------------------------------------------------- lifts */
 
-const blankLiftSet = () => ({ reps: '', weight: '' })
-const liftSetMarked = (s) => !blank(s?.reps) || !blank(s?.weight)
+/** A row held for time, read off its own sets (lib/lifts.js `liftMeasure`). */
+const heldRow = (row) => setsOf(row).some(s => isObj(s) && 'seconds' in s)
+/** A blank set in the shape of `row`'s own: `{ seconds, weight }` for a hold. */
+const blankLiftSet = (row = null) => (heldRow(row) ? { seconds: '', weight: '' } : { reps: '', weight: '' })
+const liftSetMarked = (s) => !blank(s?.reps) || !blank(s?.seconds) || !blank(s?.weight)
 
 /** The logged-lifts version of `applyPlan`. `protect` keeps rows and sets with numbers on them. */
 function applyLifts(target, base, next, src, protect) {
@@ -405,7 +422,7 @@ function applyLifts(target, base, next, src, protect) {
     if (b.sets !== n.sets) {
       const sets = [...setsOf(l)]
       const want = wantSets(sets.length, b.sets, n.sets)
-      while (sets.length < want) sets.push(blankLiftSet())
+      while (sets.length < want) sets.push(blankLiftSet(l))
       while (sets.length > want && !(protect && liftSetMarked(sets.at(-1)))) sets.pop()
       row.sets = sets
     }
@@ -500,7 +517,10 @@ function landPlan(merged, incoming) {
     ...b,
     items: itemsOf(b).map(it => {
       const x = sent.get(it.uid)
-      return x ? { ...x, ...pick(it, ITEM_KEYS), uid: it.uid, sets: setsOnto(setsOf(it), setsOf(x), logged.get(it.uid)) } : it
+      // Its measure is the writer's own while the exercise is the one it sent:
+      // its sets are in that measure, and a stale base must not take it away.
+      return x ? withMeasure({ ...x, ...pick(it, ITEM_KEYS), uid: it.uid, sets: setsOnto(setsOf(it), setsOf(x), logged.get(it.uid)) },
+        same(x.exercise, it.exercise) ? x : it) : it
     }),
   }))
   const inMerged = new Set(blocks.flatMap(b => b.items.map(i => i.uid)))
@@ -561,7 +581,7 @@ function rebase(stored, incoming, id) {
     const merged = intent === 'current' ? liftsOf(incoming)
       : intent === 'stale' ? applyLifts(liftsOf(stored), incoming.syncBase.lifts, mine.lifts, liftsOf(incoming), false)
       : liftsOf(stored)
-    const unmarked = { ...incoming, out: { ...incoming.out, lifts: liftsOf(incoming).map(l => (isObj(l) ? { ...l, sets: setsOf(l).map(blankLiftSet) } : l)) } }
+    const unmarked = { ...incoming, out: { ...incoming.out, lifts: liftsOf(incoming).map(l => (isObj(l) ? { ...l, sets: setsOf(l).map(() => blankLiftSet(l)) } : l)) } }
     return { data: landLifts(merged, incoming), carry: intent === 'numbers' ? null : landLifts(merged, unmarked), intent }
   }
   // A plan on one side and logged lifts on the other: never a structural write.
