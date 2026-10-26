@@ -362,8 +362,11 @@ export function ExerciseCard({
             {item.name}
             {muscles && <span className="presc-muscles">{muscleWords(muscles)}</span>}
             {modeWords && <span className="presc-mode">{modeWords}</span>}
+            {/* The summary sits under the name, on one line, so the name has the
+                width (#63 follow-up: beside "60 s @ 70 lb, 45 s …" and the ⓘ, a
+                long name wrapped four lines). */}
+            {item.line && <span className="presc-itemline">{item.line}</span>}
           </span>
-          <span className="presc-itemline">{item.line}</span>
           <span className={`alt-chev ${open ? 'open' : ''}`}><Icon name="ChevronDown" size={15} /></span>
         </button>
         {item.exercise && (

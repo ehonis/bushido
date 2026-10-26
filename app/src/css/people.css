@@ -82,6 +82,9 @@
 .synctoggle-label { font-size: var(--fs-body); font-weight: 600; color: var(--ink); }
 .synctoggle-sub { font-size: var(--fs-small); color: var(--ink-dim); line-height: 1.4; }
 .sharednote { display: flex; align-items: center; gap: var(--sp-1); margin: 0 0 var(--sp-3); font-size: var(--fs-caption); color: var(--ink-faint); }
+/* A circuit done together that has not reached someone yet (#68): said plainly, with Try again. */
+.sharednote.together-pending { color: var(--ink); font-size: var(--fs-small); flex-wrap: wrap; }
+.sharednote.together-pending .btn.quiet { margin-left: auto; min-height: var(--tap); }
 .theirside-lead { margin: 0 0 var(--sp-1); }
 .theirside-copy { width: 100%; margin-top: var(--sp-3); }
 .theirside-copied { margin: var(--sp-3) 0 0; }

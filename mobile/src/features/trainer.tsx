@@ -12,7 +12,7 @@
  * Native: switching sides in a workout gives a haptic; the workout sides share
  * ONE full-screen modal (iOS presents one at a time), each runner `embedded`.
  */
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Modal as RNModal, StyleSheet, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -42,6 +42,7 @@ type Side = { id: string | null; name: string; entryId: string | null; tone: num
 // Default parameters in the ported JS narrow TypeScript's inference; cast here
 // rather than edit the copied file (mobile/AGENTS.md).
 const { applyRun, applyOut, applyDone, canStart, dayOf, dayRow, runKind, plannedLine, toneFor, toggleFor, forWords, FOR_ME } = trainerLib as any
+const { togetherSides, togetherWords, togetherNames, togetherPref, saveTogetherPref, shareCircuit, notePending, pendingFor, retryPending } = trainerLib as any
 
 /** Who a plan is for (lib/trainer.js): the owner, and anyone else picked. */
 export type Who = { me: boolean; others: Person[] }
@@ -203,10 +204,21 @@ export function SidesWorkout({
     return () => clearInterval(iv)
   }, [sides.length])
 
-  const report = useCallback((id: string, e: any) => setCopies((c) => (c[id] === e ? c : { ...c, [id]: e })), [])
-  const entryOf = (s: Side) => (s.id ? copies[s.id] : ownerEntry)
+  /*
+   * Each other person's copy twice: as on screen (`copies`, which may hold a
+   * write on its way) and as the server last said (`servers`). A side's "done"
+   * and a circuit done together read the server's.
+   */
+  const [servers, setServers] = useState<Record<string, any>>({})
+  const accepts = useRef<Record<string, (e: any) => void>>({})
+  const report = useCallback((id: string, e: any, server?: any, accept?: (e: any) => void) => {
+    if (accept) accepts.current[id] = accept
+    setCopies((c) => (c[id] === e ? c : { ...c, [id]: e }))
+    setServers((c) => (c[id] === server ? c : { ...c, [id]: server }))
+  }, [])
+  const serverOf = (s: Side) => (s.id ? servers[s.id] : ownerEntry)
   const status: Record<string, string> = {}
-  for (const s of sides) status[s.id || ''] = sideStatus(kind, entryOf(s), now, finished.includes(s.id || ''))
+  for (const s of sides) status[s.id || ''] = sideStatus(kind, serverOf(s), now, finished.includes(s.id || ''))
 
   const pick = (id: string | null) => {
     if ((id || null) === (side || null)) return
@@ -218,10 +230,59 @@ export function SidesWorkout({
   const finishSide = (id: string | null) => () => {
     const over = [...finished, id || '']
     setFinished(over)
-    const next = sides.find((s) => !over.includes(s.id || '') && !entryOf(s)?.data?.run?.endedAt)
+    const next = sides.find((s) => !over.includes(s.id || '') && !serverOf(s)?.data?.run?.endedAt)
     if (next) { success(); pick(next.id || null) } else onExit()
   }
   const switcher = <SideSwitch sides={sides} side={side} onSide={pick} status={status} />
+
+  /*
+   * A circuit done TOGETHER (#68), as the web's, by the Together rule
+   * (lib/trainer.js): one clock, run on whichever side it was started from; at
+   * its end the result is offered to every other side, each re-read from the
+   * server first and filled only where blank; a miss is kept on the device and
+   * tried again when the workout opens. Remembered per device.
+   */
+  const storage = (globalThis as any).localStorage || null
+  const synced: Side[] = kind === 'runner' ? togetherSides({ data: { sharedWith: ownerEntry?.data?.sharedWith || [] } }, sides) : []
+  const together: Side[] = kind === 'runner' ? togetherSides(ownerEntry, sides, serverOf) : []
+  const [withThem, setWithThem] = useState(() => togetherPref(storage))
+  const readPerson = (id: string, entryId: string) => peopleApi.getPersonEntry(id, entryId)
+  const putPerson = async (id: string, e: any) => {
+    const merged = await peopleApi.putPersonEntry(id, e)
+    accepts.current[id]?.(merged)
+    return merged
+  }
+  const writeTogether = async (hostId: string | null, result: any) => {
+    const said = await shareCircuit({
+      sides: synced, hostId, result, ownerEntry, session, readPerson, putPerson,
+      writeOwner: (run: any, opts: any) => onOwnerRun?.(run, opts),
+    })
+    notePending(storage, { ownerEntryId: ownerEntry?.id, result, said, people: sides })
+    return said
+  }
+  // A miss kept from an earlier run (rule 4) is tried again as the workout opens.
+  useEffect(() => {
+    if (kind !== 'runner' || !ownerEntry?.id || !pendingFor(storage, ownerEntry).length) return
+    retryPending({ storage, ownerEntry, readPerson, putPerson, session }).catch(() => {})
+  }, [kind, ownerEntry?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  // A clock already running together on another side: one clock is the point.
+  const runningOn = (s: Side) => synced.find((t) => (t.id || null) !== (s.id || null)
+    && serverOf(t)?.data?.run?.circuit?.together && !serverOf(t)?.data?.run?.circuit?.timer?.finishedAt
+    && !serverOf(t)?.data?.run?.endedAt)
+  // `offer`: the switch is shown (someone besides this side is free); `write`
+  // stays for a run started together even if that changes before it ends.
+  const same = (a: Side, b: Side) => (a.id || null) === (b.id || null)
+  const togetherFor = (s: Side) => (synced.some((t) => same(t, s)) ? {
+    offerTo: together.map((t: Side) => t.id || null),
+    offer: together.some((t) => same(t, s)),
+    busyOn: runningOn(s) ? (runningOn(s)!.id ? runningOn(s)!.name : 'your') : null,
+    words: togetherWords(together, s.id),
+    names: togetherNames(together, s.id),
+    on: withThem,
+    onToggle: (v: boolean) => { setWithThem(v); saveTogetherPref(storage, v) },
+    host: s.id ? s.name : 'you',
+    write: (result: any) => writeTogether(s.id || null, result),
+  } : null)
 
   return (
     <RNModal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={onExit}>
@@ -235,10 +296,11 @@ export function SidesWorkout({
                 accessibilityElementsHidden={!shown} importantForAccessibility={shown ? 'auto' : 'no-hide-descendants'}>
                 {s.id ? (
                   <TheirSlot kind={kind} person={s} session={session} shown={shown} who={who} switcher={switcher}
-                    onExit={onExit} onFinish={finishSide(s.id)} report={report} />
+                    onExit={onExit} onFinish={finishSide(s.id)} report={report} together={togetherFor(s)} />
                 ) : kind === 'runner' ? (
                   <WorkoutRunner session={session} entry={ownerEntry} entries={entries} onRun={onOwnerRun as any}
-                    onExit={onExit} onFinish={finishSide(null)} who={who} switcher={switcher} shown={shown} embedded />
+                    onExit={onExit} onFinish={finishSide(null)} who={who} switcher={switcher} shown={shown} embedded
+                    together={togetherFor(s)} />
                 ) : (
                   <WorkoutMode session={session} entry={ownerEntry} onSave={onOwnerSave as any} onSetDone={onOwnerDone || undefined}
                     onExit={onExit} onFinish={finishSide(null)} who={who} switcher={switcher} shown={shown} embedded />
@@ -252,11 +314,11 @@ export function SidesWorkout({
   )
 }
 
-function TheirSlot({ kind, person, session, shown, who, switcher, onExit, onFinish, report }: any) {
+function TheirSlot({ kind, person, session, shown, who, switcher, onExit, onFinish, report, together = null }: any) {
   const copy = usePersonCopy(person.id, person.entryId, person.name)
   // Their own history, for "last time" in the runner: they lift different weights.
   const log = usePersonLog(kind === 'runner' ? person.id : null)
-  useEffect(() => { report(person.id, copy.entry) }, [person.id, copy.entry, report])
+  useEffect(() => { report(person.id, copy.entry, copy.server, copy.accept) }, [person.id, copy.entry, copy.server, copy.accept, report])
 
   if (!copy.entry || copy.entry.deleted) {
     return (
@@ -275,7 +337,7 @@ function TheirSlot({ kind, person, session, shown, who, switcher, onExit, onFini
       {kind === 'runner' ? (
         <WorkoutRunner session={session} entry={copy.entry} entries={log.entries}
           onRun={(run: any, opts: any) => copy.update((cur: any) => applyRun(cur, session, run, opts))}
-          onExit={onExit} onFinish={onFinish} who={who} switcher={switcher} shown={shown} embedded />
+          onExit={onExit} onFinish={onFinish} who={who} switcher={switcher} shown={shown} embedded together={together} />
       ) : (
         <WorkoutMode session={session} entry={copy.entry}
           onSave={(out: any) => copy.update((cur: any) => applyOut(cur, session, out))}

@@ -190,5 +190,20 @@ check('a block\'s category or activity the content does not know is dropped, not
   ok(planner.realKeys({ category: 'x', blocks: [] }, {}).category === 'x', 'an unknowable key was dropped')
 })
 
+check('a block can be a timed circuit (#68): the schema takes its timing, the prompt says how, loads still go', () => {
+  for (const schema of [planner.PLAN_SCHEMA, planner.REVISE_SCHEMA]) {
+    const c = schema.properties.blocks.items.properties.circuit
+    ok(c && c.type === 'object', 'no circuit on a block in the reply schema')
+    for (const k of ['work', 'rest', 'rounds', 'roundRest', 'countIn']) ok(c.properties[k]?.type === 'number', `no ${k} on a circuit`)
+    ok(!schema.properties.blocks.items.required.includes('circuit'), 'every block would have to be a circuit')
+  }
+  const text = planner.systemPrompt({ ...ctx, name: '', notes: '' })
+  ok(/A CIRCUIT is a block/.test(text) && /never repeat a set per round/.test(text), 'the prompt does not say how to write a circuit')
+  const built = { blocks: [{ name: 'Core', circuit: { work: 40, rest: 20, rounds: 3 }, items: [{ kind: 'lift', name: 'x', sets: [{ weight: 20 }, {}] }] }] }
+  const stripped = planner.noLoads(built)
+  ok(stripped.blocks[0].circuit.rounds === 3, 'taking the loads out took the circuit')
+  ok(!JSON.stringify(stripped).includes('"weight"'), 'a load survived on a circuit for several people')
+})
+
 if (failed) { console.log(`\n${failed} failed`); process.exit(1) }
 console.log('\nprompts ok')

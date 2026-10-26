@@ -26,7 +26,11 @@ import { levelFor } from './level.js'
 import { resolveMinutes } from './minutes.js'
 import { optFor } from './menu.js'
 import { sharePeople, sharedPeopleOn, addPerson } from './shared.js'
-import { isLiftOnly, followWeightModes } from './prescription.js'
+import {
+  isLiftOnly, followWeightModes, endCircuit, circuitOnly, circuitEnded, runProgress, prescriptionSteps, finishRun,
+  runOutputs, fillOut, blockTimer,
+} from './prescription.js'
+import { compile, settle } from './timer.js'
 import { liftFieldIn } from './lifts.js'
 import { hasWorkout } from './workout.js'
 
@@ -439,4 +443,294 @@ export function runKind(entry, opt) {
   const pres = entry?.data?.plan
   if (pres) return isLiftOnly(pres) ? null : 'runner'
   return hasWorkout(opt) ? 'mode' : null
+}
+
+/* ------------------------------------------------- circuits together */
+
+/*
+ * A CIRCUIT DONE TOGETHER (#68, the owner's ask: "complete the workout … for
+ * both people, not just one at a time"). On a shared workout with sync on, the
+ * circuit's start screen offers "Together with Sam": one clock on the screen in
+ * front of you, and when it ends, finished or stopped, its result offered to
+ * every other side. Off, each side runs its own clock from its own Start.
+ *
+ * THE TOGETHER RULE, written down after two review rounds in which each fix
+ * opened a new way to lose someone's data:
+ *
+ * 1. TOGETHER FILLS, IT NEVER OVERWRITES. A side gets the result only where it
+ *    has nothing of its own. Per exercise and per set, seconds, reps and weight
+ *    land only in blanks (`endCircuit` with `fill`, `fillOut`). A side whose
+ *    circuit is already ended (`circuitEnded`) or whose own clock is running
+ *    (`run.circuit`) is not written at all, and is reported as "already logged"
+ *    or "running", which is not a miss and has no Retry. Totals are read off
+ *    what is there (`circuitTimes`, set per block), never added to. It is the
+ *    shared-sync rule again: logged data is never removed by anyone else's write.
+ * 2. DECIDE FROM FRESH DATA. Someone else's side is re-read from the server
+ *    (`readPerson`) right before it is written, and rule 1 is applied to THAT,
+ *    never to a copy on screen that may hold a write that never landed. A copy
+ *    already carrying this run's key with its result in it is done: success, and
+ *    nothing is sent. The key without the result is written. Retry is the same.
+ * 3. ONLY OFFER IT WHERE IT CAN HELP. Sides already ended or running their own
+ *    LIVE clock are left out of "Together" (`togetherSides`), and with nobody
+ *    left there is no switch. Only those offered it when it started are
+ *    written at its end (`result.with`).
+ * 4. A MISS SURVIVES CLOSE. Each one is kept on the device
+ *    (`bushido:together-pending`, by run and person) and tried again, the same
+ *    way, when the workout next opens, until it lands, but only while the
+ *    owner's live entry still carries that run and that person, and for a week
+ *    at most (`pendingFor`): the id alone could be a new workout's.
+ * 5. HONEST WORDS. "Logged for you", then per person "and Sam", "Sam already
+ *    logged it", "Sam is running it" or "Not on Sam's log yet" with Try again
+ *    (`togetherSaid`); never "for you and Sam" over a miss.
+ *
+ * Each side is written through its own path (the owner's `saveRun`, anyone
+ * else's people endpoint), one write each at most, so the owner's push fires
+ * once and nobody else's at all (§4).
+ */
+
+/** Remembered per device: on until someone turns it off. */
+export const TOGETHER_KEY = 'bushido:circuit-together'
+export const togetherPref = (storage) => {
+  try { return storage?.getItem(TOGETHER_KEY) !== '0' } catch { return true }
+}
+export const saveTogetherPref = (storage, on) => {
+  try { storage?.setItem(TOGETHER_KEY, on ? '1' : '0') } catch { /* a choice that cannot be kept is still made */ }
+}
+
+/** How long a clock may have run out, unwatched, and still count as someone running it. */
+export const STALE_CLOCK_MS = 10 * 60 * 1000
+
+/**
+ * A side with its own circuit clock going, not one run together from elsewhere.
+ * Live only: paused counts, but one whose program would have run out more than
+ * `STALE_CLOCK_MS` ago (a phone put away mid-circuit, never reopened), or that
+ * has sat that long on an exercise done to a count (which waits for a tap that
+ * never came), does not, or it would block Together for that side forever.
+ */
+function ownClock(entry, now = Date.now()) {
+  const run = entry?.data?.run
+  const timer = run?.circuit?.timer
+  if (!timer || timer.finishedAt != null || run.circuit.together) return false
+  if (timer.pausedAt != null) return true
+  const block = (entry.data?.plan?.blocks || []).find(b => b.id === run.circuit.block && b.circuit)
+  if (!block) return true
+  const settled = settle(compile(blockTimer(block)), timer, now)
+  return now - (settled.finishedAt ?? settled.at) <= STALE_CLOCK_MS
+}
+
+/** Is this side out of reach of a together run: ended, or running its own clock? */
+export const sideTaken = (entry, now = Date.now()) =>
+  Boolean(entry && !entry.deleted && (entry.data?.run?.endedAt || ownClock(entry, now)))
+
+/**
+ * Who a circuit on this shared workout can be done together with: the sides
+ * whose link has sync on, the owner always among them (the shares hang off the
+ * owner's entry), less any side already ended or running its own clock
+ * (`entryOf(side)`, what the SERVER last said; a side not read yet counts as
+ * free, and the write decides again from fresh data). Fewer than two: none.
+ */
+export function togetherSides(ownerEntry, sides = [], entryOf = () => null) {
+  const links = ownerEntry?.data?.sharedWith || []
+  const synced = sides.filter(s => !s.id || links.some(l => l?.id === s.id && l.sync))
+  const free = synced.filter(s => !sideTaken(s.id ? entryOf(s) : ownerEntry))
+  return free.length > 1 ? free : []
+}
+
+/** "you", "you and Sam", "you, Sam and Robin". */
+export const andWords = (names = []) =>
+  (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0] || '')
+
+/** The people besides the side on screen: "Sam", or "you" for the owner seen from someone else's side. */
+export const togetherNames = (sides = [], here = null) =>
+  sides.filter(s => (s.id || null) !== (here || null)).map(s => (s.id ? s.name : 'you'))
+
+/** "Together with Sam", "Together with Sam and Robin". */
+export const togetherWords = (sides = [], here = null) => {
+  const names = togetherNames(sides, here)
+  return names.length ? `Together with ${andWords(names)}` : ''
+}
+
+/**
+ * What one side's own entry gets from a circuit done together, by rule 1:
+ *
+ *   { kind: 'write', run, out, done }  write this (its writer's arguments)
+ *   { kind: 'done' }      this run's result is already on it: nothing to send
+ *   { kind: 'already' }   it logged this circuit itself: leave it be
+ *   { kind: 'running' }   its own clock is going: leave it be
+ *   { kind: 'none' }      it has no such circuit
+ *
+ * `result` is `{ block: { uid, id, name }, items: [{ uid, name }], done, at, seconds, key, with }`
+ * from the side that ran the clock; `with` is who was offered Together when it
+ * started (side ids, null for the owner), and only they are written. The block and each exercise are found here
+ * by uid (the sync's identity), then by name, each of this side's exercises
+ * taking at most one of the result's. An exercise this side has marked or
+ * skipped keeps what it has; a logged row keeps every number on it and gains
+ * only blanks. A plan of nothing but circuits whose every exercise is then
+ * marked is finished and done in the same write. Weights are THIS side's own.
+ */
+export function togetherWrite(entry, result, now = Date.now()) {
+  const pres = entry?.data?.plan
+  if (!pres || entry.deleted || !result) return { kind: 'none' }
+  const blocks = (pres.blocks || []).filter(b => b.circuit && b.items?.length)
+  const block = (result.block?.uid && blocks.find(b => b.uid === result.block.uid))
+    || blocks.find(b => b.name === result.block?.name) || null
+  if (!block) return { kind: 'none' }
+  const run = entry.data.run || null
+  const marked = (it) => Boolean(run?.sets?.[it.sets?.[0]?.id])
+  if (run?.circuitKeys?.[block.id] === result.key) {
+    // Ours already: done, unless the result never actually landed with the key.
+    const meant = result.done.some(d => d?.length)
+    if (!meant || block.items.some(it => marked(it))) return { kind: 'done' }
+  } else {
+    if (ownClock(entry, now)) return { kind: 'running' }
+    if (circuitEnded(block, run) || run?.endedAt) return { kind: 'already' }
+  }
+  const taken = new Set()
+  const done = block.items.map(it => {
+    let j = it.uid ? result.items.findIndex((x, n) => !taken.has(n) && x.uid === it.uid) : -1
+    if (j < 0) j = result.items.findIndex((x, n) => !taken.has(n) && x.name === it.name)
+    if (j < 0) return []
+    taken.add(j)
+    return result.done[j] || []
+  })
+  const base = run?.circuitKeys?.[block.id] === result.key
+    ? { ...run, circuitKeys: { ...run.circuitKeys, [block.id]: null } } : run
+  let next = endCircuit(base, pres, block.id, done, { at: result.at, seconds: result.seconds, key: result.key, fill: true })
+  const finished = circuitOnly(pres) && runProgress(next, prescriptionSteps(pres)).left === 0
+  if (finished) next = finishRun(next, { at: result.at })
+  const out = fillOut(entry.data.out || {}, runOutputs(pres, next, {}))
+  return { kind: 'write', run: next, out, done: finished ? true : undefined }
+}
+
+/**
+ * Offer one circuit done together to every side but the one that ran it
+ * (`hostId`, null for the owner), by the rule above. The owner's side is the
+ * owner's own store (`ownerEntry`), written with `writeOwner(run, opts)`.
+ * Anyone else's is re-read first (`readPerson(id)`, their people endpoint) and
+ * written with `putPerson(id, entry)` only if rule 1 says so. Resolves
+ * `[{ id, name, status }]`, status one of 'logged' (on their log now, by this
+ * write or one before), 'already', 'running', 'missed' (could not be read or
+ * written: try again) or 'none'. Trying again is this again, with the same
+ * `result`, and sends nothing that is already there.
+ */
+export async function shareCircuit({
+  sides = [], hostId = null, result, ownerEntry, writeOwner, readPerson, putPerson, session = null,
+}) {
+  const said = []
+  const status = { write: 'logged', done: 'logged', already: 'already', running: 'running', none: 'none' }
+  for (const s of sides) {
+    if ((s.id || null) === (hostId || null)) continue
+    // Only the people offered Together when the clock started (`result.with`).
+    if (Array.isArray(result.with) && !result.with.includes(s.id || null)) continue
+    if (!s.id) {
+      const w = togetherWrite(ownerEntry, result)
+      if (w.kind === 'write') writeOwner(w.run, { out: w.out, done: w.done })
+      said.push({ id: null, name: 'you', status: status[w.kind] })
+      continue
+    }
+    let cur
+    try { cur = await readPerson(s.id, s.entryId) } catch { said.push({ id: s.id, name: s.name, status: 'missed' }); continue }
+    const w = togetherWrite(cur, result)
+    if (w.kind !== 'write') { said.push({ id: s.id, name: s.name, status: status[w.kind] }); continue }
+    try {
+      await putPerson(s.id, applyRun(cur, session, w.run, { out: w.out, done: w.done }))
+      said.push({ id: s.id, name: s.name, status: 'logged' })
+    } catch {
+      said.push({ id: s.id, name: s.name, status: 'missed' })
+    }
+  }
+  return said
+}
+
+/**
+ * The finish screen's words for a circuit done together (rule 5): the head
+ * names who it was logged for, the notes say who already had it or is running
+ * their own, and `missed` is who it is not on yet (with Try again). Before the
+ * answers are in (`said` null), it is logged for the one who ran it.
+ */
+export function togetherSaid(host, said = null) {
+  const by = (st) => (said || []).filter(x => x.status === st).map(x => x.name)
+  const logged = by('logged')
+  return {
+    head: `Logged for ${andWords([host, ...logged])}`,
+    notes: [
+      ...by('already').map(n => `${cap(n)} already logged it`),
+      ...by('running').map(n => `${cap(n)} ${n === 'you' ? 'are' : 'is'} running it`),
+    ],
+    missed: by('missed'),
+  }
+}
+const cap = (w) => (w ? w[0].toUpperCase() + w.slice(1) : w)
+
+/*
+ * Rule 4: misses kept on the device, by run (`key`) and person, with what is
+ * needed to try again without the screen that ran it: whose copy, and the
+ * result. Under `bushido:` so signing out takes them with the log.
+ */
+export const PENDING_KEY = 'bushido:together-pending'
+/** A miss older than this is let go: the workout is long over and the note would only nag. */
+export const PENDING_DAYS = 7
+const readPending = (storage, now = Date.now()) => {
+  let list
+  try { list = JSON.parse(storage?.getItem(PENDING_KEY) || '[]') } catch { list = [] }
+  if (!Array.isArray(list)) list = []
+  const fresh = list.filter(p => now - (Number(p?.noted) || Number(p?.result?.at) || 0) <= PENDING_DAYS * 24 * 3600 * 1000)
+  if (fresh.length !== list.length) writePending(storage, fresh)
+  return fresh
+}
+const writePending = (storage, list) => {
+  try { if (list.length) storage?.setItem(PENDING_KEY, JSON.stringify(list)); else storage?.removeItem(PENDING_KEY) } catch { /* nothing to keep it in */ }
+}
+
+/**
+ * Is a kept miss still about THIS workout? Only while the owner's live entry
+ * still carries that run (`circuitKeys` holds its key for its block) and the
+ * person is still on it (`sharedWith`). A workout deleted and planned again on
+ * the same day reuses the derivable id, so the id alone is not enough: without
+ * this, the morning's numbers would land on the evening's workout.
+ */
+const stillMeant = (p, ownerEntry) => Boolean(ownerEntry && !ownerEntry.deleted
+  && ownerEntry.data?.run?.circuitKeys?.[p.result?.block?.id] === p.result?.key
+  && (ownerEntry.data?.sharedWith || []).some(l => l?.id === p.id))
+
+/**
+ * The misses waiting for one owner entry (`ownerEntry`, the LIVE one), each
+ * still about it; any that is not any more is dropped from the device.
+ */
+export function pendingFor(storage, ownerEntry, now = Date.now()) {
+  const list = readPending(storage, now)
+  const id = ownerEntry?.id
+  const keep = list.filter(p => p.ownerEntryId !== id || stillMeant(p, ownerEntry))
+  if (keep.length !== list.length) writePending(storage, keep)
+  return keep.filter(p => p.ownerEntryId === id)
+}
+
+/** After a share: keep each miss, forget each person it has now reached (or never will need to). */
+export function notePending(storage, { ownerEntryId, result, said = [], people = [], now = Date.now() }) {
+  const keyOf = (id) => `${result.key}:${result.block?.uid || result.block?.id}:${id}`
+  let list = readPending(storage, now)
+  for (const x of said) {
+    if (!x.id) continue
+    list = list.filter(p => p.k !== keyOf(x.id))
+    if (x.status === 'missed') {
+      const who = people.find(p => p.id === x.id)
+      list.push({ k: keyOf(x.id), ownerEntryId, id: x.id, name: x.name, entryId: who?.entryId || null, result, noted: now })
+    }
+  }
+  writePending(storage, list)
+}
+
+/**
+ * Try every kept miss for one owner entry again (rule 2: re-read, then fill),
+ * one person at a time, only those still about the live `ownerEntry`. Resolves
+ * the misses still left.
+ */
+export async function retryPending({ storage, ownerEntry, readPerson, putPerson, session = null }) {
+  for (const p of pendingFor(storage, ownerEntry)) {
+    const said = await shareCircuit({
+      sides: [{ id: p.id, name: p.name, entryId: p.entryId }], result: p.result, session, readPerson, putPerson,
+    })
+    notePending(storage, { ownerEntryId: ownerEntry.id, result: p.result, said, people: [{ id: p.id, entryId: p.entryId }] })
+  }
+  return pendingFor(storage, ownerEntry)
 }

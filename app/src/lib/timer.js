@@ -17,6 +17,9 @@
  *   sets        sets, with a rest between them
  *   cool-down   once, at the end
  *   intervals   optional: a named sequence that replaces work/rest as the round
+ *   exercises   optional: a CIRCUIT (issue #68), exercises one after another,
+ *               each for `work` (or its own seconds, or reps), `rest` between
+ *               them and `roundRest` between rounds; replaces intervals too
  *   repeat      go round again until stopped
  *
  * A segment with `seconds: null` has no target. It counts UP and waits for a
@@ -46,10 +49,14 @@ export const LIMITS = {
   setRest: [0, 3600],
   coolDown: [0, 3600],
   interval: [1, 3600],
+  roundRest: [0, 3600],
+  reps: [1, 999],
 }
 /** How many named intervals the editor lets you build. A plan's sequence may be longer. */
 export const MAX_NAMED = 12
 const MAX_INTERVALS = 400
+/** How many exercises a circuit holds. */
+export const MAX_EXERCISES = 30
 
 /** What a timer with nothing chosen runs: a common, middling interval session. */
 export const DEFAULT_CONFIG = Object.freeze({
@@ -84,12 +91,40 @@ function normalizeInterval(raw) {
 }
 
 /**
+ * One exercise of a circuit, or null. `reps` makes it a count-up ("tap when
+ * done"); `seconds` is its own time; neither means the circuit's `work`. The
+ * key is the exercise library's, so the run screen can say what it works.
+ */
+function normalizeExercise(raw) {
+  if (!raw || typeof raw !== 'object') return null
+  const name = typeof raw.name === 'string' ? raw.name.trim().slice(0, 80) : ''
+  if (!name) return null
+  const out = { name }
+  const key = typeof raw.key === 'string' ? raw.key.trim() : ''
+  if (/^[\w.-]{1,60}$/.test(key)) out.key = key
+  // Zero reps or seconds is no override, not the smallest one.
+  const reps = Number(raw.reps) > 0 ? clampInt(raw.reps, LIMITS.reps, null) : null
+  const seconds = Number(raw.seconds) > 0 ? clampInt(raw.seconds, LIMITS.interval, null) : null
+  if (reps != null) out.reps = reps
+  else if (seconds != null) out.seconds = seconds
+  return out
+}
+
+/**
  * Any config, as one the timer can run. Presets are synced data written by
  * whichever version of the app was current, so this never trusts a field.
+ *
+ * A circuit's two keys (`exercises`, `roundRest`) are there only on a circuit,
+ * so every preset saved before circuits normalizes to exactly what it did. A
+ * circuit is rounds of its exercises and nothing else: one set, no cool-down,
+ * no repeat, because a plan's circuit block has none of them and placing the
+ * preset as a plan must not drop part of what it ran (the setup hides them).
  */
 export function normalizeConfig(raw) {
   const c = raw && typeof raw === 'object' ? raw : {}
   const d = DEFAULT_CONFIG
+  const exercises = (Array.isArray(c.exercises) ? c.exercises : [])
+    .map(x => normalizeExercise(x)).filter(Boolean).slice(0, MAX_EXERCISES)
   return {
     countIn: clampInt(c.countIn, LIMITS.countIn, d.countIn),
     work: clampInt(c.work, LIMITS.work, d.work),
@@ -101,7 +136,76 @@ export function normalizeConfig(raw) {
     intervals: (Array.isArray(c.intervals) ? c.intervals : [])
       .map(i => normalizeInterval(i)).filter(Boolean).slice(0, MAX_INTERVALS),
     repeat: Boolean(c.repeat),
+    ...(exercises.length ? {
+      sets: 1, coolDown: 0, repeat: false,
+      exercises, roundRest: clampInt(c.roundRest, LIMITS.roundRest, 0),
+    } : {}),
   }
+}
+
+/* ------------------------------------------------------------- circuits */
+
+/*
+ * A CIRCUIT (issue #68) is the same timer with exercises in the round: an ab
+ * circuit is five exercises, forty seconds each, twenty between them, three
+ * rounds. It is set once for the whole circuit and each exercise may say
+ * otherwise (its own seconds, or reps). A plan's circuit block carries the
+ * timing as `circuit` (lib/prescription.js); a preset carries it as a config
+ * with `exercises`. Both run as this one program, so pausing, skipping, going
+ * back, a pocket and a reload behave exactly as they do for any timer.
+ */
+export const CIRCUIT_DEFAULT = Object.freeze({ work: 40, rest: 20, rounds: 3, roundRest: 60, countIn: 10 })
+
+/** A circuit's timing, clamped, or null if it is not one. A rest between rounds nobody gave is none. */
+export function normalizeCircuit(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const d = CIRCUIT_DEFAULT
+  return {
+    work: clampInt(raw.work, LIMITS.work, d.work),
+    rest: clampInt(raw.rest, LIMITS.rest, d.rest),
+    rounds: clampInt(raw.rounds, LIMITS.rounds, d.rounds),
+    roundRest: clampInt(raw.roundRest, LIMITS.roundRest, 0),
+    countIn: clampInt(raw.countIn, LIMITS.countIn, d.countIn),
+  }
+}
+
+/** A circuit's timing and its exercises, as a timer config. */
+export function circuitConfig(circuit, exercises = []) {
+  const c = normalizeCircuit(circuit) || { ...CIRCUIT_DEFAULT }
+  return normalizeConfig({
+    ...DEFAULT_CONFIG, countIn: c.countIn, work: c.work, rest: c.rest, rounds: c.rounds,
+    sets: 1, coolDown: 0, intervals: [], repeat: false, exercises, roundRest: c.roundRest,
+  })
+}
+
+/** The other way: a config's circuit timing, for placing a preset as a plan. */
+export function circuitOf(config) {
+  const c = normalizeConfig(config)
+  return { work: c.work, rest: c.rest, rounds: c.rounds, roundRest: c.roundRest || 0, countIn: c.countIn }
+}
+
+export const isCircuit = (config) => Boolean(config?.exercises?.length)
+
+/**
+ * One round of a circuit: each exercise, the rest between them, and at the end
+ * the rest between rounds (or, with none, the ordinary rest), which `compile`
+ * cuts after the last round like any round's rest.
+ */
+function circuitRound(c) {
+  const items = []
+  c.exercises.forEach((ex, n) => {
+    if (n > 0 && c.rest > 0) items.push({ kind: 'rest', seconds: c.rest })
+    items.push({
+      kind: 'work', name: ex.name,
+      // Reps have no clock: a count-up that waits for the tap, like an undeclared rest.
+      seconds: ex.reps ? null : (ex.seconds ?? c.work),
+      note: ex.reps ? `${ex.reps} reps` : null,
+      ex: n, key: ex.key || null, reps: ex.reps || null,
+    })
+  })
+  if (c.roundRest > 0) items.push({ kind: 'rest', name: 'Rest between rounds', seconds: c.roundRest })
+  else if (c.rest > 0) items.push({ kind: 'rest', seconds: c.rest })
+  return items
 }
 
 export const sameConfig = (a, b) =>
@@ -132,16 +236,19 @@ function dropTrailingRest(items) {
  */
 export function compile(config) {
   const c = normalizeConfig(config)
-  const round = c.intervals.length
-    ? c.intervals
-    : [{ kind: 'work', seconds: c.work }, ...(c.rest > 0 ? [{ kind: 'rest', seconds: c.rest }] : [])]
+  const round = c.exercises?.length ? circuitRound(c)
+    : c.intervals.length ? c.intervals
+      : [{ kind: 'work', seconds: c.work }, ...(c.rest > 0 ? [{ kind: 'rest', seconds: c.rest }] : [])]
 
   const segments = []
+  // A circuit's work carries which exercise it is (`ex`, its index), so the run
+  // screen can show it and the log can say how long each was done.
   const push = (item, at) => segments.push({
     kind: item.kind,
     name: item.name || KIND_LABEL[item.kind],
     seconds: item.seconds ?? null,
     note: item.note || null,
+    ...(item.ex != null ? { ex: item.ex, key: item.key, reps: item.reps, exs: c.exercises.length } : {}),
     ...at,
   })
 
@@ -188,6 +295,9 @@ export function totalSeconds(program) {
  *   pausedAt    the instant it was paused, or null
  *   pausedMs    time spent paused before now, so elapsed is time worked
  *   finishedAt  the instant it ran out, or null
+ *   spent       a circuit only: seconds worked on each exercise segment left,
+ *               by `<lap>:<index>`, which is what the circuit logs
+ *   stopped     a circuit stopped early (`stopRun`)
  *
  * Every function takes a run and returns one, and returns the SAME object when
  * nothing changed, so a caller can tell a transition from a repaint.
@@ -199,8 +309,23 @@ export function startRun(program, now) {
 
 const clockOf = (run, now) => (run.pausedAt != null ? run.pausedAt : now)
 
+/**
+ * A circuit's exercise segment, booked with the time worked on it up to `at`:
+ * the whole of it when it ran out, what was done when it was skipped or tapped.
+ * Every other segment, and every timer that is not a circuit, books nothing.
+ * Going back to one already done and skipping it again keeps the most worked
+ * on it: Back is for looking, and must not unlog forty seconds.
+ */
+function booked(program, run, at) {
+  if (program.segments[run.index]?.ex == null) return run
+  const key = `${run.lap}:${run.index}`
+  const secs = Math.max(0, (at - run.at) / 1000, Number(run.spent?.[key]) || 0)
+  return { ...run, spent: { ...(run.spent || {}), [key]: secs } }
+}
+
 /** Move on from the segment on screen, the new one starting at `at`. */
-function enterNext(program, run, at) {
+function enterNext(program, run0, at) {
+  const run = booked(program, run0, at)
   const n = program.segments.length
   if (run.index + 1 < n) return { ...run, index: run.index + 1, at, extra: 0 }
   if (program.loopFrom != null && program.loopFrom < n) {
@@ -295,6 +420,47 @@ export function bump(program, run, now, delta) {
   return { ...r, extra: Math.max(r.extra + delta, floor) }
 }
 
+/**
+ * Stop a circuit where it is: what was done of the exercise on screen is
+ * booked, and the run is finished, as running out would have finished it, so
+ * stopping early logs exactly like finishing (issue #68).
+ */
+export function stopRun(program, run, now) {
+  const r = settle(program, run, now)
+  if (r.finishedAt != null) return r
+  const t = clockOf(r, now)
+  return { ...booked(program, r, t), pausedAt: null, finishedAt: t, stopped: true }
+}
+
+/**
+ * How long an exercise has to have been worked on to count as done. Shorter is
+ * a skip, a mis-tap or a look at what comes next, not a set: it is not logged,
+ * and a circuit stopped with nothing past it logs nothing at all.
+ */
+export const DONE_AFTER = 3
+
+/**
+ * What a circuit run did, per exercise (by its index in the config): the
+ * seconds worked each time it came round, in order, each at least
+ * `DONE_AFTER`. Empty lists all round: nothing to log.
+ */
+export function circuitDone(program, run) {
+  const count = program.segments.reduce((n, s) => (s.ex != null ? Math.max(n, s.ex + 1) : n), 0)
+  const done = Array.from({ length: count }, () => [])
+  const spent = run?.spent || {}
+  const keys = Object.keys(spent)
+    .map(k => k.split(':').map(Number))
+    .filter(([lap, index]) => Number.isFinite(lap) && Number.isFinite(index))
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1])
+  for (const [lap, index] of keys) {
+    const seg = program.segments[index]
+    // Judged on the raw time, so 2.5 s is a skip, not a rounded-up 3.
+    const secs = Number(spent[`${lap}:${index}`]) || 0
+    if (seg?.ex != null && secs >= DONE_AFTER) done[seg.ex].push(Math.round(secs))
+  }
+  return done
+}
+
 /** Everything the run screen draws, at `now`. Call `settle` first; this only reads. */
 export function view(program, run, now) {
   const t = clockOf(run, now)
@@ -353,6 +519,15 @@ export function stepSeconds(value, dir) {
 /** One line saying what a config is, for the setup screen and the preset list. */
 export function describe(config) {
   const c = normalizeConfig(config)
+  if (c.exercises?.length) {
+    const n = c.exercises.length
+    return [
+      c.rounds > 1 ? `${c.rounds} rounds` : null,
+      `${n} exercise${n === 1 ? '' : 's'}`,
+      `${secondsLabel(c.work)} each`,
+      c.rest ? `${secondsLabel(c.rest)} rest` : null,
+    ].filter(Boolean).join(' · ') + (c.repeat ? ' · repeats' : '')
+  }
   const round = c.intervals.length
     ? `${c.intervals.length} interval${c.intervals.length === 1 ? '' : 's'}`
     : `${secondsLabel(c.work)} work${c.rest ? ` · ${secondsLabel(c.rest)} rest` : ''}`
@@ -496,6 +671,7 @@ export function loadRun(storage, key, now) {
       pausedAt: Number.isFinite(r.pausedAt) ? r.pausedAt : null,
       pausedMs: Number(r.pausedMs) || 0,
       finishedAt: null,
+      ...(r.spent && typeof r.spent === 'object' && !Array.isArray(r.spent) ? { spent: r.spent } : {}),
     }
     return { name: doc.name || 'Timer', title: doc.title || null, config, run }
   } catch {

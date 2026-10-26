@@ -11,13 +11,14 @@ import { localIso, fromIso } from './lib/dates.js'
 import { streakDays } from './lib/streak.js'
 import { ProfileMenu } from './profile.jsx'
 import { PlanProvider } from './lib/planctx.jsx'
-import { PlanFlow } from './planner.jsx'
+import { PlanFlow, liftFieldOf } from './planner.jsx'
 import { aiOffered } from './lib/plannerapi.js'
-import { splitPrescription } from './lib/prescription.js'
+import { splitPrescription, circuitPlan, loggedCircuit, circuitFiling } from './lib/prescription.js'
+import { optFor } from './lib/menu.js'
 import { ActivityChooser, activityFieldOf } from './picker.jsx'
 import { QuickLog } from './quicklog.jsx'
 import { outWith } from './lib/unlogged.js'
-import { placeEntries, planPeople, keepPlanFor, toneFor, plannedItems, shareKept } from './lib/trainer.js'
+import { placeEntries, planPeople, keepPlanFor, toneFor, plannedItems, shareKept, applyRun } from './lib/trainer.js'
 import { PersonDay } from './trainer.jsx'
 import * as peopleApi from './lib/peopleapi.js'
 import { Modal } from './modal.jsx'
@@ -412,6 +413,29 @@ export default function App() {
   })
   const [personView, setPersonView] = useState(null) // { person, entryId } — their week, opened from the planner
 
+  /*
+   * A circuit from the + timer (issue #68). "Put it on today" places it as a
+   * planned workout, as keeping a plan does. Run, it logs itself when it ends:
+   * the same planned workout, placed the same way, with its run finished and
+   * its log in the same write (`applyRun`, the runner's own), done like any
+   * workout finished in the runner. Nothing done, nothing placed. It lands on
+   * the day it was started, and is filed by what its exercises are
+   * (`circuitFiling`), since a preset says nothing else about it.
+   */
+  const filingOf = (config) => circuitFiling(config, liftFieldOf(plan),
+    { categories: plan?.quotaCategories || [], activities: activityFieldOf(plan)?.activities || [] })
+  const placeCircuit = (name, config) =>
+    placeWritten(plannedItems(splitPrescription(circuitPlan(name, config, liftFieldOf(plan), filingOf(config)))), { open: false })
+  const logCircuit = (name, config, timerRun) => {
+    const done = loggedCircuit(name, config, timerRun, liftFieldOf(plan), filingOf(config))
+    if (!done) return false
+    const menu = plan?.dailyMenu || []
+    const [entry] = placeEntries({ menu, onDay: store.entries, items: plannedItems(splitPrescription(done.pres)), date: done.date })
+    if (!entry) return false
+    store.upsertEntry(applyRun(entry, optFor(menu, entry.data.optId), done.run, { out: { ...entry.data.out, ...done.out }, done: true }))
+    return true
+  }
+
   /** "Start it now", from the planner's last screen. */
   const startPlanned = (id) => {
     setFab(null)
@@ -572,7 +596,8 @@ export default function App() {
 
       {/* The interval timer, from the + menu or any session sheet, and a run that
           was going when the page went away. See timer.jsx. */}
-      <TimerHost entries={store.entries} upsertEntry={store.upsertEntry} deleteEntry={store.deleteEntry} />
+      <TimerHost entries={store.entries} upsertEntry={store.upsertEntry} deleteEntry={store.deleteEntry}
+        onLog={plan ? logCircuit : null} onPlace={plan ? placeCircuit : null} />
     </div>
     </StravaProvider>
     </WhoopProvider>

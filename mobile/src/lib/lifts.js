@@ -332,9 +332,15 @@ function searchText(ex) {
   const aka = (ex.aka || []).map(a => String(a).toLowerCase())
   const muscles = [...(ex.muscles?.primary || []), ...(ex.muscles?.secondary || [])]
     .flatMap(m => [String(m).replace(/-/g, ' '), ...(MUSCLE_WORDS[m] || [])])
-  const words = (list) => list.join(' ').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+  const split = (text) => String(text).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+  const words = (list) => split(list.join(' '))
+  const tags = Array.isArray(ex.tags) ? ex.tags : []
   t = {
     name, group, aka,
+    // Each tag as its own words, for phrases ("lower abs"), and the places a
+    // word can be said about the movement, for counting how many say it.
+    tags: tags.map(split),
+    places: [words(tags), words(muscles), split(ex.equipment || '')],
     base: [name, group, String(ex.key || '').replace(/-/g, ' '), ...aka].join(' '),
     // Tags, muscles and equipment are said ABOUT the movement; the gist and
     // the steps only mention things, so they rank last.
@@ -359,6 +365,14 @@ function searchText(ex) {
  *   4  the muscle group matches                "back"  → everything for backs
  *   5  its tags, muscles or equipment          "lower abs no equipment" → Dead bug
  *   6  its gist or steps                       "wall" → Couch stretch
+ *
+ * Within 5 and 6, where a whole catalog of beginner core work lands together,
+ * the better match comes first rather than the first in the alphabet
+ * (`aboutScore`): words that sit together in the query AND in one tag ("lower
+ * abs", not "lower" from "lower back" and "abs" from somewhere else), then how
+ * many words a tag says, then in how many places (tags, muscles, equipment) the
+ * words are said: "no equipment" in a tag AND "None" as the equipment beats a
+ * tag alone with a mat. Then the alphabet.
  *
  * Multi-word queries have to match every word somewhere ("db bent row"), which is
  * how a half-remembered name still finds the exercise. A word matches the name,
@@ -398,10 +412,43 @@ export function searchExercises(field, query = '', { limit = 60, group = null } 
     } else continue
     scored.push({ ex, rank })
   }
+  for (const s of scored) if (s.rank >= 5) s.score = aboutScore(searchText(s.ex), words)
+  const better = (a, b) => {
+    if (a.rank < 5) return 0
+    for (let i = 0; i < 3; i += 1) if (a.score[i] !== b.score[i]) return b.score[i] - a.score[i]
+    return 0
+  }
   return scored
-    .sort((a, b) => a.rank - b.rank || String(a.ex.name).localeCompare(String(b.ex.name)))
+    .sort((a, b) => a.rank - b.rank || better(a, b) || String(a.ex.name).localeCompare(String(b.ex.name)))
     .slice(0, limit)
     .map(s => s.ex)
+}
+
+/**
+ * How well what is said about a movement answers the query, for ordering one
+ * rank (see `searchExercises`): `[phrase, tagged, said]`, each higher is
+ * better.
+ *
+ *   phrase  query words covered by runs of two or more neighbouring query words
+ *           found together, in order, in one tag
+ *   tagged  query words that start a word of some tag
+ *   said    (query word, place) pairs: a word in the tags, the muscles and the
+ *           equipment counts three times
+ */
+function aboutScore(t, words) {
+  const covered = new Set()
+  for (const tag of t.tags) {
+    for (let i = 0; i < words.length - 1; i += 1) {
+      for (let j = 0; j + 1 < tag.length; j += 1) {
+        let n = 0
+        while (i + n < words.length && j + n < tag.length && tag[j + n].startsWith(words[i + n])) n += 1
+        if (n >= 2) for (let k = 0; k < n; k += 1) covered.add(i + k)
+      }
+    }
+  }
+  const tagged = words.filter(w => t.tags.some(tag => tag.some(x => x.startsWith(w)))).length
+  const said = words.reduce((n, w) => n + t.places.filter(place => place.some(x => x.startsWith(w))).length, 0)
+  return [covered.size, tagged, said]
 }
 
 /* -------------------------------------------------------- the logged list */

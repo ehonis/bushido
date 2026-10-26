@@ -34,7 +34,7 @@ import { currentMe } from './lib/whoami.js'
 import { applyOut, applyRun, applyPlan, canStart, workoutSides, planPeople, plannedLine, toneFor } from './lib/trainer.js'
 import { sharePeople, sharedPeopleOn, withLine, addPerson, removePerson, withSharedPerson, copyExercises, hasExercises, isSynced, withSync } from './lib/shared.js'
 import * as peopleApi from './lib/peopleapi.js'
-import { WithControl, PersonSwitch, SyncToggle, SharedNote, TheirSide, usePersonCopy, useSide, rememberSide } from './sharedwith.jsx'
+import { WithControl, PersonSwitch, SyncToggle, SharedNote, TheirSide, usePersonCopy, useSide, rememberSide, TogetherPending } from './sharedwith.jsx'
 import { SidesWorkout, PeopleDays, usePersonLog } from './trainer.jsx'
 
 import { WhoopReadiness, WhoopSleep } from './whoop.jsx'
@@ -763,6 +763,8 @@ export function SessionSheet({
         <WithControl on={on} people={people} busy={sharing.busy} error={sharing.error}
           onAdd={addSomeone} onRemove={removeSomeone} />
       )}
+      {/* A circuit done together that has not reached someone yet (#68): until it has. */}
+      {on.length > 0 && <TogetherPending entry={entry} session={opt} />}
       {/* Everyone else sees, quietly, who it was done with (their own copy names the
           owner; an owner acting as someone sees what that person would). */}
       {!people.length && planned && <SharedNote entry={entry} people={me.people} />}
@@ -958,6 +960,8 @@ function DaySessions({
   /** "6 of 16 sets" — what a row in progress says instead of its stats. */
   const runLine = (e) => {
     if (!e?.data?.plan) return null
+    // A circuit on the clock (issue #68): its sets are marked when it ends.
+    if (e.data.run?.circuit) return 'Circuit running'
     const p = runProgress(e.data.run, prescriptionSteps(e.data.plan))
     if (!p.total) return null
     return `${p.done} of ${p.total} sets`

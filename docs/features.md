@@ -26,7 +26,7 @@ Everything gets onto the day through the **+ button**, bottom right:
 | **Log a workout** | The same three recent activities sit right under it in the menu, one tap each. Behind it: a search box, **Recent** (that same list), then all 91 activities under section heads (Running, Cycling, …); pick one and the card opens already the right shape. Last, the plan's own climbing cards as folders under **Climbing**: **Bouldering** (the board, 4×4s, limit bouldering) and **Rock climbing** (max hangs, ARC laps, the load-cell tests), each with protocol, cues and timer included. One search box reaches both. It lands on the day you are looking at on Today, so a workout you forgot can be logged on its own day. |
 | **Log a rest day** | A day off on purpose, with why (sick, travelling, planned recovery) and a note. |
 | **Plan a workout** | Build it yourself, or (when AI is set up) have it written for you. See below. |
-| **Interval timer** | Work, rest and rounds, for any workout or none; also on every workout's sheet. |
+| **Interval timer** | Work, rest and rounds, for any workout or none; also on every workout's sheet. Add exercises and it is a **circuit** that logs itself. |
 
 Nothing in it ranks anything. They are doors in the order the content file declares them,
 with a search box. Until 2026-09-17 Today also carried a quota board, also-recommended
@@ -100,6 +100,14 @@ button and nothing on the screen or in the + menu mentions a model. The server s
   script.
 - **It shows what you lifted last time, while you are choosing the weight.** The runner has
   always had it; the planning screen is where the number is actually decided.
+- **Any block can be a circuit.** Switch a block to **Circuit** and its exercises are done
+  one after another on the clock: an ab circuit, say. Work, rest and rounds are one row of
+  steppers for the whole block (rest between rounds and get ready are under *More
+  options*); an exercise that is different (a longer plank, fifteen leg raises done to a
+  count) says so behind a tap on its row. **Start** runs it straight on the interval timer's
+  screen (see below), and it logs itself when it ends. A lift block switched on becomes its
+  rounds: *3 × 15 crunches* is three rounds of fifteen. *Write it for me* can write one too
+  ("a 20 minute ab circuit").
 - **You can keep talking to it.** *Why this session — and what to change* sits at the top of
   the review and of the session's own card afterwards: its reasoning, then quick prompts
   (*make it shorter*, *go easier on me*, *more volume*, *swap an exercise*) and a box for
@@ -328,6 +336,37 @@ skip and ±10s are along the bottom. It beeps on the web and buzzes on the iPhon
 the screen awake, and picks up at the right second after the phone was locked or the page
 reloaded. A climbing card that declares a timer offers it as a preset; logging its sets is
 still workout mode's job.
+
+### Circuits
+
+**Add exercises** on the setup screen (the same searchable picker as everywhere else) and
+the timer becomes a circuit: each exercise for *Work*, *Rest* between them, *Rounds* of the
+whole list, and under *More* a rest between rounds. Each exercise can have its own time or
+be done to a count of reps, which counts up and waits for a tap. Save it as a preset like
+any other, or **Put it on today** to place it as a planned workout.
+
+While it runs, the screen says **the exercise to do now**, big, with where you are (*Round 2
+of 3 · Exercise 4 of 5*), what it works and its one-line how-to, and what is next. ⓘ opens
+the exercise's whole how-to without stopping the clock. During a rest it shows what is coming
+up. Pause, skip, back and ±10s work as for any timer, and so does a locked phone.
+
+**It logs itself.** Finishing, or stopping early (*Stop the circuit?* says what you did so
+far is logged), puts one workout on today with each exercise's seconds done per round, as
+ordinary lift rows you can edit afterwards like any other: holds in seconds, exercises done
+to a count with the count left for you to fill in, and the weight the plan gave. It lands on
+the day you started it, even if you finish after midnight. A skip in the first three seconds
+is not counted, and a circuit stopped before anything was done logs nothing. A plan's circuit block runs on the same screen from its entry's **Start** and
+logs onto that entry; in a plan with other work the circuit is a step of the runner with its
+own **Start the circuit**. A plan of several circuits runs them one after another. On a
+shared workout the circuit's timing is shared structure. With sync on, its start screen asks
+**Together with Sam**: on (the default, remembered on the device), one clock runs on your
+screen and when it ends, or you stop it, it logs the same circuit for both of you and marks
+it done for both, each with your own weights. If Sam's log can't be reached (offline), the
+finish screen says "Not on Sam's log yet" with **Try again**; the miss is kept on the device and
+tried again the next time the workout opens, and trying again never logs it twice. Together
+only fills in what Sam has not logged: if Sam already finished it, or is running it on their own
+phone, Sam's log is left alone and the finish screen says so.
+Off, each person starts their own timer from their own side and logs their own seconds.
 
 ## Workout mode — the climbing timer
 

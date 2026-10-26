@@ -634,17 +634,17 @@ button.btn.danger:hover { border-color: var(--bad); }
   color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
 /*
- * Two flex items that can both overflow.
+ * The name, what it works and the summary, stacked.
  *
- * Without `min-width: 0` on each, a long movement name and an uncollapsed set
- * line ("10 @ 100 lb on the bar, 10 @ 100 lb on the bar, …") both refuse to
- * shrink and render on top of each other. The name wraps and the summary
- * ellipsises, because the name is the thing the user is looking for and the summary is
- * a glance — and the full detail is two lines below either way.
+ * The summary was beside the name until #63 put a 44px ⓘ on the head too; then
+ * a long name beside "60 s @ 70 lb, 45 s @ 70 lb, …" had a column of four lines.
+ * Under the name it ellipsises on one line and the name has the width, because
+ * the name is the thing the user is looking for and the summary is a glance,
+ * with the full detail two lines below. `min-width: 0` lets both shrink.
  */
 .presc-itemname { flex: 1 1 auto; min-width: 0; font-size: var(--fs-body); font-weight: 600; }
 .presc-itemline {
-  flex: 0 1 auto; min-width: 0; text-align: right;
+  display: block; margin-top: 2px; font-weight: 400;
   font-size: var(--fs-small); color: var(--ink-faint); font-variant-numeric: tabular-nums;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }

@@ -38,6 +38,10 @@
 import {
   catalogOf, exerciseOf, implementLabel, implementsFor, weightPatch, rememberedWeightMode, measureFor,
 } from './lifts.js'
+import {
+  normalizeCircuit, circuitConfig, circuitOf, compile, totalSeconds, circuitDone, view, CIRCUIT_DEFAULT, LIMITS,
+} from './timer.js'
+import { localIso } from './dates.js'
 
 export const PRESCRIPTION_VERSION = 1
 
@@ -133,9 +137,10 @@ const uidOf = (v) => {
 
 function normalizeBlock(b, bi, liftField) {
   const id = `b${bi}`
+  const circuit = normalizeCircuit(b?.circuit)
   const items = (Array.isArray(b?.items) ? b.items : [])
     .slice(0, MAX_ITEMS)
-    .map((it, ii) => normalizeItem(it, `${id}i${ii}`, liftField))
+    .map((it, ii) => normalizeItem(it, `${id}i${ii}`, liftField, circuit))
     .filter(Boolean)
   return {
     id, ...uidOf(b?.uid),
@@ -146,11 +151,16 @@ function normalizeBlock(b, bi, liftField) {
     // category becomes its own ENTRY — see splitPrescription().
     category: str(b?.category, 40) || null,
     activity: str(b?.activity, 40) || null,
+    // A timed circuit (issue #68): only on a block that is one.
+    ...(circuit ? { circuit } : {}),
     items,
   }
 }
 
-function normalizeItem(it, id, liftField) {
+/** A set with nothing in it: in a circuit, "the circuit's own time". */
+const blankSet = (id, unit = null) => ({ id, reps: null, weight: null, seconds: null, distance: null, restSec: null, unit, note: '' })
+
+function normalizeItem(it, id, liftField, circuit = null) {
   if (!it || typeof it !== 'object') return null
   const kind = ITEM_KINDS.includes(it.kind) ? it.kind : 'interval'
 
@@ -192,10 +202,14 @@ function normalizeItem(it, id, liftField) {
   if (!name) return null
 
   const unit = str(it.unit, 12) || null
-  const sets = (Array.isArray(it.sets) ? it.sets : [])
+  let sets = (Array.isArray(it.sets) ? it.sets : [])
     .slice(0, MAX_SETS)
     .map((s, si) => normalizeSet(s, `${id}s${si}`, unit, kind))
     .filter(Boolean)
+
+  // In a circuit an exercise is ONE set: its own seconds or reps, or nothing,
+  // which is the circuit's time. The rounds are the circuit's (`circuit.rounds`).
+  if (circuit) sets = sets.length ? sets.slice(0, 1) : [blankSet(`${id}s0`, unit)]
 
   // An item with no sets is a sentence, not a piece of work. The planner is told
   // to put those in the block's note.
@@ -296,12 +310,17 @@ export function prescriptionSteps(pres) {
 export function prescriptionLine(pres) {
   if (!pres) return ''
   const items = (pres.blocks || []).reduce((n, b) => n + b.items.length, 0)
-  const sets = prescriptionSteps(pres).length
-  const word = (pres.blocks || []).some(b => b.items.some(i => i.kind === 'lift')) ? 'exercise' : 'piece'
+  // A circuit's exercises are one set each on paper; what it has is rounds.
+  const sets = prescriptionSteps(pres).filter(s => !s.block.circuit).length
+  const circuits = (pres.blocks || []).filter(b => b.circuit && b.items.length)
+  const word = (pres.blocks || []).some(b => b.circuit || b.items.some(i => i.kind === 'lift')) ? 'exercise' : 'piece'
+  const minutes = pres.minutes || circuitMinutes(pres)
   return [
     items ? `${items} ${word}${items === 1 ? '' : 's'}` : null,
+    circuits.length === 1 ? `${circuits[0].circuit.rounds} round${circuits[0].circuit.rounds === 1 ? '' : 's'}`
+      : circuits.length > 1 ? `${circuits.length} circuits` : null,
     sets ? `${sets} set${sets === 1 ? '' : 's'}` : null,
-    pres.minutes ? `about ${pres.minutes} min` : null,
+    minutes ? `about ${minutes} min` : null,
   ].filter(Boolean).join(' · ')
 }
 
@@ -566,6 +585,12 @@ export function runOutputs(pres, run, out = {}) {
 
   for (const b of pres?.blocks || []) {
     for (const it of b.items) {
+      // A circuit's exercise: one logged row, a set per round it was done in.
+      if (b.circuit) {
+        const row = circuitRow(it, run?.sets?.[it.sets[0]?.id])
+        if (row) lifts.push(row)
+        continue
+      }
       const rows = it.sets
         .map(s => run?.sets?.[s.id])
         .filter(Boolean)
@@ -610,8 +635,322 @@ export function runOutputs(pres, run, out = {}) {
   if (lifts.length) next.lifts = lifts
   if (poolDistance > 0) next.poolDistance = Math.round(poolDistance)
   if (distance > 0) next.distance = Math.round(distance * 100) / 100
+  // A workout that was nothing but circuits was timed by them, pauses left out:
+  // that is the workout-mode clock's measured minutes (lib/minutes.js), which
+  // beat the card's estimate however short, so they round up and are never 0.
+  const timed = circuitTime(run)
+  if (circuitOnly(pres) && timed > 0) next.elapsedMin = Math.max(1, Math.ceil(timed / 60))
 
   return next
+}
+
+/* --------------------------------------------------------------- circuits */
+
+/*
+ * A CIRCUIT BLOCK (issue #68): `circuit: { work, rest, rounds, roundRest,
+ * countIn }` on the block, and each item ONE set saying how it is timed: its
+ * own `seconds`, `reps` ("tap when done"), or nothing, which is the circuit's
+ * `work`. It runs on the interval timer (lib/timer.js), the program compiled
+ * from the block every time, so the timer's position on the entry
+ * (`data.run.circuit`) is all that is stored while it runs.
+ *
+ * When it ends, finished or stopped, each item's set is marked in `run.sets`
+ * with the seconds worked each round (`rounds`), and `runOutputs` turns that
+ * into an ordinary logged lift row, edited afterwards like any other: a timed
+ * exercise as `{ seconds, weight }` sets, one by reps as `{ reps, weight }`
+ * sets with the count left for them to fill in.
+ */
+
+/**
+ * How a circuit item is timed: `{ by: 'circuit' | 'time' | 'reps', seconds, reps }`.
+ * Seconds with at most one rep is a timed exercise: a model writes a plank as
+ * `{ reps: 1, seconds: 60 }`, library key or not, and that is sixty seconds.
+ */
+export function circuitTiming(item) {
+  const s = item?.sets?.[0] || {}
+  const reps = num(s.reps)
+  const seconds = num(s.seconds)
+  if (seconds > 0 && !(reps > 1)) return { by: 'time', seconds, reps: null }
+  if (reps > 0) return { by: 'reps', reps, seconds: null }
+  return { by: 'circuit', seconds: null, reps: null }
+}
+
+/** A circuit block as the interval timer's config, one exercise per item, in order. */
+export function blockTimer(block) {
+  return circuitConfig(block?.circuit, (block?.items || []).map(it => {
+    const t = circuitTiming(it)
+    return {
+      name: it.name,
+      ...(it.exercise ? { key: it.exercise } : {}),
+      ...(t.by === 'reps' ? { reps: t.reps } : t.by === 'time' ? { seconds: t.seconds } : {}),
+    }
+  }))
+}
+
+/** A circuit block's exercises are all marked done or skipped on this run. */
+export const circuitEnded = (block, run) => (block?.items || []).every(it =>
+  Boolean(run?.sets?.[it.sets?.[0]?.id]) || (run?.skipped || []).includes(it.sets?.[0]?.id))
+
+/** The next circuit in a plan this run has not been through, or null. */
+export const nextCircuit = (pres, run) =>
+  (pres?.blocks || []).find(b => b.circuit && b.items.length && !circuitEnded(b, run)) || null
+
+/**
+ * Which circuit the runner opens on, or null for the runner itself. One with
+ * its timer on the entry comes back running. A plan that is nothing but
+ * circuits opens on its first not yet done, so Start runs it, but only on the
+ * side that is on screen: a shared workout's other sides wait on their own
+ * Start, or one person starting would start the other's clock and log for them.
+ */
+export function circuitToOpen(pres, run, { shown = true } = {}) {
+  if (run?.circuit?.block) return run.circuit.block
+  if (!shown || !circuitOnly(pres) || run?.endedAt) return null
+  return nextCircuit(pres, run)?.id || null
+}
+
+/** Is everything there is to run in this plan a circuit? Then Start runs the timer straight away. */
+export function circuitOnly(pres) {
+  const work = (pres?.blocks || []).filter(b => (b.items || []).length)
+  return work.length > 0 && work.every(b => b.circuit)
+}
+
+/** About how long the circuits take, in minutes, or null when a count-up makes it unknowable. */
+export function circuitMinutes(pres) {
+  const blocks = (pres?.blocks || []).filter(b => b.circuit && b.items.length)
+  if (!blocks.length || !circuitOnly(pres)) return null
+  let sum = 0
+  for (const b of blocks) {
+    const t = totalSeconds(compile(blockTimer(b)))
+    if (t == null) return null
+    sum += t
+  }
+  return Math.max(1, Math.round(sum / 60))
+}
+
+/** One item's logged row, from what the circuit marked on its set, or null. */
+function circuitRow(it, mark) {
+  const rounds = Array.isArray(mark?.rounds) ? mark.rounds.filter(n => Number(n) > 0) : []
+  if (!rounds.length) return null
+  const byReps = circuitTiming(it).by === 'reps'
+  // The planned weight is what it was done with: a plan says "15 @ 10 lb".
+  const weight = num(it.sets[0]?.weight) ?? ''
+  return {
+    uid: it.id,
+    key: it.exercise || null,
+    name: it.name,
+    group: it.group || null,
+    implement: it.implement || '',
+    implementLabel: it.implementLabel || null,
+    ...(it.weightMode ? { weightMode: it.weightMode, weightLabel: it.weightLabel || null } : {}),
+    sets: rounds.map(n => (byReps ? { reps: '', weight } : { seconds: Math.round(n), weight })),
+  }
+}
+
+/**
+ * The run, with a circuit block's result in it: each item marked with the
+ * seconds worked per round (`done` is lib/timer.js `circuitDone`, by item
+ * index), an item never reached skipped, the timer's position cleared and the
+ * cursor on whatever comes next. `seconds` is the time the circuit took,
+ * pauses left out.
+ *
+ * `key` (the timer run's `startedAt`) makes it safe to write twice: a result
+ * already on this run under the same key returns the run as it is, so a retried
+ * write of a circuit done together (lib/trainer.js `togetherWrite`) can never
+ * add its minutes twice.
+ */
+export function endCircuit(run, pres, blockId, done = [], { at = Date.now(), seconds = 0, key = null, fill = false } = {}) {
+  if (key != null && run?.circuitKeys?.[blockId] === key) return run
+  const base = run || emptyRun(at)
+  const block = (pres?.blocks || []).find(b => b.id === blockId)
+  if (!block) return { ...base, circuit: null }
+  const sets = { ...base.sets }
+  let skipped = [...(base.skipped || [])]
+  block.items.forEach((it, i) => {
+    const setId = it.sets[0]?.id
+    if (!setId) return
+    // `fill` (a result from someone else's clock, lib/trainer.js `togetherWrite`):
+    // an exercise this side already marked or skipped keeps what it has.
+    if (fill && (sets[setId] || skipped.includes(setId))) return
+    const rounds = (done[i] || []).map(n => Math.round(n)).filter(n => n > 0)
+    if (rounds.length) {
+      sets[setId] = { ...(circuitTiming(it).by === 'reps' ? {} : { seconds: rounds.reduce((a, b) => a + b, 0) }), rounds, at }
+      skipped = skipped.filter(id => id !== setId)
+    } else if (!sets[setId] && !skipped.includes(setId)) skipped.push(setId)
+  })
+  // Each block's own time, SET and never added to: the total is read off these
+  // (`circuitTime`), so writing a block's result again cannot count it twice, and
+  // a time this side already has for the block is its own and stays.
+  const times = base.circuitTimes || {}
+  const time = fill && times[blockId] != null ? times[blockId] : Math.max(0, Math.round(seconds))
+  const next = {
+    ...base, startedAt: base.startedAt || at, sets, skipped, circuit: null,
+    circuitTimes: { ...times, [blockId]: time },
+    ...(key != null ? { circuitKeys: { ...(base.circuitKeys || {}), [blockId]: key } } : {}),
+    restUntil: 0, restFrom: 0, restOf: 0,
+  }
+  return { ...next, cursor: firstOpen(next, prescriptionSteps(pres)) }
+}
+
+/** Seconds this run spent in its circuits, pauses left out: the sum of each block's own. */
+export const circuitTime = (run) =>
+  Object.values(run?.circuitTimes || {}).reduce((sum, n) => sum + (Number(n) > 0 ? Number(n) : 0), 0)
+
+/**
+ * `out` with `next`'s logged lifts laid into it as BLANKS ONLY (a circuit done
+ * together, lib/trainer.js): a row this side already has (same uid, else same
+ * exercise and name) keeps every seconds, reps and weight it has and gains only
+ * what it lacks, set by set; a row it lacks is added; a row only it has stays.
+ * Its own measured minutes stay too. Logged data is never removed or replaced
+ * by anyone else's write, the shared-sync rule (AGENTS.md §3).
+ */
+export function fillOut(out = {}, next = {}) {
+  const mine = Array.isArray(out.lifts) ? out.lifts : []
+  const blank = (v) => v === '' || v === null || v === undefined
+  // A row is the same exercise by uid; one added by hand (its own uid) by its
+  // catalog key, then by name, so it is filled rather than doubled. Each pass
+  // runs over every row, uid first, so a hand-added row never takes the
+  // partner of one that has it by uid.
+  const rows = next.lifts || []
+  const used = new Set()
+  const pair = new Map()
+  for (const same of [(a, b) => a?.uid && b?.uid === a.uid, (a, b) => a?.key && b?.key === a.key, (a, b) => a?.name && b?.name === a.name]) {
+    mine.forEach((row, m) => {
+      if (pair.has(m)) return
+      const i = rows.findIndex((r, n) => !used.has(n) && same(row, r))
+      if (i >= 0) { pair.set(m, i); used.add(i) }
+    })
+  }
+  const lifts = mine.map((row, m) => {
+    if (!pair.has(m)) return row
+    const at = pair.get(m)
+    const theirs = next.lifts[at]
+    const sets = [...(row.sets || [])]
+    ;(theirs.sets || []).forEach((t, i) => {
+      if (!sets[i]) { sets[i] = t; return }
+      const s = { ...sets[i] }
+      for (const k of Object.keys(t)) if (blank(s[k]) && !blank(t[k])) s[k] = t[k]
+      sets[i] = s
+    })
+    return { ...row, sets }
+  })
+  ;(next.lifts || []).forEach((r, i) => { if (!used.has(i)) lifts.push(r) })
+  return {
+    ...out,
+    ...(lifts.length ? { lifts } : {}),
+    ...(!(Number(out.elapsedMin) > 0) && next.elapsedMin ? { elapsedMin: next.elapsedMin } : {}),
+  }
+}
+
+/**
+ * Switch a block to a circuit, or back. On: every exercise keeps its first set
+ * as its timing (seconds are its own time, reps are reps, a blank is the
+ * circuit's), and the rounds are the most sets any of them had, so "3 × 15
+ * crunches" becomes three rounds of fifteen. Off: the block is plain sets again,
+ * one each, to add to, and its timing waits on the block (`wasCircuit`) so
+ * switching back on is the circuit it was. `dropEmptyBlocks` drops that on the
+ * way out.
+ */
+export function setCircuit(pres, blockId, on) {
+  return reindex({
+    ...pres,
+    blocks: (pres?.blocks || []).map(b => {
+      if (b.id !== blockId) return b
+      if (!on) {
+        const { circuit, ...rest } = b
+        return circuit ? { ...rest, wasCircuit: circuit } : rest
+      }
+      if (b.circuit) return b
+      const { wasCircuit, ...rest } = b
+      const most = Math.max(0, ...b.items.map(it => it.sets.length))
+      const rounds = most > 1 ? Math.min(LIMITS.rounds[1], most) : CIRCUIT_DEFAULT.rounds
+      const circuit = normalizeCircuit(wasCircuit) || { ...CIRCUIT_DEFAULT, rounds }
+      return { ...rest, circuit, items: b.items.map(it => ({ ...it, sets: it.sets.slice(0, 1) })) }
+    }),
+  })
+}
+
+/** A circuit item's timing, set: `{ seconds }`, `{ reps }` or `{}` for the circuit's. */
+export const setTiming = (pres, itemId, { seconds = null, reps = null } = {}) =>
+  mapItem(pres, itemId, it => ({
+    ...it,
+    sets: [{ ...(it.sets[0] || blankSet('new-s0')), seconds: reps ? null : seconds, reps: reps || null }],
+  }))
+
+/**
+ * A timer preset with exercises (issue #68), as a plan: one circuit block,
+ * each exercise out of the library where it is one, the rest named pieces.
+ * Placing it ("Put it on today") and logging a run of it both go through this,
+ * so both land as the same planned workout.
+ */
+export function circuitPlan(name, config, liftField = null, { at = new Date().toISOString(), category = null, activity = null } = {}) {
+  const title = str(name, 80) || 'Circuit'
+  let pres = blankPrescription({ title, category, activity, blocks: [{ name: title, category, activity }], at })
+  pres = { ...pres, blocks: [{ ...pres.blocks[0], circuit: circuitOf(config) }] }
+  for (const ex of config?.exercises || []) {
+    pres = liftField && ex.key && exerciseOf(liftField, ex.key)
+      ? appendLift(pres, liftField, ex.key)
+      : appendNamed(pres, ex.name)
+    const it = pres.blocks[0].items.at(-1)
+    if (it) pres = setTiming(pres, it.id, { seconds: ex.seconds ?? null, reps: ex.reps ?? null })
+  }
+  const { keep: _k, ...block } = pres.blocks[0]
+  pres = { ...pres, blocks: [block] }
+  return { ...pres, minutes: circuitMinutes(pres) }
+}
+
+/**
+ * Where a circuit from the timer is filed, which nothing else on it says.
+ * `categories` and `activities` are the content's (`quotaCategories`, the
+ * activity catalog). A category named like the group most of its exercises are
+ * in ("Core") wins; otherwise it is filed as the content's lifting workout: the
+ * first activity whose shape the lift log asks for (`liftField.when.shape`),
+ * with that activity's category. Content decides both; nothing here names one.
+ */
+export function circuitFiling(config, liftField = null, { categories = [], activities = [] } = {}) {
+  const groups = (config?.exercises || []).map(x => exerciseOf(liftField, x.key)?.group).filter(Boolean)
+  const count = new Map()
+  for (const g of groups) count.set(g, (count.get(g) || 0) + 1)
+  const top = [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null
+  const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase()
+  const byGroup = top && (categories || []).find(c => same(c?.key, top) || same(c?.name, top))
+  if (byGroup) return { category: byGroup.key, activity: null }
+  const shapes = liftField?.when?.shape || []
+  const act = (activities || []).find(a => shapes.includes(a?.shape))
+  return act ? { category: act.category || null, activity: act.key } : { category: null, activity: null }
+}
+
+/**
+ * A run of a timer preset with exercises, as the workout it logs (issue #68):
+ * the preset as a plan (`circuitPlan`), its run finished with what each
+ * exercise did each round, and the log that makes. Null when nothing was done,
+ * so a circuit stopped in its count-in logs nothing. `timerRun` is lib/timer.js's.
+ * `date` is the day it was STARTED: a circuit begun at nine at night and found
+ * finished the next morning is the night's.
+ */
+export function loggedCircuit(name, config, timerRun, liftField = null, filing = {}) {
+  if (!timerRun || timerRun.finishedAt == null) return null
+  const program = compile(config)
+  const done = circuitDone(program, timerRun)
+  if (!done.some(d => d.length)) return null
+  const at = timerRun.finishedAt
+  const pres = circuitPlan(name, config, liftField, { ...filing, at: new Date(timerRun.startedAt).toISOString() })
+  const seconds = view(program, timerRun, at).elapsed
+  const run = finishRun(endCircuit(emptyRun(timerRun.startedAt), pres, 'b0', done, { at, seconds }), { at })
+  return { pres, run, out: runOutputs(pres, run, {}), date: localIso(new Date(timerRun.startedAt)) }
+}
+
+/** An exercise that is not in the library, by name, timed like the rest of its circuit. */
+function appendNamed(pres, name) {
+  const label = str(name, 80)
+  if (!label) return pres
+  const item = {
+    id: 'new', kind: 'interval', name: label, note: '',
+    exercise: null, group: null, implement: '', implementLabel: null, weightLabel: null,
+    unit: null, sets: [blankSet('new-s0')],
+  }
+  const blocks = [...pres.blocks]
+  blocks[0] = { ...blocks[0], items: [...blocks[0].items, item] }
+  return reindex({ ...pres, blocks })
 }
 
 /**
@@ -879,6 +1218,8 @@ export function isLiftOnly(pres) {
    * tell apart from the work.
    */
   const counted = blocks.some(b => b.category) ? blocks.filter(b => b.category) : blocks
+  // A circuit runs on a clock whatever is in it (issue #68).
+  if (counted.some(b => b.circuit)) return false
   const items = counted.flatMap(b => b.items)
   return items.length > 0 && items.every(it => it.kind === 'lift')
 }
@@ -1155,7 +1496,9 @@ export function appendPiece(pres, name, { blockId = null, by = 'time', unit = nu
  */
 export const dropEmptyBlocks = (pres) => reindex({
   ...pres,
-  blocks: (pres?.blocks || []).filter(b => (b.items || []).length > 0 || b.note),
+  blocks: (pres?.blocks || []).filter(b => (b.items || []).length > 0 || b.note)
+    // A circuit switched off in the editor has nothing left to come back to.
+    .map(({ wasCircuit: _w, ...b }) => b),
 })
 
 export { catalogOf }

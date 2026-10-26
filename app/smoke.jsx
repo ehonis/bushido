@@ -27,6 +27,7 @@ import { ActivityChooser, activityGroups, activityFieldOf } from './src/picker.j
 import { climbingFolders } from './src/lib/folders.js'
 import {
   normalizePrescription, prescriptionSteps, emptyRun, markSet, blankPrescription, appendLift,
+  setCircuit,
 } from './src/lib/prescription.js'
 import { LogTab } from './src/log.jsx'
 import { GearSection } from './src/gear.jsx'
@@ -55,7 +56,7 @@ import { StravaActivities } from './src/strava.jsx'
 import { UnloggedWorkouts } from './src/unlogged.jsx'
 import { hasWorkout, buildSteps } from './src/lib/workout.js'
 import { TimerHost, TimerSetup, TimerRun, openTimer, closeTimer, timerRequestFor } from './src/timer.jsx'
-import { compile, startRun, presetList, sessionTimer, buildTimerEntry, buildLastTimerEntry, BUILT_INS } from './src/lib/timer.js'
+import { compile, startRun, presetList, sessionTimer, buildTimerEntry, buildLastTimerEntry, BUILT_INS, circuitConfig } from './src/lib/timer.js'
 
 const plan = JSON.parse(readFileSync(new URL('../test/fixtures/plan.json', import.meta.url), 'utf8'))
 /* What a fresh install runs on: the catalogs, no programme. See app/starter.build.mjs. */
@@ -1674,6 +1675,9 @@ const cases = [
       if (!/Dead bug/.test(text(head)) || !/1 × 10/.test(text(head))) throw new Error('the name or the numbers are no longer part of the fold')
       if (!/<button[^>]*class="iconbtn presc-about"[^>]*aria-label="What is Dead bug\?"/.test(html)) throw new Error('no ⓘ for what it is')
       if (/presc-itemabout|presc-itemfold|how to do it/.test(html)) throw new Error('the name is a second button again')
+      // The summary sits under the name, inside it, so a long name has the width
+      // beside the ⓘ (#63 follow-up), folded or open.
+      if (!/class="presc-itemname">[\s\S]*?<span class="presc-itemline">1 × 10<\/span><\/span>/.test(html)) throw new Error('the summary is beside the name again')
       if (/class="pop/.test(html)) throw new Error('the sheet is open before anyone asked')
     }],
   ['ExerciseCard(a piece with no catalog identity: one button that folds, no ⓘ)',
@@ -4171,6 +4175,174 @@ const cases = [
       if (!t.includes(w)) throw new Error(`no "${w}" on the run screen`)
     }
     if (!/class="it it-run k-rest"/.test(html)) throw new Error('the screen is not coloured for rest')
+  }],
+
+  // ===== circuits (#68): one feature, two doors, the timer's own screen =====
+
+  /*
+   * A plan's block switched to Circuit: the switch says so, the timing is one row
+   * of three steppers, and each exercise says how long it runs, the circuit's own
+   * time or its own. Pinned absent: the per-set editor, which a circuit has no use
+   * for (its rounds are the circuit's), and the switch turned on for a plain block.
+   */
+  ['PrescriptionEditor(a circuit block: the switch, one row of steppers, each exercise\'s timing)', null, () => {
+    const pres = normalizePrescription({ title: 'Abs', blocks: [
+      { name: 'Core', circuit: { work: 40, rest: 20, rounds: 3, countIn: 10 }, items: [
+        { kind: 'lift', name: 'Crunch', exercise: 'crunch', sets: [] },
+        { kind: 'lift', name: 'Plank', exercise: 'plank', sets: [{ seconds: 60 }] },
+        { kind: 'lift', name: 'Hanging leg raise', exercise: 'hanging-leg-raise', sets: [{ reps: 12 }] },
+      ] },
+      { name: 'Finisher', items: [{ kind: 'lift', name: 'Squat', exercise: SQUAT.key, sets: [{ reps: 10 }] }] },
+    ] }, { liftField: LIFT_FIELD })
+    const html = renderToString(<PrescriptionEditor pres={pres} liftField={LIFT_FIELD} onChange={noop} />)
+    const t = text(html)
+    const switches = [...html.matchAll(/<input type="checkbox" role="switch" class="switch"([^>]*)>/g)].map(m => /checked/.test(m[1]))
+    if (switches.join() !== 'true,false') throw new Error(`the Circuit switch should be on for the circuit and off for the plain block: ${switches}`)
+    if (!/Timed, one exercise after another/.test(t)) throw new Error('the switch does not say what a circuit is')
+    if (!/aria-label="Circuit timing"/.test(html)) throw new Error('no row of circuit steppers')
+    for (const w of ['Work', 'Rest', 'Rounds', '40s', '20s', '3 rounds', 'Crunch', 'Plank', '1:00', '12 reps', 'Add an exercise']) {
+      if (!t.includes(w)) throw new Error(`no "${w}" in the circuit block`)
+    }
+    if (!/class="cx-time own"[^>]*>1:00/.test(html) || !/class="cx-time"[^>]*>40s/.test(html)) throw new Error('an exercise\'s own time does not read differently from the circuit\'s')
+    const circuitPart = html.slice(0, html.indexOf('Finisher'))
+    if (/Add a set|aria-label="less reps"/.test(circuitPart)) throw new Error('a circuit grew the per-set editor')
+    if (!/Add a set|aria-label="less reps"|1 set/.test(html.slice(html.indexOf('Finisher')))) throw new Error('the plain block lost its sets')
+    // Switching a plain lift block on is the editor's own write (lib/prescription.js).
+    if (!setCircuit(pres, 'b1', true).blocks[1].circuit) throw new Error('the switch does nothing')
+  }],
+  /*
+   * Start on a circuit: a plan that is nothing but a circuit runs on the timer's
+   * screen straight away (open, Start, it runs), with the exercise to do now as
+   * big as the screen allows, where it is in the round, and what comes next.
+   * A lift-only block switched to Circuit offers Start (a plain one does not,
+   * `Sheet(a lift-only session offers no clock)`).
+   */
+  ['SessionSheet + WorkoutRunner(a circuit entry: Start, then the timer with the exercise on it)', null, () => {
+    const pres = setCircuit(normalizePrescription({ title: 'Abs', blocks: [{ name: 'Core', category: 'lift', items: [
+      { kind: 'lift', name: 'crunch', exercise: 'crunch', sets: [{ reps: 15 }, { reps: 15 }, { reps: 15 }] },
+      { kind: 'lift', name: 'plank', exercise: 'plank', sets: [{ seconds: 45 }] },
+    ] }] }, { liftField: LIFT_FIELD }), 'b0', true)
+    const pres2 = { ...pres, blocks: [{ ...pres.blocks[0], items: pres.blocks[0].items.map(i => ({ ...i, sets: [{ ...i.sets[0], reps: null }] })) }] }
+    const entry = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { slot: 'main', optId: 'planned', name: 'Abs', done: true, plan: pres2, out: {} } }
+    const sheet = text(renderToString(<PlanProvider plan={HELD_PLAN}>
+      <SessionSheet opt={PLANNED_CARD} entry={entry} tone="rec" entries={[entry]} isFuture={false}
+        onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={noop} onClose={noop} />
+    </PlanProvider>))
+    if (!/Start the workout/.test(sheet)) throw new Error('a lift block switched to Circuit is not runnable')
+    // Started: no run on the entry yet, so it opens in the count-in, with the first exercise up next.
+    const fresh = renderToString(<PlanProvider plan={HELD_PLAN}><WorkoutRunner session={PLANNED_CARD} entry={entry}
+      entries={[]} onRun={noop} onExit={noop} /></PlanProvider>)
+    if (!/class="it it-run k-countin it-circuit"/.test(fresh)) throw new Error('Start on a circuit did not open the timer')
+    if (!/Up next/.test(text(fresh)) || !/<strong class="it-exnext">Crunch/.test(fresh)) throw new Error('the count-in does not say what is coming')
+    // Running: 5 s into the crunch, its name big, where it is, the plank next.
+    const now = Date.now()
+    const running = { ...entry, data: { ...entry.data, run: { ...emptyRun(now - 15000), circuit: { block: 'b0',
+      timer: { startedAt: now - 15000, index: 1, lap: 1, at: now - 5000, extra: 0, pausedAt: null, pausedMs: 0, finishedAt: null } } } } }
+    const html = renderToString(<PlanProvider plan={HELD_PLAN}><WorkoutRunner session={PLANNED_CARD} entry={running}
+      entries={[]} onRun={noop} onExit={noop} /></PlanProvider>)
+    const t = text(html)
+    if (!/class="it it-run k-work it-circuit"/.test(html)) throw new Error('the work segment is not on screen')
+    if (!/<span class="it-exname">Crunch<\/span>/.test(html)) throw new Error('the exercise to do now is not the big name')
+    for (const w of ['Round 1 of 3', 'Exercise 1 of 2', 'Next:', 'Plank', 'Pause', 'Skip']) {
+      if (!t.includes(w)) throw new Error(`no "${w}" on the circuit's run screen`)
+    }
+    if (!/aria-label="Stop the circuit"/.test(html)) throw new Error('the stop does not say it stops the circuit')
+  }],
+  /*
+   * A shared circuit (review of #70): the owner's Start runs the owner's side.
+   * Sam's side is mounted hidden behind it and must NOT start Sam's clock, which
+   * would book seconds Sam never did and log them in Sam's log. It waits on the
+   * circuit step, with Sam's own Start. Pinned from both sides: hidden waits,
+   * shown runs.
+   */
+  ['WorkoutRunner(a shared circuit\'s hidden side waits on its own Start; the side on screen runs)', null, () => {
+    const pres = normalizePrescription({ title: 'Abs', blocks: [{ name: 'Core', circuit: { work: 40, rest: 20, rounds: 3 }, items: [
+      { kind: 'lift', name: 'Crunch', exercise: 'crunch', sets: [] },
+      { kind: 'lift', name: 'Plank', exercise: 'plank', sets: [] },
+    ] }] }, { liftField: LIFT_FIELD })
+    const theirs = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { slot: 'main', optId: 'planned', name: 'Abs', done: false, plan: pres, out: {}, sharedFrom: { id: 'owner', name: 'Alex' } } }
+    const side = (shown) => renderToString(<PlanProvider plan={HELD_PLAN}><WorkoutRunner session={PLANNED_CARD} entry={theirs}
+      entries={[]} onRun={noop} onExit={noop} who={{ name: 'Sam', tone: 1 }} shown={shown} /></PlanProvider>)
+    const hidden = side(false)
+    if (/it-run/.test(hidden)) throw new Error('the hidden side started its own timer')
+    if (!/Start the circuit/.test(text(hidden))) throw new Error('the hidden side has no Start of its own')
+    if (!/it it-run k-countin it-circuit/.test(side(true))) throw new Error('the side on screen did not run the circuit')
+  }],
+  /*
+   * "Together with Sam" (the owner's ask, #68): on a workout shared with sync on,
+   * a circuit waits on its start screen with one switch, on by default, so one
+   * clock can log for both. Pinned absent: a workout nobody shares (it runs
+   * straight away, as before) and one shared with sync off.
+   */
+  ['SidesWorkout(a shared circuit offers "Together with Sam"; unshared and unsynced do not)', null, () => {
+    const pres = normalizePrescription({ title: 'Abs', blocks: [{ name: 'Core', circuit: { work: 40, rest: 20, rounds: 3 }, items: [
+      { kind: 'lift', name: 'Crunch', exercise: 'crunch', sets: [] },
+      { kind: 'lift', name: 'Plank', exercise: 'plank', sets: [] },
+    ] }] }, { liftField: LIFT_FIELD })
+    const mine = (sync) => ({ id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { slot: 'main', optId: 'planned', name: 'Abs', done: true, plan: pres, out: {},
+        sharedWith: [{ id: 'sam', entryId: `daily-${TODAY}`, sync }] } })
+    const sides = [{ id: null, name: 'You', entryId: `daily-${TODAY}`, tone: 0 }, { id: 'sam', name: 'Sam', entryId: `daily-${TODAY}`, tone: 1 }]
+    const run = (entry) => renderToString(<PlanProvider plan={HELD_PLAN}>
+      <SidesWorkout kind="runner" session={PLANNED_CARD} sides={sides} ownerEntry={entry} entries={[]} onOwnerRun={noop} onExit={noop} />
+    </PlanProvider>)
+    const synced = run(mine(true))
+    if (!/Together with Sam/.test(text(synced))) throw new Error('a shared circuit does not offer to run together')
+    if (!/<input type="checkbox" role="switch" class="switch" checked=""/.test(synced.slice(synced.indexOf('Together with Sam')))) throw new Error('"Together" is not a switch, on by default')
+    if (!/One clock, logged for you and Sam/.test(text(synced))) throw new Error('the switch does not say what it does')
+    if (/it-run/.test(synced)) throw new Error('a shared circuit started before Together was chosen')
+    if (!/Start the circuit/.test(text(synced))) throw new Error('no Start under the switch')
+    const unsynced = run(mine(false))
+    if (/Together with/.test(text(unsynced))) throw new Error('"Together" offered with sync off')
+    const alone = renderToString(<PlanProvider plan={HELD_PLAN}><WorkoutRunner session={PLANNED_CARD}
+      entry={{ ...mine(true), data: { ...mine(true).data, sharedWith: [] } }} entries={[]} onRun={noop} onExit={noop} /></PlanProvider>)
+    if (/Together with/.test(text(alone))) throw new Error('"Together" offered on a workout nobody shares')
+    if (!/it-circuit/.test(alone)) throw new Error('an unshared circuit no longer starts straight away')
+  }],
+  /*
+   * The + timer with exercises: a preset that holds them lists them with their
+   * timing, and offers "Put it on today". A PLAIN preset is unchanged: no list,
+   * no Put it on today, only the quiet way in; and its run screen has no
+   * exercise on it.
+   */
+  ['TimerSetup(a preset with exercises: the list, and Put it on today; a plain one unchanged)', null, () => {
+    const abs = circuitConfig({ work: 40, rest: 20, rounds: 3, roundRest: 60 }, [
+      { key: 'crunch', name: 'Crunch' }, { key: 'plank', name: 'Plank', seconds: 60 }])
+    const entries = [{ ...buildTimerEntry('timer-abs', 'Abs', abs), updatedAt: 'z' }]
+    const presets = presetList(entries).filter(p => p.id === 'timer-abs')
+    const t = text(renderToString(<PlanProvider plan={HELD_PLAN}>
+      <TimerSetup presets={presets} onStart={noop} onClose={noop} onSave={noop} onPlace={noop} />
+    </PlanProvider>))
+    for (const w of ['Exercises', 'Crunch', 'Plank', '1:00', 'Put it on today', '3 rounds · 2 exercises · 40s each · 20s rest']) {
+      if (!t.includes(w)) throw new Error(`no "${w}" on a circuit preset`)
+    }
+    const plain = text(renderToString(<PlanProvider plan={HELD_PLAN}>
+      <TimerSetup presets={BUILT_INS} onStart={noop} onClose={noop} onSave={noop} onPlace={noop} />
+    </PlanProvider>))
+    if (/Put it on today|Exercises|Rest between rounds/.test(plain)) throw new Error('a plain timer grew the circuit\'s controls')
+    if (!/Add exercises/.test(plain)) throw new Error('no way to make a circuit from the timer')
+    const config = BUILT_INS[0].config
+    const t0 = Date.parse('2026-10-25T09:00:00Z')
+    const run = text(renderToString(<TimerRun name="30 on, 15 off" config={config} initialRun={startRun(compile(config), t0)}
+      now={t0 + 12_000} onAgain={noop} onClose={noop} />))
+    if (/Up next|Exercise \d of|it-circuit/.test(run)) throw new Error('a plain timer\'s run screen changed')
+    if (!/Again|Pause/.test(run)) throw new Error('the plain run screen did not render, so this proves nothing')
+  }],
+  ['TimerRun(a circuit\'s rest says what is coming; its finish says it was logged)', null, () => {
+    const abs = circuitConfig({ work: 40, rest: 20, rounds: 2, countIn: 0 }, [{ key: 'crunch', name: 'Crunch' }, { key: 'plank', name: 'Plank' }])
+    const t0 = Date.parse('2026-10-25T09:00:00Z')
+    const r0 = startRun(compile(abs), t0)
+    const rest = renderToString(<PlanProvider plan={HELD_PLAN}><TimerRun name="Abs" config={abs} initialRun={r0}
+      now={t0 + 45_000} onClose={noop} /></PlanProvider>)
+    if (!/k-rest it-circuit/.test(rest)) throw new Error('not resting at 45 s')
+    if (!/Up next/.test(text(rest)) || !/<strong class="it-exnext">Plank/.test(rest)) throw new Error('the rest does not say the plank is next')
+    if (!/aria-label="How to do Plank"/.test(rest)) throw new Error('no way to read how to do what is coming')
+    const done = text(renderToString(<PlanProvider plan={HELD_PLAN}><TimerRun name="Abs" config={abs} initialRun={r0}
+      now={t0 + 999_000} logged="Logged on today" onClose={noop} /></PlanProvider>))
+    if (!/Done/.test(done) || !/Logged on today/.test(done)) throw new Error('the finish does not say it was logged')
+    if (/Again/.test(done)) throw new Error('Again offered with nothing to run it again from')
   }],
 ]
 

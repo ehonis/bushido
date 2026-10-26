@@ -20,6 +20,7 @@ const lift = (uid, name, sets) => ({ uid, kind: 'lift', name, exercise: name.toL
 const planOf = (blocks) => ({
   title: 'Legs',
   blocks: blocks.map((b, bi) => ({ id: `b${bi}`, uid: b.uid, name: b.name, note: '', category: null, activity: null,
+    ...(b.circuit ? { circuit: b.circuit } : {}),
     items: b.items.map((it, ii) => ({ ...it, id: `b${bi}i${ii}`, sets: it.sets.map((s, si) => ({ ...s, id: `b${bi}i${ii}s${si}` })) })) })),
 })
 const names = (data) => data.plan.blocks.flatMap(b => b.items.map(i => i.name))
@@ -335,6 +336,36 @@ check('a hold is structure; its seconds are numbers and stay on their own side, 
   eq(carry({ sharedFrom: { id: 'owner' }, out: { lifts: [] } }, { lifts: [] }, { out: { lifts: [legacy] } }).out.lifts[0].sets, [{ reps: '', weight: '' }])
 })
 
+check('a circuit\'s timing is structure, both ways; the seconds each person did stay on their own side (#68)', () => {
+  const C = { work: 40, rest: 20, rounds: 3, roundRest: 60, countIn: 10 }
+  // A block written before circuits has the shape it always had: no key.
+  ok(!('circuit' in shapeOf(alex()).plan[0]), 'every stored base would stop comparing equal')
+  // Alex switches the block to a circuit, one set per exercise.
+  const before = alex()
+  const on = edit(before, bs => { bs[0] = { ...bs[0], circuit: C, items: bs[0].items.map(i => ({ ...i, sets: i.sets.slice(0, 1) })) }; return bs })
+  const theirs = carry(sam(), shapeOf(before), on)
+  eq(theirs.plan.blocks[0].circuit, C, 'the circuit did not reach Sam')
+  // Sam runs it: seconds per round on Sam's own run, nowhere else.
+  const ran = { ...theirs, run: { sets: { b0i0s0: { seconds: 120, rounds: [40, 40, 40], at: 1 } }, skipped: [], circuit: null } }
+  // Sam makes it four rounds; Alex gets four rounds and none of Sam's seconds.
+  const more = edit(ran, bs => { bs[0] = { ...bs[0], circuit: { ...bs[0].circuit, rounds: 4 } }; return bs })
+  const mine = carry(on, shapeOf(ran), more)
+  eq(mine.plan.blocks[0].circuit.rounds, 4, 'a change of rounds did not cross')
+  eq(mine.run, on.run, 'Sam\'s seconds reached Alex\'s run')
+  ok(!JSON.stringify(mine.plan).includes('120'), 'Sam\'s seconds reached Alex\'s plan')
+  // And Alex's own run, with Alex's seconds, does not travel the other way.
+  const alexRan = { ...mine, run: { sets: { b0i0s0: { seconds: 99, rounds: [33, 33, 33], at: 2 } } } }
+  const back = carry(more, shapeOf(mine), edit(alexRan, bs => { bs[0] = { ...bs[0], name: 'Core' }; return bs }))
+  eq(back.run.sets.b0i0s0.rounds, [40, 40, 40], 'Sam\'s own seconds were lost')
+  eq(back.plan.blocks[0].name, 'Core')
+  // Switched off over there: off here.
+  const off = edit(mine, bs => { const { circuit: _c, ...b } = bs[0]; bs[0] = b; return bs })
+  ok(!('circuit' in carry(more, shapeOf(mine), off).plan.blocks[0]), 'switching the circuit off did not cross')
+  // A circuit block added on one side arrives on the other a circuit.
+  const added = edit(before, bs => [...bs, { uid: 'B2', name: 'Abs', circuit: C, items: [lift('CR', 'Crunch', [set()])] }])
+  eq(carry(sam(), shapeOf(before), added).plan.blocks[1].circuit, C, 'a new circuit block arrived as a plain one')
+})
+
 check('a writer\'s own hold survives its own write with a stale base (#63 review)', () => {
   // Rev 1: Plank in reps. Rev 2 (stored): a Dead bug arrived. Alex's device,
   // still on rev 1, makes the plank a 45 s hold and writes.
@@ -350,6 +381,26 @@ check('a writer\'s own hold survives its own write with a stale base (#63 review
   const mine = itemNamed(r.data, 'Plank')
   eq([mine.measure, mine.sets.map(s => s.seconds)], ['time', [45, 45]], 'the writer\'s hold was dropped while its seconds stayed')
   eq(names(r.data), ['Plank', 'Dead bug'])
+})
+
+check('a writer from before holds, which sends no measure key, never turns a stored hold into reps (#63 follow-up)', () => {
+  const id = 'daily-2026-10-26'
+  const p = (items) => ({ optId: 'planned', plan: planOf([{ uid: 'B1', name: 'Main', items }]) })
+  const hold = { ...lift('PL', 'Plank', [set(), set()]), measure: 'time' }
+  const v1 = p([hold])
+  const stored = { ...v1, syncBase: nextBase(id, null, v1) }
+  // The old app dropped the key it does not know and wrote the plank back, blank.
+  const { measure: _m, ...unaware } = hold
+  for (const [label, base] of [['current base', stored.syncBase], ['no base', undefined]]) {
+    const r = rebase(stored, { ...p([unaware]), syncBase: base }, id)
+    eq(itemNamed(r.data, 'Plank').measure, 'time', `${label}: the hold became reps`)
+  }
+  // An app that knows says so, and is heard: counted in reps from now on.
+  const said = rebase(stored, { ...p([{ ...hold, measure: 'reps' }]), syncBase: stored.syncBase }, id)
+  eq(itemNamed(said.data, 'Plank').measure, 'reps')
+  // A different exercise in that place takes its own (no hold).
+  const swapped = rebase(stored, { ...p([{ ...unaware, name: 'Dead bug', exercise: 'dead-bug' }]), syncBase: stored.syncBase }, id)
+  ok(!('measure' in itemNamed(swapped.data, 'Dead bug')), 'a swapped-in reps exercise kept the hold')
 })
 
 check('THE RULE: only a write whose base lines up with the stored entry changes or carries structure', () => {
