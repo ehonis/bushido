@@ -11,7 +11,7 @@ import { Undo2 } from 'lucide-react'
 import { TestingTab, WhyTab } from './src/testing.jsx'
 import {
   PlanFlow, PrescriptionEditor, KeptStep, PlanTalk, BuildStep, groupedKinds, liftFieldOf,
-  DraftList, Working, KindStep,
+  DraftList, Working, KindStep, AskStep,
 } from './src/planner.jsx'
 import { draftStep, draftPres, draftLine } from './src/lib/drafts.js'
 import { WorkoutRunner } from './src/runner.jsx'
@@ -34,12 +34,12 @@ import { ProfileMenu, ProfilePanel, PeopleCard, homePages } from './src/profile.
 import { TheirSide } from './src/sharedwith.jsx'
 import { sharedCopy } from './src/lib/shared.js'
 import { SidesWorkout, PeopleDays, PersonDay, MyAbout, ForChoice, ForLine, SideSwitch, DayHead } from './src/trainer.jsx'
-import { planPeople } from './src/lib/trainer.js'
+import { planPeople, FOR_ME, forWords } from './src/lib/trainer.js'
 import { PlanProvider } from './src/lib/planctx.jsx'
 import { PrefsProvider } from './src/lib/prefs.jsx'
 import { ProgressView } from './src/progress.jsx'
 import { SessionLog, NameField, SessionDetails } from './src/sessionlog.jsx'
-import { ExercisePicker, STEP } from './src/exercises.jsx'
+import { ExercisePicker, STEP, implementPick } from './src/exercises.jsx'
 import { buildSections, SectionBody } from './src/session.jsx'
 import { HowSheet, MovesList, HowRow } from './src/howto.jsx'
 import { FIGURES, hasFigure } from './src/lib/figures.jsx'
@@ -1080,6 +1080,25 @@ const cases = [
       }
     }],
   /* And the absence: a machine has one meaning, so no switch is invented. */
+  /* The chip already chosen does nothing (#58 follow-up): memory is applied when
+   * an implement is PICKED, so tapping the chosen one again must not undo a
+   * switch made since. */
+  ['ExerciseCard(tapping the chosen implement again writes nothing)', null, () => {
+    const field = liftFieldOf(plan)
+    const dumbbell = field.implements.find(i => i.value === 'dumbbell')
+    const barbell = field.implements.find(i => i.value === 'barbell')
+    const log = [{ id: 'old', kind: 'daily', date: '2026-10-01', updatedAt: 'a', data: { out: { lifts: [
+      { uid: 'bss-1', key: 'bulgarian-split-squat', implement: 'dumbbell', weightMode: 'one', weightLabel: 'lb · one dumbbell', sets: [{ reps: 8, weight: 25 }] }] } } }]
+    // Memory says one dumbbell; this session the user switched back to per hand.
+    const item = { kind: 'lift', exercise: 'bulgarian-split-squat', implement: 'dumbbell', weightLabel: 'lb per hand' }
+    if (implementPick(field, item, dumbbell, log, 'today') !== null) throw new Error('the chosen chip re-applied memory over a switch made in this session')
+    const toBar = implementPick(field, item, barbell, log, 'today')
+    if (toBar?.implement !== 'barbell' || toBar.weightMode !== null || toBar.weightLabel !== 'lb on the bar') {
+      throw new Error(`another implement did not write itself in its default: ${JSON.stringify(toBar)}`)
+    }
+    const fromBar = implementPick(field, { ...item, implement: 'barbell' }, dumbbell, log, 'today')
+    if (fromBar?.weightMode !== 'one') throw new Error('picking the dumbbell lost the remembered mode')
+  }],
   ['SessionLog(a machine lift: no switch, just its label)', <SessionLog session={otherCard}
     entry={{ id: 'ot58c', kind: 'daily', date: TODAY, updatedAt: 'z',
       data: { optId: 'log-workout', level: 2, out: { activity: 'lift', lifts: [
@@ -1899,7 +1918,12 @@ const cases = [
    * covered as arithmetic in `prescription.test.js`, but nothing there would
    * catch a runner that renders a set with no number on it.
    */
-  ['PlanFlow(pick what)', <PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />,
+  /*
+   * Since #59 the kinds are the hand-built route's first step ("Build it myself"),
+   * and the model's first screen is one box (AskStep, below), with the same kinds
+   * as optional chips. Both must list every kind.
+   */
+  ['KindStep(pick what)', <KindStep plan={plan} custom="" setCustom={noop} setPicked={noop} onBuild={noop} picked={[]} />,
     (html) => {
       const t = text(html)
       // The kinds are CONTENT — adding "Shoulders" must be an edit to plan.json
@@ -1949,8 +1973,8 @@ const cases = [
   /* Multi-select, and the conversation that follows a plan: several workouts can
    * be selected to plan a full day at the gym, and a created plan can be followed
    * up on with the AI rather than being a dead end. */
-  ['PlanFlow(more than one kind at a time, numbered in the order picked)',
-    <KindStep plan={plan} custom="" setCustom={noop} setPicked={noop} onNext={noop} onBuild={noop} ai
+  ['KindStep(more than one kind at a time, numbered in the order picked)',
+    <KindStep plan={plan} custom="" setCustom={noop} setPicked={noop} onBuild={noop}
       picked={[plan.plannerKinds.kinds[2], plan.plannerKinds.kinds[0]]} />,
     (html) => {
       // Every row is a toggle, and the fork is what commits — a row that navigates
@@ -1959,18 +1983,18 @@ const cases = [
       // The check carries the order: the planner writes the blocks in it.
       const marks = [...html.matchAll(/class="kindrow-check"[^>]*>(\d*)</g)].map(m => m[1]).filter(Boolean)
       if (marks.join() !== '2,1') throw new Error(`the picks are numbered ${marks.join()}, not in the order tapped`)
-      if (!/Write it for me/.test(text(html))) throw new Error('no way to commit a selection')
+      if (!/Build it myself/.test(text(html))) throw new Error('no way to commit a selection')
     }],
   /*
-   * TWO ROUTES (docs/DESIGN.md, Plan a workout). Kinds are rows with a check under
-   * section heads, no prose; the footer appears once a kind is picked, with "Write it
-   * for me" as the primary and "Build it myself" as the secondary when AI is on.
+   * TWO ROUTES (docs/DESIGN.md, Plan a workout). The build route's kinds are rows
+   * with a check under section heads, no prose; its footer appears once a kind is
+   * picked, and it never offers the model (that is the first screen's, #59).
    */
-  ['PlanFlow(nothing picked: no footer, no paragraph, rows not cards)', <PlanFlow plan={plan} entries={[]} iso={TODAY}
-    onKeep={noop} onStart={noop} onClose={noop} />,
+  ['KindStep(nothing picked: no footer, no paragraph, rows not cards)', <KindStep plan={plan} custom="" setCustom={noop}
+    setPicked={noop} onBuild={noop} picked={[]} />,
     (html) => {
       const t = text(html)
-      if (/Build it myself|Write it for me/.test(t)) throw new Error('the fork shows before anything is picked')
+      if (/Build it myself|Write it for me/.test(t)) throw new Error('the footer shows before anything is picked')
       if (/as many as you like|sends nothing anywhere|Pick what you are doing/i.test(t)) throw new Error('the paragraphs are back')
       if (/kindcard|kindgrid|kindgroup-head/.test(html)) throw new Error('the kinds are cards in a grid again')
       if (!/class="list-row kindrow/.test(html)) throw new Error('the kinds are not list rows')
@@ -1979,17 +2003,60 @@ const cases = [
       const blurb = plan.plannerKinds.groups.find(g => g.blurb)?.blurb
       if (blurb && t.includes(blurb.slice(0, 30))) throw new Error('a group blurb paragraph is on screen')
     }],
-  ['PlanFlow(picked, AI on: Write it for me primary, Build it myself secondary)',
-    <KindStep plan={plan} custom="" setCustom={noop} setPicked={noop} onNext={noop} onBuild={noop} ai
+  ['KindStep(picked: Build it myself is the one primary, and the model is not offered here)',
+    <KindStep plan={plan} custom="" setCustom={noop} setPicked={noop} onBuild={noop}
       picked={[plan.plannerKinds.kinds[0]]} />,
     (html) => {
       const btns = [...html.matchAll(/<button class="(btn big[^"]*)"[^>]*>.*?<\/button>/g)].map(m => [m[1], text(m[0])])
-      const write = btns.find(([, t]) => /Write it for me/.test(t))
-      const build = btns.find(([, t]) => /Build it myself/.test(t))
-      if (!write || write[0].trim() !== 'btn big') throw new Error(`"Write it for me" is ${write?.[0]}, not the primary`)
-      if (!build || !/secondary/.test(build[0])) throw new Error(`"Build it myself" is ${build?.[0]}, not the secondary`)
-      if (/Write me \d+ in one/.test(text(html))) throw new Error('the button changes its words with the count')
+      if (btns.length !== 1 || btns[0][0].trim() !== 'btn big' || !/Build it myself/.test(btns[0][1])) {
+        throw new Error(`the footer is ${JSON.stringify(btns)}, not one "Build it myself" primary`)
+      }
+      if (/Write it for me|Sparkles/.test(html)) throw new Error('the build route offers the model')
     }],
+  /*
+   * THE BLANK CANVAS (#59). "Write it for me" opens on one box and one button: a
+   * sentence is a brief on its own, and no kind is required. The kinds are still
+   * there, folded, as optional chips, every one of them (the reachability rule).
+   */
+  ['PlanFlow(AI on: the first screen is one text box and one button, and no kind is required)',
+    <PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onStart={noop} onClose={noop} />,
+    (html) => {
+      const t = text(html)
+      if (!/<label class="askcanvas-label" for="plan-ask">What do you want to do\?<\/label><textarea id="plan-ask"/.test(html)) {
+        throw new Error('the first screen is not the "What do you want to do?" box')
+      }
+      if ((html.match(/<textarea/g) || []).length !== 1) throw new Error('more than one text box on the first screen')
+      const primaries = html.match(/<button class="btn big[^"]*"[^>]*>/g) || []
+      if (primaries.length !== 1 || !/Write it for me/.test(t)) throw new Error(`the primary buttons: ${primaries.join(' / ')}`)
+      if (/class="list-row kindrow/.test(html)) throw new Error('the kinds are still a required list on the first screen')
+      if (!/Build it myself/.test(t)) throw new Error('no way to the hand-built route')
+      if (/How long, and what for/.test(t)) throw new Error('the second "ask" screen is back')
+      // The box asks for a session, not the content's goal prompt ("…has stalled").
+      const goalPh = plan.plannerKinds?.goalPlaceholder
+      if (goalPh && /squat has stalled/.test(html)) throw new Error('the box carries the old goal placeholder')
+      if (!/placeholder="Legs, then twenty minutes easy on the bike"/.test(html)) throw new Error('the box does not show what a description looks like')
+    }],
+  ['AskStep(a sentence alone is enough; with nothing at all the button waits)', null, () => {
+    const ask = (goal, picked = []) => renderToString(<AskStep goal={goal} setGoal={noop} minutes={45} setMinutes={noop}
+      plan={plan} picked={picked} setPicked={noop} onGo={noop} onBuild={noop} />)
+    const go = (html) => html.match(/<button class="btn big"[^>]*>/)[0]
+    if (/disabled/.test(go(ask('legs, then an easy spin')))) throw new Error('a sentence with no kind cannot be sent')
+    if (!/disabled/.test(go(ask('  ')))) throw new Error('an empty ask can be sent')
+    if (/disabled/.test(go(ask('', [plan.plannerKinds.kinds[0]])))) throw new Error('a kind alone cannot be sent')
+  }],
+  ['AskStep(every kind is an optional chip, folded, and open once one is picked)', null, () => {
+    const html = renderToString(<AskStep goal="" setGoal={noop} minutes={45} setMinutes={noop} plan={plan} picked={[]}
+      setPicked={noop} onGo={noop} />)
+    if (!/<details class="askkinds"><summary class="section-head"><h3>Add a kind<\/h3><span class="sub">Optional<\/span>/.test(html)) {
+      throw new Error('the kinds are not a folded, optional section')
+    }
+    const t = text(html).replace(/&amp;/g, '&')
+    for (const k of plan.plannerKinds.kinds) if (!t.includes(k.label)) throw new Error(`${k.label} is not a chip`)
+    const picked = renderToString(<AskStep goal="" setGoal={noop} minutes={45} setMinutes={noop} plan={plan}
+      picked={[plan.plannerKinds.kinds[0], { key: 'custom:hike', label: 'A hike' }]} setPicked={noop} onGo={noop} />)
+    if (!/<details class="askkinds" open="">/.test(picked)) throw new Error('a picked kind is hidden in a closed fold')
+    if (!/2 picked/.test(picked) || !/A hike/.test(picked)) throw new Error('an older draft\'s own kind is not shown')
+  }],
   /*
    * The hand-built route, opened empty.
    *
@@ -2384,7 +2451,7 @@ const cases = [
     for (const g of plan.plannerKinds.groups) if (!hasIcon(g.icon)) throw new Error(`group ${g.key}: icon "${g.icon}" is not registered`)
     for (const c of plan.quotaCategories) if (!hasIcon(c.icon)) throw new Error(`category ${c.key}: icon "${c.icon}" is not registered`)
   }],
-  ['PlanFlow(folded catalogs are still in the page)', <PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />,
+  ['KindStep(folded catalogs are still in the page)', <KindStep plan={plan} custom="" setCustom={noop} setPicked={noop} onBuild={noop} picked={[]} />,
     (html) => {
       if (!/<details class="kindgroup folded"/.test(html)) throw new Error('nothing folds')
       const t = text(html).replace(/&amp;/g, '&')
@@ -2424,24 +2491,21 @@ const cases = [
     const one = [plan.plannerKinds.kinds[0]]
     _setMe({ id: 'sam', owner: false, features: { ai: false, goals: false, whoop: false, strava: false, notifications: false } })
     try {
-      // Read from whoami, as PlanFlow does, with something picked.
+      // Without the model, the kinds are the first screen.
       const html = renderToString(<KindStep plan={plan} custom="" setCustom={noop} setPicked={noop}
-        onNext={noop} onBuild={noop} picked={one} />)
+        onBuild={noop} picked={one} />)
       const t = text(html)
       if (!/Build it myself/.test(t)) throw new Error('no way to build a workout without the AI')
       if (/Write it for me|Write me \d/.test(t)) throw new Error('the model is offered to someone it is not set up for')
       if (/model|Sparkles/i.test(t.replace(/<[^>]*>/g, ' '))) throw new Error('the screen mentions a model')
       const btns = html.match(/<button class="btn big[^"]*"/g) || []
       if (btns.length !== 1 || /secondary|ghost/.test(btns[0])) throw new Error(`the only button is ${btns.join(' / ')}, not one primary`)
-      const flow = text(renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />))
-      if (/Write it for me|Drafts/.test(flow)) throw new Error('the flow offers the model or its drafts')
+      const flowHtml = renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />)
+      const flow = text(flowHtml)
+      if (/Write it for me|Drafts|What do you want to do/.test(flow)) throw new Error('the flow offers the model or its drafts')
+      if (!/class="list-row kindrow/.test(flowHtml)) throw new Error('without the model, the first screen is not the kinds')
     } finally { _setMe({}) }
-    // The server's ai-not-configured has the same effect (`ai={false}` is what PlanFlow passes then).
-    const refused = text(renderToString(<KindStep plan={plan} custom="" setCustom={noop} setPicked={noop}
-      onNext={noop} onBuild={noop} picked={one} ai={false} />))
-    if (/Write it for me/.test(refused)) throw new Error('after ai-not-configured the model is still offered')
-    const owner = text(renderToString(<KindStep plan={plan} custom="" setCustom={noop} setPicked={noop}
-      onNext={noop} onBuild={noop} picked={one} />))
+    const owner = text(renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />))
     if (!/Write it for me/.test(owner)) throw new Error('the owner lost "Write it for me"')
   }],
   /*
@@ -2451,8 +2515,8 @@ const cases = [
    */
   ['PlanFlow(after ai-not-configured, reopening offers Build it myself alone)', null, () => {
     const one = [plan.plannerKinds.kinds[0]]
-    const kind = () => text(renderToString(<KindStep plan={plan} custom="" setCustom={noop} setPicked={noop}
-      onNext={noop} onBuild={noop} picked={one} />))
+    void one
+    const kind = () => text(renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />))
     try {
       if (!aiOffered({ ai: true }) || !/Write it for me/.test(kind())) throw new Error('the model is not offered before any refusal')
       if (noteAiRefusal({ code: 'not-shared' })) throw new Error('another error counted as a refusal')
@@ -3728,12 +3792,13 @@ const cases = [
       features: { ai: true, whoop: false, strava: false, goals: false, notifications: false } }
     const FOR = /aria-label="Who this is for"/
     const flow = (me) => renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop}
-      people={planPeople(me)} onKeepFor={async () => ({ ids: [], count: 0, first: null })} />)
+      people={planPeople(me)} onKeepFor={async () => ({ ids: [], count: 0, first: null })} onShareWith={async () => ({ failed: [] })} />)
+    const SAM = { id: 'sam', name: 'Sam' }
     const plannedForSam = { ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, plannedBy: { id: 'owner', name: 'Alex' } } }
     const sharedPlanned = { ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, sharedWith: [{ id: 'sam', entryId: PLANNED_ENTRY.id }] } }
     const timed = plan.dailyMenu.find(o => hasWorkout(o) && buildSteps(o, {}).length)
     return [
-      ['PlanFlow("For: You / Sam" only for the owner, with someone else on the install, not while acting)', null, () => {
+      ['PlanFlow("For: You / Sam", one or several, only for the owner, with someone else on the install, not while acting)', null, () => {
         const html = flow(ownerMe)
         if (!FOR.test(html)) throw new Error('the owner cannot plan for Sam')
         const t = text(html)
@@ -3742,25 +3807,73 @@ const cases = [
         if (FOR.test(flow(alone))) throw new Error('"For:" on a one-person install')
         if (FOR.test(flow(acting))) throw new Error('"For:" while acting as someone')
         if (FOR.test(flow(sam))) throw new Error('"For:" for someone who is not the owner')
+        // Several at once is the same control: none of its chips, nor a group's words, anywhere else (#59).
+        for (const [label, m] of [['acting', acting], ['not the owner', sam], ['alone', alone]]) {
+          const h = flow(m)
+          if (/personchip|Planning for|shared with/.test(h)) throw new Error(`people to plan for, ${label}`)
+        }
         // And never without somewhere to keep it.
         if (FOR.test(renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} people={planPeople(ownerMe)} />))) {
           throw new Error('"For:" with no way to keep it in their log')
         }
       }],
       ['ForChoice(nothing with nobody to choose)', null, () => {
-        if (renderToString(<ForChoice people={[]} target={null} onTarget={noop} />) !== '') throw new Error('a choice of one')
+        if (renderToString(<ForChoice people={[]} who={FOR_ME} onChange={noop} />) !== '') throw new Error('a choice of one')
       }],
       ['ForChoice(the same person chips as "With …", You picked by default, no segmented control)', null, () => {
-        const html = renderToString(<ForChoice people={planPeople(ownerMe)} target={null} onTarget={noop} />)
+        const html = renderToString(<ForChoice people={planPeople(ownerMe)} who={FOR_ME} onChange={noop} />)
         const chips = [...html.matchAll(/class="chip personchip( on)?" data-tone="(\d)" aria-pressed="(true|false)"><span class="avatar sm"[^>]*>(.)<\/span><span class="personchip-name">([^<]*)</g)]
           .map(m => [Boolean(m[1]), m[2], m[4], m[5]])
         if (JSON.stringify(chips) !== JSON.stringify([[true, '0', 'Y', 'You'], [false, '1', 'S', 'Sam']])) throw new Error(`the choice reads ${JSON.stringify(chips)}`)
         if (/class="seg"/.test(html)) throw new Error('"For" is still a segmented control')
-        const sam = renderToString(<ForChoice people={planPeople(ownerMe)} target={{ id: 'sam', name: 'Sam' }} onTarget={noop} />)
+        const sam = renderToString(<ForChoice people={planPeople(ownerMe)} who={{ me: false, others: [SAM] }} onChange={noop} />)
         if (!/class="chip personchip on" data-tone="1"/.test(sam)) throw new Error('picking Sam does not light Sam\'s chip')
       }],
+      /* #59: several at once. Each chip is a toggle, and You and Sam can both be on. */
+      ['ForChoice(several at once: you and Sam both picked, each chip its own toggle)', null, () => {
+        const html = renderToString(<ForChoice people={planPeople(ownerMe)} who={{ me: true, others: [SAM] }} onChange={noop} />)
+        const on = [...html.matchAll(/class="chip personchip( on)?"[^>]*aria-pressed="(true|false)"/g)].map(m => [Boolean(m[1]), m[2]])
+        if (JSON.stringify(on) !== JSON.stringify([[true, 'true'], [true, 'true']])) throw new Error(`the chips read ${JSON.stringify(on)}`)
+        if (/role="radio"|class="seg"/.test(html)) throw new Error('"For" is a single choice again')
+      }],
+      ['ForLine(you and Sam: one workout, shared; Sam and Robin: a copy each)', null, () => {
+        const both = text(renderToString(<ForLine who={{ me: true, others: [SAM] }} people={planPeople(ownerMe)} />)).replace(/<[^>]+>/g, '')
+        if (!/You and Sam · one shared workout/.test(both)) throw new Error(`the line reads: ${both}`)
+        if ((both.match(/Sam/g) || []).length !== 1) throw new Error(`the line names Sam twice: ${both}`)
+        const others = text(renderToString(<ForLine who={{ me: false, others: [SAM, { id: 'robin', name: 'Robin' }] }} people={planPeople(ownerMe)} />))
+        if (!/Planning for Sam and Robin · a copy goes in each of their logs/.test(others.replace(/<[^>]+>/g, ''))) throw new Error(`the line reads: ${others}`)
+        if (renderToString(<ForLine who={FOR_ME} people={planPeople(ownerMe)} />) !== '') throw new Error('a line for your own plan')
+      }],
+      ['KeptStep(kept with Sam: on your day, shared, and a person it missed is said)', null, () => {
+        const t = text(renderToString(<KeptStep pres={PRESCRIPTION} words={forWords({ me: true, others: [SAM] })} onStart={noop}
+          onAnother={noop} onDone={noop} failed={[{ person: { id: 'robin', name: 'Robin' }, error: 'offline' }]} />))
+        if (!t.includes(`${PRESCRIPTION.title} is on today, with Sam`)) throw new Error(`it says: ${t}`)
+        if (!/each of you logs your own numbers/.test(t)) throw new Error('it does not say the numbers stay each person\'s')
+        if (!/Not with Robin: offline/.test(t)) throw new Error('a person it could not be shared with is not said')
+        if (!/Start it now/.test(t)) throw new Error('your side cannot be started')
+      }],
+      /* Others only, kept for Sam but not Robin: said as it is, with a retry here, not "With …". */
+      ['KeptStep(others only, missed Robin: on Sam’s day, Try again for Robin, no "With …")', null, () => {
+        const t = text(renderToString(<KeptStep pres={PRESCRIPTION} words={forWords({ me: false, others: [SAM] })} onStart={null}
+          onAnother={noop} onDone={noop} onRetry={noop} failed={[{ person: { id: 'robin', name: 'Robin' }, error: 'read-only' }]} />))
+        if (!t.includes(`${PRESCRIPTION.title} is on Sam’s day`)) throw new Error(`it says: ${t}`)
+        if (/Robin’s days|Sam and Robin/.test(t)) throw new Error('it claims it is on Robin\'s day')
+        if (!/Not on Robin’s day: read-only/.test(t) || !/Try again for Robin/.test(t)) throw new Error('the miss or its retry is not there')
+        if (/With …/.test(t)) throw new Error('it sends you to "With …", which others-only has not got')
+        // The retry is this screen's only: said, since the draft is gone once it is on anyone's day.
+        if (!/If you close this, plan Robin’s again from Plan a workout/.test(t)) throw new Error('it does not say the retry goes when the screen does')
+        const part = text(renderToString(<KeptStep pres={PRESCRIPTION} words={forWords({ me: false, others: [SAM] })} onStart={null}
+          onAnother={noop} onDone={noop} onRetry={noop} failed={[{ person: { id: 'robin', name: 'Robin' }, error: 'offline', written: 1, of: 2 }]} />))
+        if (!/Robin has part of it \(1 of 2\): offline/.test(part)) throw new Error(`a part-way keep reads: ${part}`)
+        if (/Not on Robin’s day/.test(part)) throw new Error('Robin, who has the lift, is told it is not on Robin\'s day')
+      }],
+      ['BuildStep(the keep button says who it goes to)', null, () => {
+        const t = text(renderToString(<PlanProvider plan={plan}><BuildStep pres={PRESCRIPTION} setPres={noop} liftField={LIFT_FIELD}
+          onKeep={noop} words={forWords({ me: true, others: [SAM] })} /></PlanProvider>))
+        if (!/Put it on today with Sam/.test(t)) throw new Error(`the button: ${t.match(/Put it on[^<]*/)?.[0]}`)
+      }],
       ['ForLine(one line: whose plan this is, with their initial, no paragraph)', null, () => {
-        const t = text(renderToString(<ForLine person={{ id: 'sam', name: 'Sam' }} people={planPeople(ownerMe)} />)).replace(/<[^>]+>/g, '')
+        const t = text(renderToString(<ForLine who={{ me: false, others: [SAM] }} people={planPeople(ownerMe)} />)).replace(/<[^>]+>/g, '')
         if (!/Planning for Sam · it goes in Sam’s log/.test(t)) throw new Error(`the line reads: ${t}`)
         if (/from you/.test(t)) throw new Error('the old explanatory sentence is back')
       }],

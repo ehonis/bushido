@@ -65,8 +65,24 @@ export function recentWorkouts({ plan = null, entries = [], iso, days = 7 }) {
 
 /** Rough context the app can hand over for free, so the agent spends its budget elsewhere. */
 export function plannerContext({ readiness = null, plan = null, entries = [], iso = null }) {
+  return [iso ? `Today is ${iso}.` : null, ...personContext({ readiness, plan, entries, iso })].filter(Boolean).join(' ')
+}
+
+/**
+ * The same for several people at once (#59): one paragraph per person, under
+ * their name, each built from THEIR log (read through the people endpoints) and
+ * only the owner's with WHOOP. The model reads no one's log but the owner's.
+ */
+export function groupContext({ people = [], iso = null }) {
+  const bits = iso ? [`Today is ${iso}.`] : []
+  for (const p of people) {
+    bits.push(`${p.name || 'One of them'}: ${personContext({ ...p, iso }).join(' ') || 'nothing known.'}`)
+  }
+  return bits.join('\n')
+}
+
+function personContext({ readiness = null, plan = null, entries = [], iso = null }) {
   const bits = []
-  if (iso) bits.push(`Today is ${iso}.`)
   if (readiness) {
     const r = readiness
     bits.push(`WHOOP this morning: recovery ${r.recovery ?? '—'}%, HRV ${r.hrv ?? '—'}, ` +
@@ -78,7 +94,7 @@ export function plannerContext({ readiness = null, plan = null, entries = [], is
       ? `Logged in the last 7 days, newest first: ${recent.join('; ')}.`
       : 'Nothing logged in the last 7 days.')
   }
-  return bits.join(' ')
+  return bits
 }
 
 /**
@@ -90,7 +106,8 @@ export function plannerContext({ readiness = null, plan = null, entries = [], is
  */
 /*
  * `forId`: the owner planning for someone else on the install (lib/trainer.js).
- * The server runs on THEIR log, plan and About you; nothing else changes.
+ * The server runs on THEIR log, plan and About you; nothing else changes. A list
+ * (`forOf`, lib/trainer.js) is several people at once, on the owner's.
  */
 export async function requestWorkout({ kinds, minutes, goal, context, signal, forId = null }) {
   const r = await fetch('/api/plan/workout', {
@@ -157,7 +174,11 @@ export async function listDrafts() {
   return Array.isArray(out?.drafts) ? out.drafts : []
 }
 
-/** `picked` is the kinds as the first screen holds them; the server keeps them to resume and retry. */
+/**
+ * `picked` is the kinds as the first screen holds them (none at all is fine
+ * since #59: `goal`, what they wrote, is a brief on its own); the server keeps
+ * them to resume and retry. `forId` is `forOf(who)`: one id or a list.
+ */
 export async function createDraft({ picked, minutes, goal, context, forId = null }) {
   const out = await draftCall('/api/plan/drafts', {
     method: 'POST',

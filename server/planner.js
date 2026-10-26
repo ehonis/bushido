@@ -164,32 +164,46 @@ function categoryList(plan) {
   return `CATEGORIES — \`category\` must be one of these keys:\n${cats}\n`
 }
 
-function systemPrompt({ repoRoot, dataDir, logDir, brainFile, today, plan, name, notes, measurements = true }) {
+/** "Sam", "Sam and Robin", "Sam, Robin and Kim". */
+const andList = (names) => (names.length < 2 ? names.join('')
+  : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`)
+
+function systemPrompt({ repoRoot, dataDir, logDir, brainFile, today, plan, name, notes, measurements = true, group = null }) {
   const data = logDir || dataDir || `${repoRoot}/data`
-  const N = who(name)
+  const many = Array.isArray(group) && group.length > 1
+  const N = many ? andList(group.map(p => who(p.name))) : who(name)
   const Cap = N[0].toUpperCase() + N.slice(1)
+  const has = many ? 'have' : 'has'
+  const is = many ? 'are' : 'is'
+  // In a run for several people only the owner's log is on disk for it, and only
+  // when the owner is one of them; everyone else's week is in the context.
+  const owner = many ? group.find(p => p.owner) || null : null
+  const readsLog = !many || Boolean(owner)
   return `You write ONE workout for ${N}, inside Bushido, a self-hosted training app.
 Today is ${today}.
 
-${Cap} has said what kind of session they want, how long they have, and what they
+${Cap} ${has} said what kind of session they want, how long they have, and what they
 want out of it. Your job is to hand back a session they can walk straight into —
-every set written down, every load a number, every rest a number.
+${many ? `every set written down and every rest a number. The loads are each person's own,
+so no set carries a weight.` : 'every set written down, every load a number, every rest a number.'}
 
 GO AND LOOK FIRST. You have read-only tools and a budget of a couple of minutes.
 In rough order of value:
 
-- ${data}/state.json — the actual training log. What ${N} lifted last time
+${readsLog ? `- ${data}/state.json — the actual training log${owner ? ` of ${who(owner.name)}, and of nobody else here` : ''}. What ${owner ? who(owner.name) : N} lifted last time
   for these movements, at what load, for how many reps, and how hard it felt
-  (\`out.rpe\`) is the single most useful thing you can read. \`out.lifts\` is the
+  (\`out.rpe\`) is the ${many ? 'best guide to the volume and the movements' : 'single most useful thing you can read'}. \`out.lifts\` is the
   per-exercise record; \`out.improve\` is the athlete saying what to change.
-${brainFile ? `- ${brainFile} — the athlete profile: ability, diagnosed weaknesses, injury
+` : `- The context in the message below: what each of them logged in the last week.
+  None of their logs is yours to read.
+`}${brainFile ? `- ${brainFile} — the athlete profile: ability, diagnosed weaknesses, injury
   history, the gear actually owned, and the training rules that are stricter
   than the literature. Read it before you prescribe anything loaded.
 ` : ''}${measurements ? `- ${data}/whoop.json — last night's recovery, HRV, sleep and strain.
   A red recovery is a reason to cut volume, and you should say so in \`why\`.
 - ${data}/strava.json — recent rides and runs, if the session is one.
 ` : ''}
-If a tool call is not going to change what you write, do not make it. ${Cap} is
+If a tool call is not going to change what you write, do not make it. ${Cap} ${is}
 standing in gym clothes waiting.
 
 RULES THAT ARE NOT YOURS TO BREAK
@@ -199,10 +213,12 @@ RULES THAT ARE NOT YOURS TO BREAK
 - Never prescribe a fourth hard finger day in a week, or a hard finger day the
   day after another. If what was asked for would be one, say so in \`why\` and
   write the session that CAN be done.
-- Load comes from the log, not from a formula. If they benched 3×8 at 95 last week
+${many ? `- No set carries a \`weight\`: each of them fills in their own. Choose the reps,
+  sets and rest from what each of them logged, and if a load or a movement suits one
+  of them differently, say so in \`why\`, by name.` : `- Load comes from the log, not from a formula. If they benched 3×8 at 95 last week
   and it was an RPE 7, write 3×8 at 100 and say that is what you did. If you have
   no history for a movement, leave \`weight\` out entirely rather than inventing
-  one — a blank box they fill in beats a number they confirm without reading.
+  one — a blank box they fill in beats a number they confirm without reading.`}
 - Fit the time budget including rest. Count it: sets × (work + rest). A
   forty-five minute session with 4 minutes of rest between 20 sets does not fit.
 
@@ -258,10 +274,35 @@ that belongs to the one beside it. Getting this wrong in either direction is wor
 than coarse: a split warm-up is a workout nobody did, and a lift and a run pooled
 into one entry is a ride the watch cannot find a home for.
 
-${notesSection(name, notes)}
+${many ? groupSection(group) : notesSection(name, notes)}
 ${categoryList(plan)}
 ${activityCatalog(plan)}
 ${liftCatalog(plan)}`
+}
+
+/**
+ * ONE session for several people on the install (issue #59): the owner and a
+ * partner, say, doing the same lift day. It is one STRUCTURE, kept the same on
+ * every side by the shared-workout sync, with each person logging their own
+ * numbers, so the model is told not to write anyone's loads into it. Each
+ * person's name and About-you notes come from the server (`aboutFor`); what each
+ * did lately arrives pre-digested in the context, never as a path to their log.
+ */
+function groupSection(group) {
+  const names = andList(group.map(p => who(p.name)))
+  return `MORE THAN ONE PERSON
+
+This one session is for ${group.length} people: ${names}. Each of them does the same session
+and logs it in their own log.
+
+- Write ONE structure for all of them: the same blocks, exercises and number of sets.
+- Leave \`weight\` out of every set. Loads are each person's own and each fills in
+  their own. If a load or a movement suits one of them differently, say so in
+  \`why\`, by name.
+- What each of them logged in the last week is in the context below, under their
+  name. Fit the time budget to the one who needs the most rest.
+
+${group.map(p => notesSection(p.name, p.notes)).filter(Boolean).join('\n')}`
 }
 
 /**
@@ -277,6 +318,21 @@ ${liftCatalog(plan)}`
  */
 function userPrompt({ kinds = [], minutes, goal, context }) {
   const list = kinds.filter(Boolean)
+  // Nothing picked from the list: what they wrote IS the brief (#59). The model
+  // decides the blocks, and the category and activity of each, as it already
+  // does for a kind that names no sport.
+  if (!list.length) {
+    return [
+      `Session: in their own words, "${goal || 'a workout'}"`,
+      'They did not pick a kind from the list. Decide what the session is from what they wrote:',
+      'its blocks, and for every block that is a workout of its own, its `category` and `activity`',
+      'from the lists in your instructions. If they named more than one thing, give each its own',
+      'block; the time budget below is for the whole session.',
+      `Time available: ${minutes} minutes`,
+      context ? `\nWhat the app already knows about right now:\n${context}` : '',
+      '\nWrite the session.',
+    ].filter(Boolean).join('\n')
+  }
   const head = list.length > 1
     ? [
         `Session: ONE gym trip covering all ${list.length} of these, in this order:`,
@@ -290,7 +346,7 @@ function userPrompt({ kinds = [], minutes, goal, context }) {
   return [
     head,
     `Time available: ${minutes} minutes`,
-    goal ? `What they want out of it: ${goal}` : 'They did not say what they want out of it — pick the obvious thing and say why in `why`.',
+    goal ? `In their own words: ${goal}` : 'They did not say what they want out of it — pick the obvious thing and say why in `why`.',
     context ? `\nWhat the app already knows about right now:\n${context}` : '',
     '\nWrite the session.',
   ].filter(Boolean).join('\n')
@@ -336,6 +392,44 @@ function revisePrompt({ plan, message, thread = [], name }) {
   ].filter(Boolean).join('\n')
 }
 
+/**
+ * Only keys the content knows. A block's `category` decides where the session
+ * splits and its `activity` which log form it gets, so a key the model made up
+ * would land as a workout filed under nothing. Dropped rather than failed: the
+ * block stays, it just belongs to the workout beside it, which the review screen
+ * shows and one chip fixes. A content file without the list checks nothing.
+ */
+function realKeys(built, plan) {
+  const cats = new Set((plan?.quotaCategories || []).map(c => c?.key).filter(Boolean))
+  const acts = new Set((activityField(plan)?.activities || []).map(a => a?.key).filter(Boolean))
+  const fix = (o) => {
+    if (!o || typeof o !== 'object') return o
+    const next = { ...o }
+    if (cats.size && next.category != null && !cats.has(next.category)) delete next.category
+    if (acts.size && next.activity != null && !acts.has(next.activity)) delete next.activity
+    return next
+  }
+  return { ...fix(built), blocks: (built.blocks || []).map(fix) }
+}
+
+/**
+ * A plan for several people is shared STRUCTURE (#59): each person logs their
+ * own loads, so a weight the model wrote anyway is taken out here rather than
+ * landing as someone's target. Both first drafts and revisions.
+ */
+function noLoads(built) {
+  return {
+    ...built,
+    blocks: (built.blocks || []).map(b => ({
+      ...b,
+      items: (b?.items || []).map(it => ({
+        ...it,
+        sets: (it?.sets || []).map(s => { const { weight: _w, ...rest } = s || {}; return rest }),
+      })),
+    })),
+  }
+}
+
 /* ----------------------------------------------------------------- the turn */
 
 /**
@@ -347,9 +441,14 @@ function revisePrompt({ plan, message, thread = [], name }) {
 function planWorkout({
   bin, model, effort, timeoutMs, repoRoot, dataDir, logDir, brainFile, today, plan,
   kinds = [], minutes, goal, context, revise = null, name, notes, env,
-  person = null, ownerSources = [], measurements = true, signal = null,
+  person = null, ownerSources = [], measurements = true, signal = null, group = null,
 }) {
-  if (person) brainFile = null
+  // Several people (#59): the owner's run, with no one else's space readable by
+  // rule; without the owner among them, nobody's at all (agentflags.js).
+  const many = Array.isArray(group) && group.length > 1
+  const nobody = many && !group.some(p => p.owner)
+  const noPeople = many && !nobody
+  if (person || nobody) brainFile = null
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new Error('cancelled'))
     const child = spawn(bin, [
@@ -359,8 +458,8 @@ function planWorkout({
       '--output-format', 'json',
       '--no-session-persistence',
       // Read-only; too-broad directories refused, secrets denied. See agentflags.js.
-      ...plannerFlags({ repoRoot, dataDir: dataDir || path.join(repoRoot, 'data'), brainFile, person, ownerSources }).args,
-      '--append-system-prompt', systemPrompt({ repoRoot, dataDir, logDir, brainFile, today, plan, name, notes, measurements }),
+      ...plannerFlags({ repoRoot, dataDir: dataDir || path.join(repoRoot, 'data'), brainFile, person, ownerSources, nobody, noPeople }).args,
+      '--append-system-prompt', systemPrompt({ repoRoot, dataDir, logDir, brainFile, today, plan, name, notes, measurements, group }),
       '--json-schema', JSON.stringify(revise ? REVISE_SCHEMA : PLAN_SCHEMA),
     ], { cwd: repoRoot, env: env || process.env, stdio: ['pipe', 'pipe', 'pipe'] })
 
@@ -391,7 +490,7 @@ function planWorkout({
         return reject(new Error('the planner returned nothing usable'))
       }
       resolve({
-        plan: { ...built, createdAt: new Date().toISOString(), model: doc.model || model },
+        plan: { ...(many ? noLoads(realKeys(built, plan)) : realKeys(built, plan)), createdAt: new Date().toISOString(), model: doc.model || model },
         cost: doc.total_cost_usd ?? null,
       })
     })
@@ -399,7 +498,7 @@ function planWorkout({
     // Same agent, same tools, same schema — a revision is a planning run that
     // starts from a plan instead of from a blank page.
     child.stdin.end(revise
-      ? revisePrompt({ ...revise, name })
+      ? revisePrompt({ ...revise, name: group?.length > 1 ? andList(group.map(p => who(p.name))) : name })
       : userPrompt({ kinds, minutes, goal, context }))
   })
 }
@@ -419,5 +518,5 @@ const readPlanJson = (file) => {
 
 module.exports = {
   PLAN_SCHEMA, REVISE_SCHEMA, planWorkout, systemPrompt, userPrompt, revisePrompt,
-  liftField, activityField, readPlanJson,
+  liftField, activityField, readPlanJson, realKeys, noLoads,
 }

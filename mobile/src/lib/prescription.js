@@ -846,14 +846,22 @@ export const patchItem = (pres, itemId, patch) => mapItem(pres, itemId, it => {
   return next
 })
 
-/** The plan item and the logged row it became (`runOutputs`: the row's uid is the item's id), as pairs. */
+/**
+ * The plan item and the logged row it became, as pairs. `runOutputs` gives the
+ * row the item's id as its uid and the item's name; ids are positional, so the
+ * name has to agree too, or a row would pair with whatever item an edit moved
+ * into its old place.
+ */
 function loggedPairs(data) {
   const rows = Array.isArray(data?.out?.lifts) ? data.out.lifts : []
   return (data?.plan?.blocks || []).flatMap(b => b?.items || []).filter(it => it?.kind === 'lift').flatMap(item => {
-    const row = rows.find(r => r?.uid === item.id && r.key === item.exercise && r.implement === item.implement)
+    const row = rows.find(r => r?.uid === item.id && r.name === item.name && r.key === item.exercise && r.implement === item.implement)
     return row ? [{ item, row }] : []
   })
 }
+
+/** An item or row as it is apart from what its weight means: the same before and after only if a write just switched it. */
+const besideMode = ({ weightMode: _m, weightLabel: _l, ...rest }) => JSON.stringify(rest)
 
 /** An item or row in a mode: only a departure from the default is stored. */
 function inMode(x, liftField, mode) {
@@ -871,8 +879,14 @@ function inMode(x, liftField, mode) {
  * both an entry's `data`), the other follows, and nothing else on either moves,
  * so numbers edited on the log afterwards and lifts added by hand stay as they
  * are. A pair that already disagreed and that this write did not touch is left
- * alone (stored data is never rewritten to suit the code). Returns `after`
- * itself when there is nothing to follow.
+ * alone (stored data is never rewritten to suit the code).
+ *
+ * A side counts as switched only when this write changed nothing else about it:
+ * the same item (or row) under the same id, apart from its mode and label. Ids
+ * are positional, so after a removal or a move an id names another item, and
+ * following then would rewrite the wrong exercise's log (review of #60:
+ * deleting the first of two split squats set its logged row to the back-off's
+ * mode). Returns `after` itself when there is nothing to follow.
  */
 export function followWeightModes(before, after, liftField) {
   const pairs = loggedPairs(after)
@@ -885,9 +899,10 @@ export function followWeightModes(before, after, liftField) {
     const rm = row.weightMode || null
     if (im === rm) continue
     const old = was.get(item.id)
-    if (old && (old.item.weightMode || null) !== im) {
+    if (!old || besideMode(old.item) !== besideMode(item) || besideMode(old.row) !== besideMode(row)) continue
+    if ((old.item.weightMode || null) !== im) {
       lifts = lifts.map(r => (r === row ? inMode(r, liftField, im) : r))
-    } else if (old && (old.row.weightMode || null) !== rm) {
+    } else if ((old.row.weightMode || null) !== rm) {
       plan = mapItem(plan, item.id, it => inMode(it, liftField, rm))
     }
   }

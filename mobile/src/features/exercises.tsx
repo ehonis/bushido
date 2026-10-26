@@ -112,6 +112,21 @@ export function weightSwitch(liftField: any, item: any, onPatch: (patch: any) =>
 }
 
 /**
+ * What tapping an implement chip writes: the implement, in the mode this
+ * exercise was last logged in with it (lib/lifts.js). Null for the chip already
+ * chosen: memory is applied when an implement is picked, and a second tap on
+ * the same one must not quietly undo a switch made since.
+ */
+export function implementPick(liftField: any, item: any, impl: any, entries: any[] = [], entryId: string | null = null) {
+  if (!impl || impl.value === item.implement) return null
+  return {
+    implement: impl.value, implementLabel: impl.label,
+    ...(weightPatch as any)(liftField, impl.value,
+      (rememberedWeightMode as any)(liftField, entries, item.exercise, impl.value, entryId)),
+  }
+}
+
+/**
  * One number, moved with thumbs (docs/DESIGN.md, Stepper): − and + either side
  * of an input that is still an input, what it measures under it, on the tokens.
  * Two fit beside a set's number on a phone. The minus goes inert at the floor
@@ -313,12 +328,10 @@ export function ExerciseCard({
                 return (
                   <Press key={i.value} haptic style={[st.implchip, on && st.implchipOn]}
                     accessibilityState={{ selected: on }}
-                    onPress={() => onPatch({
-                      implement: i.value, implementLabel: i.label,
-                      // In the mode this exercise was last done in with it (lib/lifts.js).
-                      ...(weightPatch as any)(liftField, i.value,
-                        (rememberedWeightMode as any)(liftField, entries, item.exercise, i.value, entryId)),
-                    })}>
+                    onPress={() => {
+                      const patch = implementPick(liftField, item, i, entries, entryId)
+                      if (patch) onPatch(patch)
+                    }}>
                     <T size={font.small} color={on ? colors.ink : colors.inkDim}>{i.label}</T>
                   </Press>
                 )

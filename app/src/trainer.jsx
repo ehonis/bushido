@@ -23,7 +23,7 @@ import { SessionLog } from './sessionlog.jsx'
 import { usePersonCopy, Avatar, PersonChip } from './sharedwith.jsx'
 import * as peopleApi from './lib/peopleapi.js'
 import { optFor } from './lib/menu.js'
-import { applyRun, applyOut, applyDone, canStart, dayOf, dayRow, runKind, plannedLine, toneFor } from './lib/trainer.js'
+import { applyRun, applyOut, applyDone, canStart, dayOf, dayRow, runKind, plannedLine, toneFor, toggleFor, forWords, FOR_ME } from './lib/trainer.js'
 import { isDone } from './lib/store.js'
 import { prescriptionSteps, runProgress, restLeft, itemLine, prescriptionLine } from './lib/prescription.js'
 import { fromIso, localIso, mondayOf, weekDays, shiftWeek } from './lib/dates.js'
@@ -37,30 +37,67 @@ const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).padStart(2
  * "For: You / Sam", at the top of the planners: one person chip each, the same
  * chip as "With …". `people` is `planPeople(me)`: nothing renders for anyone but
  * the owner, while acting, or with one person.
+ *
+ * Several at once since #59 (`who` is `{ me, others }`, lib/trainer.js): each
+ * chip is a toggle, You on by default, and the last one on stays on.
  */
-export function ForChoice({ people = [], target = null, onTarget }) {
+export function ForChoice({ people = [], who = FOR_ME, onChange }) {
   if (!people.length) return null
+  const on = (id) => (id ? who.others.some(p => p.id === id) : who.me)
   return (
     <div className="forchoice" role="group" aria-label="Who this is for">
       <span className="forchoice-lead">For</span>
-      <PersonChip person={{ name: 'You' }} tone={0} on={!target} onClick={() => onTarget(null)} />
+      <PersonChip person={{ name: 'You' }} tone={0} on={on(null)} onClick={() => onChange(toggleFor(who, { id: null }, people))} />
       {people.map(p => (
-        <PersonChip key={p.id} person={p} tone={toneFor(people, p.id)} on={target?.id === p.id} onClick={() => onTarget(p)} />
+        <PersonChip key={p.id} person={p} tone={toneFor(people, p.id)} on={on(p.id)} onClick={() => onChange(toggleFor(who, p, people))} />
       ))}
     </div>
   )
 }
 
-/** "Planning for Sam", on every screen after the choice, so it cannot be forgotten halfway. */
-export function ForLine({ person, people = [] }) {
-  if (!person) return null
-  const tone = toneFor(people, person.id)
+/**
+ * "Planning for Sam", on every screen after the choice, so it cannot be
+ * forgotten halfway: each other person's initial, in their colour, and one line.
+ * Nothing when it is the owner's alone.
+ */
+export function ForLine({ who = FOR_ME, people = [] }) {
+  const line = forWords(who).line
+  if (!line) return null
+  const tone = toneFor(people, who.others[0]?.id)
   return (
-    <p className="forline" data-tone={tone}>
-      <Avatar name={person.name} tone={tone} small />
-      <span>Planning for <strong>{person.name}</strong> · it goes in {person.name}&rsquo;s log</span>
+    <p className="forline" data-tone={who.me ? 0 : tone}>
+      <span className="forline-who">
+        {who.others.map(p => <Avatar key={p.id} name={p.name} tone={toneFor(people, p.id)} small />)}
+      </span>
+      <span>{line}</span>
     </p>
   )
+}
+
+/**
+ * Several people's logs and plans at once (Plan a workout for a group, #59),
+ * read through the people endpoints like `usePersonLog`. `ready` once every one
+ * of them is in; nothing is cached past the screen.
+ */
+export function usePeopleLogs(ids = []) {
+  const key = (ids || []).join('\n')
+  const [logs, setLogs] = useState({})
+  useEffect(() => {
+    let live = true
+    for (const id of key ? key.split('\n') : []) {
+      Promise.all([peopleApi.getPersonState(id), peopleApi.getPersonContent(id)])
+        .then(([st, plan]) => { if (live) setLogs(l => ({ ...l, [id]: { entries: Object.values(st?.entries || {}), plan, ready: true, error: null } })) })
+        .catch(err => { if (live) setLogs(l => ({ ...l, [id]: { entries: [], plan: null, ready: false, error: err.message } })) })
+    }
+    return () => { live = false }
+  }, [key])
+  const want = key ? key.split('\n') : []
+  return {
+    logs,
+    ready: want.every(id => logs[id]?.ready),
+    error: want.map(id => logs[id]?.error).find(Boolean) || null,
+    waitingFor: want.filter(id => !logs[id]?.ready),
+  }
 }
 
 /**

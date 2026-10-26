@@ -105,6 +105,8 @@
   border-left: 3px solid var(--who, var(--line)); background: var(--panel-2);
 }
 .forline strong { color: var(--ink); font-weight: 600; }
+.forline-who { display: inline-flex; flex: none; }
+.forline-who .avatar + .avatar { margin-left: calc(-1 * var(--sp-1)); box-shadow: 0 0 0 2px var(--panel-2); }
 .plan-for-wait, .plan-keep-err { margin: var(--sp-2) 0 var(--sp-3); }
 
 /* Inside a workout: whose side is on screen, unmistakably. A rule in their colour

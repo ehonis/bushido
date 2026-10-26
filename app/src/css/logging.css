@@ -452,6 +452,25 @@ button.btn.danger:hover { border-color: var(--bad); }
 
 .goalbox { width: 100%; resize: vertical; }
 
+/* "Write it for me": the box is the screen (#59). Its question is its label,
+   at title size, and the box is tall enough to say a whole session in. */
+.askcanvas { margin-bottom: var(--sp-6); }
+.askcanvas-label { display: block; font-size: var(--fs-title); font-weight: 600; color: var(--ink); margin-bottom: var(--sp-3); }
+.askcanvas-box { width: 100%; min-height: 128px; resize: vertical; font-size: var(--fs-body); line-height: 1.45; }
+/* The kinds, optional and folded: chips under small group names. */
+.askkinds { margin-bottom: 0; }
+.askkinds > summary.section-head { list-style: none; cursor: pointer; align-items: center; min-height: var(--tap); margin: 0; }
+.askkinds > summary::-webkit-details-marker { display: none; }
+.askkinds > summary h3 { flex: 1; }
+.askkinds[open] .kindgroup-chev { transform: rotate(180deg); }
+.askkinds-group { margin-top: var(--sp-3); }
+.askkinds-group h4 { font-size: var(--fs-small); font-weight: 500; color: var(--ink-dim); margin: 0 0 var(--sp-2); }
+.plan-buildself { display: inline-flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+/* A primary that cannot be pressed yet reads as a shape, not as a dimmed accent:
+   nothing typed and nothing picked is not "almost ready". */
+.plan-actions .btn.big:disabled { opacity: 1; background: var(--panel-2); color: var(--ink-faint); border-color: var(--line); }
+.plan-keep-retry { display: inline-flex; align-items: center; gap: var(--sp-2); margin: var(--sp-2) auto 0; }
+
 .plan-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-4); }
 .plan-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2); }
 .plan-actions .btn.big { flex: 1; }

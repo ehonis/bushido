@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { normalizePrescription } from './prescription.js'
 import { listDrafts } from './plannerapi.js'
+import { namesOf } from './trainer.js'
 
 /** How often a draft being written is looked at. A run takes thirty to ninety seconds. */
 export const DRAFT_POLL_MS = 2500
@@ -57,7 +58,9 @@ const ago = (iso, now) => {
 
 /** The second line of a draft's row: what it is doing, or what it has. */
 export function draftLine(d, now = Date.now()) {
-  const who = d?.for?.name ? `For ${d.for.name} · ` : ''
+  // Several people (#59), the owner as "you"; or one person, as every older draft has it.
+  const group = Array.isArray(d?.people) && d.people.length ? namesOf(d.people.map(p => (p.owner ? 'you' : p.name))) : null
+  const who = group ? `For ${group} · ` : d?.for?.name ? `For ${d.for.name} · ` : ''
   if (d?.status === 'working') {
     const secs = Math.max(0, Math.round((now - Date.parse(d.run?.startedAt || d.updatedAt || 0)) / 1000))
     return `${who}${d.run?.kind === 'revise' ? 'Rewriting it' : 'Being written'}… ${secs}s`

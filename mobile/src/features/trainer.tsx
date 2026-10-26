@@ -41,42 +41,80 @@ type Side = { id: string | null; name: string; entryId: string | null; tone: num
 
 // Default parameters in the ported JS narrow TypeScript's inference; cast here
 // rather than edit the copied file (mobile/AGENTS.md).
-const { applyRun, applyOut, applyDone, canStart, dayOf, dayRow, runKind, plannedLine, toneFor } = trainerLib as any
+const { applyRun, applyOut, applyDone, canStart, dayOf, dayRow, runKind, plannedLine, toneFor, toggleFor, forWords, FOR_ME } = trainerLib as any
+
+/** Who a plan is for (lib/trainer.js): the owner, and anyone else picked. */
+export type Who = { me: boolean; others: Person[] }
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).padStart(2, '0')}`
 
 /* ------------------------------------------------------------ For: … */
 
-/** "For: You / Sam", at the top of the planners: the same person chips as "With …". Nothing for anyone but the owner. */
-export function ForChoice({ people = [], target = null, onTarget }: {
+/**
+ * "For: You / Sam", at the top of the planners: the same person chips as "With …".
+ * Nothing for anyone but the owner. Several at once since #59: each chip is a
+ * toggle, You on by default, and the last one on stays on.
+ */
+export function ForChoice({ people = [], who = FOR_ME, onChange }: {
   people?: Person[]
-  target?: Person | null
-  onTarget: (p: Person | null) => void
+  who?: Who
+  onChange: (who: Who) => void
 }) {
   if (!people.length) return null
+  const on = (id: string | null) => (id ? who.others.some((p) => p.id === id) : who.me)
   return (
     <View style={st.forRow} accessibilityLabel="Who this is for">
       <T size={font.small} dim style={{ marginRight: space[1] }}>For</T>
-      <PersonChip person={{ name: 'You' }} tone={0} on={!target} onPress={() => onTarget(null)} tall />
+      <PersonChip person={{ name: 'You' }} tone={0} on={on(null)} onPress={() => onChange(toggleFor(who, { id: null }, people))} tall />
       {people.map((p) => (
-        <PersonChip key={p.id} person={p} tone={toneFor(people, p.id)} on={target?.id === p.id} onPress={() => onTarget(p)} tall />
+        <PersonChip key={p.id} person={p} tone={toneFor(people, p.id)} on={on(p.id)} onPress={() => onChange(toggleFor(who, p, people))} tall />
       ))}
     </View>
   )
 }
 
-/** "Planning for Sam", on every screen after the choice. */
-export function ForLine({ person, people = [] }: { person?: Person | null; people?: Person[] }) {
-  if (!person) return null
-  const tone = toneFor(people, person.id)
+/** "Planning for Sam", on every screen after the choice: each other person's initial, and one line. */
+export function ForLine({ who = FOR_ME, people = [] }: { who?: Who; people?: Person[] }) {
+  const line = forWords(who).line
+  if (!line) return null
+  const tone = who.me ? 0 : toneFor(people, who.others[0]?.id)
   return (
     <View style={[st.forLine, { borderLeftColor: toneColor(tone) }]}>
-      <Avatar name={person.name} tone={tone} size={22} />
-      <T size={font.small} dim style={{ flex: 1 }}>
-        {'Planning for '}<T size={font.small} weight={600}>{person.name}</T>{` · it goes in ${person.name}’s log`}
-      </T>
+      <View style={{ flexDirection: 'row' }}>
+        {who.others.map((p, i) => (
+          <View key={p.id} style={i ? { marginLeft: -space[1] } : null}>
+            <Avatar name={p.name} tone={toneFor(people, p.id)} size={22} />
+          </View>
+        ))}
+      </View>
+      <T size={font.small} dim style={{ flex: 1 }}>{line}</T>
     </View>
   )
+}
+
+/**
+ * Several people's logs and plans at once (Plan a workout for a group, #59),
+ * through the people endpoints like `usePersonLog`. `ready` once every one is in.
+ */
+export function usePeopleLogs(ids: string[] = []) {
+  const key = (ids || []).join('\n')
+  const [logs, setLogs] = useState<Record<string, { entries: any[]; plan: any; ready: boolean; error: string | null }>>({})
+  useEffect(() => {
+    let live = true
+    for (const id of key ? key.split('\n') : []) {
+      Promise.all([peopleApi.getPersonState(id), peopleApi.getPersonContent(id)])
+        .then(([stt, plan]: any[]) => { if (live) setLogs((l) => ({ ...l, [id]: { entries: Object.values(stt?.entries || {}), plan, ready: true, error: null } })) })
+        .catch((err: any) => { if (live) setLogs((l) => ({ ...l, [id]: { entries: [], plan: null, ready: false, error: err.message } })) })
+    }
+    return () => { live = false }
+  }, [key])
+  const want = key ? key.split('\n') : []
+  return {
+    logs,
+    ready: want.every((id) => logs[id]?.ready),
+    error: want.map((id) => logs[id]?.error).find(Boolean) || null,
+    waitingFor: want.filter((id) => !logs[id]?.ready),
+  }
 }
 
 /** Someone's whole log and plan, through the people endpoints. `ready` once THIS person's answer is in. */

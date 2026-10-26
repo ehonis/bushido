@@ -97,7 +97,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Runner | `app/src/runner.jsx` | Set-by-set screen for a planned session. One writer. |
 | Workout mode | `app/src/workout.jsx`, `app/src/lib/workout.js` | The climbing cards' rep clock and set log. |
 | Interval timer | `app/src/timer.jsx`, `app/src/timer.css`, `app/src/lib/timer.js` | The general timer: from any workout's sheet and the + menu. Pure model, `now` as an argument; presets are `kind: 'timer'` entries (§6.5). |
-| Planner UI | `app/src/planner.jsx`, `app/src/lib/plannerapi.js`, `app/src/lib/drafts.js` | + → Plan a workout; `BuildStep` (by hand) and `AskStep`/`ReviewStep` (by model); `DraftList` reopens a draft at its step. `plannerContext` sends the last week's logged workouts. `lib/markdown.jsx` renders its reasoning. |
+| Planner UI | `app/src/planner.jsx`, `app/src/lib/plannerapi.js`, `app/src/lib/drafts.js` | + → Plan a workout; `AskStep` (one box: what you want to do) → `ReviewStep` (by model), `KindStep` → `BuildStep` (by hand); `DraftList` reopens a draft at its step. `plannerContext` sends the last week's logged workouts (`groupContext` one paragraph per person for a group). `lib/markdown.jsx` renders its reasoning. |
 | Pickers | `app/src/picker.jsx`, `app/src/lib/folders.js` | `PickerScreen`, `ActivityChooser` (Log a workout: the sports catalog, then the plan's cards under Climbing, in folders by `sched.discipline`). Declaration order, no ranking. |
 | Quick log | `app/src/quicklog.jsx`, `app/src/lib/quicklog.js` | `<QuickLog plan entries upsertEntry date onPlaced />`: up to three recent activities (then the catalog's pins), one tap each; under Log a workout in the + menu, Recent in Log a workout, and Today's empty day. Places through `placeEntries`, so the id and done-by-default are Log a workout's own. |
 | Unlogged workouts | `app/src/lib/unlogged.js`, `app/src/unlogged.jsx` | What WHOOP/Strava saw that the log lacks; `pairUp`, `mergeTargets`, `outWith()`. |
@@ -375,7 +375,8 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
   workout from their side. All of it is owner-only, needs someone else on the install and
   is hidden while acting (`planPeople(me)`, the same rule as `sharePeople`).
   - **Planning for someone** is a "For: You / Sam" choice at the top of Plan a workout (both
-    routes). The model runs with `for: <id>` on the request (`aiSpaceFor`), so its log,
+    routes). Since #59 it is several at once (`who = { me, others }`, `toggleFor`; You on
+    by default, never nobody); the four cases are below. For ONE other person the model runs with `for: <id>` on the request (`aiSpaceFor`), so its log,
     plan and About you are theirs; the client context (`plannerContext`) is built from their
     log too, and WHOOP readiness is left out. Nothing is written until the tap (§0.4). Keeping it writes into
     THEIR log through `/api/people/:id/entry`: their day is read first and `placeEntries`
@@ -386,6 +387,27 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     `quota-<monday>` entry is refused with a 400.)
     They see a quiet "planned by <owner>" (`plannedLine`) on the row, the sheet and the
     feed, and the entry is theirs to edit, log or delete. They cannot plan for anyone.
+  - **Several people at once** (#59; `forOf`, `forWords`, `shareKept` in lib/trainer.js,
+    `aiTargetFor` in server.js). `for` is then a LIST of ids (the owner's own among them
+    when the owner is doing it too), and the run is the OWNER's: the owner's space and
+    flags, no `--add-dir` for anyone else, each person's name and About you put in the
+    prompt by the server, and each one's last week built by the app from their own log
+    (`groupContext`) and sent as context. The prompt asks for one structure and no loads,
+    and the server strips any `weight` the model wrote anyway (`noLoads`, planner.js).
+    **You and others**: keeping it places it in the owner's log as always, then shares
+    each entry with each of them, sync on, through `addPerson` (exactly "With …" on the
+    sheet; no second sharing path). **Others only**: `keepPlanFor` once per person,
+    independent copies. The last screen is worded from who it actually landed for; a
+    person it missed is named, with "Try again for <name>" (others only, `keepForEach`)
+    or "With …" on the sheet (you and others). The retry is safe to repeat: each part is
+    stamped `data.keepKey` (`<draft id or key>:<part>`) and `keepPlanFor` skips a part their
+    day already has, so a keep that failed part-way, or whose answer was lost, is never
+    written twice. It lives on that last screen only: the server retires the draft once its
+    id is in any one log (`isKept`), which is what stops a second device keeping it again.
+    A plan for several people carries no loads by either route: the model's are stripped
+    on the server (`noLoads`), a hand-built one's on the way in (`withoutLoads`).
+    A draft stores `people: [{ id, name, owner? }]`; a draft with a single `for` (every
+    draft before #59) still reopens and runs as it did (`whoOfDraft`).
   - **Sides of a workout.** A shared entry opens the runner or workout mode through
     `SidesWorkout`: a You / <name> switcher under the header, the name in a pill and a rule
     in that person's colour (`[data-tone]`: the accent for the owner, the series colours for
@@ -714,7 +736,9 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
     They are kept as one value (`followWeightModes`, through `applyOut` and
     `applyPlan` in `lib/trainer.js`, and the runner's `patchRunItem`): whichever was
     switched, the other follows and nothing else moves, so numbers corrected on the
-    log and lifts added by hand survive. A pair that already disagreed is left alone.
+    log and lifts added by hand survive. A pair that already disagreed is left alone,
+    and a side counts as switched only if the write changed nothing else about it:
+    ids are positional, so after a removal or a move an id names another exercise.
   - A card header says a non-default mode under the name ("one dumbbell") and keeps
     its summary short; "last time" says it in the line ("25 lb · one dumbbell").
   - **Volume is as entered**: per hand is not doubled, one dumbbell is not halved, per
@@ -765,8 +789,14 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
 
 ### 6.6 Planning (by hand or by model)
 
-- **One door, two routes.** + → Plan a workout → pick kinds → **Build it myself**
-  (`BuildStep`) or **Write it for me** (`AskStep` → `Working` → `ReviewStep`). Both
+- **One door, two routes.** + → Plan a workout. With the model on offer the first screen
+  is **Write it for me**: one box ("What do you want to do?"), how long, the kinds as
+  optional folded chips, one button (`AskStep` → `Working` → `ReviewStep`). A sentence is
+  a brief on its own (#59): no kind is required, and the model decides the blocks and
+  each one's category and activity; the server drops any key the content does not know
+  (`realKeys` in planner.js) rather than failing. **Build it myself**, a quiet button under
+  it, opens the kinds (`KindStep`), which the hand-built route still needs to name its
+  blocks, then `BuildStep`. Without the model the kinds are the first screen. Both
   produce the same object (`blankPrescription()` matches `normalizePrescription`), the
   same editor, the same entry. `BuildStep` has nothing that claims a model reasoned about
   it; the revise panel on the entry still works for either.
@@ -869,8 +899,24 @@ of them are built in `server/agentflags.js` (`plannerFlags`):
 - `ISOLATION` keeps the owner's own Claude Code settings, MCP servers, hooks and
   CLAUDE.md out of the run. An un-isolated run once overwrote the training log.
 
+**A run for several people at once** (#59, `for` a list) is built by
+`aiRun(OWNER_SPACE, group)`, and the others' data reaches it only as what the server puts
+in the prompt (their names and About you) and what the app sends as context (each one's
+last week). The flags make that a rule (`planWorkout` derives them from the group):
+
+- **You and others** (`noPeople`): an owner run, less every other person's space:
+  `Read` of `data/users` and `data/users/**` is denied. The owner's own files stay readable.
+- **Others only** (`nobody`): no `--add-dir` at all, no brain, and the same denials as a
+  run for one other person (the owner's files and directories, every `users/<id>`, the
+  brain and its directory, the owner's own plan), plus the data dir and `users/` as a
+  whole, since no one's space is its own. The prompt offers no log path or measurements.
+
+Its catalogs are the one plan everyone in the group runs on, else the starter's
+(`planFileFor`). The `plan together:` steps in `server/http.test.js` assert the recorded deny
+rules for both.
+
 **A run for anyone but the owner** (their own, the owner acting as them, or the owner
-planning `for` them) is built by `aiRun(space)` from their space alone, and the flags make
+planning `for` them alone) is built by `aiRun(space)` from their space alone, and the flags make
 that a rule rather than a request (`person` and `ownerSources` in `agentflags.js`):
 
 | | Their run |

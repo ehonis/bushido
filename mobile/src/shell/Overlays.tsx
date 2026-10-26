@@ -16,7 +16,7 @@ export function Overlays() {
   const {
     store, plan, fab, setFab, placeAll, keepPlan, startPlanned,
     menuFrom, viewDay, logAt, openLog, dayLabel,
-    restOpt, restOn, restDate, askRest, takeRest, people, keepPlanFor,
+    restOpt, restOn, restDate, askRest, takeRest, people, keepPlanFor, shareKeptWith,
   } = useApp()
   // Their week, opened from the planner's last screen after planning for them.
   const [personView, setPersonView] = useState<{ person: any; entryId: string } | null>(null)
@@ -66,7 +66,7 @@ export function Overlays() {
   if (fab === 'plan') {
     return (
       <PlanFlow plan={plan} entries={store.entries} iso={localIso()} onKeep={keepPlan} onStart={startPlanned} onClose={close}
-        people={people} onKeepFor={keepPlanFor}
+        people={people} onKeepFor={keepPlanFor} onShareWith={shareKeptWith}
         onStartFor={(person: any, entryId: string) => {
           setFab(null)
           setPersonView({ person: { ...person, tone: (trainerLib as any).toneFor(people, person.id) }, entryId })

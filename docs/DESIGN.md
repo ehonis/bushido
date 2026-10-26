@@ -132,6 +132,17 @@ the user saves, big glanceable display, cues (beeps on web, haptics on the phone
 rules in `AGENTS.md` §6.5 that still make sense (absolute instants so it survives backgrounding,
 count-up when no rest is given) stay; the content-declared climbing timers still work as presets.
 
+### D9. Plan together; say it in a sentence (#59)
+
+- **For is several people at once.** The owner and a partner doing the same lift day is ONE
+  workout in the owner's log, shared with the partner with sync on, through the shared-workout
+  machinery of D1, so the structure is one thing and each logs their own numbers. Without the
+  owner, each person gets their own copy (planned for them, as before). One model run on the
+  owner's space; the others' data reaches it as context, never as a readable path.
+- **"Write it for me" is a blank canvas.** One box and one button; kinds are optional chips.
+  The model picks the blocks and their categories from what was written. "Build it myself"
+  keeps its kind picker, because a hand-built session needs its blocks named.
+
 ## Visual system
 
 Defined by #29. Screen PRs consume it; they do not add tokens or restyle a base component in
