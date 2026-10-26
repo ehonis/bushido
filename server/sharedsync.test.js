@@ -268,6 +268,34 @@ check('what arrives from the other side is an allowlist: no implement, run, note
   eq([fresh.plan.title, fresh.plan.why, fresh.plan.notes, 'thread' in fresh.plan, 'junk' in fresh.plan, 'model' in fresh.plan], ['Legs', '', [], false, false, false])
 })
 
+check('what a weight means is each person\'s own: a mode never crosses, a carried lift arrives in the default (#58)', () => {
+  const one = { implement: 'dumbbell', implementLabel: 'Dumbbell', weightMode: 'one', weightLabel: 'lb · one dumbbell' }
+  // A new exercise in a mode on Alex's side: on Sam's, no implement and no mode.
+  const before = alex()
+  const added = edit(before, bs => { bs[0].items.push({ ...lift('BS', 'Bulgarian split squat', [set({ reps: 8, weight: 25 })]), ...one }); return bs })
+  const got = itemNamed(carry(sam(), shapeOf(before), added), 'Bulgarian split squat')
+  ok(got, 'the exercise did not arrive, so this proves nothing')
+  eq([got.implement, got.weightLabel, 'weightMode' in got], ['', null, false], 'the sender\'s mode crossed')
+  // Alex switching an exercise both have is not structure: nothing to carry, and
+  // Sam's own mode on it stays whatever Alex does.
+  const both = edit(alex(), bs => { bs[0].items[0] = { ...bs[0].items[0], ...one }; return bs })
+  eq(shapeOf(both), shapeOf(alex()), 'a mode is in the shape, so a switch would be carried')
+  const samSide = edit(sam(), bs => { bs[0].items[0] = { ...bs[0].items[0], weightMode: 'side', weightLabel: 'lb per side' }; return bs })
+  const renamed = edit(both, bs => { bs[0].items[0] = { ...bs[0].items[0], name: 'Back squat', weightMode: 'total' }; return bs })
+  const kept = itemNamed(carry(samSide, shapeOf(both), renamed), 'Back squat')
+  ok(kept, 'the rename did not arrive, so this proves nothing')
+  eq([kept.weightMode, kept.weightLabel], ['side', 'lb per side'], 'Sam\'s mode followed Alex\'s')
+  // Logged lifts the same way, in both directions.
+  const theirs = { uid: 'b-1', key: 'bss', name: 'BSS', group: 'legs', ...one, sets: [{ reps: '8', weight: '25' }] }
+  const arrived = carry({ sharedFrom: { id: 'owner' }, out: { lifts: [] } }, { lifts: [] }, { out: { lifts: [theirs] } }).out.lifts[0]
+  eq(arrived, { uid: 'b-1', key: 'bss', name: 'BSS', group: 'legs', implement: '', sets: [{ reps: '', weight: '' }] })
+  const mine = { ...theirs, weightMode: 'pair', weightLabel: 'lb per hand', sets: [{ reps: '10', weight: '20' }] }
+  const base = { lifts: [{ uid: 'b-1', key: 'bss', name: 'BSS', group: 'legs', sets: 1 }] }
+  const after = { out: { lifts: [{ ...theirs, name: 'Bulgarian split squat' }] } }
+  const row = carry({ sharedFrom: { id: 'owner' }, out: { lifts: [mine] } }, base, after).out.lifts[0]
+  eq([row.name, row.weightMode, row.weightLabel], ['Bulgarian split squat', 'pair', 'lb per hand'])
+})
+
 check('THE RULE: only a write whose base lines up with the stored entry changes or carries structure', () => {
   // Rev 1: Squat, Deadlift. Since then Row arrived from the other side: rev 2.
   const old = alex()

@@ -57,6 +57,7 @@ import {
 import {
   normalizePrescription, prescriptionLine, prescriptionSteps, itemLine, setLine,
   patchSet, addSet, removeSet, removeItem, patchItem, patchBlock, appendLift, setFieldsFor,
+  reviseWeightModes,
   splitPrescription, moveItem, blankPrescription, appendPiece, dropEmptyBlocks,
 } from './lib/prescription.js'
 import { ExerciseSection } from './exercises.jsx'
@@ -169,6 +170,8 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
     synced.current = draftKey(d)
     const at = draftStep(d)
     if (at === 'review') {
+      // Weight modes (#58) are already on it: the server lays them on when the
+      // answer lands (server/drafts.js), so they are on the draft, not this screen.
       const p = draftPres(d, liftField)
       if (!p) {
         setError('the planner wrote a session with nothing in it — try again')
@@ -886,7 +889,7 @@ const REVISE_PROMPTS = [
  * a revision still being written when the page was left is still being written
  * when it is reopened. Without it (the session sheet), a revision is one request.
  */
-export function PlanTalk({ pres, onChange, compact = false, forId = null, draft = null }) {
+export function PlanTalk({ pres, onChange, compact = false, forId = null, draft = null, entries = [], entryId = null }) {
   const [text, setText] = useState('')
   const [localAsking, setAsking] = useState(false)
   const [localError, setError] = useState(null)
@@ -931,7 +934,9 @@ export function PlanTalk({ pres, onChange, compact = false, forId = null, draft 
     onChange({ ...pres, thread: pending })
     try {
       const raw = await reviseWorkout({ plan: stripThread(pres), message: said, thread, forId })
-      const next = normalizePrescription(raw, { liftField })
+      // The model is never asked what a weight means (#58): what it kept keeps
+      // its mode, what is new takes the one its exercise was last logged in.
+      const next = reviseWeightModes(pres, normalizePrescription(raw, { liftField }), liftField, entries, { excludeId: entryId })
       if (!next) throw new Error('it sent back a session with nothing in it')
       onChange({
         ...pres, ...next,
@@ -1379,7 +1384,7 @@ export function PrescriptionEditor({
           /* Same as the log form: the exercise the user just added opens. `appendLift`
              re-mints every id, and the new one is always last in its block. */
           onAdd={(key) => {
-            const next = appendLift(pres, liftField, key, { blockId: b.id })
+            const next = appendLift(pres, liftField, key, { blockId: b.id, entries, excludeId: entryId })
             onChange(next)
             const block = (next.blocks || []).find(x => x.name === b.name) || next.blocks?.[0]
             return block?.items?.at(-1)?.id || null

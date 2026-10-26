@@ -11,7 +11,7 @@
  * about where an entry came from.
  */
 import { totalSets, totalReps } from '../setlog.jsx'
-import { liftsLine } from './lifts.js'
+import { liftsLine, liftFieldIn } from './lifts.js'
 
 /** "8:04 /mi" from distance and time — the number you'd have worked out anyway. */
 function paceLabel(out) {
@@ -53,7 +53,7 @@ export function sessionStats(entry, opt) {
   if (sets) bits.push(`${sets} set${sets === 1 ? '' : 's'}${reps ? `, ${reps} reps` : ''}`)
   // A lift session's exercises are their own list, not the plan's set log — see
   // lib/lifts.js. "6 exercises · 18 sets · 4,120 lb" in one bit.
-  const lifting = liftsLine(out)
+  const lifting = liftsLine(out, liftFieldIn(opt))
   if (lifting) bits.push(lifting)
   if (Number.isFinite(out.intensity)) bits.push(`intensity ${out.intensity}/4`)
   if (Number.isFinite(out.rpe)) bits.push(`RPE ${out.rpe}`)

@@ -172,9 +172,41 @@ function createDrafts({ max = MAX_DRAFTS, maxAgeMs = MAX_AGE_MS, now = () => Dat
 
     Promise.resolve()
       .then(() => plan({ kind, draft: working, message, signal: ctrl.signal }))
-      .then((built) => settle(d => merged(d, kind, built?.plan)))
+      .then((built) => settle(d => merged(d, kind, built?.plan, built?.remembered)))
       .catch((err) => settle(d => failed(d, String(err?.message || err || 'the planner failed'))))
     return working
+  }
+
+  /*
+   * What a lift's weight means (#58), on the model's answer. The model is never
+   * asked, so every exercise arrives in its implement's default. On a revision an
+   * exercise it kept, on the same implement, keeps exactly what it had on the
+   * plan it was asked of, a deliberate default included: matched by `uid` where
+   * there are uids, else by exercise, each used once. Everything else (all of a
+   * first draft, what is new in a revision) gets the person's memory
+   * (`remembered`, from `rememberedModes`). Only the value is set; the app checks
+   * it against the catalog and labels it (prescription.js `normalizeItem`). The
+   * same rule as `reviseWeightModes` in app/src/lib/prescription.js, here so it
+   * is on the draft, whatever happens to the page that asked.
+   */
+  function withWeightModes(before, after, remembered) {
+    const items = (blocks) => (Array.isArray(blocks) ? blocks : []).flatMap(b => (Array.isArray(b?.items) ? b.items : []))
+    const left = items(before).filter(it => it?.kind === 'lift')
+    const take = (it) => {
+      const at = it.uid ? left.findIndex(o => o.uid === it.uid) : left.findIndex(o => !o.uid && o.exercise === it.exercise)
+      return at < 0 ? null : left.splice(at, 1)[0]
+    }
+    return after.map(b => (Array.isArray(b?.items) ? {
+      ...b,
+      items: b.items.map(it => {
+        if (it?.kind !== 'lift' || !it.exercise || !it.implement) return it
+        const old = take(it)
+        const mode = old && old.implement === it.implement ? old.weightMode
+          : remembered?.get(`${it.exercise}|${it.implement}`)
+        const { weightMode: _m, ...rest } = it
+        return mode ? { ...rest, weightMode: mode } : rest
+      }),
+    } : b))
   }
 
   /*
@@ -183,7 +215,7 @@ function createDrafts({ max = MAX_DRAFTS, maxAgeMs = MAX_AGE_MS, now = () => Dat
    * blank; on a revision the user's own category choice stands, and `changed`
    * becomes the newest line of the thread.
    */
-  function merged(d, kind, built) {
+  function merged(d, kind, built, remembered = null) {
     if (!built || !Array.isArray(built.blocks) || !built.blocks.length) {
       return failed(d, 'the planner returned nothing usable')
     }
@@ -193,6 +225,7 @@ function createDrafts({ max = MAX_DRAFTS, maxAgeMs = MAX_AGE_MS, now = () => Dat
         ...d, status: 'ready', error: null, updatedAt: stamp(),
         pres: {
           ...cur, ...built,
+          blocks: withWeightModes(cur.blocks, built.blocks, remembered),
           category: cur.category || built.category || null,
           activity: cur.activity || built.activity || null,
           ask: cur.ask || null,
@@ -205,6 +238,7 @@ function createDrafts({ max = MAX_DRAFTS, maxAgeMs = MAX_AGE_MS, now = () => Dat
       ...d, status: 'ready', error: null, updatedAt: stamp(),
       pres: {
         ...built,
+        blocks: withWeightModes([], built.blocks, remembered),
         category: built.category || primary.category || null,
         activity: built.activity || primary.activity || null,
         focus: built.focus || d.ask.goal || d.ask.label,
@@ -314,4 +348,32 @@ function keptIdsIn(state) {
   return ids
 }
 
-module.exports = { createDrafts, dirOf, keptIdsIn, MAX_DRAFTS, MAX_AGE_MS, CLAIM_MS, RESTARTED }
+/*
+ * Weight-mode memory (#58) for a whole log, read when an answer lands: for each
+ * exercise and implement, the mode of its newest LOGGED row (null for the
+ * default). The rule is app/src/lib/lifts.js `rememberedWeightMode`, and
+ * drafts.test.js holds the two to the same answers: rows with a number on them,
+ * on entries done (not marked undone) and dated on or before `today`. `entries`
+ * is the stored log, an object by id.
+ */
+function rememberedModes(entries, today) {
+  const has = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v))
+  const best = new Map()
+  for (const e of Object.values(entries || {})) {
+    if (!e || e.deleted || e.kind !== 'daily' || !(String(e.date || '') <= today)) continue
+    if (e.data?.done === false && e.data?.undone === true) continue
+    const at = `${e.date || ''}|${e.updatedAt || ''}`
+    const seen = new Set()
+    for (const l of Array.isArray(e.data?.out?.lifts) ? e.data.out.lifts : []) {
+      if (!l?.key || !l.implement || !(l.sets || []).some(r => has(r?.reps) || has(r?.weight))) continue
+      const k = `${l.key}|${l.implement}`
+      if (seen.has(k)) continue
+      seen.add(k)
+      const b = best.get(k)
+      if (!b || at > b.at) best.set(k, { at, mode: l.weightMode || null })
+    }
+  }
+  return new Map([...best].map(([k, v]) => [k, v.mode]))
+}
+
+module.exports = { createDrafts, dirOf, keptIdsIn, rememberedModes, MAX_DRAFTS, MAX_AGE_MS, CLAIM_MS, RESTARTED }

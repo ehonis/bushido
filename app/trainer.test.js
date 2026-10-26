@@ -5,9 +5,9 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
   planPeople, placeEntries, plannedEntriesFor, keepPlanFor, plannedLine,
-  applyOut, applyRun, applyDone, canStart, workoutSides, toneFor, dayOf, dayRow, runKind,
+  applyOut, applyRun, applyPlan, applyDone, canStart, workoutSides, toneFor, dayOf, dayRow, runKind,
 } from './src/lib/trainer.js'
-import { splitPrescription } from './src/lib/prescription.js'
+import { splitPrescription, normalizePrescription, runOutputs, patchItem } from './src/lib/prescription.js'
 
 const tests = []
 const test = (name, fn) => tests.push([name, fn])
@@ -152,6 +152,29 @@ test('which screen runs a session: the runner for a plan, workout mode for a clo
   const timed = menu.find(o => o.timer || o.timers)
   if (timed) assert.equal(runKind({ data: {} }, timed), 'mode')
   assert.equal(runKind({ data: {} }, menu.find(o => o.id === 'planned')), null)
+})
+
+test('one weight mode per exercise on a run entry: the sheet\'s plan and its log write through the same rule (#58)', () => {
+  const opt = menu.find(o => o.id === 'planned')
+  const liftField = (opt.outputs || []).find(f => f.type === 'lifts')
+  const p = normalizePrescription({ title: 'Legs', blocks: [{ name: 'Main', items: [
+    { kind: 'lift', exercise: 'bulgarian-split-squat', implement: 'dumbbell', sets: [{ reps: 8, weight: 25 }] }] }] }, { liftField })
+  const sid = p.blocks[0].items[0].sets[0].id
+  const run = { sets: { [sid]: { reps: 8, weight: 25 } }, endedAt: 2 }
+  const entry = { id: 'daily-x', kind: 'daily', date: DATE, data: { optId: 'planned', plan: p, run, out: runOutputs(p, run, { rpe: 7 }) } }
+  const id = p.blocks[0].items[0].id
+  // The plan editor's switch (savePlan): the log row says the same.
+  const a = applyPlan(entry, opt, patchItem(p, id, { weightMode: 'one', weightLabel: 'lb · one dumbbell' }))
+  assert.deepEqual([a.data.plan.blocks[0].items[0].weightMode, a.data.out.lifts[0].weightMode, a.data.out.rpe], ['one', 'one', 7])
+  assert.equal(a.data.name, 'Legs')
+  // The lift log's switch (saveOutputs): the plan item says the same.
+  const lifts = a.data.out.lifts.map(({ weightMode: _m, ...l }) => ({ ...l, weightLabel: 'lb per hand' }))
+  const b = applyOut(a, opt, { ...a.data.out, lifts })
+  assert.equal('weightMode' in b.data.plan.blocks[0].items[0], false)
+  assert.equal(b.data.plan.blocks[0].items[0].weightLabel, 'lb per hand')
+  // An entry with no plan is written as it always was.
+  const plain = { id: 'daily-y', kind: 'daily', date: DATE, data: { optId: 'log-workout', out: {} } }
+  assert.equal('plan' in applyOut(plain, menu.find(o => o.id === 'log-workout'), { rpe: 5 }).data, false)
 })
 
 let failed = 0

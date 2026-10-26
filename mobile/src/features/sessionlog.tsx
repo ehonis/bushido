@@ -18,7 +18,7 @@ import { NumInput } from './numinput'
 import { SetLog, GradeSelect, RangeSlider, totalSets, totalReps } from './setlog'
 import { LiftLog } from './liftlog'
 import { ActivityPicker } from './activitypicker'
-import { liftsLine } from '../lib/lifts.js'
+import { liftsLine, liftFieldIn } from '../lib/lifts.js'
 import { asksItsOwnDuration, minutesFor, minutesSourceOf } from '../lib/minutes.js'
 import { visibleOutputs, pruneHidden, derivedValue, filledBy } from '../lib/outputs.js'
 import { gateResolver, activityOf, activityLabel } from '../lib/activities.js'
@@ -64,12 +64,12 @@ const dayLabel = (iso: string) => {
 }
 
 /** "3 sets, 21 reps · 5.10+" — what the session itself was, off what was logged. */
-function priorWork(out: any) {
+function priorWork(out: any, field: any = null) {
   const bits: string[] = []
   const sets = totalSets(out)
   const reps = totalReps(out)
   if (sets) bits.push(`${sets} set${sets === 1 ? '' : 's'}${reps ? `, ${reps} reps` : ''}`)
-  const lifting = liftsLine(out)
+  const lifting = (liftsLine as any)(out, field)
   if (lifting) bits.push(lifting)
   if (Number(out?.distance) > 0) bits.push(`${out.distance} mi`)
   if (Number(out?.minutesSpent) > 0) bits.push(`${out.minutesSpent} min`)
@@ -105,7 +105,7 @@ export function PriorNote({ entries, session, excludeId, all = false, style, who
       </View>
       {shown.map((e, i) => {
         const o = e.data?.out
-        const work = priorWork(o)
+        const work = priorWork(o, liftFieldIn(session))
         return (
           <View key={e.id} style={i > 0 ? st.priorNext : null}>
             <T size={font.caption} faint tabular style={{ marginBottom: space[1] }}>

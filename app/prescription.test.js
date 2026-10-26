@@ -18,9 +18,9 @@ import {
   setDraft, carryForward, runOutputs, remapRun,
   patchSet, addSet, addSetLike, removeSet, removeItem, appendLift, reindex, setFieldsFor,
   splitPrescription, moveItem, isLiftOnly,
-  blankPrescription, appendPiece, dropEmptyBlocks,
+  blankPrescription, appendPiece, dropEmptyBlocks, patchItem, reviseWeightModes, followWeightModes, patchRunItem,
 } from './src/lib/prescription.js'
-import { liftVolume, liftsIn } from './src/lib/lifts.js'
+import { liftVolume, liftsIn, liftSummary, rememberedWeightMode } from './src/lib/lifts.js'
 
 const plan = JSON.parse(readFileSync(new URL('../test/fixtures/plan.json', import.meta.url), 'utf8'))
 
@@ -681,6 +681,152 @@ t('a hand-built session walks, splits and runs like any other', () => {
   assert.deepEqual(parts.map(x => x.category), ['lift', 'run'])
   // And the runner is offered, because one half of it is a clock.
   assert.equal(isLiftOnly(p), false)
+})
+
+/* ------------------------------------------------- what the weight means (#58) */
+
+const BSS = 'bulgarian-split-squat'
+const bssPlan = (item = {}) => normalizePrescription({
+  title: 'Legs', blocks: [{ name: 'Main', items: [{
+    kind: 'lift', exercise: BSS, implement: 'dumbbell', sets: [{ reps: 8, weight: 25 }], ...item,
+  }] }],
+}, { liftField })
+
+t('weight mode: a plan item keeps a mode its implement has, and drops one it does not', () => {
+  const one = bssPlan({ weightMode: 'one' }).blocks[0].items[0]
+  assert.equal(one.weightMode, 'one')
+  assert.equal(one.weightLabel, 'lb · one dumbbell')
+  assert.equal(itemLine(one), '1 × 8 @ 25 lb · one dumbbell')
+  const plain = bssPlan().blocks[0].items[0]
+  assert.equal('weightMode' in plain, false, 'the default adds no key, so old plans normalise as before')
+  assert.equal(plain.weightLabel, 'lb per hand')
+  assert.equal('weightMode' in bssPlan({ weightMode: 'side' }).blocks[0].items[0], false)
+  assert.equal('weightMode' in bssPlan({ implement: 'bodyweight', weightMode: 'one' }).blocks[0].items[0], false)
+})
+
+t('weight mode: an added lift starts in the mode it was last logged in', () => {
+  const solo = { ...liftField, exercises: [...liftField.exercises, { key: 'solo', name: 'Solo', implements: ['dumbbell'] }] }
+  const entries = [{ id: 'a', kind: 'daily', date: '2026-10-25', data: { out: { lifts: [{ uid: 'solo-1', key: 'solo', implement: 'dumbbell', weightMode: 'one', sets: [{ reps: 8, weight: 25 }] }] } } }]
+  const p = appendLift(blankPrescription({ blocks: [{ name: 'Main' }] }), solo, 'solo', { entries })
+  const item = p.blocks[0].items[0]
+  assert.deepEqual([item.implement, item.weightMode, item.weightLabel], ['dumbbell', 'one', 'lb · one dumbbell'])
+  const fresh = appendLift(blankPrescription({ blocks: [{ name: 'Main' }] }), solo, 'solo').blocks[0].items[0]
+  assert.equal('weightMode' in fresh, false)
+  assert.equal(fresh.weightLabel, 'lb per hand')
+})
+
+t('weight mode: a finished run logs the mode with the lift', () => {
+  const p = bssPlan({ weightMode: 'one' })
+  const step = prescriptionSteps(p)[0]
+  const run = markSet(emptyRun(), step, { reps: 8, weight: 25 }, { at: 1000, steps: prescriptionSteps(p) })
+  const [lift] = liftsIn(runOutputs(p, run))
+  assert.deepEqual([lift.weightMode, lift.weightLabel], ['one', 'lb · one dumbbell'])
+  const [plain] = liftsIn(runOutputs(bssPlan(), run))
+  assert.equal('weightMode' in plain, false)
+  // Switched on the plan mid-run (the runner patches the item).
+  const switched = patchItem(bssPlan(), step.itemId, { weightMode: 'one', weightLabel: 'lb · one dumbbell' })
+  assert.equal(liftsIn(runOutputs(switched, run))[0].weightMode, 'one')
+})
+
+t('weight mode, the rule: a revision keeps exactly what each kept exercise had; only new ones get memory', () => {
+  const logged = { id: 'daily-2026-10-20', kind: 'daily', date: '2026-10-20', updatedAt: 'a',
+    data: { out: { lifts: [{ uid: 'u1', key: BSS, implement: 'dumbbell', weightMode: 'one', weightLabel: 'lb · one dumbbell', sets: [{ reps: '8', weight: '25' }] }] } } }
+  const opts = { today: '2026-10-21' }
+  const two = (a = {}, b = {}) => normalizePrescription({ title: 'Legs', blocks: [{ name: 'Main', items: [
+    { kind: 'lift', exercise: BSS, implement: 'dumbbell', sets: [{ reps: 8, weight: 25 }], ...a },
+    { kind: 'lift', exercise: 'goblet-squat', implement: 'dumbbell', sets: [{ reps: 10, weight: 40 }], ...b },
+  ] }] }, { liftField })
+  // N2 (review of #60): memory says one dumbbell, the user switched the split
+  // squat back to per hand on purpose. The model's revision must not undo that.
+  const mine = two()
+  const revised = reviseWeightModes(mine, two({ sets: [{ reps: 10, weight: 20 }] }), liftField, [logged], opts)
+  assert.equal('weightMode' in revised.blocks[0].items[0], false, 'a deliberate default was overridden by memory')
+  assert.equal(revised.blocks[0].items[0].weightLabel, 'lb per hand')
+  assert.equal(revised.blocks[0].items[0].sets[0].reps, 10, 'the revision itself was lost')
+  // A kept exercise with a mode keeps it, memory or not.
+  const kept = reviseWeightModes(two({}, { weightMode: 'one' }), two(), liftField, [], opts)
+  assert.equal(kept.blocks[0].items[1].weightMode, 'one')
+  // New in the revision: memory. Moved to another implement: memory for that one.
+  const grown = normalizePrescription({ title: 'Legs', blocks: [{ name: 'Main', items: [
+    { kind: 'lift', exercise: 'goblet-squat', implement: 'dumbbell', sets: [{ reps: 10 }] },
+    { kind: 'lift', exercise: BSS, implement: 'dumbbell', sets: [{ reps: 8 }] },
+  ] }] }, { liftField })
+  const onlyGoblet = normalizePrescription({ title: 'Legs', blocks: [{ name: 'Main', items: [
+    { kind: 'lift', exercise: 'goblet-squat', implement: 'dumbbell', sets: [{ reps: 10 }] }] }] }, { liftField })
+  const added = reviseWeightModes(onlyGoblet, grown, liftField, [logged], opts)
+  assert.deepEqual(added.blocks[0].items.map(i => i.weightMode ?? null), [null, 'one'])
+  const moved = reviseWeightModes(two({ implement: 'barbell', weightMode: 'side' }), two(), liftField, [logged], opts)
+  assert.equal(moved.blocks[0].items[0].weightMode, 'one', 'off the bar, the dumbbell memory applies')
+  // By uid where there are uids: a reordered exercise is still itself.
+  const withUids = (items) => ({ ...mine, blocks: [{ ...mine.blocks[0], items }] })
+  const [x, y] = mine.blocks[0].items
+  const before = withUids([{ ...x, uid: 'A' }, { ...y, uid: 'B', weightMode: 'one' }])
+  const after = withUids([{ ...y, uid: 'B' }, { ...x, uid: 'A' }])
+  assert.deepEqual(reviseWeightModes(before, after, liftField, [logged], opts).blocks[0].items.map(i => i.weightMode ?? null), ['one', null])
+  assert.equal(reviseWeightModes(mine, null, liftField), null)
+})
+
+t('weight mode: patchItem stores no mode for the default', () => {
+  const p = bssPlan({ weightMode: 'one' })
+  const back = patchItem(p, p.blocks[0].items[0].id, { weightMode: null, weightLabel: 'lb per hand' })
+  assert.equal('weightMode' in back.blocks[0].items[0], false)
+  assert.equal(back.blocks[0].items[0].weightLabel, 'lb per hand')
+})
+
+t('weight mode: switched in the runner after sets are logged, the log follows in the same write', () => {
+  const p = normalizePrescription({ title: 'Legs', blocks: [{ name: 'Main', items: [
+    { kind: 'lift', exercise: BSS, implement: 'dumbbell', sets: [{ reps: 8, weight: 25 }, { reps: 8, weight: 25 }] },
+  ] }] }, { liftField })
+  const steps = prescriptionSteps(p)
+  const it = p.blocks[0].items[0]
+  const one = { weightMode: 'one', weightLabel: 'lb · one dumbbell' }
+  // Nothing logged yet: the plan only, the log untouched.
+  assert.deepEqual(Object.keys(patchRunItem(p, emptyRun(), it.id, one, { rpe: 7 })), ['plan'])
+  // Both sets logged in the default, then the label tapped after the last one.
+  let run = markSet(emptyRun(), steps[0], { reps: 8, weight: 25 }, { at: 1000, steps })
+  run = markSet(run, steps[1], { reps: 8, weight: 25 }, { at: 2000, steps })
+  const before = runOutputs(p, run, { rpe: 7 })
+  assert.equal(liftSummary(before.lifts[0]), '2 × 8 @ 25 lb')
+  const w = patchRunItem(p, run, it.id, one, before, liftField)
+  assert.equal(w.plan.blocks[0].items[0].weightMode, 'one')
+  assert.deepEqual([w.out.lifts[0].weightMode, w.out.rpe], ['one', 7], 'the log kept the old meaning, or lost its other answers')
+  assert.equal(liftSummary(w.out.lifts[0]), '2 × 8 @ 25 lb · one dumbbell')
+})
+
+t('weight mode: one value per exercise on a run entry, whichever side is switched (N1)', () => {
+  const p = normalizePrescription({ title: 'Legs', blocks: [{ name: 'Main', items: [
+    { kind: 'lift', exercise: BSS, implement: 'dumbbell', sets: [{ reps: 8, weight: 25 }] },
+    { kind: 'lift', exercise: 'bench-press', implement: 'barbell', sets: [{ reps: 5, weight: 135 }] },
+  ] }] }, { liftField })
+  const steps = prescriptionSteps(p)
+  let run = markSet(emptyRun(), steps[0], { reps: 8, weight: 25 }, { at: 1000, steps })
+  run = markSet(run, steps[1], { reps: 5, weight: 135 }, { at: 2000, steps })
+  const hand = { uid: 'curl-1', key: 'curl', name: 'Curl', implement: 'dumbbell', sets: [{ reps: 10, weight: 20 }] }
+  const out = { ...runOutputs(p, run, { rpe: 7 }), notes: 'n' }
+  out.lifts = [...out.lifts, hand]
+  // A number corrected on the log after the run, which a rebuild would lose.
+  out.lifts[0] = { ...out.lifts[0], sets: [{ reps: 9, weight: 25 }] }
+  const data = { plan: p, run, out }
+  const id = p.blocks[0].items[0].id
+  // The sheet's plan editor switches the split squat: its logged row follows, nothing else moves.
+  const sheet = followWeightModes(data, { ...data, plan: patchItem(p, id, { weightMode: 'one', weightLabel: 'lb · one dumbbell' }) }, liftField)
+  assert.equal(sheet.out.lifts[0].weightMode, 'one')
+  assert.equal(liftSummary(sheet.out.lifts[0], liftField), '1 × 9 @ 25 lb · one dumbbell', 'the corrected number was lost')
+  assert.deepEqual([sheet.out.lifts[1], sheet.out.lifts[2], sheet.out.notes, sheet.out.rpe], [out.lifts[1], hand, 'n', 7])
+  // The sheet's lift log switches it back: the plan item follows.
+  const back = followWeightModes(sheet, { ...sheet, out: { ...sheet.out, lifts: sheet.out.lifts.map((l, i) => {
+    if (i) return l
+    const { weightMode: _m, ...rest } = l
+    return { ...rest, weightLabel: 'lb per hand' }
+  }) } }, liftField)
+  assert.equal('weightMode' in back.plan.blocks[0].items[0], false)
+  assert.equal(back.plan.blocks[0].items[0].weightLabel, 'lb per hand')
+  // A write that switched neither leaves an old disagreement alone, and returns what it was given.
+  const odd = { ...data, out: { ...out, lifts: [{ ...out.lifts[0], weightMode: 'one', weightLabel: 'lb · one dumbbell' }, ...out.lifts.slice(1)] } }
+  const untouched = { ...odd, out: { ...odd.out, rpe: 8 } }
+  assert.equal(followWeightModes(odd, untouched, liftField), untouched)
+  // Nothing logged on it: nothing to follow.
+  assert.equal(followWeightModes({ plan: p }, { plan: patchItem(p, id, { weightMode: 'one' }) }, liftField).out, undefined)
 })
 
 console.log(`prescription: ${pass} checks passed`)

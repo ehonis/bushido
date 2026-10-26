@@ -31,6 +31,8 @@ import {
   ChevronLeft, ChevronUp,
   // The picker's search box, which had borrowed Target (#55).
   Search,
+  // What a lift's weight means, switched on its label (#58).
+  ArrowLeftRight,
   // Aliased: an unaliased `Infinity` import shadows the global inside this
   // module, which is a trap for whoever next edits it.
   Infinity as InfinityIcon,
@@ -53,7 +55,7 @@ const REGISTRY = {
   BatteryLow, Thermometer, Plane, Briefcase, Bandage,
   Copy,
   ChevronLeft, ChevronUp, Search,
-  SkipBack,
+  SkipBack, ArrowLeftRight,
   Infinity: InfinityIcon,
 }
 

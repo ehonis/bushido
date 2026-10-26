@@ -19,7 +19,7 @@
 import React, { useState } from 'react'
 import { View } from 'react-native'
 import {
-  implementsFor, weightLabelFor, liftsIn, liftSummary, liftsLine,
+  implementsFor, weightLabelOf, weightModeOf, liftsIn, liftSummary, liftsLine,
   addLift, removeLift, patchLift, addLiftSet, removeLiftSet, setLiftSet, moveLift,
   LIFT_FIELD, blankSet,
 } from '../lib/lifts.js'
@@ -42,8 +42,11 @@ function asItem(field: any, lift: any) {
     note: '',
     implement: lift.implement || '',
     implementLabel: chosen?.label || lift.implementLabel || null,
-    weightLabel: weightLabelFor(field, lift.implement),
-    line: liftSummary(lift),
+    // What the weight means: the row's own mode, else its implement's default.
+    weightMode: weightModeOf(field, lift),
+    weightLabel: weightLabelOf(field, lift),
+    // The mode is said under the name (ExerciseCard), not in this line.
+    line: (liftSummary as any)(lift, field, { mode: false }),
     // Positional ids. See the adapter note in the file header.
     sets: (Array.isArray(lift.sets) ? lift.sets : [])
       .map((r: any, i: number) => ({ ...r, id: String(i) })),
@@ -61,7 +64,7 @@ const hintFor = (theirs: any[], lift: any) => theirs.find((l) => l.uid === lift.
 export function LiftLog({ field, out, entries = [], entryId = null, onSave, hints = null }: any) {
   const list = liftsIn(out)
   const write = (next: any) => onSave({ ...out, [LIFT_FIELD]: next })
-  const line = liftsLine(out)
+  const line = (liftsLine as any)(out, field)
   // Open, because on the log side this section IS the form. Foldable all the same.
   const [open, setOpen] = useState(true)
 
@@ -107,7 +110,7 @@ export function LiftLog({ field, out, entries = [], entryId = null, onSave, hint
         onMove={(uid: any, dir: any) => { write(moveLift(list, uid, dir)); return uid }}
         // Hands back the new row's id so the card it just made opens.
         onAdd={(key: any) => {
-          const next = addLift(field, list, key)
+          const next = (addLift as any)(field, list, key, { entries, excludeId: entryId })
           write(next)
           return next.at(-1)?.uid || null
         }} />

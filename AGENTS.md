@@ -678,6 +678,49 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   substring > group, every word must match). A new exercise has one blank set; adding a
   set copies the previous one. `weightLabel` per implement says what the number means;
   `liftVolume` does not double dumbbells.
+- **What a lift's weight means is switched on its label** (#58). The words under the
+  weight box (lift log, planner editor, runner, web and phone) are a button when the
+  implement has more than one meaning: dumbbell and kettlebell "per hand" / "1 DB"
+  (one dumbbell), barbell, EZ, trap, Smith and landmine "on the bar" / "per side";
+  anything else keeps its declared label and no switch. The choices are code
+  (`weightModesFor` in `lib/lifts.js`, each `{ value, label, short, box, partial }`:
+  `box` is the box's words, `short` a card header's, `label` the full wording that
+  summaries and "last time" use), overridable per implement with `weightModes` in
+  content (first is the default, `[]` turns it off; `partial: true` marks a number
+  that is not the whole load). Only a departure from the default is stored, as
+  `weightMode` + its `weightLabel` on the row or plan item (never `weightMode: null`),
+  so a row with no mode (every row before #58) reads exactly as before. A mode the
+  row's implement does not offer is no mode: the row reads as its implement's default.
+  - **The rule, written down after two review rounds in which every heuristic
+    opened a new case** (also above `rememberedWeightMode`):
+    - Memory is READ one way only: from LOGGED rows (`out.lifts`) with a number on
+      them, on entries done (not marked undone) and dated on or before today; the
+      newest decides, a row in the default included. Plan items are never choices.
+      A planned exercise that was done reaches memory through its logged row, which
+      the runner and the sheet keep in step (`runOutputs`, `followWeightModes`).
+    - Memory is APPLIED once, when an exercise is created, never again: a new row in
+      the lift log (`addLift`, or picking its implement), a new exercise in the
+      editor (`appendLift`), each lift of a model's FIRST draft (`server/drafts.js`,
+      which reads the person's own log as the answer lands, `rememberedModes`;
+      `server/drafts.test.js` holds it to the app's rule).
+    - On a revision an exercise the model kept, on the same implement, keeps exactly
+      what it had, a deliberate default included; only one new in the revision gets
+      memory (`reviseWeightModes`; on a draft, `server/drafts.js`, so it is on the
+      draft whatever happens to the page).
+    - A mode is per person: whatever copies a lift to someone else strips it
+      (`lib/shared.js`, `server/sharedsync.js`).
+  - **One value per exercise on an entry that was run.** A planned session's sheet
+    shows the plan and the log its run wrote, so one exercise has a switch in each.
+    They are kept as one value (`followWeightModes`, through `applyOut` and
+    `applyPlan` in `lib/trainer.js`, and the runner's `patchRunItem`): whichever was
+    switched, the other follows and nothing else moves, so numbers corrected on the
+    log and lifts added by hand survive. A pair that already disagreed is left alone.
+  - A card header says a non-default mode under the name ("one dumbbell") and keeps
+    its summary short; "last time" says it in the line ("25 lb · one dumbbell").
+  - **Volume is as entered**: per hand is not doubled, one dumbbell is not halved, per
+    side is counted once, and `liftsLine` says "as entered" when a `partial` mode's set
+    is in the sum, so it is not read as the total. Callers pass the session's lift
+    field (`liftFieldIn(opt)`) so content's modes are the ones read.
 - **Lifts have no rest intervals.** `restSec` is dropped in `normalizeSet` on the way in,
   not hidden. Interval pieces keep their rest.
 - **Adding a set copies what was done** (`addSetLike` in the runner, appended, so no ids

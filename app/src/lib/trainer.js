@@ -26,7 +26,8 @@ import { levelFor } from './level.js'
 import { resolveMinutes } from './minutes.js'
 import { optFor } from './menu.js'
 import { sharePeople, sharedPeopleOn } from './shared.js'
-import { isLiftOnly } from './prescription.js'
+import { isLiftOnly, followWeightModes } from './prescription.js'
+import { liftFieldIn } from './lifts.js'
 import { hasWorkout } from './workout.js'
 
 /**
@@ -135,12 +136,24 @@ export function plannedLine(entry, me = null) {
  * through this, so the two cannot drift (mobile/AGENTS.md: logic is not forked).
  */
 export function applyOut(entry, opt, out) {
+  // A weight mode switched on a logged lift reaches the plan item it came from (#58).
+  const data = followWeightModes(entry.data, { ...entry.data, out }, liftFieldIn(opt))
   return { ...entry, data: {
-    ...entry.data, out,
-    level: levelFor(opt, out),
-    name: titleFor(opt, out, entry.data?.plan),
-    minutes: resolveMinutes(entry.data, opt, out),
+    ...data,
+    level: levelFor(opt, data.out),
+    name: titleFor(opt, data.out, data.plan),
+    minutes: resolveMinutes(entry.data, opt, data.out),
   } }
+}
+
+/**
+ * The owner's `savePlan` as a pure function, for either side: the plan, its
+ * title as the name, and a weight mode switched on the plan reaching the row its
+ * logged sets became (#58, `followWeightModes`).
+ */
+export function applyPlan(entry, opt, plan) {
+  const data = followWeightModes(entry.data, { ...entry.data, plan }, liftFieldIn(opt))
+  return { ...entry, data: { ...data, name: plan.title || entry.data?.name } }
 }
 
 /**

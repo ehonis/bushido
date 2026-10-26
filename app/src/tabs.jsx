@@ -12,7 +12,7 @@ import { Modal, FullScreen } from './modal.jsx'
 import { SessionLog, PriorNote, DetailsSheet } from './sessionlog.jsx'
 import { totalSets, totalReps } from './setlog.jsx'
 import { restStats } from './lib/stats.js'
-import { liftsLine } from './lib/lifts.js'
+import { liftsLine, liftFieldIn } from './lib/lifts.js'
 import { localIso, fromIso } from './lib/dates.js'
 import { isDone, extraEntryId, doneWhenPlaced, markDone } from './lib/store.js'
 import { testEntryFor, testEntryId, testFor } from './lib/tests.js'
@@ -31,7 +31,7 @@ import { nameFor, titleFor, withCasualName } from './lib/naming.js'
 import { disciplineFor, loggedActivity } from './lib/activities.js'
 import { UnloggedWorkouts } from './unlogged.jsx'
 import { currentMe } from './lib/whoami.js'
-import { applyOut, applyRun, canStart, workoutSides, planPeople, plannedLine, toneFor } from './lib/trainer.js'
+import { applyOut, applyRun, applyPlan, canStart, workoutSides, planPeople, plannedLine, toneFor } from './lib/trainer.js'
 import { sharePeople, sharedPeopleOn, withLine, addPerson, removePerson, withSharedPerson, copyExercises, hasExercises, isSynced, withSync } from './lib/shared.js'
 import * as peopleApi from './lib/peopleapi.js'
 import { WithControl, PersonSwitch, SyncToggle, SharedNote, TheirSide, usePersonCopy, useSide, rememberSide } from './sharedwith.jsx'
@@ -305,9 +305,8 @@ export function TodayTab({
     upsertEntry(applyRun(entry, optFor(menu, entry.data?.optId), run, opts))
   }
 
-  /** Editing the prescription itself — from the sheet, after it has landed. */
-  const savePlan = (entry, pres) =>
-    upsertEntry({ ...entry, data: { ...entry.data, plan: pres, name: pres.title || entry.data?.name } })
+  /** Editing the prescription itself — from the sheet, after it has landed (`applyPlan`, lib/trainer.js). */
+  const savePlan = (entry, pres) => upsertEntry(applyPlan(entry, optFor(menu, entry.data?.optId), pres))
 
   return (
     <>
@@ -644,13 +643,10 @@ export function SessionSheet({
   /* Their copy, written like `saveOutputs` writes the owner's: the out, and the
      name, level and minutes it implies. Never a test result: that is a separate
      entry, and their log is theirs to keep. */
-  const saveTheirs = (out) => { setDirty(true); theirs.update(cur => ({ ...cur, data: {
-    ...cur.data, out, level: levelFor(opt, out), name: titleFor(opt, out, cur.data?.plan),
-    minutes: resolveMinutes(cur.data, opt, out) } })) }
+  const saveTheirs = (out) => { setDirty(true); theirs.update(cur => applyOut(cur, opt, out)) }
   const setTheirsDone = (v) => { setDirty(true); theirs.update(cur => markDone(cur, v)) }
   /* Their plan, edited from their side: the same write `savePlan` makes on the owner's. */
-  const saveTheirPlan = (next) => { setDirty(true); theirs.update(cur => ({ ...cur, data: {
-    ...cur.data, plan: next, name: next.title || cur.data?.name } })) }
+  const saveTheirPlan = (next) => { setDirty(true); theirs.update(cur => applyPlan(cur, opt, next)) }
   const theirPres = theirs.entry?.data?.plan || null
   /* Your exercises onto their side, when you ask (sync off only): added, never their numbers replaced. */
   const canCopy = Boolean(!synced && theirs.entry && copyExercises(theirs.entry, entry) !== theirs.entry)
@@ -816,7 +812,7 @@ export function SessionSheet({
         <>
           {/* Still talkable-to after it lands. The thread lives on the entry, so a
               session written at eight can be argued with at six. */}
-          <PlanTalk pres={pres} compact
+          <PlanTalk pres={pres} compact entries={entries} entryId={entry?.id}
             onChange={(next) => { setDirty(true); onSavePlan?.(entry, next) }} />
           <PrescriptionEditor pres={pres} liftField={liftField}
             entries={entries} entryId={entry?.id} categories={thePlan?.quotaCategories || []}
@@ -997,7 +993,7 @@ function DaySessions({
       const mins = loggedMinutes(entry, opt)
       const sets = totalSets(out)
       const work = Number(out.distance) > 0 ? `${out.distance} mi`
-        : liftsLine(out) || (sets ? `${sets} set${sets === 1 ? '' : 's'}` : null)
+        : liftsLine(out, liftFieldIn(opt)) || (sets ? `${sets} set${sets === 1 ? '' : 's'}` : null)
       // A planned session nothing has been logged on yet says what it holds
       // ("3 exercises · 9 sets · about 45 min"), which is also what says it has sets to run.
       if (mins === null && !work && entry.data?.plan) bits.push(prescriptionLine(entry.data.plan))

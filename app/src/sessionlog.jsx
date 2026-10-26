@@ -13,7 +13,7 @@ import { SetLog, GradeSelect, totalSets, totalReps } from './setlog.jsx'
 import { LiftLog } from './liftlog.jsx'
 import { ActivityPicker } from './activitypicker.jsx'
 import { activityOf, activityLabel } from './lib/activities.js'
-import { liftsLine } from './lib/lifts.js'
+import { liftsLine, liftFieldIn } from './lib/lifts.js'
 import { asksItsOwnDuration, minutesFor, minutesSourceOf } from './lib/minutes.js'
 import { visibleOutputs, pruneHidden, derivedValue, filledBy } from './lib/outputs.js'
 import { gateResolver } from './lib/activities.js'
@@ -68,12 +68,12 @@ const dayLabel = (iso) => {
 }
 
 /** "3 sets, 21 reps · 5.10+" — what the session itself was, off what was logged. */
-function priorWork(out) {
+function priorWork(out, field = null) {
   const bits = []
   const sets = totalSets(out)
   const reps = totalReps(out)
   if (sets) bits.push(`${sets} set${sets === 1 ? '' : 's'}${reps ? `, ${reps} reps` : ''}`)
-  const lifting = liftsLine(out)
+  const lifting = liftsLine(out, field)
   if (lifting) bits.push(lifting)
   if (Number(out?.distance) > 0) bits.push(`${out.distance} mi`)
   if (Number(out?.minutesSpent) > 0) bits.push(`${out.minutesSpent} min`)
@@ -110,7 +110,7 @@ export function PriorNote({ entries, session, excludeId, all = false, whose = nu
           : priorTitle(1, whose)}
       </div>
       {shown.map(e => {
-        const work = priorWork(e.data?.out)
+        const work = priorWork(e.data?.out, liftFieldIn(session))
         return (
           <div key={e.id} className="prior-item">
             <div className="prior-when">

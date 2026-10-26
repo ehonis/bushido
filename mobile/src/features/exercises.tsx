@@ -32,7 +32,10 @@ import { impact, success, tap } from '../ui/haptics'
 import { Icon } from '../lib/icons'
 import { NumInput } from './numinput'
 import { setFieldsFor } from '../lib/prescription.js'
-import { searchExercises, implementsFor, lastLift, catalogOf } from '../lib/lifts.js'
+import {
+  searchExercises, implementsFor, lastLift, catalogOf,
+  weightModesFor, weightPatch, nextWeightMode, rememberedWeightMode, weightModeWords, weightBoxOf,
+} from '../lib/lifts.js'
 import { ExerciseBody, musclesOf, muscleWords } from '../lib/bodymap'
 
 /**
@@ -41,7 +44,8 @@ import { ExerciseBody, musclesOf, muscleWords } from '../lib/bodymap'
  * Five pounds and twenty-five yards because that is what a plate and a length
  * are; one rep and five seconds because that is what those are. The weight's
  * label comes off the IMPLEMENT — "30 lb per hand" and "135 lb on the bar" are
- * different numbers and the box has to say which.
+ * different numbers and the box has to say which — and the mode the user
+ * switched it to (`weightSwitch`).
  */
 export const STEP: Record<string, (item?: any, set?: any) => { label: string; step: number; min: number }> = {
   reps: () => ({ label: 'reps', step: 1, min: 0 }),
@@ -95,17 +99,32 @@ const sw = StyleSheet.create({
   },
 })
 
+export type WeightSwap = { box: string; next: string; onSwitch: () => void } | null
+
+/**
+ * The tap that changes what a lift's weight means (issue #58), or null where
+ * its implement has one meaning. The same for the editor, the log and the runner.
+ */
+export function weightSwitch(liftField: any, item: any, onPatch: (patch: any) => void): WeightSwap {
+  if (item?.kind !== 'lift' || weightModesFor(liftField, item.implement).length < 2) return null
+  const next = (weightPatch as any)(liftField, item.implement, nextWeightMode(liftField, item))
+  return { box: (weightBoxOf as any)(liftField, item), next: next.weightLabel, onSwitch: () => { tap(); onPatch(next) } }
+}
+
 /**
  * One number, moved with thumbs (docs/DESIGN.md, Stepper): − and + either side
  * of an input that is still an input, what it measures under it, on the tokens.
  * Two fit beside a set's number on a phone. The minus goes inert at the floor
  * rather than disappearing — a control that vanishes under your thumb
  * mid-session moves everything next to it. The big sibling is the runner's.
+ * `swap` (from `weightSwitch`) turns the label into the switch for what the
+ * number means: the words you read are the thing you tap.
  */
 export function Stepper({
   label, value, step = 1, min = null, max = null, suffix = '', quiet = false,
-  blank = null, placeholder = '—', onChange,
+  blank = null, placeholder = '—', onChange, swap = null,
 }: {
+  swap?: WeightSwap
   label: string
   value: any
   placeholder?: string
@@ -137,7 +156,13 @@ export function Stepper({
           placeholderTextColor={colors.inkFaint} keyboardAppearance="dark" selectionColor={colors.accent}
           selectTextOnFocus style={st.stepperIn}
         />
-        <T size={font.caption} dim lineHeight={font.caption}>{`${label}${suffix}`}</T>
+        {swap ? (
+          <Press onPress={swap.onSwitch} style={st.swap} hitSlop={{ top: 2, bottom: 12, left: 10, right: 10 }}
+            accessibilityRole="button" accessibilityLabel={`Weight in ${label}. Switch to ${swap.next}`}>
+            <T size={font.caption} dim align="center" style={{ flexShrink: 1 }}>{swap.box}</T>
+            <Icon name="ArrowLeftRight" size={10} color={colors.inkDim} />
+          </Press>
+        ) : <T size={font.caption} dim lineHeight={font.caption}>{`${label}${suffix}`}</T>}
       </View>
       <Press onPress={() => bump(1)} disabled={max !== null && n >= max} style={st.stepperBtn}
         accessibilityRole="button" accessibilityLabel={`more ${label}`}>
@@ -229,8 +254,12 @@ export function ExerciseCard({
    * `lastLift` everywhere, so no two screens can disagree about last time.
    */
   const prior = useMemo(
-    () => (item.exercise ? (lastLift as any)(entries, item.exercise, entryId) : null),
-    [entries, item.exercise, entryId])
+    () => (item.exercise ? (lastLift as any)(entries, item.exercise, entryId, liftField) : null),
+    [entries, item.exercise, entryId, liftField])
+  const swap = weightSwitch(liftField, item, onPatch)
+  // A mode other than the default, said under the name, so the summary beside it
+  // stays short enough not to squeeze the name on a phone.
+  const modeWords = item.kind === 'lift' ? weightModeWords(liftField, item) : null
 
   // A set whose every box now has a number is a set done: the success buzz.
   const patchSet = (s: any, patch: any) => {
@@ -249,6 +278,7 @@ export function ExerciseCard({
         <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0 }}>
           <T size={font.body} weight={600}>{item.name}</T>
           {muscles ? <T size={font.caption} weight={500} dim style={{ marginTop: 2, textTransform: 'lowercase' }}>{muscleWords(muscles)}</T> : null}
+          {modeWords ? <T size={font.caption} dim style={{ marginTop: 2 }}>{modeWords}</T> : null}
         </View>
         <T size={font.small} faint tabular numberOfLines={1} align="right" style={{ flexShrink: 1, minWidth: 0, maxWidth: '45%' }}>{item.line}</T>
         <Icon name={open ? 'ChevronUp' : 'ChevronDown'} size={15} color={colors.inkFaint} style={{ marginTop: 1 }} />
@@ -283,7 +313,12 @@ export function ExerciseCard({
                 return (
                   <Press key={i.value} haptic style={[st.implchip, on && st.implchipOn]}
                     accessibilityState={{ selected: on }}
-                    onPress={() => onPatch({ implement: i.value, implementLabel: i.label, weightLabel: i.weightLabel || null })}>
+                    onPress={() => onPatch({
+                      implement: i.value, implementLabel: i.label,
+                      // In the mode this exercise was last done in with it (lib/lifts.js).
+                      ...(weightPatch as any)(liftField, i.value,
+                        (rememberedWeightMode as any)(liftField, entries, item.exercise, i.value, entryId)),
+                    })}>
                     <T size={font.small} color={on ? colors.ink : colors.inkDim}>{i.label}</T>
                   </Press>
                 )
@@ -299,6 +334,7 @@ export function ExerciseCard({
                   {setFieldsFor(item, s).map((f: string) => (
                     <Stepper key={f} {...(STEP[f] ? STEP[f](item, s) : { label: f, step: 1, min: 0 })} value={s[f]} blank={blank}
                       placeholder={s.hint?.[f] != null && s.hint[f] !== '' ? String(s.hint[f]) : '—'}
+                      swap={f === 'weight' ? swap : null}
                       onChange={(v) => patchSet(s, { [f]: v })} />
                   ))}
                   {/* Lifting has no programmed rest — see `normalizeSet`. An
@@ -506,6 +542,13 @@ const st = StyleSheet.create({
   stepperQuiet: { backgroundColor: 'transparent', borderColor: colors.line },
   stepperBtn: { width: 40, height: TAP, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center' },
   stepperMid: { alignItems: 'center', gap: 1, minWidth: 48, paddingVertical: 2 },
+  // The web's .stepper-swap: a raised pill so the label reads as a control, at
+  // most 84 wide (two short lines), so reps and weight still share a row.
+  swap: {
+    flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 2, maxWidth: 84,
+    paddingVertical: 3, paddingHorizontal: 5, borderRadius: 9,
+    backgroundColor: colors.panel3, borderWidth: 1, borderColor: colors.lineStrong,
+  },
   stepperIn: {
     width: 48, padding: 0, paddingHorizontal: 0, paddingVertical: 0, textAlign: 'center', color: colors.ink,
     backgroundColor: 'transparent', borderWidth: 0, borderRadius: 0,

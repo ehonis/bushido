@@ -42,7 +42,7 @@
 
 import { useState } from 'react'
 import {
-  implementsFor, weightLabelFor, liftsIn, liftSummary, liftsLine,
+  implementsFor, weightLabelOf, weightModeOf, liftsIn, liftSummary, liftsLine,
   addLift, removeLift, patchLift, addLiftSet, removeLiftSet, setLiftSet, moveLift,
   LIFT_FIELD, blankSet,
 } from './lib/lifts.js'
@@ -68,8 +68,11 @@ function asItem(field, lift) {
     note: '',
     implement: lift.implement || '',
     implementLabel: chosen?.label || lift.implementLabel || null,
-    weightLabel: weightLabelFor(field, lift.implement),
-    line: liftSummary(lift),
+    // What the weight means: the row's own mode, else its implement's default.
+    weightMode: weightModeOf(field, lift),
+    weightLabel: weightLabelOf(field, lift),
+    // The mode is said under the name (ExerciseCard), not in this line.
+    line: liftSummary(lift, field, { mode: false }),
     // Positional ids. See the adapter note in the file header.
     sets: (Array.isArray(lift.sets) ? lift.sets : [])
       .map((r, i) => ({ ...r, id: String(i) })),
@@ -93,7 +96,7 @@ const hintFor = (theirs, lift) => theirs.find(l => l.uid === lift.uid && l.key =
 export function LiftLog({ field, out, entries = [], entryId = null, onSave, hints = null }) {
   const list = liftsIn(out)
   const write = (next) => onSave({ ...out, [LIFT_FIELD]: next })
-  const line = liftsLine(out)
+  const line = liftsLine(out, field)
   // Open, because on the log side this section IS the form — unlike a plan, where
   // it is one block of several. Foldable all the same.
   const [open, setOpen] = useState(true)
@@ -147,7 +150,7 @@ export function LiftLog({ field, out, entries = [], entryId = null, onSave, hint
         /* Hands back the new row's id so the card it just made opens — the user added
            it to type its sets in. See `added` in ExerciseSection. */
         onAdd={(key) => {
-          const next = addLift(field, list, key)
+          const next = addLift(field, list, key, { entries, excludeId: entryId })
           write(next)
           return next.at(-1)?.uid || null
         }} />

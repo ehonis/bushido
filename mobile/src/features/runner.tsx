@@ -58,9 +58,9 @@ import {
   prescriptionSteps, runProgress, firstOpen, restLeft, runElapsed,
   markSet, unmarkSet, skipSet, unskipSet, nudgeRest, endRest, goToSet, finishRun,
   emptyRun, setDraft, carryForward, runOutputs, isLogged, isSkipped, setLine, itemLine,
-  setFieldsFor, addSetLike,
+  setFieldsFor, addSetLike, patchRunItem,
 } from '../lib/prescription.js'
-import { Stepper, STEP } from './exercises'
+import { Stepper, STEP, weightSwitch, type WeightSwap } from './exercises'
 import { ExerciseBody, musclesOf, muscleWords } from '../lib/bodymap'
 import { liftFieldOf } from './planner'
 import { usePlan } from '../lib/planctx.jsx'
@@ -106,6 +106,7 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
   const insets = useSafeAreaInsets()
   const pres = entry?.data?.plan || null
   const steps: any[] = useMemo(() => prescriptionSteps(pres), [pres])
+  const liftField = liftFieldOf(usePlan())
   const run = entry?.data?.run || null
 
   const [now, setNow] = useState(() => Date.now())
@@ -231,6 +232,12 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
     onRun(run, { plan: (addSetLike as any)(pres, step.itemId, { ...step.set, ...(draft || {}) }) })
   }
 
+  // What this exercise's weight means (#58), on the plan, and on the log in the
+  // same write once a set of it is logged, so every set and the log say the same.
+  const patchThisItem = (p: any) => {
+    if (step) onRun(run, (patchRunItem as any)(pres, run, step.itemId, p, entry?.data?.out || {}, liftField))
+  }
+
   const jump = (setId: string) => {
     tap()
     commit((goToSet as any)(run || emptyRun(), setId))
@@ -309,6 +316,7 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
           step={step} steps={steps} run={run} draft={draft} entries={entries} entryId={entry?.id}
           briefing={briefingFor(pres, step)}
           onPatch={patch} onMark={mark} onSkip={skip} onUnmark={() => unmark(step.setId)} onAddSet={addAnother}
+          onPatchItem={patchThisItem}
           onList={() => setListOpen(true)} />
       ) : null}
 
@@ -371,14 +379,15 @@ function briefingFor(pres: any, step: any) {
   return out
 }
 
-function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], onPatch, onMark, onSkip, onUnmark, onList, onAddSet }: any) {
+function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], onPatch, onMark, onSkip, onUnmark, onList, onAddSet, onPatchItem }: any) {
   const { item } = step
   const logged = isLogged(run, step.setId)
-  const prior: any = useMemo(
-    () => (item.exercise ? (lastLift as any)(entries, item.exercise, entryId) : null),
-    [entries, item.exercise, entryId])
   const liftField = liftFieldOf(usePlan())
+  const prior: any = useMemo(
+    () => (item.exercise ? (lastLift as any)(entries, item.exercise, entryId, liftField) : null),
+    [entries, item.exercise, entryId, liftField])
   const muscles = musclesOf(liftField, item.exercise)
+  const swap = weightSwitch(liftField, item, onPatchItem)
 
   const target = setLine(step.set, item)
   const mine = steps.filter((s: any) => s.itemId === item.id)
@@ -425,6 +434,7 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
         <View style={st.inputs}>
           {setFieldsFor(item, step.set).map((f: string) => (
             <BigStepper key={f} {...(STEP as any)[f](item, step.set)} value={draft?.[f]}
+              swap={f === 'weight' ? swap : null}
               onChange={(v: any) => onPatch({ [f]: v })} />
           ))}
         </View>
@@ -534,7 +544,8 @@ function RunBtn({ kind = 'primary', big, icon, iconSize = 16, label, a11y, onPre
  * length on the floor. Its 56pt number is one of the two sizes above
  * font.display (the interval timer's clock is the other, docs/DESIGN.md "Type").
  */
-function BigStepper({ label, value, step = 1, min = null, onChange }: {
+function BigStepper({ label, value, step = 1, min = null, onChange, swap = null }: {
+  swap?: WeightSwap
   label: string
   value: any
   step?: number
@@ -559,7 +570,13 @@ function BigStepper({ label, value, step = 1, min = null, onChange }: {
             how the app says "you tell me". */}
         <NumInput accessibilityLabel={label} placeholder="—" placeholderTextColor={colors.inkFaint}
           value={value} onChange={onChange} style={st.bigstepIn} selectTextOnFocus />
-        <T size={font.small} dim>{label}</T>
+        {swap ? (
+          <Press onPress={swap.onSwitch} style={st.swap}
+            accessibilityRole="button" accessibilityLabel={`Weight in ${label}. Switch to ${swap.next}`}>
+            <T size={font.small} dim>{swap.box}</T>
+            <Icon name="ArrowLeftRight" size={13} color={colors.inkDim} />
+          </Press>
+        ) : <T size={font.small} dim>{label}</T>}
       </View>
       <Press onPress={() => bump(1)} style={st.bigstepBtn} accessibilityRole="button" accessibilityLabel={`more ${label}`}>
         <Icon name="Plus" size={26} color={colors.ink} />
@@ -744,6 +761,11 @@ const st = StyleSheet.create({
     backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.lineStrong,
   },
   bigstepMid: { flex: 1, maxWidth: 190, alignItems: 'center', gap: space[1] },
+  // The web's .bigstep .stepper-swap: the weight's meaning as a 44px pill (#58).
+  swap: {
+    flexDirection: 'row', alignItems: 'center', gap: space[1], minHeight: TAP, paddingHorizontal: space[4],
+    borderRadius: radius.pill, backgroundColor: colors.panel3, borderWidth: 1, borderColor: colors.lineStrong,
+  },
   bigstepIn: {
     width: '100%', padding: 0, paddingHorizontal: 0, paddingVertical: 0, minHeight: 58, textAlign: 'center',
     backgroundColor: 'transparent', borderWidth: 0, color: colors.ink,

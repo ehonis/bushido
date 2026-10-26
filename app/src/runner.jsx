@@ -50,9 +50,9 @@ import {
   prescriptionSteps, runProgress, firstOpen, restLeft, runElapsed,
   markSet, unmarkSet, skipSet, unskipSet, nudgeRest, endRest, goToSet, finishRun,
   emptyRun, setDraft, carryForward, runOutputs, isLogged, isSkipped, setLine, itemLine,
-  setFieldsFor, addSetLike,
+  setFieldsFor, addSetLike, patchRunItem,
 } from './lib/prescription.js'
-import { Stepper, STEP } from './exercises.jsx'
+import { Stepper, STEP, weightSwitch, SwapWords } from './exercises.jsx'
 import { ExerciseBody, musclesOf, muscleWords } from './lib/bodymap.jsx'
 import { liftFieldOf } from './planner.jsx'
 import { usePlan } from './lib/planctx.jsx'
@@ -83,6 +83,7 @@ const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).padStart(2
 export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onFinish = null, who = null, switcher = null, shown = true }) {
   const pres = entry?.data?.plan || null
   const steps = useMemo(() => prescriptionSteps(pres), [pres])
+  const liftField = liftFieldOf(usePlan())
   const run = entry?.data?.run || null
 
   const [now, setNow] = useState(() => Date.now())
@@ -210,6 +211,10 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
     onRun(run, { plan: addSetLike(pres, step.itemId, { ...step.set, ...(draft || {}) }) })
   }
 
+  // What this exercise's weight means (#58), on the plan, and on the log in the
+  // same write once a set of it is logged, so every set and the log say the same.
+  const patchThisItem = (p) => onRun(run, patchRunItem(pres, run, step.itemId, p, entry?.data?.out || {}, liftField))
+
   const jump = (setId) => {
     commit(goToSet(run || emptyRun(), setId))
     setCursor(setId)
@@ -278,6 +283,7 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
           step={step} steps={steps} run={run} draft={draft} entries={entries} entryId={entry?.id}
           briefing={briefingFor(pres, step)}
           onPatch={patch} onMark={mark} onSkip={skip} onUnmark={() => unmark(step.setId)} onAddSet={addAnother}
+          onPatchItem={patchThisItem}
           onList={() => setListOpen(true)} />
       ) : null}
 
@@ -342,14 +348,15 @@ function briefingFor(pres, step) {
   return out
 }
 
-function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], onPatch, onMark, onSkip, onUnmark, onList, onAddSet }) {
+function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], onPatch, onMark, onSkip, onUnmark, onList, onAddSet, onPatchItem }) {
   const { item } = step
+  const liftField = liftFieldOf(usePlan())
   const logged = isLogged(run, step.setId)
   const prior = useMemo(
-    () => (item.exercise ? lastLift(entries, item.exercise, entryId) : null),
-    [entries, item.exercise, entryId])
-  const liftField = liftFieldOf(usePlan())
+    () => (item.exercise ? lastLift(entries, item.exercise, entryId, liftField) : null),
+    [entries, item.exercise, entryId, liftField])
   const muscles = musclesOf(liftField, item.exercise)
+  const swap = weightSwitch(liftField, item, onPatchItem)
 
   const target = setLine(step.set, item)
   const mine = steps.filter(s => s.itemId === item.id)
@@ -387,6 +394,7 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
       <div className="run-inputs">
         {setFieldsFor(item, step.set).map(f => (
           <BigStepper key={f} {...STEP[f](item, step.set)} value={draft?.[f]}
+            swap={f === 'weight' ? swap : null}
             onChange={v => onPatch({ [f]: v })} />
         ))}
       </div>
@@ -457,7 +465,7 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
  * is two to a screen with 64px targets and a value you can read from arm's
  * length on the floor.
  */
-function BigStepper({ label, value, step = 1, min = null, onChange }) {
+function BigStepper({ label, value, step = 1, min = null, onChange, swap = null }) {
   const n = Number(value)
   const bump = (d) => {
     const next = (Number.isFinite(n) ? n : 0) + d * step
@@ -475,7 +483,12 @@ function BigStepper({ label, value, step = 1, min = null, onChange }) {
             how the app says "you tell me". */}
         <NumInput className="bigstep-in" aria-label={label} placeholder="—"
           value={value} onChange={onChange} />
-        <span className="bigstep-label">{label}</span>
+        {swap ? (
+          <button type="button" className="bigstep-label stepper-swap" onClick={swap.onSwitch}
+            aria-label={`Weight in ${label}. Switch to ${swap.next}`}>
+            <SwapWords label={swap.box} size={13} />
+          </button>
+        ) : <span className="bigstep-label">{label}</span>}
       </div>
       <button className="bigstep-btn" onClick={() => bump(1)} aria-label={`more ${label}`}>
         <Icon name="Plus" size={26} />
