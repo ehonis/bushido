@@ -829,4 +829,38 @@ t('weight mode: one value per exercise on a run entry, whichever side is switche
   assert.equal(followWeightModes({ plan: p }, { plan: patchItem(p, id, { weightMode: 'one' }) }, liftField).out, undefined)
 })
 
+t('weight mode: an edit that moves items follows nothing; a row pairs only with the item it came from (#58 follow-up)', () => {
+  const rows = (data) => data.out.lifts.map(l => `${l.uid}:${l.weightMode || '-'}`)
+  const ran = (names) => {
+    const p = normalizePrescription({ title: 'Legs', blocks: [{ name: 'Main', items: [
+      { kind: 'lift', exercise: BSS, name: names[0], implement: 'dumbbell', weightMode: 'one', sets: [{ reps: 8, weight: 25 }] },
+      { kind: 'lift', exercise: BSS, name: names[1], implement: 'dumbbell', sets: [{ reps: 12, weight: 15 }] },
+    ] }] }, { liftField })
+    const [a, b] = p.blocks[0].items
+    const run = { sets: { [a.sets[0].id]: { reps: 8, weight: 25 }, [b.sets[0].id]: { reps: 12, weight: 15 } } }
+    return { plan: p, run, out: runOutputs(p, run, {}) }
+  }
+  // Review repro: the split squat in one dumbbell, a back-off in the default; the first is deleted on the sheet.
+  for (const names of [['Split squat', 'Split squat (back-off)'], ['Split squat', 'Split squat']]) {
+    const data = ran(names)
+    assert.deepEqual(rows(data), ['b0i0:one', 'b0i1:-'])
+    const gone = followWeightModes(data, { ...data, plan: removeItem(data.plan, 'b0i0') }, liftField)
+    assert.deepEqual(rows(gone), ['b0i0:one', 'b0i1:-'], `deleting the first of ${names.join(' / ')} rewrote a logged row`)
+    // Moved instead of deleted: the same.
+    const moved = followWeightModes(data, { ...data, plan: moveItem(data.plan, 'b0i1', 'up').pres }, liftField)
+    assert.deepEqual(rows(moved), ['b0i0:one', 'b0i1:-'], 'a reorder rewrote a logged row')
+  }
+  // After the deletion, switching the back-off (now at b0i0) does not reach the
+  // first item's row, which no longer has an item.
+  const data = ran(['Split squat', 'Split squat (back-off)'])
+  const after = { ...data, plan: removeItem(data.plan, 'b0i0') }
+  const switched = followWeightModes(after, { ...after, plan: patchItem(after.plan, 'b0i0', { weightMode: 'one', weightLabel: 'lb · one dumbbell' }) }, liftField)
+  assert.deepEqual(rows(switched), ['b0i0:one', 'b0i1:-'])
+  const back = followWeightModes(after, { ...after, plan: patchItem(after.plan, 'b0i0', { weightMode: null, weightLabel: 'lb per hand' }) }, liftField)
+  assert.deepEqual(rows(back), ['b0i0:one', 'b0i1:-'], "the back-off's switch reached the deleted item's row")
+  // And a plain switch on an unmoved plan still follows.
+  const plain = followWeightModes(data, { ...data, plan: patchItem(data.plan, 'b0i1', { weightMode: 'one', weightLabel: 'lb · one dumbbell' }) }, liftField)
+  assert.deepEqual(rows(plain), ['b0i0:one', 'b0i1:one'])
+})
+
 console.log(`prescription: ${pass} checks passed`)

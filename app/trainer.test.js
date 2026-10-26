@@ -6,7 +6,10 @@ import { readFileSync } from 'node:fs'
 import {
   planPeople, placeEntries, plannedEntriesFor, keepPlanFor, plannedLine,
   applyOut, applyRun, applyPlan, applyDone, canStart, workoutSides, toneFor, dayOf, dayRow, runKind,
+  FOR_ME, toggleFor, forOf, whoOfDraft, forWords, namesOf, isGroup, forSomeoneElse, plannedItems, shareKept, keepForEach,
+  keepKeyFor, withoutLoads,
 } from './src/lib/trainer.js'
+import { groupContext, plannerContext } from './src/lib/plannerapi.js'
 import { splitPrescription, normalizePrescription, runOutputs, patchItem } from './src/lib/prescription.js'
 
 const tests = []
@@ -175,6 +178,177 @@ test('one weight mode per exercise on a run entry: the sheet\'s plan and its log
   // An entry with no plan is written as it always was.
   const plain = { id: 'daily-y', kind: 'daily', date: DATE, data: { optId: 'log-workout', out: {} } }
   assert.equal('plan' in applyOut(plain, menu.find(o => o.id === 'log-workout'), { rpe: 5 }).data, false)
+})
+
+/* ------------------------------------------- several people at once (#59) */
+
+const SAM = { id: 'sam', name: 'Sam' }
+const ROBIN = { id: 'robin', name: 'Robin' }
+const OTHERS = planPeople(OWNER_ME)
+
+test('For is a choice of several: you by default, tap to add, never nobody', () => {
+  let who = FOR_ME
+  assert.equal(toggleFor(who, { id: null }, OTHERS), who, 'the last one picked was taken off')
+  who = toggleFor(who, ROBIN, OTHERS)
+  who = toggleFor(who, SAM, OTHERS)
+  assert.deepEqual(who.others.map(p => p.id), ['sam', 'robin'], 'not in People order')
+  who = toggleFor(who, { id: null }, OTHERS)
+  assert.equal(who.me, false)
+  who = toggleFor(who, ROBIN, OTHERS)
+  assert.deepEqual([who.me, who.others.map(p => p.id)], [false, ['sam']])
+  assert.equal(toggleFor(who, SAM, OTHERS), who, 'Sam, the only one left, was taken off')
+})
+
+test('what the server is sent: nothing for you, one id for one person, a list for a group', () => {
+  assert.equal(forOf(FOR_ME, 'owner'), null)
+  assert.equal(forOf({ me: false, others: [SAM] }, 'owner'), 'sam')
+  assert.deepEqual(forOf({ me: true, others: [SAM] }, 'owner'), ['owner', 'sam'])
+  assert.deepEqual(forOf({ me: false, others: [SAM, ROBIN] }, 'owner'), ['sam', 'robin'])
+  assert.equal(isGroup(FOR_ME), false)
+  assert.equal(isGroup({ me: false, others: [SAM] }), false)
+  assert.equal(forSomeoneElse({ me: false, others: [SAM] }), SAM)
+  assert.equal(forSomeoneElse({ me: true, others: [SAM] }), null)
+})
+
+test('a draft reopens for the people it was for, and an old one with a single `for` still does', () => {
+  assert.deepEqual(whoOfDraft({ for: { id: 'sam', name: 'Sam' } }, OTHERS), { me: false, others: [SAM] })
+  assert.deepEqual(whoOfDraft({ people: [{ id: 'owner', name: 'Alex', owner: true }, { id: 'sam', name: 'Sam' }] }, OTHERS), { me: true, others: [SAM] })
+  assert.deepEqual(whoOfDraft({}, OTHERS), FOR_ME)
+  assert.deepEqual(whoOfDraft({ for: { id: 'gone', name: 'Kim' } }, OTHERS).others, [{ id: 'gone', name: 'Kim' }])
+})
+
+test('the words for who it is for agree with each other', () => {
+  assert.equal(namesOf([SAM, ROBIN, { name: 'Kim' }]), 'Sam, Robin and Kim')
+  assert.equal(forWords(FOR_ME).keep, 'Put it on today')
+  assert.equal(forWords(FOR_ME).line, null)
+  assert.equal(forWords({ me: false, others: [SAM] }).line, 'Planning for Sam · it goes in Sam’s log')
+  assert.equal(forWords({ me: true, others: [SAM] }).keep, 'Put it on today with Sam')
+  assert.equal(forWords({ me: true, others: [SAM] }).line, 'You and Sam · one shared workout')
+  assert.equal(forWords({ me: false, others: [SAM, ROBIN] }).title, 'On Sam and Robin’s days')
+})
+
+test('several people\'s context: a paragraph each, under their name, from their own log', () => {
+  const mine = [{ id: 'm', kind: 'daily', date: DATE, data: { optId: 'log-workout', name: 'Ride', level: 2, done: true } }]
+  const text = groupContext({ iso: DATE, people: [
+    { name: 'Alex', entries: mine, plan, readiness: { recovery: 80 } },
+    { name: 'Sam', entries: [], plan },
+  ] })
+  const [today, alex, sam] = text.split('\n')
+  assert.equal(today, `Today is ${DATE}.`)
+  assert.match(alex, /^Alex: WHOOP this morning: recovery 80%.*Ride/)
+  assert.match(sam, /^Sam: Nothing logged in the last 7 days\.$/)
+  // One person's context is exactly what it always was.
+  assert.match(plannerContext({ iso: DATE, plan, entries: mine }), new RegExp(`^Today is ${DATE}\\. Logged in the last 7 days`))
+})
+
+test('you and Sam: your entries are kept, then each is shared with Sam, sync on, copy first', async () => {
+  const parts = splitPrescription({ ...pres, draftId: 'dkeep1' })
+  const mine = placeEntries({ menu, onDay: [], items: plannedItems(parts), date: DATE })
+  const writes = []
+  const saved = []
+  const api = {
+    getPersonDay: async () => [],
+    getPersonEntry: async () => null,
+    putPersonEntry: async (pid, e) => { writes.push([pid, e]); return e },
+  }
+  const r = await shareKept({ entries: mine, people: [SAM], menu, owner: { id: 'owner', name: 'Alex' }, api, save: (e) => saved.push(e) })
+  assert.deepEqual(r.failed, [])
+  assert.equal(writes.length, mine.length, 'not one copy per part')
+  for (const [pid, copy] of writes) {
+    assert.equal(pid, 'sam')
+    assert.equal(copy.data.done, false)
+    assert.equal(copy.data.plan.draftId, undefined, 'the owner\'s draft id went into Sam\'s log')
+    assert.ok(copy.data.plan.blocks.flatMap(b => b.items).flatMap(i => i.sets).every(s => s.weight == null), 'a weight was copied')
+  }
+  assert.equal(saved.length, mine.length)
+  for (const e of r.entries) assert.deepEqual(e.data.sharedWith, [{ id: 'sam', entryId: e.id, sync: true }])
+  assert.equal(r.entries[0].data.plan.draftId, 'dkeep1', 'the owner\'s entry lost its draft id')
+})
+
+test('one person failing does not stop the next, and is said', async () => {
+  const mine = placeEntries({ menu, onDay: [], items: plannedItems(splitPrescription(pres)), date: DATE })
+  const api = {
+    getPersonDay: async () => [],
+    getPersonEntry: async () => null,
+    putPersonEntry: async (pid, e) => { if (pid === 'sam') throw new Error('offline'); return e },
+  }
+  const saved = []
+  const r = await shareKept({ entries: mine, people: [SAM, ROBIN], menu, owner: { id: 'owner' }, api, save: (e) => saved.push(e) })
+  assert.deepEqual(r.failed.map(f => [f.person.id, f.error]), [['sam', 'offline']])
+  for (const e of r.entries) assert.deepEqual(e.data.sharedWith.map(l => l.id), ['robin'])
+})
+
+test('others only, kept for some of them: who it landed for, who it missed, and a retry that fills the gap', async () => {
+  let robinDown = true
+  const keep = async (person) => {
+    if (person.id === 'robin' && robinDown) throw new Error('read-only')
+    return { ids: [`daily-${DATE}`], count: 1, first: `daily-${DATE}` }
+  }
+  const r = await keepForEach({ people: [SAM, ROBIN], keep })
+  assert.deepEqual([r.landed.map(p => p.id), r.failed.map(f => [f.person.id, f.error]), r.first.first], [['sam'], [['robin', 'read-only']], `daily-${DATE}`])
+  // The last screen is worded from where it landed, not from what was asked.
+  assert.equal(forWords({ me: false, others: r.landed }).title, 'On Sam’s day')
+  robinDown = false
+  const again = await keepForEach({ people: r.failed.map(f => f.person), keep })
+  assert.deepEqual([again.landed.map(p => p.id), again.failed], [['robin'], []])
+})
+
+/* "Try again for Robin" never writes a part twice (#59 review): an in-memory people API. */
+const memoryApi = ({ failOn = () => false } = {}) => {
+  const logs = {}
+  let n = 0
+  return {
+    logs,
+    live: (pid) => Object.values(logs[pid] || {}).filter(e => !e.deleted),
+    getPersonDay: async (pid, date) => Object.values(logs[pid] || {}).filter(e => e.date === date),
+    getPersonEntry: async (pid, id) => logs[pid]?.[id] || null,
+    putPersonEntry: async (pid, e) => {
+      const call = ++n
+      const fail = failOn(pid, call)
+      if (fail === 'before') throw new Error('offline')
+      logs[pid] = { ...(logs[pid] || {}), [e.id]: e }
+      if (fail === 'after') throw new Error('timeout')  // it landed; the answer did not
+      return e
+    },
+  }
+}
+const twoParts = splitPrescription({ ...pres, draftId: 'dretry1' })
+const keepFor = (api) => (person, key) => keepPlanFor({ person, parts: twoParts, menu, date: DATE, owner: { id: 'owner', name: 'Alex' }, api, key })
+
+test('a keep that failed part-way says how much landed, and its retry writes only the missing part', async () => {
+  assert.equal(twoParts.length, 2)
+  let robinPuts = 0
+  const api = memoryApi({ failOn: (pid) => (pid === 'robin' && ++robinPuts === 2 ? 'before' : false) })
+  const key = keepKeyFor({ draftId: 'dretry1' })
+  const r = await keepForEach({ people: [SAM, ROBIN], keep: (p) => keepFor(api)(p, key) })
+  assert.deepEqual(r.failed.map(f => [f.person.id, f.written, f.of]), [['robin', 1, 2]])
+  const again = await keepForEach({ people: r.failed.map(f => f.person), keep: (p) => keepFor(api)(p, key) })
+  assert.deepEqual(again.failed, [])
+  for (const pid of ['sam', 'robin']) {
+    const live = api.live(pid)
+    assert.equal(live.length, 2, `${pid} has ${live.length} entries, not one per part`)
+    assert.deepEqual(live.map(e => e.data.keepKey).sort(), ['dretry1:0', 'dretry1:1'])
+  }
+  assert.deepEqual(again.first.ids.length, 2, 'the retry does not count the part already there')
+})
+
+test('a write that landed but whose answer was lost is not written again by the retry', async () => {
+  const api = memoryApi({ failOn: (pid, call) => (pid === 'sam' && call === 1 ? 'after' : false) })
+  const key = keepKeyFor({})
+  assert.match(key, /^k/)
+  const r = await keepForEach({ people: [SAM, ROBIN], keep: (p) => keepFor(api)(p, key) })
+  assert.deepEqual(r.failed.map(f => f.person.id), ['sam'])
+  await keepForEach({ people: [SAM], keep: (p) => keepFor(api)(p, key) })
+  assert.equal(api.live('sam').length, 2, `sam has ${api.live('sam').length} entries`)
+  assert.equal(api.live('robin').length, 2)
+})
+
+test('a hand-built plan for several people goes in without loads', () => {
+  const loaded = { ...pres, blocks: [{ ...pres.blocks[0], items: [{ ...pres.blocks[0].items[0], sets: [{ id: 's1', reps: 5, weight: 100 }] }] }] }
+  const out = withoutLoads(loaded)
+  assert.equal(out.blocks[0].items[0].sets[0].weight, null)
+  assert.equal(out.blocks[0].items[0].sets[0].reps, 5)
+  assert.equal(loaded.blocks[0].items[0].sets[0].weight, 100, 'the editor\'s plan was changed in place')
 })
 
 let failed = 0

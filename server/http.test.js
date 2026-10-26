@@ -1080,7 +1080,7 @@ process.stdin.on('data', c => { stdin += c })
 process.stdin.on('end', () => {
   fs.appendFileSync(${JSON.stringify(RECORD)}, JSON.stringify({ argv, stdin }) + '\\n')
   const schema = argv[argv.indexOf('--json-schema') + 1] || ''
-  const out = schema.includes('"blocks"') ? { title: 'Legs', minutes: 30, why: 'because', changed: 'x', blocks: [{ name: 'Main', items: [{ kind: 'lift', name: 'Squat', sets: [{ reps: 5 }] }] }] }
+  const out = schema.includes('"blocks"') ? { title: 'Legs', minutes: 30, why: 'because', changed: 'x', blocks: [{ name: 'Main', items: [{ kind: 'lift', name: 'Squat', sets: [{ reps: 5, weight: 135 }] }] }] }
     : { reply: 'hello' }
   process.stdout.write(JSON.stringify({ structured_output: out, model: 'fake' }))
 })
@@ -1229,6 +1229,192 @@ process.stdin.on('end', () => {
     ok(!(await (await get(`${three.base}/api/plan/drafts`, ownerH())).json()).drafts.some(d => d.id === draft.id),
       'a draft kept into Sam\'s log is still offered to the owner')
     eq((await postAi('/api/plan/drafts', { picked: [{ key: 'legs', label: 'Legs' }], minutes: 30, for: 'owner' }, samH())).status, 403, 'Sam drafted for the owner')
+  })
+
+  /* --------------------------------- several people at once, and a prompt alone (#59) */
+  const draftOf = async (id, h = ownerH()) => (await (await get(`${three.base}/api/plan/drafts/${id}`, h)).json()).draft
+  const readyDraft = (id, label) => waitFor(async () => { const d = await draftOf(id); return d.status === 'ready' && d }, label)
+
+  const denyOf = (r) => argOf(r, '--disallowedTools').split(',')
+  const setsOf = (pres) => pres.blocks.flatMap(b => b.items).flatMap(i => i.sets)
+
+  await step('plan together: you and Sam is the owner\'s run, told about both; by rule it reads no one else\'s space and writes no loads', async () => {
+    const r = await postAi('/api/plan/drafts', { picked: [], goal: 'a lift day together', minutes: 45, for: ['owner', 'sam'] }, ownerH())
+    eq(r.status, 200)
+    const { draft } = await r.json()
+    eq([draft.for, draft.people], [null, [{ id: 'owner', name: 'Alex', owner: true }, { id: 'sam', name: 'Sam' }]])
+    ok(fs.existsSync(path.join(D, 'drafts', `${draft.id}.json`)), 'the group draft is not the owner\'s')
+    const ready = await readyDraft(draft.id, 'the group draft')
+    const run = lastRun()
+    const prompt = promptOf(run)
+    const deny = denyOf(run)
+    eq(addDirsOf(run).includes(SAM_DIR), false, 'the group run was given Sam\'s space')
+    ok(addDirsOf(run).includes(D), 'the group run is not the owner\'s')
+    for (const want of [`Read(${rule(path.join(D, 'users'))})`, `Read(${rule(path.join(D, 'users'))}/**)`]) {
+      ok(deny.includes(want), `no deny for ${want}: everyone's space is readable`)
+    }
+    ok(!deny.includes(`Read(${rule(D)}/state.json*)`) && !deny.includes(`Read(${rule(D)}/**)`), 'the owner\'s own log is denied to the owner\'s run')
+    ok(!argOf(run, '--allowedTools').match(/Edit\(|Write\(/) && deny.includes('Bash'), 'the group run may write or has a shell')
+    for (const want of ['OWNER-NOTES', 'SAM-NOTES', 'Alex and Sam', 'MORE THAN ONE PERSON', path.join(D, 'state.json')]) {
+      ok(prompt.includes(want), `the group prompt lacks ${want}`)
+    }
+    ok(!prompt.includes(path.join(SAM_DIR, 'state.json')), 'the group prompt points at Sam\'s log')
+    // The fake model wrote a weight; a shared plan carries none.
+    ok(setsOf(ready.pres).every(x => !('weight' in x)), `a group plan kept a load: ${JSON.stringify(setsOf(ready.pres))}`)
+    // A revision of it is the same group run, and keeps no loads either.
+    eq((await postAi(`/api/plan/drafts/${draft.id}/revise`, { message: 'shorter' }, ownerH())).status, 200)
+    const revised = await waitFor(async () => { const d = await draftOf(draft.id); return d.status === 'ready' && d.pres.thread.length === 2 && d }, 'the group revision')
+    ok(promptOf(lastRun()).includes('SAM-NOTES') && denyOf(lastRun()).includes(`Read(${rule(path.join(D, 'users'))}/**)`), 'the revision forgot Sam, or may read Sam\'s space')
+    ok(setsOf(revised.pres).every(x => !('weight' in x)), 'a group revision kept a load')
+    // One person's run keeps the loads the model wrote.
+    const one = await (await postAi('/api/plan/workout', { kinds: ['legs'], minutes: 30 }, ownerH())).json()
+    eq(setsOf(one.plan)[0].weight, 135, 'the owner\'s own plan lost its load')
+  })
+
+  await step('plan together: others only reads nobody\'s data by rule; refused to anyone else, acting, or an unknown', async () => {
+    eq((await postAi('/api/plan/workout', { kinds: ['legs'], minutes: 30, for: ['sam', 'robin'] }, ownerH())).status, 200)
+    const run = lastRun()
+    const prompt = promptOf(run)
+    const deny = denyOf(run)
+    for (const never of ['OWNER-NOTES', BRAIN, 'whoop.json', 'strava.json', path.join(D, 'state.json')]) ok(!prompt.includes(never), `others-only mentions ${never}`)
+    ok(prompt.includes('Sam and Robin'), 'others-only does not name them')
+    eq(addDirsOf(run), [], 'others-only was handed a directory')
+    for (const want of [`Read(${rule(D)}/state.json*)`, `Read(${rule(D)}/whoop.json*)`, `Read(${rule(D)}/strava.json*)`,
+      `Read(${rule(D)}/drafts/**)`, `Read(${rule(SAM_DIR)}/**)`, `Read(${rule(path.join(D, 'users', 'robin'))}/**)`,
+      `Read(${rule(path.join(D, 'users'))}/**)`, `Read(${rule(D)}/**)`, `Read(${rule(BRAIN)})`, `Read(${rule(path.dirname(BRAIN))}/**)`]) {
+      ok(deny.includes(want), `others-only: no deny for ${want}`)
+    }
+    ok(deny.includes('Bash') && !argOf(run, '--allowedTools').match(/Edit\(|Write\(/), 'others-only may write or has a shell')
+    eq((await postAi('/api/plan/workout', { kinds: ['legs'], minutes: 30, for: ['sam', 'robin'] }, samH())).status, 403, 'Sam planned for a group')
+    eq((await postAi('/api/plan/drafts', { picked: [{ key: 'legs', label: 'Legs' }], minutes: 30, for: ['owner', 'sam'] }, samH())).status, 403, 'Sam drafted for a group')
+    eq((await postAi('/api/plan/workout', { kinds: ['legs'], minutes: 30, for: ['owner', 'sam'] }, as('alex@example.com', { cookie: 'bushido_as=sam' }))).status, 409, 'a group while acting')
+    eq((await postAi('/api/plan/workout', { kinds: ['legs'], minutes: 30, for: ['owner', 'nobody'] }, ownerH())).status, 404)
+  })
+
+  await step('prompt only: what they wrote is enough, with no kind, and a draft is labelled by it', async () => {
+    eq((await postAi('/api/plan/drafts', { picked: [], goal: '', minutes: 30 }, ownerH())).status, 400, 'nothing at all was accepted')
+    eq((await postAi('/api/plan/workout', { kinds: [], minutes: 30 }, ownerH())).status, 400)
+    eq((await postAi('/api/plan/workout', { goal: 'an easy spin', minutes: 30 }, ownerH())).status, 200, 'a prompt alone was refused')
+    const r = await postAi('/api/plan/drafts', { goal: 'legs, then twenty minutes easy on the bike', minutes: 50 }, ownerH())
+    eq(r.status, 200)
+    const { draft } = await r.json()
+    eq([draft.picked, draft.ask.kinds, draft.ask.goal], [[], [], 'legs, then twenty minutes easy on the bike'])
+    ok(/^legs, then twenty minutes easy on the bike/.test(draft.ask.label), `the label is ${draft.ask.label}`)
+    const done = await readyDraft(draft.id, 'the prompt-only draft')
+    ok(lastRun().stdin.includes('did not pick a kind'), 'the model was not told to choose the blocks')
+    ok(lastRun().stdin.includes('legs, then twenty minutes easy on the bike'), 'what they wrote did not reach the model')
+    eq(done.pres.ask.kinds, [])
+  })
+
+  await step('an old draft for Sam (a single `for`, no `people`) reopens, and its runs are still Sam\'s', async () => {
+    const id = 'dold59draft'
+    const at = new Date().toISOString()
+    fs.writeFileSync(path.join(D, 'drafts', `${id}.json`), JSON.stringify({
+      id, createdAt: at, updatedAt: at, status: 'ready', error: null,
+      picked: [{ key: 'legs', label: 'Legs', prompt: 'a leg day' }],
+      ask: { kinds: ['a leg day'], label: 'Legs', minutes: 30, goal: '' }, context: '',
+      for: { id: 'sam', name: 'Sam' },
+      pres: { title: 'Legs', minutes: 30, why: 'w', blocks: [{ name: 'Main', items: [] }], ask: null, thread: [] }, run: null,
+    }))
+    const listed = (await (await get(`${three.base}/api/plan/drafts`, ownerH())).json()).drafts.find(d => d.id === id)
+    ok(listed, 'the old draft is not listed')
+    eq([listed.for, listed.people], [{ id: 'sam', name: 'Sam' }, undefined])
+    eq((await postAi(`/api/plan/drafts/${id}/revise`, { message: 'shorter' }, ownerH())).status, 200)
+    await readyDraft(id, 'the old draft\'s revision')
+    assertSamRun(lastRun(), 'an old draft for Sam')
+  })
+
+  await step('plan together: keeping it puts it in the owner\'s log and shares it with Sam, synced, through the shared-workout path', async () => {
+    const { pathToFileURL } = require('url')
+    const lib = (f) => import(pathToFileURL(path.join(__dirname, '..', 'app', 'src', 'lib', f)).href)
+    const { placeEntries, plannedItems, shareKept } = await lib('trainer.js')
+    const { splitPrescription, normalizePrescription } = await lib('prescription.js')
+    const content = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'content', 'starter.json'), 'utf8'))
+    const liftField = content.dailyMenu.flatMap(o => o.outputs || []).find(f => f.type === 'lifts')
+    const r = await postAi('/api/plan/drafts', { picked: [{ key: 'legs', label: 'Legs' }], minutes: 45, for: ['owner', 'sam'] }, ownerH())
+    const ready = await readyDraft((await r.json()).draft.id, 'the draft to keep')
+    const pres = { ...normalizePrescription(ready.pres, { liftField }), draftId: ready.id }
+    const day = '2026-10-26'
+    const mine = placeEntries({ menu: content.dailyMenu, onDay: [], items: plannedItems(splitPrescription(pres)), date: day, today: day })
+    const ownerFileNow = () => JSON.parse(fs.readFileSync(path.join(D, 'state.json'), 'utf8')).state.entries
+    const samFileNow = () => JSON.parse(fs.readFileSync(path.join(SAM_DIR, 'state.json'), 'utf8')).state.entries
+    const people = `${three.base}/api/people/sam/entry`
+    const call = async (url, init) => { const res = await get(url, init); const b = await res.json(); if (!res.ok) throw Object.assign(new Error(b.error), { code: b.code }); return b }
+    const save = (entry) => get(`${three.base}/api/entry`, { method: 'POST', headers: { ...json, ...ownerH().headers }, body: JSON.stringify({ entry: { ...entry, updatedAt: new Date().toISOString() } }) })
+    const api = {
+      getPersonDay: async (_, date) => (await call(`${people}?date=${date}`, ownerH())).entries,
+      getPersonEntry: async (_, id) => (await call(`${people}?id=${id}`, ownerH())).entry,
+      putPersonEntry: async (_, entry) => (await call(people, { method: 'POST', headers: { ...json, ...ownerH().headers },
+        body: JSON.stringify({ entry: { ...entry, updatedAt: new Date().toISOString() } }) })).entry,
+    }
+    for (const e of mine) eq((await save(e)).status, 200)
+    const saves = []
+    const out = await shareKept({ entries: mine, people: [{ id: 'sam', name: 'Sam' }], menu: content.dailyMenu,
+      owner: { id: 'owner', name: 'Alex' }, api, save: (e) => saves.push(save(e)) })
+    await Promise.all(saves)
+    eq(out.failed, [])
+    const id = mine[0].id
+    const ownerSide = ownerFileNow()[id]
+    eq(ownerSide.data.sharedWith, [{ id: 'sam', entryId: id, sync: true }], 'the owner\'s entry does not name Sam with sync on')
+    eq(ownerSide.data.plan.draftId, ready.id, 'the owner\'s entry lost the draft id')
+    const samSide = samFileNow()[id]
+    ok(samSide && !samSide.deleted, 'Sam has no copy')
+    eq([samSide.data.done, samSide.data.sharedFrom, samSide.data.plan.draftId], [false, { id: 'owner', name: 'Alex' }, undefined])
+    const uids = (e) => e.data.plan.blocks.flatMap(b => b.items).map(i => i.uid)
+    ok(uids(ownerSide).every(Boolean), 'the owner\'s exercises have no uids')
+    eq(uids(samSide), uids(ownerSide), 'the two sides are not one synced structure')
+    // Kept: the draft is retired by the owner's entry.
+    ok(!(await (await get(`${three.base}/api/plan/drafts`, ownerH())).json()).drafts.some(d => d.id === ready.id), 'a kept group draft is still offered')
+  })
+
+  await step('plan together: "Try again" for others only never writes a part twice, part-way or with a lost answer', async () => {
+    const { pathToFileURL } = require('url')
+    const lib = (f) => import(pathToFileURL(path.join(__dirname, '..', 'app', 'src', 'lib', f)).href)
+    const { keepPlanFor, keepForEach, keepKeyFor } = await lib('trainer.js')
+    const { splitPrescription } = await lib('prescription.js')
+    const content = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'content', 'starter.json'), 'utf8'))
+    const [c1, c2] = content.quotaCategories.map(c => c.key)
+    const set = (o) => ({ id: 's', reps: null, weight: null, seconds: null, distance: null, restSec: null, unit: null, note: '', ...o })
+    const pres = { title: 'Two parts', minutes: 50, why: '', notes: [], blocks: [
+      { id: 'b0', name: 'One', note: '', category: c1, activity: null, items: [{ id: 'b0i0', kind: 'lift', name: 'Squat', exercise: 'squat', implement: null, unit: null, note: '', sets: [set({ id: 'b0i0s0', reps: 5 })] }] },
+      { id: 'b1', name: 'Two', note: '', category: c2, activity: null, items: [{ id: 'b1i0', kind: 'interval', name: 'Easy', exercise: null, implement: null, unit: null, note: '', sets: [set({ id: 'b1i0s0', seconds: 600 })] }] },
+    ] }
+    const parts = splitPrescription(pres)
+    eq(parts.length, 2, 'the plan is not two parts')
+    const day = '2026-10-27'
+    const people = (pid) => `${three.base}/api/people/${pid}/entry`
+    const call = async (url, init) => { const res = await get(url, init); const b = await res.json(); if (!res.ok) throw new Error(b.error); return b }
+    const real = {
+      getPersonDay: async (pid, date) => (await call(`${people(pid)}?date=${date}`, ownerH())).entries,
+      getPersonEntry: async (pid, id) => (await call(`${people(pid)}?id=${id}`, ownerH())).entry,
+      putPersonEntry: async (pid, entry) => (await call(people(pid), { method: 'POST', headers: { ...json, ...ownerH().headers },
+        body: JSON.stringify({ entry: { ...entry, updatedAt: new Date().toISOString() } }) })).entry,
+    }
+    const keepWith = (api, key) => (person) => keepPlanFor({ person, parts, menu: content.dailyMenu, date: day, owner: { id: 'owner', name: 'Alex' }, api, key })
+    const onDay = (dir, key) => Object.values(JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')).state.entries)
+      .filter(e => !e.deleted && e.date === day && String(e.data?.keepKey || '').startsWith(`${key}:`))
+    const ROBIN_DIR = path.join(D, 'users', 'robin')
+    const SAM_P = { id: 'sam', name: 'Sam' }
+    const ROBIN_P = { id: 'robin', name: 'Robin' }
+
+    // Robin's second part does not get there.
+    const k1 = keepKeyFor({ draftId: 'dhttpretry1' })
+    let robinPuts = 0
+    const flaky = { ...real, putPersonEntry: async (pid, e) => { if (pid === 'robin' && ++robinPuts === 2) throw new Error('offline'); return real.putPersonEntry(pid, e) } }
+    const r = await keepForEach({ people: [SAM_P, ROBIN_P], keep: keepWith(flaky, k1) })
+    eq(r.failed.map(f => [f.person.id, f.written, f.of]), [['robin', 1, 2]], 'Robin\'s part-way keep is not reported as such')
+    await keepForEach({ people: [ROBIN_P], keep: keepWith(real, k1) })
+    eq(onDay(ROBIN_DIR, k1).length, 2, 'Robin does not have exactly one entry per part after the retry')
+    eq(onDay(SAM_DIR, k1).length, 2, 'Sam does not have one entry per part')
+
+    // Sam's write lands; the answer is lost.
+    const k2 = keepKeyFor({ draftId: 'dhttpretry2' })
+    let samPuts = 0
+    const lossy = { ...real, putPersonEntry: async (pid, e) => { const out = await real.putPersonEntry(pid, e); if (pid === 'sam' && ++samPuts === 1) throw new Error('timeout'); return out } }
+    const r2 = await keepForEach({ people: [SAM_P, ROBIN_P], keep: keepWith(lossy, k2) })
+    eq(r2.failed.map(f => f.person.id), ['sam'])
+    await keepForEach({ people: [SAM_P], keep: keepWith(real, k2) })
+    eq(onDay(SAM_DIR, k2).length, 2, 'a lost answer\'s retry wrote Sam\'s part again')
   })
 
   await three.stop()

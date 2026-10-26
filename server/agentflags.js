@@ -110,9 +110,11 @@ const OWNER_FILES = ['state.json*', 'coach.json*', 'plan.json*', 'whoop.json*', 
   'users.json*', 'about.json*']
 const OWNER_DIRS = ['coach', 'backups', 'drafts', 'users']
 
-function denyOthersReads({ repoRoot, dataDir, person, ownerSources = [], home = os.homedir() }) {
-  if (!person?.dir) return []
-  const mine = path.resolve(person.dir)
+function denyOthersReads({ repoRoot, dataDir, person, ownerSources = [], nobody = false, home = os.homedir() }) {
+  if (!person?.dir && !nobody) return []
+  // `nobody`: a run whose people's data all arrives as context (a group without
+  // the owner, #59), so there is no space of its own to leave readable.
+  const mine = nobody ? null : path.resolve(person.dir)
   const dirs = [...new Set([path.join(repoRoot, 'data'), dataDir].filter(Boolean).map(d => path.resolve(d)))]
   const rules = []
   const both = (p) => { rules.push(`Read(${rulePath(p)})`, `Read(${rulePath(p)}/**)`) }
@@ -125,6 +127,8 @@ function denyOthersReads({ repoRoot, dataDir, person, ownerSources = [], home = 
       const theirs = path.resolve(d, 'users', id)
       if (theirs !== mine) both(theirs)
     }
+    // Nobody's space is readable, so every one of them goes, including people added later.
+    if (nobody) { both(path.join(d, 'users')); both(d) }
   }
   for (const src of ownerSources.filter(Boolean)) {
     const p = path.resolve(src)
@@ -132,13 +136,25 @@ function denyOthersReads({ repoRoot, dataDir, person, ownerSources = [], home = 
     // or one containing their space or the repo) would deny what they need with it,
     // so only the path itself is denied. A file is a path either way.
     const isFile = (() => { try { return fs.statSync(p).isFile() } catch { return false } })()
-    if (isFile || tooBroad(p, home) || contains(p, mine) || contains(p, repoRoot)) {
+    if (isFile || tooBroad(p, home) || (mine && contains(p, mine)) || contains(p, repoRoot)) {
       rules.push(`Read(${rulePath(p)})`)
       continue
     }
     both(p)
   }
   return [...new Set(rules)]
+}
+
+/*
+ * THE OWNER'S RUN FOR SEVERAL PEOPLE (#59, `noPeople`). The owner's own files
+ * stay readable, as on any owner run, but no one else's space is: what the run
+ * knows about the others is what the server put in the prompt and the app sent
+ * as context. Without the owner in the group it is a `nobody` run instead.
+ */
+function denyPeopleReads({ repoRoot, dataDir, noPeople = false }) {
+  if (!noPeople) return []
+  const dirs = [...new Set([path.join(repoRoot, 'data'), dataDir].filter(Boolean).map(d => path.resolve(d)))]
+  return dirs.flatMap(d => [`Read(${rulePath(path.join(d, 'users'))})`, `Read(${rulePath(path.join(d, 'users'))}/**)`])
 }
 
 /**
@@ -148,16 +164,16 @@ function denyOthersReads({ repoRoot, dataDir, person, ownerSources = [], home = 
  * `person` ({ dir }) marks a run for someone other than the owner: no brain file,
  * and their own space is the only part of the data dir passed with --add-dir.
  */
-function scope({ repoRoot, dataDir, brainFile, person = null, home = os.homedir() }) {
+function scope({ repoRoot, dataDir, brainFile, person = null, nobody = false, home = os.homedir() }) {
   const refused = []
   const ok = (dir, why) => {
     if (!dir) return null
     if (tooBroad(dir, home)) { refused.push(`${why} ${dir}: the root, the home directory or an ancestor of it`); return null }
     return path.resolve(dir)
   }
-  if (person) brainFile = null
+  if (person || nobody) brainFile = null
   const brainDir = brainFile ? ok(path.dirname(brainFile), 'brain directory') : null
-  const ownData = person
+  const ownData = nobody ? null : person
     ? ok(person.dir, 'their space')
     : dataDir && path.resolve(dataDir) !== path.resolve(repoRoot, 'data') ? ok(dataDir, 'data directory') : null
   const reads = [brainDir, ownData]
@@ -177,9 +193,9 @@ function plannerFlags(o) {
       ...ISOLATION,
       ...reads.flatMap(d => ['--add-dir', d]),
       '--allowedTools', ['Read', 'Grep', 'Glob'].join(','),
-      '--disallowedTools', ['Bash', 'Edit', 'Write', 'NotebookEdit', 'Task', 'WebSearch', 'WebFetch', ...denyReads(o), ...denyOthersReads(o), ...denyWrites(o)].join(','),
+      '--disallowedTools', ['Bash', 'Edit', 'Write', 'NotebookEdit', 'Task', 'WebSearch', 'WebFetch', ...denyReads(o), ...denyOthersReads(o), ...denyPeopleReads(o), ...denyWrites(o)].join(','),
     ],
   }
 }
 
-module.exports = { plannerFlags, tooBroad, denyReads, denyWrites, denyOthersReads, ISOLATION, DATA_SECRETS }
+module.exports = { plannerFlags, tooBroad, denyReads, denyWrites, denyOthersReads, denyPeopleReads, ISOLATION, DATA_SECRETS }

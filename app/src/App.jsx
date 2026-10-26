@@ -17,7 +17,7 @@ import { splitPrescription } from './lib/prescription.js'
 import { ActivityChooser, activityFieldOf } from './picker.jsx'
 import { QuickLog } from './quicklog.jsx'
 import { outWith } from './lib/unlogged.js'
-import { placeEntries, planPeople, keepPlanFor, toneFor } from './lib/trainer.js'
+import { placeEntries, planPeople, keepPlanFor, toneFor, plannedItems, shareKept } from './lib/trainer.js'
 import { PersonDay } from './trainer.jsx'
 import * as peopleApi from './lib/peopleapi.js'
 import { Modal } from './modal.jsx'
@@ -307,7 +307,8 @@ export default function App() {
    * with it — so both default to true. Keeping a plan is not: writing a workout
    * down and starting it are two decisions, and the flow stays up to ask which.
    */
-  const placeAll = (items, { open = true, close = true, date = localIso() } = {}) => {
+  const placeAll = (items, opts) => placeWritten(items, opts).map(e => e.id)
+  const placeWritten = (items, { open = true, close = true, date = localIso() } = {}) => {
     /*
      * The ids and the entry shape are `placeEntries` (lib/trainer.js), the same
      * function the owner planning for someone else runs against THEIR day, so
@@ -321,7 +322,7 @@ export default function App() {
     if (close) setFab(null)
     if (open && written[0]) setOpenEntryId(written[0].id)
     setTab('today')
-    return written.map(e => e.id)
+    return written
   }
 
   /**
@@ -376,19 +377,8 @@ export default function App() {
    * "start it now" opens.
    */
   const keepPlan = (pres) => {
-    const ids = placeAll(
-      splitPrescription(pres).map(part => ({
-        optId: 'planned',
-        data: {
-          name: part.pres.title,
-          minutes: part.pres.minutes || null,
-          plan: part.pres,
-          out: {
-            ...(part.activity ? { activity: part.activity } : {}),
-            ...(part.category ? { category: part.category } : {}),
-          },
-        },
-      })),
+    const entries = placeWritten(
+      plannedItems(splitPrescription(pres)),
       {
         // They land on the day, but nothing opens: the planner's last screen asks
         // whether to go back, plan another or start now. Planning at eight for a
@@ -396,7 +386,8 @@ export default function App() {
         // timer was the app assuming the answer to a question it never asked.
         open: false, close: false,
       })
-    return { ids, count: ids.length, first: ids[0] || null }
+    const ids = entries.map(e => e.id)
+    return { ids, count: ids.length, first: ids[0] || null, entries }
   }
 
   /*
@@ -406,9 +397,18 @@ export default function App() {
    * endpoints, with the same ids their own "+" would mint against their day.
    */
   const people = planPeople(me)
-  const keepPlanForPerson = (person, pres) => keepPlanFor({
+  const keepPlanForPerson = (person, pres, key = null) => keepPlanFor({
     person, parts: splitPrescription(pres), menu: plan?.dailyMenu || [], date: localIso(),
-    owner: { id: me.real.id, name: me.real.name }, api: peopleApi,
+    owner: { id: me.real.id, name: me.real.name }, api: peopleApi, key,
+  })
+  /*
+   * You and others (#59): the entries just kept, shared with each of them, sync
+   * on, through the same `addPerson` as "With …" on the sheet. Each updated entry
+   * of yours is written through your own store.
+   */
+  const shareKeptWith = (others, kept) => shareKept({
+    entries: kept, people: others, menu: plan?.dailyMenu || [],
+    owner: { id: me.real.id, name: me.real.name }, api: peopleApi, save: store.upsertEntry,
   })
   const [personView, setPersonView] = useState(null) // { person, entryId } — their week, opened from the planner
 
@@ -558,7 +558,7 @@ export default function App() {
       {fab === 'plan' && (
         <PlanFlow plan={plan} entries={store.entries} iso={localIso()}
           onKeep={keepPlan} onStart={startPlanned} onClose={() => setFab(null)}
-          people={people} onKeepFor={keepPlanForPerson}
+          people={people} onKeepFor={keepPlanForPerson} onShareWith={shareKeptWith}
           onStartFor={(person, entryId) => {
             setFab(null)
             setPersonView({ person: { ...person, tone: toneFor(people, person.id) }, entryId })

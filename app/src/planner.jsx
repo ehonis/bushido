@@ -1,13 +1,15 @@
 /*
- * Plan a workout — the four screens between "+" and a session with the sets
+ * Plan a workout — the screens between "+" and a session with the sets
  * already written in.
  *
- * Pick a kind (legs, say), then say how much time there is and what the session
- * is for; the planner reads what it already has (recent sessions, current
- * health/vitals) and writes a followable workout, sets included.
+ * Say what you want to do, in your own words ("legs, then twenty minutes easy
+ * on the bike"), and how long there is; the planner reads what it already has
+ * (recent sessions, current health/vitals) and writes a followable workout,
+ * sets included. Kinds from the list are optional chips under the box since
+ * #59: a sentence is a brief on its own, and the model picks the blocks.
  *
- * So: WHAT, then HOW LONG and WHY, then it goes and reads, then the user edits
- * it and keeps it. Three things about the shape are load-bearing.
+ * So: WHAT and HOW LONG on one screen, then it goes and reads, then the user
+ * edits it and keeps it. Three things about the shape are load-bearing.
  *
  * **The kinds are content.** `plan.json` → `plannerKinds`. A list of the things
  * the user might plan is a list that is wrong the day it ships, and "add Shoulders"
@@ -29,11 +31,10 @@
  * offers, and the draft is discarded once it is kept.
  *
  * **AND THERE ARE TWO ROUTES THROUGH IT**: the user either builds the workout
- * themselves by picking exercises, or has the model write it. The fork is on the
- * FIRST screen, under the kinds, because what
- * the user is doing is the same question either way and how it gets written down is the
- * next one — and because a route step in front of it would put a tap between the
- * + button and the thing that was already there.
+ * themselves by picking exercises, or has the model write it. With the model on
+ * offer the first screen is the model's (one box, one button), and "Build it
+ * myself" under it opens the kinds, which the hand-built route still needs to
+ * name its blocks. Without the model, the kinds are the first screen.
  *
  * What the two share is everything after the fork: `blankPrescription` makes the
  * same object the model's JSON normalises into, so the editor, the split, the
@@ -64,7 +65,11 @@ import { ExerciseSection } from './exercises.jsx'
 import { useWhoop, readinessFor } from './lib/whoop.jsx'
 import { usePlan } from './lib/planctx.jsx'
 import { currentMe } from './lib/whoami.js'
-import { ForChoice, ForLine, usePersonLog } from './trainer.jsx'
+import { ForChoice, ForLine, usePeopleLogs } from './trainer.jsx'
+import {
+  FOR_ME, forOf, forWords, whoOfDraft, isGroup, forSomeoneElse, namesOf, keepForEach, keepKeyFor, withoutLoads,
+} from './lib/trainer.js'
+import { groupContext } from './lib/plannerapi.js'
 
 /** The `type: "lifts"` field spec, which carries the exercise catalog. */
 export function liftFieldOf(plan) {
@@ -79,22 +84,33 @@ const DEFAULT_MINUTES = [20, 30, 45, 60, 75, 90]
 /* ------------------------------------------------------------------ flow */
 
 /*
- * `people`, `onKeepFor`, `onStartFor`: the owner planning for someone else on
- * the install (trainer.jsx, lib/trainer.js). `people` is `planPeople(me)`, empty
- * for anyone but the owner, while acting and with one person, and then nothing
- * here changes. With someone picked, the model runs on THEIR log, plan and About
- * you (the server's `for`), the editor's "last time" is theirs, and keeping it
- * writes into their log through `onKeepFor`; still only on the tap (§0.4).
+ * `people`, `onKeepFor`, `onShareWith`, `onStartFor`: the owner planning for
+ * other people on the install (trainer.jsx, lib/trainer.js). `people` is
+ * `planPeople(me)`, empty for anyone but the owner, while acting and with one
+ * person, and then nothing here changes.
+ *
+ * "For" is several at once since #59 (`who`, lib/trainer.js). One other person:
+ * the model runs on THEIR log, plan and About you (the server's `for`), the
+ * editor's "last time" is theirs, and keeping it writes into their log through
+ * `onKeepFor`. More than one: one run on the owner's, told about each of them,
+ * with each one's last week as context; keeping it puts it in the owner's log and
+ * shares it with the others, sync on (`onShareWith`, lib/shared.js), or, without
+ * the owner, into each of their logs. Still only on the tap (§0.4).
  */
-export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, people = [], onKeepFor = null, onStartFor = null }) {
+export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, people = [], onKeepFor = null, onShareWith = null, onStartFor = null }) {
   const minuteChips = plan?.plannerKinds?.minutes || DEFAULT_MINUTES
   const liftField = useMemo(() => liftFieldOf(plan), [plan])
-  // Who it is for: null is you. Only offered with somewhere to keep it.
-  const forPeople = onKeepFor ? people : []
-  const [target, setTarget] = useState(null)
-  const theirs = usePersonLog(target?.id || null)
-  const ctxPlan = target ? (theirs.plan || plan) : plan
-  const ctxEntries = target ? theirs.entries : entries
+  // Who it is for. Only offered with somewhere to keep it.
+  const forPeople = onKeepFor && onShareWith ? people : []
+  const [who, setWho] = useState(FOR_ME)
+  const group = isGroup(who)
+  const words = forWords(who)
+  const otherIds = who.others.map(p => p.id)
+  const theirs = usePeopleLogs(otherIds)
+  const logOf = (id) => theirs.logs[id] || { entries: [], plan: null }
+  // The editor's "last time" and categories: the owner's when the owner is in it, else the first person's.
+  const ctxPlan = who.me ? plan : (logOf(otherIds[0]).plan || plan)
+  const ctxEntries = who.me ? entries : logOf(otherIds[0]).entries
 
   /*
    * The two things the app already knows, gathered here rather than passed in.
@@ -107,14 +123,18 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
   const { cache: whoopCache } = useWhoop()
   // WHOOP is the owner's: someone else's plan is told nothing about recovery,
   // exactly as on an install without it (§7: absent data means no section).
-  const readiness = useMemo(() => (target ? null : readinessFor(whoopCache, iso)), [whoopCache, iso, target])
+  const readiness = useMemo(() => (who.me ? readinessFor(whoopCache, iso) : null), [whoopCache, iso, who.me])
 
-  // kind | ask | working | review | failed | kept, plus `build` — the hand-built
-  // route, which reaches the same editor from the same kinds with no model in it.
-  const [step, setStep] = useState('kind')
+  // start | working | review | failed | kept, plus `kind` and `build` — the
+  // hand-built route, which reaches the same editor from the kinds with no model
+  // in it. `start` is the model's first screen; without the model, `kind` is.
+  const [step, setStep] = useState(() => (aiOffered(currentMe().features) ? 'start' : 'kind'))
   const [keptId, setKeptId] = useState(null)   // the entry "start it" would open
   const [keptCount, setKeptCount] = useState(1)
-  const [keptFor, setKeptFor] = useState(null)  // the person it went to, or null for you
+  const [keptWho, setKeptWho] = useState(FOR_ME)  // who it went to
+  const [keptFailed, setKeptFailed] = useState([])  // who it could not be written or shared for, and why
+  const [keptPlan, setKeptPlan] = useState(null)  // others only, kept for some of them: what "Try again" writes
+  const [keptKey, setKeptKey] = useState(null)    // …and the key that keeps it from writing a part twice
   const [saving, setSaving] = useState(false)
   // A LIST since 2026-09-17: one gym trip often covers several kinds, and
   // picking them all up front means the model is told about every one of them.
@@ -142,6 +162,7 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
    */
   const [aiRefused, setAiRefused] = useState(false)
   const ai = aiOffered(currentMe().features) && !aiRefused
+  const first = ai ? 'start' : 'kind'
   const { drafts: listed, upsert, drop } = useDrafts(ai)
   /*
    * Kept ONCE. A draft whose id is already on an entry in the log (this device
@@ -149,7 +170,7 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
    * day: it is not offered, and its discard is tried again here, because the
    * one fired when it was kept may never have reached the server.
    */
-  const placed = useMemo(() => placedDraftIds(entries, target ? theirs.entries : []), [entries, target, theirs.entries])
+  const placed = useMemo(() => placedDraftIds(entries, ...Object.values(theirs.logs).map(l => l.entries)), [entries, theirs.logs])
   const drafts = useMemo(() => unplacedDrafts(listed, placed), [listed, placed])
   useEffect(() => {
     for (const d of listed) {
@@ -165,6 +186,7 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
 
   const label = picked.map(k => k.label).join(' + ')
   const primary = picked[0] || null
+  const ownerId = currentMe().real?.id || 'owner'
 
   const enter = useCallback((d) => {
     synced.current = draftKey(d)
@@ -219,13 +241,23 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
     setStep('working')
     setError(null)
     const replacing = draftId
+    /*
+     * Several people: each one's last week under their name, from their own log,
+     * and only the owner's WHOOP. The model reads no one's log but the owner's.
+     */
+    const context = group
+      ? groupContext({ iso, people: [
+          ...(who.me ? [{ name: currentMe().real?.name || 'You', readiness, plan, entries }] : []),
+          ...who.others.map(p => ({ name: p.name, plan: logOf(p.id).plan || plan, entries: logOf(p.id).entries })),
+        ] })
+      : plannerContext({ readiness, plan: ctxPlan, entries: ctxEntries, iso })
     try {
       const d = await createDraft({
         picked,
         minutes,
         goal: goal.trim(),
-        context: plannerContext({ readiness, plan: ctxPlan, entries: ctxEntries, iso }),
-        forId: target?.id || null,
+        context,
+        forId: forOf(who, ownerId),
       })
       upsert(d)
       synced.current = draftKey(d)
@@ -235,15 +267,15 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
         discardDraft(replacing).catch(() => {})
       }
     } catch (e) {
-      // No model here after all: build it by hand, from the same picks.
+      // No model here after all: build it by hand, from the same picks (or pick some first).
       if (e.code === 'ai-not-configured') {
         setAiRefused(true)
-        return buildRef.current()
+        return picked.length ? buildRef.current() : setStep('kind')
       }
       setError(e.message)
       setStep('failed')
     }
-  }, [picked, minutes, goal, readiness, ctxPlan, ctxEntries, iso, target, draftId, upsert, drop])
+  }, [picked, minutes, goal, readiness, ctxPlan, ctxEntries, iso, who, group, theirs.logs, plan, entries, ownerId, draftId, upsert, drop]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Try a failed draft again; a draft that never got made is simply made. */
   const retry = useCallback(async (d = open) => {
@@ -262,7 +294,7 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
     setPicked(d.picked || [])
     setMinutes(d.ask?.minutes || 45)
     setGoal(d.ask?.goal || '')
-    setTarget(d.for ? (forPeople.find(p => p.id === d.for.id) || d.for) : null)
+    setWho(whoOfDraft(d, forPeople))
     setDraftId(d.id)
     enter(d)
   }
@@ -335,10 +367,10 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
   const groups = plan?.plannerKinds?.groups || []
   const oneGroup = picked.length > 0 && picked.every(k => k.group && k.group === picked[0].group)
   const groupName = oneGroup ? groups.find(g => g.key === picked[0].group)?.name : null
-  const title = step === 'kept' ? (keptFor ? `On ${keptFor.name}’s day` : 'On your day')
+  const title = step === 'kept' ? forWords(keptWho).title
     : step === 'review' ? (pres?.title || 'Your workout')
     : step === 'build' ? (pres?.title || 'Your workout')
-    : step === 'kind' ? 'Plan a workout'
+    : step === 'kind' || step === 'start' ? 'Plan a workout'
     : label ? [groupName, label].filter(Boolean).join(' · ')
     : 'Plan a workout'
 
@@ -365,43 +397,77 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
       drop(draftId)
       setDraftId(null)
       setNotice(gate.error)
-      return setStep('kind')
+      return setStep(first)
     }
-    const cleaned = { ...dropEmptyBlocks(pres), ...(draftId ? { draftId } : {}) }
-    // Kept, the draft has done its job: it goes, and the entry is what remains.
-    const done = () => {
-      if (!draftId) return
-      drop(draftId)
-      discardDraft(draftId).catch(() => {})
-      setDraftId(null)
-    }
-    if (target) {
-      // Into THEIR log, through the people endpoints. Their day is read first so
-      // the ids are the ones their own app would mint. It can fail (offline, their
-      // log moved); then nothing is claimed and the editor stays as it was.
-      try {
-        const kept = await onKeepFor(target, cleaned)
-        done()
-        setKeptId(kept?.first || null)
-        setKeptCount(kept?.count || 1)
-        setKeptFor(target)
-        setStep('kept')
-      } catch (e) {
+    // Several people: shared structure, each logs their own loads (the model's plan has none already).
+    const shaped = dropEmptyBlocks(group ? withoutLoads(pres) : pres)
+    const cleaned = { ...shaped, ...(draftId ? { draftId } : {}) }
+    if (!who.me) {
+      /*
+       * Into each of THEIR logs, through the people endpoints, one person at a
+       * time. Their day is read first so the ids are the ones their own app would
+       * mint. It can fail (offline, their log moved); if it lands nowhere nothing
+       * is claimed and the editor stays as it was. If it lands for some of them,
+       * the last screen says so, by name, and offers to try the rest again with
+       * the same plan and key, so a part already on someone's day is not written
+       * twice. That retry lives on the last screen only: the draft is retired by
+       * the server as soon as its id is in any one log (`isKept`), which is what
+       * stops a second device keeping it again.
+       */
+      const key = keepKeyFor(cleaned)
+      const r = await keepForEach({ people: who.others, keep: (person) => onKeepFor(person, cleaned, key) })
+      setSaving(false)
+      if (!r.first) {
         if (gate.claimed) claimDraft(draftId, { release: true })
-        setError(`Not on ${target.name}’s day: ${e.message}`)
-      } finally {
-        setSaving(false)
+        return setError(`Not on ${namesOf(who.others)}’s day: ${r.failed[0]?.error || 'it could not be written'}`)
       }
-      return
+      setKeptKey(key)
+      return landed(r.first, r.failed, { me: false, others: r.landed }, r.failed.length ? cleaned : null)
     }
     const kept = onKeep(cleaned)
-    done()
+    // You and others: one workout in your log, shared with each of them, sync on.
+    // Kept already; a person it could not be shared with is said on the last screen.
+    let failed = []
+    if (who.others.length) {
+      try { ({ failed } = await onShareWith(who.others, kept.entries || [])) } catch (e) {
+        failed = who.others.map(person => ({ person, error: e.message }))
+      }
+    }
     setSaving(false)
     // One planning run can land as several workouts — see splitPrescription.
+    landed(kept, failed)
+  }
+
+  // Kept, the draft has done its job: it goes, and the entry is what remains.
+  const finishDraft = () => {
+    if (!draftId) return
+    drop(draftId)
+    discardDraft(draftId).catch(() => {})
+    setDraftId(null)
+  }
+
+  /** On the day. `whoLanded` is who it is actually on; `retryPlan` is set while someone still lacks it. */
+  const landed = (kept, failed = [], whoLanded = who, retryPlan = null) => {
+    if (!retryPlan) finishDraft()
     setKeptId(kept?.first || null)
     setKeptCount(kept?.count || 1)
-    setKeptFor(null)
+    setKeptWho(whoLanded)
+    setKeptFailed(failed)
+    setKeptPlan(retryPlan)
     setStep('kept')
+  }
+
+  /** Others only: the same plan, for the people it missed. */
+  const retryKept = async () => {
+    if (saving || !keptPlan) return
+    setSaving(true)
+    const r = await keepForEach({ people: keptFailed.map(f => f.person), keep: (person) => onKeepFor(person, keptPlan, keptKey) })
+    setSaving(false)
+    const got = new Set([...keptWho.others, ...r.landed].map(p => p.id))
+    setKeptWho({ me: false, others: who.others.filter(p => got.has(p.id)) })
+    setKeptFailed(r.failed)
+    if (!keptId && r.first) { setKeptId(r.first.first || null); setKeptCount(r.first.count || 1) }
+    if (!r.failed.length) { setKeptPlan(null); finishDraft() }
   }
 
   /** Round again, from the top, with the last ask cleared. */
@@ -409,66 +475,70 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
     setDraftId(null)
     setPres(null)
     setKeptId(null)
-    setKeptFor(null)
+    setKeptFailed([])
+    setKeptPlan(null)
+    setKeptKey(null)
     setPicked([])
     setCustom('')
     setGoal('')
-    setStep('kind')
+    setStep(first)
   }
 
   const back = () => {
-    if (step === 'ask') { setDraftId(null); return setStep('kind') }
+    // The kinds, reached from the model's screen by "Build it myself", go back to it.
+    if (step === 'kind' && first === 'start') return setStep('start')
     // Backing out of the builder throws away what the user typed, so it goes back to
     // the kinds rather than to a screen the user did not come from.
     if (step === 'build') return setStep('kind')
     // To the first screen, where the drafts are: a failure there is one tap from
     // its retry or its bin, and a full list (429) is one tap from making room.
-    if (step === 'failed') { setDraftId(null); return setStep('kind') }
+    if (step === 'failed') { setDraftId(null); return setStep(first) }
     // Leaving the wait cancels nothing: the draft carries on, and is listed on the
     // first screen, which is where this goes.
-    if (step === 'working') { setDraftId(null); return setStep('kind') }
+    if (step === 'working') { setDraftId(null); return setStep(first) }
     // Backing out of the "what now" screen is the same as "back to today" — the
     // workout is already on the day either way, which is what that screen says.
     onClose()
   }
 
+  // Their logs are read before anything is written for them: the context and the ids come from them.
+  const waiting = otherIds.length > 0 && !theirs.ready
+  const waitLine = theirs.error
+    ? `Could not open ${namesOf(who.others.filter(p => theirs.waitingFor.includes(p.id)))}’s log: ${theirs.error}`
+    : `Opening ${namesOf(who.others.filter(p => theirs.waitingFor.includes(p.id)))}’s log…`
+  const buildOrPick = () => (picked.length ? build() : setStep('kind'))
+
   return (
     <FullScreen
       title={title}
-      sub={step === 'review' ? prescriptionLine(pres) : step === 'ask' ? 'How long, and what for' : null}
+      sub={step === 'review' ? prescriptionLine(pres) : null}
       icon="ClipboardCheck"
       onBack={back}
     >
-      {step === 'kind' && notice && <p className="withrow-err plan-keep-err">{notice}</p>}
-      {step === 'kind' && (
+      {step === first && notice && <p className="withrow-err plan-keep-err">{notice}</p>}
+      {step === first && ai && (
         <DraftList drafts={drafts} onOpen={(d) => { setNotice(null); resume(d) }} onRetry={retry} onDiscard={discard} />
       )}
-      {step === 'kind' && <ForChoice people={forPeople} target={target} onTarget={setTarget} />}
-      {step !== 'kind' && step !== 'kept' && <ForLine person={target} people={forPeople} />}
+      {step === first && <ForChoice people={forPeople} who={who} onChange={setWho} />}
+      {step !== 'kept' && <ForLine who={who} people={forPeople} />}
 
-      {step === 'kind' && target && !theirs.ready && (
-        <p className="sub plan-for-wait">
-          {theirs.error ? `Could not open ${target.name}’s log: ${theirs.error}` : `Opening ${target.name}’s log…`}
-        </p>
+      {step === first && waiting && <p className="sub plan-for-wait">{waitLine}</p>}
+
+      {step === 'start' && (
+        <AskStep goal={goal} setGoal={setGoal} minutes={minutes} setMinutes={setMinutes} chips={minuteChips}
+          plan={plan} picked={picked} setPicked={setPicked}
+          evicts={draftId ? null : draftToEvict(drafts)} busy={waiting}
+          onGo={() => { setNotice(null); run() }} onBuild={() => { setNotice(null); setStep('kind') }} />
       )}
 
-      {step === 'kind' && (!target || theirs.ready) && (
+      {step === 'kind' && (
         <KindStep plan={plan} custom={custom} setCustom={setCustom}
-          picked={picked} setPicked={setPicked} ai={ai}
-          onNext={() => { setNotice(null); setStep('ask') }} onBuild={build} />
-      )}
-
-      {step === 'ask' && (
-        <AskStep picked={picked} minutes={minutes} setMinutes={setMinutes}
-          goal={goal} setGoal={setGoal} chips={minuteChips}
-          placeholder={plan?.plannerKinds?.goalPlaceholder}
-          evicts={draftId ? null : draftToEvict(drafts)}
-          onGo={run} />
+          picked={picked} setPicked={setPicked} busy={waiting} onBuild={build} />
       )}
 
       {step === 'working' && (
         <Working label={label} minutes={minutes} since={open?.run?.startedAt || null}
-          onDiscard={open ? () => { discard(open); setStep('kind') } : null} />
+          onDiscard={open ? () => { discard(open); setStep(first) } : null} />
       )}
 
       {step === 'failed' && (
@@ -481,10 +551,10 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
             <button className="btn" onClick={() => retry()}><Icon name="RotateCw" size={16} /> Try again</button>
             {/* Not a dead end. The box being busy is no reason not to plan the
                 session — it is only a reason to write it yourself. */}
-            <button className="btn secondary" onClick={build}>
+            <button className="btn secondary" onClick={buildOrPick}>
               <Icon name="ListPlus" size={16} /> Build it myself
             </button>
-            <button className="btn ghost" onClick={() => setStep('ask')}>Change the ask</button>
+            <button className="btn ghost" onClick={() => setStep('start')}>Change the ask</button>
             {!open && drafts.length > 0 && (
               <button className="btn ghost" onClick={back}>See your drafts</button>
             )}
@@ -497,19 +567,23 @@ export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, pe
       {step === 'build' && pres && (
         <BuildStep pres={pres} setPres={setPres} liftField={liftField} entries={ctxEntries}
           categories={ctxPlan?.quotaCategories || []}
-          onKeep={saving ? () => {} : keep} forName={target?.name || null} />
+          onKeep={saving ? () => {} : keep} words={words} />
       )}
 
       {step === 'review' && pres && (
         <ReviewStep pres={pres} setPres={setPres} liftField={liftField} entries={ctxEntries}
           categories={ctxPlan?.quotaCategories || []}
-          onRedo={() => setStep('ask')} talk={talk}
-          onKeep={saving || talk?.busy ? () => {} : keep} forId={target?.id || null} forName={target?.name || null} />
+          onRedo={() => setStep('start')} talk={talk}
+          onKeep={saving || talk?.busy ? () => {} : keep} forId={forOf(who, ownerId)} words={words} />
       )}
 
       {step === 'kept' && pres && (
-        <KeptStep pres={pres} count={keptCount} parts={splitPrescription(pres)} forName={keptFor?.name || null}
-          onStart={!keptId ? null : keptFor ? (onStartFor ? () => onStartFor(keptFor, keptId) : null) : () => onStart(keptId)}
+        <KeptStep pres={pres} count={keptCount} parts={splitPrescription(pres)} words={forWords(keptWho)} failed={keptFailed}
+          onRetry={keptPlan ? retryKept : null} retrying={saving}
+          onStart={!keptId ? null
+            : keptWho.me ? () => onStart(keptId)
+            : forSomeoneElse(keptWho) && onStartFor ? () => onStartFor(forSomeoneElse(keptWho), keptId) : null}
+          startLabel={forSomeoneElse(keptWho) ? `Open it on ${forSomeoneElse(keptWho).name}’s side` : null}
           onAnother={another}
           onDone={onClose} />
       )}
@@ -551,7 +625,13 @@ export function groupedKinds(plan) {
   return groups
 }
 
-export function KindStep({ plan, custom, setCustom, picked, setPicked, onNext, onBuild, ai = aiOffered(currentMe().features) }) {
+/*
+ * The kinds, as the hand-built route's first step: each kind becomes a named,
+ * empty block. With the model on offer this is behind "Build it myself"; without
+ * it, it is the first screen. Either way it is building it yourself, and nothing
+ * here mentions a model.
+ */
+export function KindStep({ plan, custom, setCustom, picked, setPicked, onBuild, busy = false }) {
   const groups = groupedKinds(plan)
   const at = (k) => picked.findIndex(p => p.key === k.key)
   const has = (k) => at(k) >= 0
@@ -569,8 +649,8 @@ export function KindStep({ plan, custom, setCustom, picked, setPicked, onNext, o
 
   /*
    * No paragraph (docs/DESIGN.md D7): the rows are toggles with a check, and the
-   * check carries the ORDER the user tapped them in, because the planner writes
-   * the blocks in that order — which one came first is a fact about the session.
+   * check carries the ORDER the user tapped them in, because the blocks are
+   * written in that order — which one came first is a fact about the session.
    */
   return (
     <>
@@ -591,25 +671,10 @@ export function KindStep({ plan, custom, setCustom, picked, setPicked, onNext, o
         </div>
       </section>
 
-      {/*
-        * THE FORK, and it lives here rather than on a screen of its own: what the
-        * user is doing is the same question whoever writes it down. It appears once
-        * something is picked, because until then neither button can do anything.
-        *
-        * With the model on offer, it is the primary (it is the one that goes and does
-        * something) and building it yourself is the secondary beside it. Without it
-        * (lib/whoami.js; the server's `ai-not-configured`), building it yourself is
-        * the only button and the primary, and nothing on the screen mentions a model.
-        */}
+      {/* Once something is picked, because until then there is nothing to build. */}
       {picked.length > 0 && (
-        <div className="plan-actions sticky fork">
-          {ai && (
-            <button className="btn big" onClick={onNext}>
-              <Icon name="Sparkles" size={17} />
-              Write it for me
-            </button>
-          )}
-          <button className={`btn big ${ai ? 'secondary' : ''}`} onClick={onBuild}>
+        <div className="plan-actions sticky">
+          <button className="btn big" onClick={onBuild} disabled={busy}>
             <Icon name="ListPlus" size={17} />
             Build it myself
           </button>
@@ -683,12 +748,43 @@ function KindGroup({ group: g, at, toggle }) {
 
 /* ------------------------------------------------- step: how long, what for */
 
-function AskStep({ picked, minutes, setMinutes, goal, setGoal, chips, placeholder, onGo, evicts = null }) {
-  const many = picked.length > 1
+/**
+ * "Write it for me": one box and one button (#59).
+ *
+ * What they want to do, in their own words, is the whole brief: "legs, then
+ * twenty minutes easy on the bike" is enough, and the model decides the blocks
+ * and what each one is. How long is a row of chips under it, defaulted. The kinds
+ * are still there, folded, as optional chips: a tap is quicker than typing
+ * "power endurance", and a kind tells the model exactly which card it means.
+ * "Build it myself" is a quiet door at the foot, to the kinds and the editor.
+ */
+export function AskStep({
+  goal, setGoal, minutes, setMinutes, chips = DEFAULT_MINUTES, plan = null, picked = [], setPicked,
+  onGo, onBuild = null, evicts = null, busy = false,
+}) {
+  const groups = groupedKinds(plan)
+  const has = (k) => picked.some(p => p.key === k.key)
+  const toggle = (k) => setPicked(has(k) ? picked.filter(p => p.key !== k.key) : [...picked, k])
+  const known = new Set(groups.flatMap(g => g.items.map(k => k.key)))
+  // A draft written before #59 may carry a "Something else" kind; it is shown, and can be taken off.
+  const extra = picked.filter(k => !known.has(k.key))
+  const ready = Boolean(goal.trim() || picked.length)
+  const chip = (k) => (
+    <button key={k.key} className={`out-chip ${has(k) ? 'on' : ''}`} onClick={() => toggle(k)} aria-pressed={has(k)}>
+      <Icon name={k.icon || 'Dumbbell'} size={15} /> {k.label}
+    </button>
+  )
+
   return (
     <>
+      <section className="askcanvas">
+        <label className="askcanvas-label" htmlFor="plan-ask">What do you want to do?</label>
+        <textarea id="plan-ask" className="askcanvas-box" rows={4} value={goal} onChange={e => setGoal(e.target.value)}
+          placeholder="Legs, then twenty minutes easy on the bike" />
+      </section>
+
       <section className="askblock">
-        <div className="section-head"><h3>How long{many ? ', altogether' : ''}?</h3></div>
+        <div className="section-head"><h3>How long?</h3></div>
         <div className="chiprow">
           {chips.map(m => (
             <button key={m} className={`out-chip ${minutes === m ? 'on' : ''}`}
@@ -706,12 +802,27 @@ function AskStep({ picked, minutes, setMinutes, goal, setGoal, chips, placeholde
         </div>
       </section>
 
-      <section className="askblock">
-        <div className="section-head"><h3>What do you want out of it?</h3><span className="sub">Optional</span></div>
-        <textarea className="goalbox" rows={3} value={goal} onChange={e => setGoal(e.target.value)}
-          aria-label="What do you want out of it?"
-          placeholder={placeholder || 'A niggle, a deadline, how you feel'} />
-      </section>
+      {/* Folded, so the screen is the box and the button; open when something in it is picked. */}
+      <details className="askkinds" open={picked.length > 0 || undefined}>
+        <summary className="section-head">
+          <h3>Add a kind</h3>
+          <span className="sub">{picked.length ? `${picked.length} picked` : 'Optional'}</span>
+          <Icon name="ChevronDown" size={16} className="kindgroup-chev" />
+        </summary>
+        {extra.length > 0 && <div className="chiprow askkinds-group">{extra.map(chip)}</div>}
+        {groups.map(g => (
+          <div key={g.key} className="askkinds-group" role="group" aria-label={g.name}>
+            <h4>{g.name}</h4>
+            <div className="chiprow">{g.items.map(chip)}</div>
+          </div>
+        ))}
+      </details>
+
+      {onBuild && (
+        <button className="btn quiet plan-buildself" onClick={onBuild}>
+          <Icon name="ListPlus" size={16} /> Build it myself
+        </button>
+      )}
 
       {/* At the cap, the oldest draft not being written makes room. Said before, not after. */}
       {evicts && (
@@ -721,7 +832,7 @@ function AskStep({ picked, minutes, setMinutes, goal, setGoal, chips, placeholde
       )}
 
       <div className="plan-actions sticky">
-        <button className="btn big" onClick={onGo}>
+        <button className="btn big" onClick={onGo} disabled={!ready || busy}>
           <Icon name="Sparkles" size={17} /> Write it for me
         </button>
       </div>
@@ -766,7 +877,9 @@ export function Working({ label, minutes, since = null, onDiscard = null }) {
   return (
     <div className="plan-working">
       <span className="plan-working-ico"><Icon name="Sparkles" size={28} /></span>
-      <div className="plan-working-title">Building {minutes} minutes of {label.toLowerCase()}</div>
+      <div className="plan-working-title">
+        {label ? `Building ${minutes} minutes of ${label.toLowerCase()}` : `Writing ${minutes} minutes`}
+      </div>
       <p className="plan-working-stage">{stage}</p>
       <div className="plan-working-dots"><i /><i /><i /></div>
       <p className="sub">{secs}s · You can leave; it keeps going</p>
@@ -1061,7 +1174,7 @@ const stripThread = (pres) => {
  * nobody reasoned about it. And there is no Redo, because there is nothing to
  * redo — the undo for a hand-built session is the thing you just typed.
  */
-export function BuildStep({ pres, setPres, liftField, entries = [], categories = [], onKeep, forName = null }) {
+export function BuildStep({ pres, setPres, liftField, entries = [], categories = [], onKeep, words = forWords(FOR_ME) }) {
   const sets = prescriptionSteps(pres).length
 
   return (
@@ -1075,7 +1188,7 @@ export function BuildStep({ pres, setPres, liftField, entries = [], categories =
 
       <div className="plan-actions sticky">
         <button className="btn big" disabled={!sets} onClick={onKeep}>
-          <Icon name="Plus" size={17} /> {forName ? `Put it on ${forName}’s day` : 'Put it on today'}
+          <Icon name="Plus" size={17} /> {words.keep}
         </button>
       </div>
 
@@ -1139,7 +1252,7 @@ function PieceAdder({ unit, onAdd }) {
 
 /* ------------------------------------------------------------- step: review */
 
-function ReviewStep({ pres, setPres, liftField, entries = [], categories = [], onRedo, onKeep, forId = null, forName = null, talk = null }) {
+function ReviewStep({ pres, setPres, liftField, entries = [], categories = [], onRedo, onKeep, forId = null, words = forWords(FOR_ME), talk = null }) {
   return (
     <>
       <PlanTalk pres={pres} onChange={setPres} forId={forId} draft={talk} />
@@ -1156,13 +1269,13 @@ function ReviewStep({ pres, setPres, liftField, entries = [], categories = [], o
       )}
 
       <p className="sub plan-fine">
-        Written from {forName ? `${forName}’s log` : 'your log'}. Change anything before you keep it.
+        Written from {words.from}. Change anything before you keep it.
       </p>
 
       <div className="plan-actions sticky">
         <button className="btn ghost" onClick={onRedo}><Icon name="RotateCw" size={16} /> Redo</button>
         <button className="btn big" onClick={onKeep} disabled={Boolean(talk?.busy)}>
-          <Icon name="Plus" size={17} /> {forName ? `Put it on ${forName}’s day` : 'Put it on today'}
+          <Icon name="Plus" size={17} /> {words.keep}
         </button>
       </div>
     </>
@@ -1245,13 +1358,13 @@ function BlockQuota({ categories, value, onChange }) {
  * starting it is the accent button because it is the only one that goes
  * somewhere new, and the other two are equal ways of saying "later".
  */
-export function KeptStep({ pres, count = 1, parts = [], onStart, onAnother, onDone, forName = null }) {
+export function KeptStep({ pres, count = 1, parts = [], onStart, onAnother, onDone, forName = null, words = null, failed = [], startLabel = null, onRetry = null, retrying = false }) {
   const many = count > 1
-  const where = forName ? `on ${forName}’s day` : 'on today'
+  const w = words || forWords(forName ? { me: false, others: [{ id: forName, name: forName }] } : FOR_ME)
   return (
     <div className="kept">
       <span className="kept-ico"><Icon name="CircleCheck" size={44} /></span>
-      <h2>{many ? `${count} workouts are ${where}` : `${pres.title} is ${where}`}</h2>
+      <h2>{many ? `${count} workouts are ${w.where}` : `${pres.title} is ${w.where}`}</h2>
 
       {/* Named, because "2 workouts" is not an answer to "which two". */}
       {many && (
@@ -1267,13 +1380,35 @@ export function KeptStep({ pres, count = 1, parts = [], onStart, onAnother, onDo
 
       <p className="sub">
         {many ? '' : `${prescriptionLine(pres)} · `}
-        {forName ? `Nothing has started. ${forName} can edit or log it.` : 'Nothing has started.'}
+        {w.after}
       </p>
+
+      {/* Not on everyone's day: said, by name, with where to try again. Planned for
+          others only, that is here (`onRetry`); shared from your own workout, it is
+          "With …" on its sheet. */}
+      {failed.map(f => (
+        <p key={f.person.id} className="withrow-err plan-keep-err">
+          {!onRetry ? `Not with ${f.person.name}: ${f.error}. Add ${f.person.name} from the workout’s “With …”.`
+            : f.written > 0 ? `${f.person.name} has part of it (${f.written} of ${f.of}): ${f.error}.`
+            : `Not on ${f.person.name}’s day: ${f.error}.`}
+        </p>
+      ))}
+      {onRetry && failed.length > 0 && (
+        <>
+          <button className="btn secondary plan-keep-retry" onClick={onRetry} disabled={retrying}>
+            <Icon name="RotateCw" size={16} /> Try again for {namesOf(failed.map(f => f.person))}
+          </button>
+          {/* Only here: the draft is retired once it is on anyone's day. */}
+          <p className="sub plan-fine">
+            If you close this, plan {namesOf(failed.map(f => f.person))}’s again from Plan a workout.
+          </p>
+        </>
+      )}
 
       <div className="kept-acts">
         {onStart && (
           <button className="btn big" onClick={onStart}>
-            <Icon name="Play" size={18} /> {forName ? `Open it on ${forName}’s side` : many ? 'Start the first one' : 'Start it now'}
+            <Icon name="Play" size={18} /> {startLabel || (forName ? `Open it on ${forName}’s side` : many ? 'Start the first one' : 'Start it now')}
           </button>
         )}
         <button className={`btn ${onStart ? 'secondary' : ''}`} onClick={onAnother}>

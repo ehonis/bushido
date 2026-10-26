@@ -81,6 +81,20 @@ export function weightSwitch(liftField, item, onPatch) {
   return { box: weightBoxOf(liftField, item), next: next.weightLabel, onSwitch: () => onPatch(next) }
 }
 
+/**
+ * What tapping an implement chip writes: the implement, in the mode this
+ * exercise was last logged in with it (lib/lifts.js). Null for the chip already
+ * chosen: memory is applied when an implement is picked, and a second tap on
+ * the same one must not quietly undo a switch made since.
+ */
+export function implementPick(liftField, item, impl, entries = [], entryId = null) {
+  if (!impl || impl.value === item.implement) return null
+  return {
+    implement: impl.value, implementLabel: impl.label,
+    ...weightPatch(liftField, impl.value, rememberedWeightMode(liftField, entries, item.exercise, impl.value, entryId)),
+  }
+}
+
 /** A switch's words, the last one held to the swap mark so a wrap never strands it. */
 export function SwapWords({ label, size }) {
   const words = String(label).split(' ')
@@ -266,12 +280,10 @@ export function ExerciseCard({
               {[...offered].sort((a, b) =>
                 (b.value === item.implement) - (a.value === item.implement)).map(i => (
                 <button key={i.value} className={`implchip ${item.implement === i.value ? 'on' : ''}`}
-                  onClick={() => onPatch({
-                    implement: i.value, implementLabel: i.label,
-                    // In the mode this exercise was last done in with it (lib/lifts.js).
-                    ...weightPatch(liftField, i.value,
-                      rememberedWeightMode(liftField, entries, item.exercise, i.value, entryId)),
-                  })}>
+                  onClick={() => {
+                    const patch = implementPick(liftField, item, i, entries, entryId)
+                    if (patch) onPatch(patch)
+                  }}>
                   {i.label}
                 </button>
               ))}

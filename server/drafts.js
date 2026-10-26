@@ -59,6 +59,18 @@ function cleanPicked(list) {
   })).filter(k => k.label)
 }
 
+/** The first words of what they wrote, for a draft's row when nothing was picked. */
+const clip = (s, max) => (s.length <= max ? s : `${s.slice(0, max).replace(/\s+\S*$/, '')}…`)
+
+/**
+ * Who a draft for several people is for (#59), as the SERVER resolved them:
+ * `owner: true` on the owner when the owner is doing it too. A draft for one
+ * person keeps `for`, as it always has, so an older one reopens unchanged.
+ */
+const cleanPeople = (list) => list.slice(0, 8).map(p => ({
+  id: str(p?.id, 64), name: str(p?.name, 80), ...(p?.owner ? { owner: true } : {}),
+})).filter(p => p.id)
+
 /** A prescription the app sent back (edited, or about to be revised). The thread stays the server's. */
 function cleanPres(pres, current) {
   if (!pres || typeof pres !== 'object' || !Array.isArray(pres.blocks)) throw fail(400, 'no plan to save')
@@ -251,7 +263,9 @@ function createDrafts({ max = MAX_DRAFTS, maxAgeMs = MAX_AGE_MS, now = () => Dat
   /** "Write it for me": a new draft, already working. */
   function create(dir, body, plan, opts = {}) {
     const picked = cleanPicked(body?.picked)
-    if (!picked.length) throw fail(400, 'say what kind of session')
+    const goal = str(body?.goal, 1000)
+    // Kinds are optional since #59: what they wrote is enough on its own.
+    if (!picked.length && !goal) throw fail(400, 'say what you want to do')
     const minutes = Math.min(600, Math.max(5, Number(body?.minutes) || 0))
     if (!Number(body?.minutes)) throw fail(400, 'say how long you have')
 
@@ -271,11 +285,12 @@ function createDrafts({ max = MAX_DRAFTS, maxAgeMs = MAX_AGE_MS, now = () => Dat
       picked,
       ask: {
         kinds: picked.map(k => k.prompt || k.label),
-        label: picked.map(k => k.label).join(' + '),
-        minutes, goal: str(body?.goal, 1000),
+        label: picked.map(k => k.label).join(' + ') || clip(goal, 48),
+        minutes, goal,
       },
       context: str(body?.context, 4000),
       for: body?.for ? { id: str(body.for.id, 64), name: str(body.for.name, 80) } : null,
+      ...(Array.isArray(body?.people) && body.people.length > 1 ? { people: cleanPeople(body.people) } : {}),
       pres: null, run: null,
     }
     return start(dir, draft, 'write', null, plan)

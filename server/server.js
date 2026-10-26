@@ -227,11 +227,60 @@ const aboutView = (space) => ({ ...aboutFor(space), owner: space.owner, editable
  * also denied by path (`person`, `ownerSources`; see agentflags.js). Their absence
  * renders exactly as an install that never configured them: no section at all.
  */
-function aiRun(space = OWNER_SPACE) {
+/*
+ * The owner's sources a run for anyone else is denied by path: the brain file,
+ * its directory, and the owner's own plan when it is the owner's (not the shared
+ * starter) and lives outside the data dir, which is denied wholesale anyway.
+ */
+function ownerSourcesOf(links) {
+  const f = config.planFile().file
+  return [links.brainFile, links.brainFile && path.dirname(links.brainFile),
+    f && path.resolve(f) !== path.resolve(STARTER_PLAN) ? f : null]
+}
+
+/**
+ * The content file a run is told about, and whose catalogs its answer is checked
+ * against: the space's own, or, for several people (#59), the one plan they all
+ * run on, else the starter, whose catalogs every install shares.
+ */
+function planFileFor(space, group = null) {
+  if (!group) return space.planFile().file
+  const files = [...new Set(group.map(p => {
+    const sp = p.owner ? OWNER_SPACE : users.get(p.id) ? spaceFor(users.get(p.id)) : null
+    return sp ? path.resolve(sp.planFile().file) : null
+  }))]
+  return files.length === 1 && files[0] ? files[0] : STARTER_PLAN
+}
+
+function aiRun(space = OWNER_SPACE, group = null) {
   const ai = config.ai()
   const a = aboutFor(space)
   const links = config.links()
   const own = space.owner
+  /*
+   * Several people at once (#59) is one run, never an --add-dir of anyone
+   * else's space: their names and notes go in the prompt and their last week in
+   * the context. With the owner among them it reads what an owner run reads,
+   * less every other person's space (planner.js `noPeople`, agentflags.js).
+   * Without the owner it reads nobody's data at all: the data dir, the brain and
+   * the owner's own plan are denied by rule, as for a run for one other person.
+   */
+  if (group) {
+    const withOwner = group.some(p => p.owner)
+    return {
+      ai,
+      common: {
+        bin: ai.bin, env: ai.spawnEnv(),
+        repoRoot: ROOT, dataDir: DATA_DIR, logDir: DATA_DIR,
+        brainFile: withOwner ? links.brainFile : null,
+        person: null,
+        ownerSources: withOwner ? [] : ownerSourcesOf(links),
+        measurements: withOwner,
+        name: a.name, notes: a.notes, group,
+        today: new Date().toISOString().slice(0, 10),
+      },
+    }
+  }
   return {
     ai,
     common: {
@@ -240,10 +289,7 @@ function aiRun(space = OWNER_SPACE) {
       logDir: own ? DATA_DIR : space.dir,
       brainFile: own ? links.brainFile : null,
       person: own ? null : { dir: space.dir },
-      // The owner's own plan too, when it is the owner's (not the shared starter) and lives
-      // outside the data dir, which is denied wholesale anyway.
-      ownerSources: own ? [] : [links.brainFile, links.brainFile && path.dirname(links.brainFile),
-        (() => { const f = config.planFile().file; return f && path.resolve(f) !== path.resolve(STARTER_PLAN) ? f : null })()],
+      ownerSources: own ? [] : ownerSourcesOf(links),
       measurements: own,
       name: a.name, notes: a.notes,
       today: new Date().toISOString().slice(0, 10),
@@ -266,6 +312,34 @@ function aiSpaceFor(body, ctx, space) {
   const person = users.get(id)
   if (!person) return { refused: [404, { error: 'no such person' }] }
   return { space: spaceFor(person) }
+}
+
+/**
+ * `for` as a list (#59): one plan for several people at once. One id (or a bare
+ * string, as every older client sends) is `aiSpaceFor` exactly as before. More
+ * than one is the owner's: the run is the requester's own (`aiRun(space, group)`)
+ * and `group` names each person, the owner (`owner: true`) among them when the
+ * owner is doing it too, with their About you read here, never from the request.
+ */
+function aiTargetFor(body, ctx, space) {
+  const raw = Array.isArray(body?.for) ? body.for : (body?.for ? [body.for] : [])
+  const ids = [...new Set(raw.map(x => String(x || '').trim()).filter(Boolean))].slice(0, 8)
+  if (ids.length < 2) return { ...aiSpaceFor({ for: ids[0] || null }, ctx, space), group: null }
+  if (!ctx?.real.admin) return { refused: [403, { error: 'only the owner can plan for someone else' }] }
+  if (ctx.acting) return { refused: [409, { error: 'stop logging for someone else first', code: 'acting' }] }
+  const group = []
+  for (const id of ids) {
+    if (id === space.id) {
+      const a = aboutFor(space)
+      group.push({ id, name: a.name, notes: a.notes, owner: true })
+      continue
+    }
+    const person = users.get(id)
+    if (!person) return { refused: [404, { error: 'no such person' }] }
+    const a = aboutFor(spaceFor(person))
+    group.push({ id, name: a.name, notes: a.notes, owner: false })
+  }
+  return { space, group }
 }
 
 
@@ -2105,16 +2179,18 @@ const server = http.createServer(async (req, res) => {
         .slice(0, 6)
       const minutes = Math.min(600, Math.max(5, Number(body?.minutes) || 0))
       const goal = String(body?.goal || '').trim().slice(0, 1000)
-      if (!kinds.length) return send(res, 400, { error: 'say what kind of session' })
+      // A kind OR their own words (#59): what they wrote is a brief on its own.
+      if (!kinds.length && !goal) return send(res, 400, { error: 'say what you want to do' })
       if (!minutes) return send(res, 400, { error: 'say how long you have' })
-      // `for`: the owner planning for someone else, on THEIR log, plan and About you.
-      const target = aiSpaceFor(body, ctx, space)
+      // `for`: the owner planning for someone else, on THEIR log, plan and About you,
+      // or for several people at once (a list), on the owner's.
+      const target = aiTargetFor(body, ctx, space)
       if (target.refused) return send(res, ...target.refused)
-      const { ai, common } = aiRun(target.space)
+      const { ai, common } = aiRun(target.space, target.group)
       if (!ai.installed) return send(res, 503, { error: AI_MISSING, code: 'ai-not-configured' })
 
       try {
-        const plan = planner.readPlanJson(target.space.planFile().file) || {}
+        const plan = planner.readPlanJson(planFileFor(target.space, target.group)) || {}
         const built = await planner.planWorkout({
           ...common, model: ai.plannerModel, effort: PLANNER_EFFORT,
           timeoutMs: PLANNER_TIMEOUT_MS,
@@ -2143,13 +2219,13 @@ const server = http.createServer(async (req, res) => {
       if (!current || typeof current !== 'object' || !Array.isArray(current.blocks)) {
         return send(res, 400, { error: 'no plan to revise' })
       }
-      const target = aiSpaceFor(body, ctx, space)
+      const target = aiTargetFor(body, ctx, space)
       if (target.refused) return send(res, ...target.refused)
-      const { ai, common } = aiRun(target.space)
+      const { ai, common } = aiRun(target.space, target.group)
       if (!ai.installed) return send(res, 503, { error: AI_MISSING, code: 'ai-not-configured' })
 
       try {
-        const plan = planner.readPlanJson(target.space.planFile().file) || {}
+        const plan = planner.readPlanJson(planFileFor(target.space, target.group)) || {}
         const built = await planner.planWorkout({
           ...common, model: ai.plannerModel, effort: PLANNER_EFFORT,
           timeoutMs: PLANNER_TIMEOUT_MS,
@@ -2192,7 +2268,11 @@ const server = http.createServer(async (req, res) => {
       const keptIds = new Map()
       const isKept = (draftId) => {
         const d = drafts.read(dir, draftId)
-        const owners = [space, ...(d?.for?.id && users.get(d.for.id) ? [spaceFor(users.get(d.for.id))] : [])]
+        // Its own space, and the log of everyone it was planned for: one person
+        // (`for`) or, since #59, several (`people`).
+        const others = [d?.for, ...(Array.isArray(d?.people) ? d.people : [])]
+          .map(p => p?.id && p.id !== space.id && users.get(p.id)).filter(Boolean)
+        const owners = [space, ...others.map(spaceFor)]
         return owners.some(sp => {
           if (!keptIds.has(sp.stateFile)) {
             let ids = new Set()
@@ -2202,12 +2282,14 @@ const server = http.createServer(async (req, res) => {
           return keptIds.get(sp.stateFile).has(draftId)
         })
       }
-      // Whose context a draft's runs are built on: its `for`, resolved now, for this request.
-      const targetOf = (draft) => aiSpaceFor({ for: draft?.for?.id || null }, ctx, space)
-      const runner = (target) => ({ kind, draft, message, signal }) => {
-        const { ai, common } = aiRun(target)
+      // Whose context a draft's runs are built on: its `for` (or `people`), resolved now, for this request.
+      const targetOf = (draft) => aiTargetFor({
+        for: Array.isArray(draft?.people) && draft.people.length ? draft.people.map(p => p.id) : draft?.for?.id || null,
+      }, ctx, space)
+      const runner = (target, group = null) => ({ kind, draft, message, signal }) => {
+        const { ai, common } = aiRun(target, group)
         if (!ai.installed) throw new Error(AI_MISSING)
-        const plan = planner.readPlanJson(target.planFile().file) || {}
+        const plan = planner.readPlanJson(planFileFor(target, group)) || {}
         const { thread = [], ...current } = draft.pres || {}
         return planner.planWorkout({
           ...common, model: ai.plannerModel, effort: PLANNER_EFFORT,
@@ -2218,8 +2300,12 @@ const server = http.createServer(async (req, res) => {
             : { kinds: draft.ask.kinds, minutes: draft.ask.minutes, goal: draft.ask.goal, context: draft.context }),
         })
           // The person's weight-mode memory (#58), read from their own log as the
-          // answer lands, for drafts.js to lay onto it.
-          .then(r => ({ ...r, remembered: rememberedModes(readStateSync(target).state.entries, todayKey()) }))
+          // answer lands, for drafts.js to lay onto it. A group run is on the owner's
+          // space: with the owner in it, the owner's memory (the plan lands in the
+          // owner's log; each copy is that person's own); without, the default, since
+          // the owner's memory is not theirs (#59).
+          .then(r => ({ ...r, remembered: group && !group.some(p => p.owner) ? new Map()
+            : rememberedModes(readStateSync(target).state.entries, todayKey()) }))
       }
       const answer = (fn) => {
         try { return send(res, 200, { draft: fn() }) } catch (err) {
@@ -2238,11 +2324,12 @@ const server = http.createServer(async (req, res) => {
       }
       if (!id && req.method === 'POST') {
         const body = await readBody(req, 64 * 1024)
-        const target = aiSpaceFor(body, ctx, space)
+        const target = aiTargetFor(body, ctx, space)
         const refused = ready(target)
         if (refused) return send(res, ...refused)
         const forWho = target.space === space ? null : { id: target.space.id, name: aboutFor(target.space).name }
-        return answer(() => drafts.create(dir, { ...body, for: forWho }, runner(target.space), { isKept }))
+        const people = target.group ? target.group.map(p => ({ id: p.id, name: p.name, ...(p.owner ? { owner: true } : {}) })) : null
+        return answer(() => drafts.create(dir, { ...body, for: forWho, people }, runner(target.space, target.group), { isKept }))
       }
 
       const draft = drafts.read(dir, id)
@@ -2265,8 +2352,8 @@ const server = http.createServer(async (req, res) => {
         const refused = ready(target)
         if (refused) return send(res, ...refused)
         return answer(() => action === 'revise'
-          ? drafts.revise(dir, id, body, runner(target.space))
-          : drafts.retry(dir, id, runner(target.space)))
+          ? drafts.revise(dir, id, body, runner(target.space, target.group))
+          : drafts.retry(dir, id, runner(target.space, target.group)))
       }
       return send(res, 405, { error: 'method not allowed' })
     }

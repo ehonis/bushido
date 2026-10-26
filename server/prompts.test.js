@@ -116,5 +116,66 @@ check('the planner picks a sport from what was logged, never from a quota', () =
   ok(/done LEAST in the last week/.test(p['planner system']), 'the planner is not told how to pick a sport')
 })
 
+/*
+ * One session for several people (#59): an owner run that names each of them and
+ * carries each one's notes, asks for one structure with no loads in it, and still
+ * says nothing gendered. Without the owner in it, no path to the owner's log,
+ * brain or measurements at all.
+ */
+const GROUP = [{ id: 'owner', name: '', notes: '', owner: true }, { id: 'sam', name: 'Sam', notes: 'Knee rehab.', owner: false }]
+check('a plan for several people names each, carries each one\'s notes, and asks for no loads', () => {
+  const text = planner.systemPrompt({ ...ctx, name: '', notes: '', group: GROUP })
+  ok(text.includes('ONE workout for the athlete and Sam'), 'the people are not named')
+  ok(text.includes('Knee rehab.'), 'Sam\'s notes are not in it')
+  ok(/MORE THAN ONE PERSON/.test(text) && /Leave `weight` out of every set/.test(text), 'it is not told the plan is shared structure')
+  // One story about loads: none of the one-person wording that asks for them.
+  for (const never of ['every load a number', 'Load comes from the log', 'write 3×8 at 100']) ok(!text.includes(never), `the group prompt still says "${never}"`)
+  ok(planner.systemPrompt({ ...ctx, name: '', notes: '' }).includes('every load a number'), 'the one-person prompt lost its loads')
+  ok(text.includes('/srv/app/data/state.json'), 'the owner\'s own log is not offered')
+  const m = text.match(GENDERED)
+  ok(!m, `a gendered word: "${m && text.slice(Math.max(0, m.index - 40), m.index + 40)}"`)
+  ok(!/\bundefined\b|\bnull\b/.test(text), 'an empty value leaked into a prompt')
+  const rev = planner.revisePrompt({ plan: { blocks: [] }, message: 'shorter', thread: [], name: 'Alex and Sam' })
+  ok(!rev.match(GENDERED), 'the group revision is gendered')
+})
+
+check('a plan for others only points at nobody\'s log, brain or measurements', () => {
+  const others = [{ id: 'sam', name: 'Sam', notes: '' }, { id: 'robin', name: 'Robin', notes: 'New to lifting.' }]
+  const text = planner.systemPrompt({ ...ctx, brainFile: null, measurements: false, name: '', notes: '', group: others })
+  for (const never of ['state.json', 'whoop.json', 'strava.json', 'athlete profile']) ok(!text.includes(never), `it mentions ${never}`)
+  ok(text.includes('Sam and Robin') && text.includes('New to lifting.'), 'the people or their notes are missing')
+  for (const never of ['every load a number', 'Load comes from the log']) ok(!text.includes(never), `others-only still says "${never}"`)
+  ok(!text.match(GENDERED), 'gendered')
+})
+
+check('a prompt alone is a brief: no kinds, and the model picks the blocks and categories', () => {
+  const text = planner.userPrompt({ kinds: [], minutes: 40, goal: 'legs then a short run', context: '' })
+  ok(text.includes('"legs then a short run"'), 'what they wrote is not the brief')
+  ok(/did not pick a kind/.test(text) && /`category` and `activity`/.test(text), 'the model is not told to choose the blocks\' categories')
+  ok(text.includes('40 minutes'), 'the time budget is missing')
+  ok(!/\bundefined\b|\bnull\b/.test(text) && !text.match(GENDERED), 'a bad value or a gendered word')
+  ok(/a workout/.test(planner.userPrompt({ kinds: [], minutes: 30, goal: '' })), 'an empty brief says nothing')
+})
+
+check('a plan for several people carries no loads, whatever the model wrote', () => {
+  const out = planner.noLoads({ blocks: [{ name: 'A', items: [{ kind: 'lift', name: 'Squat', sets: [{ reps: 5, weight: 135 }, { reps: 5 }] }] }] })
+  const sets = out.blocks[0].items[0].sets
+  ok(sets.every(s => !('weight' in s)) && sets[0].reps === 5, JSON.stringify(sets))
+})
+
+check('a block\'s category or activity the content does not know is dropped, not failed', () => {
+  const cat = starter.quotaCategories[0].key
+  const act = planner.activityField(starter).activities[0].key
+  const out = planner.realKeys({ title: 'x', category: 'made-up', activity: act, blocks: [
+    { name: 'A', category: cat, activity: 'nonsense', items: [] },
+    { name: 'B', category: 'nope', items: [] },
+  ] }, starter)
+  ok(!('category' in out) && out.activity === act, `the session: ${JSON.stringify(out)}`)
+  ok(out.blocks[0].category === cat && !('activity' in out.blocks[0]), `block A: ${JSON.stringify(out.blocks[0])}`)
+  ok(!('category' in out.blocks[1]) && out.blocks.length === 2, 'block B was dropped, or kept its bad key')
+  // A content file with no lists checks nothing.
+  ok(planner.realKeys({ category: 'x', blocks: [] }, {}).category === 'x', 'an unknowable key was dropped')
+})
+
 if (failed) { console.log(`\n${failed} failed`); process.exit(1) }
 console.log('\nprompts ok')

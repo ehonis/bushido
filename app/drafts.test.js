@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import {
-  keepGate, placedDraftIds, unplacedDrafts, draftToEvict, DRAFT_MAX,
+  keepGate, placedDraftIds, unplacedDrafts, draftToEvict, DRAFT_MAX, draftLine,
 } from './src/lib/drafts.js'
 import { splitPrescription } from './src/lib/prescription.js'
 
@@ -16,6 +16,14 @@ const claims = (answer) => {
   const asked = []
   return { asked, claim: async (id) => { asked.push(id); return answer } }
 }
+
+test('a draft\'s row says who it is for: one person as before, a group with you in it', () => {
+  const at = Date.parse('2026-10-26T10:00:00Z')
+  const ready = { status: 'ready', updatedAt: '2026-10-26T10:00:00Z', pres: { minutes: 40 } }
+  assert.match(draftLine({ ...ready, for: { id: 'sam', name: 'Sam' } }, at), /^For Sam · Ready · 40 min/)
+  assert.match(draftLine({ ...ready, people: [{ id: 'owner', name: 'Alex', owner: true }, { id: 'sam', name: 'Sam' }] }, at), /^For you and Sam · Ready/)
+  assert.match(draftLine(ready, at), /^Ready · 40 min/)
+})
 
 test('a draft already on an entry is not offered', () => {
   const entries = [
