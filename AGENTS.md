@@ -51,6 +51,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | `server/` | Plain Node `http`/`fs`/`crypto`, no npm dependencies. |
 | `mobile/` | The native iPhone app (Expo). The web's phone layout rebuilt in React Native, with `app/src/lib/` copied in at the same paths. Its own install and rules: read `mobile/AGENTS.md` before changing it, and port a web change there when it touches a screen the app has. |
 | `content/starter.json` | What a fresh install runs on: catalogs and the rest card, no programme. **Generated.** |
+| `content/exercises.json` | The shared exercise library (#63, written by #64), merged into every plan's lift catalog as it is served (§5). Optional: an install without it runs on the plan alone. `test/fixtures/exercises.json` is a small one the suites use. |
 | `examples/plan.json` | A small, invented example plan (Settings → "Use the example plan"). **Generated.** |
 | `test/fixtures/plan.json` | A large synthetic climbing-and-triathlon programme used by the test suites (smoke render, every app suite, `starter.test.mjs`) and by `starter.build.mjs` / `muscles.build.mjs`. The canonical fixture, and the source both generated files are built from. |
 | `data/` | Runtime state. Gitignored. Never commit, delete or rewrite it (§4). |
@@ -71,6 +72,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | `server/agentflags.js` | The permission flags the planner is spawned with (`plannerFlags`): refused directories, the secrets deny list, and for anyone but the owner the denials that keep a run inside their own space (§7). Tested by `agentflags.test.js`. |
 | `server/prompting.js` | Shared prompt pieces: the athlete's name and notes (the owner's from Settings, anyone else's from their `about.json`), gender-neutral fallbacks. |
 | `server/planner.js` | Plan a workout (`/api/plan/workout`, `/api/plan/revise`): the only AI run. |
+| `server/library.js` | The exercise library merged into a plan's lift catalogs (`mergeLibrary`), and read from disk (`createLibrary`, cached on mtime, a broken file warned about once and ignored). `/api/content`, `/api/people/:id/content` and the planner all read plans through it. Tested by `library.test.js`. |
 | `server/drafts.js` | "Write it for me" drafts: the run belongs to a draft file in the person's `drafts/`, written by the server when the run ends (`/api/plan/drafts`, §7). |
 | `server/whoop.js`, `server/strava.js` | Pure matching, snapshot and card-filling logic for each service. |
 | `server/notify.js`, `notify-facts.js`, `notify-categories.js` | Push notifications on top of an external notify core (§8). |
@@ -87,8 +89,8 @@ reasons behind the design, and the things that have been removed on purpose.
 | Hard finger days | `app/src/lib/fingers.js` | `isHardEntry`, `fingerLoad`, `hardDates`: what is left of the recommender; read by the Progress Climbing charts (§6.1). |
 | Test results | `app/src/lib/tests.js`, `app/src/lib/force.js` | A test session writes its result; the Testing panel (profile) and the CF ceiling read it. |
 | Activity catalog | `app/src/lib/activities.js`, `app/src/activitypicker.jsx` | 91 sports, their form shape, category, WHOOP/Strava names. Content-driven. |
-| Lifts | `app/src/lib/lifts.js`, `app/src/liftlog.jsx` | Catalog search, logged-lift shape, arithmetic. `liftlog.jsx` is only an adapter. |
-| One exercise card | `app/src/exercises.jsx` | `ExerciseCard`, `ExerciseSection`, `ExercisePicker`, `Stepper`, `STEP`. **Shared by the lift log and the planner's editor.** |
+| Lifts | `app/src/lib/lifts.js`, `app/src/liftlog.jsx` | Catalog search (names, then descriptions), logged-lift shape, holds (`liftMeasure`), arithmetic, muscles in words (`muscleName`). `liftlog.jsx` is only an adapter. |
+| One exercise card | `app/src/exercises.jsx` | `ExerciseCard`, `ExerciseSection`, `ExercisePicker`, `ExerciseSheet` (what a movement is, #63), `Stepper`, `STEP`. **Shared by the lift log and the planner's editor.** |
 | Which fields a card asks | `app/src/lib/outputs.js` | `when` gates, `pruneHidden`, derived placeholders. |
 | Minutes | `app/src/lib/minutes.js` | Precedence of time sources; `minutesSourceOf()` is the single statement of it. |
 | Naming | `app/src/lib/naming.js` | `nameFor`, `titleFor`, `out.title`, quick-name chips. |
@@ -584,6 +586,22 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   `styles` vocabulary live on their fields. Both WHOOP and Strava mappings read the
   activity catalog, so there is one list, not three. Adding a sport or a movement is a
   content edit.
+- **The exercise library is content too** (#63). `content/exercises.json` (`{ version: 1,
+  groups, exercises }`) is merged into EVERY `type: "lifts"` field by `server/library.js`
+  as a plan is served and as the planner reads it, never written into a plan file. Join by
+  `key`; the plan's fields win and the library fills only what a plan entry lacks (`how`,
+  `video`, `tags`, `equipment`, `measure`, and `muscles` when the plan has none), so an
+  entry for an exercise the plan has needs only its `key` and what it fills (#64 writes
+  most of them that way); a library key the plan has under another spelling or an `aka`
+  (`pushup` for `push-up`) fills that exercise rather than adding a second; a library
+  exercise the plan lacks is added, and needs a `name` and a `group` or it is left out with
+  one warning; `aka` is unioned; groups are the plan's, then the library's new ones.
+  `version: 1` is required. A field of the wrong shape (`aka` not a list of strings, a `how`
+  without a gist and steps, an http video) is dropped from its entry and counted in one
+  warning. A missing file is silent and an invalid one is logged once; either way the plan
+  is served byte for byte. `BUSHIDO_EXERCISES_FILE` points at another file (the
+  test suites use `test/fixtures/exercises.json`). An exercise's `key` is forever: logged
+  history points at it.
 - **`plannerKinds`** are grouped by discipline (`groups`), with `collapsed: true` groups
   rendered as `<details>` so every card stays in the page for the reachability test. Every
   `activity`, `category` and `icon` a kind names must be real (`hasIcon` in
@@ -745,6 +763,23 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
     side is counted once, and `liftsLine` says "as entered" when a `partial` mode's set
     is in the sum, so it is not read as the total. Callers pass the session's lift
     field (`liftFieldIn(opt)`) so content's modes are the ones read.
+- **A hold is counted in seconds** (#63). A catalog exercise with `measure: "time"` (a
+  plank, a wall sit, a stretch) logs `{ seconds, weight }` sets instead of `{ reps, weight }`,
+  steps in seconds (`STEP.seconds`), reads "3 × 45 s", and has no volume. **The shape is
+  read off the ROW's own sets** (`liftMeasure`: `seconds` present is a hold, `reps` present
+  is reps, only an empty row asks the catalog), so a Plank logged as reps before the library
+  called it a hold reads exactly as it did. A plan item is READ the same way
+  (`measureOfItem`: seconds and no reps is a hold, reps and no seconds is not, then the
+  item's `measure`), so a hold whose `measure` was lost still asks for seconds;
+  `setFieldsFor` and `runOutputs` use it. It is WRITTEN by `normalizePrescription` (the sets,
+  then the item's word, then the catalog; a model's `{ reps: 1, seconds: 45 }` on a hold
+  keeps the seconds) and stored only on a hold, or as `"reps"` on a hold someone counts in
+  reps. That switch is the count's label on a new hold row ("sec ⇆" / "reps ⇆",
+  `countSwitch`, lib/lifts.js `canSwitchMeasure`), offered until something is counted.
+  "Last time" beside a hold reads holds only (`lastLift(…, measure)`). Shared sync carries
+  `measure` as structure with `exercise`, keeps the writer's own while its exercise is the
+  one it sent, and keeps the seconds on their own side, like reps; it is not in
+  `ITEM_KEYS`, so every stored `syncBase` still compares equal.
 - **Lifts have no rest intervals.** `restSec` is dropped in `normalizeSet` on the way in,
   not hidden. Interval pieces keep their rest.
 - **Adding a set copies what was done** (`addSetLike` in the runner, appended, so no ids
@@ -829,7 +864,9 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
 ### 6.7 Naming, display, layout
 
 - **Reference is a popover; doing is a page.** `FullScreen` is for a session in progress;
-  `Popover` (modal.jsx) anchors on desktop and becomes a bottom sheet under 640px.
+  `Popover` (modal.jsx) anchors on desktop and becomes a bottom sheet under 640px. A popover
+  opened from inside a sheet or the runner (the exercise sheet) passes `over`: it is portalled
+  to the body and sits above full screens.
 - **`FullScreen` tabs are `{ key, icon, label }`**, not `{ id, label }`; `id` renders an
   empty panel with no error.
 - **The header holds the avatar and nothing else** unless something beats it.

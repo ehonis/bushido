@@ -42,7 +42,7 @@
 
 import { useState } from 'react'
 import {
-  implementsFor, weightLabelOf, weightModeOf, liftsIn, liftSummary, liftsLine,
+  implementsFor, weightLabelOf, weightModeOf, liftsIn, liftSummary, liftsLine, liftMeasure,
   addLift, removeLift, patchLift, addLiftSet, removeLiftSet, setLiftSet, moveLift,
   LIFT_FIELD, blankSet,
 } from './lib/lifts.js'
@@ -73,6 +73,9 @@ function asItem(field, lift) {
     weightLabel: weightLabelOf(field, lift),
     // The mode is said under the name (ExerciseCard), not in this line.
     line: liftSummary(lift, field, { mode: false }),
+    // Held for time (issue #63) by the row's own sets, so a Plank logged as reps
+    // before the catalog called it a hold still asks for reps.
+    ...(liftMeasure(lift, field) === 'time' ? { measure: 'time' } : {}),
     // Positional ids. See the adapter note in the file header.
     sets: (Array.isArray(lift.sets) ? lift.sets : [])
       .map((r, i) => ({ ...r, id: String(i) })),
@@ -116,7 +119,7 @@ export function LiftLog({ field, out, entries = [], entryId = null, onSave, hint
   const startFromYours = () => write(yours.map(l => ({
     uid: l.uid, key: l.key, name: l.name, group: l.group || null,
     implement: l.implement || '', ...(l.implementLabel ? { implementLabel: l.implementLabel } : {}),
-    sets: (l.sets?.length ? l.sets : [null]).map(() => blankSet()),
+    sets: (l.sets?.length ? l.sets : [null]).map(() => blankSet(liftMeasure(l, field))),
   })))
 
   return (

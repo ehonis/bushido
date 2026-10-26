@@ -227,7 +227,7 @@ Signed out, `/api/*` answers `401` with `X-Bushido-Auth: login` and pages redire
 | `GET`/`PUT /api/about` | your own About you, for anyone but the owner (whose is in Settings; `PUT` from the owner is `409 settings`) |
 | `GET /api/settings` · `PUT /api/settings` | the settings, secrets masked; a partial update |
 | `POST /api/settings/ai/test` | one tiny request through the configured CLI |
-| `GET /api/content` | the content file in use (see Settings → Training plan) |
+| `GET /api/content` | the content file in use (see Settings → Training plan), with the exercise library (`content/exercises.json`, or `BUSHIDO_EXERCISES_FILE`) merged into its lift catalogs |
 | `POST /api/plan/import` · `/api/plan/example` · `/api/plan/reset` | import a plan, copy the example, back to the starter |
 | `POST /api/plan/workout` | `{ kinds, minutes, goal, for? }` → a workout with the sets written in; one model run, stored nowhere |
 | `POST /api/plan/revise` | `{ plan, message, thread, for? }` → the same workout, changed; stored nowhere |

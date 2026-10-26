@@ -33,12 +33,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
 import { NumInput } from './numinput.jsx'
-import { setFieldsFor } from './lib/prescription.js'
+import { setFieldsFor, measureOfItem } from './lib/prescription.js'
 import {
-  searchExercises, implementsFor, lastLift, catalogOf,
+  searchExercises, implementsFor, lastLift, catalogOf, exerciseOf, muscleName, measureFor,
   weightModesFor, weightPatch, nextWeightMode, rememberedWeightMode, weightModeWords, weightBoxOf,
 } from './lib/lifts.js'
-import { ExerciseBody, musclesOf, muscleWords } from './lib/bodymap.jsx'
+import { ExerciseBody, BodyMap, musclesOf, muscleWords } from './lib/bodymap.jsx'
+import { HowBody } from './howto.jsx'
+import { Popover } from './modal.jsx'
 
 /**
  * What each field is called and how far one press moves it.
@@ -95,6 +97,27 @@ export function implementPick(liftField, item, impl, entries = [], entryId = nul
   }
 }
 
+/**
+ * The tap that counts a hold in reps instead, or back (issue #63 review), or
+ * null. Offered on a movement the catalog calls a hold while nothing is counted
+ * on it yet, under the count's own box, like the weight's meaning. The log
+ * renames its blank sets (lib/lifts.js `patchLift`); a plan item says it in
+ * `measure`.
+ */
+export function countSwitch(liftField, item, onPatch) {
+  if (item?.kind !== 'lift' || !item.exercise || measureFor(liftField, item.exercise) !== 'time') return null
+  const counted = (item.sets || []).some(s => (s.reps !== null && s.reps !== undefined && s.reps !== '')
+    || (s.seconds !== null && s.seconds !== undefined && s.seconds !== ''))
+  if (counted) return null
+  const now = measureOfItem(item)
+  const next = now === 'time' ? 'reps' : 'time'
+  return {
+    box: now === 'time' ? 'sec' : 'reps',
+    aria: `Counted in ${now === 'time' ? 'seconds' : 'reps'}. Switch to ${next === 'time' ? 'seconds' : 'reps'}`,
+    next, onSwitch: () => onPatch({ measure: next }),
+  }
+}
+
 /** A switch's words, the last one held to the swap mark so a wrap never strands it. */
 export function SwapWords({ label, size }) {
   const words = String(label).split(' ')
@@ -137,7 +160,7 @@ export function Stepper({
         <NumInput value={value} aria-label={label} placeholder={placeholder} blank={blank} onChange={onChange} />
         {swap ? (
           <button type="button" className="stepper-label stepper-swap" onClick={swap.onSwitch}
-            aria-label={`Weight in ${label}. Switch to ${swap.next}`}>
+            aria-label={swap.aria || `Weight in ${label}. Switch to ${swap.next}`}>
             <SwapWords label={swap.box} size={10} />
           </button>
         ) : <span className="stepper-label">{label}{suffix}</span>}
@@ -145,6 +168,76 @@ export function Stepper({
       <button className="stepper-btn" onClick={() => bump(1)} disabled={max !== null && n >= max}
         aria-label={`more ${label}`}><Icon name="Plus" size={15} /></button>
     </span>
+  )
+}
+
+/* ------------------------------------------------------- what the movement is */
+
+/**
+ * One exercise, explained (issue #63): what it works, what it needs, how to do
+ * it, the one thing to watch, and a video when the library has one.
+ *
+ * Reference, so a popover and not a full screen (AGENTS.md §6.7): it opens from
+ * a lift card's name, the runner's, and the picker's "what is this?" before the
+ * exercise is added, and closes back to exactly where you were. Read between
+ * sets, so the gist leads and everything is short; the catalog's how-to limits
+ * are the feature (#64). No how-to still shows the body and the muscles.
+ *
+ * `onAdd` (the picker) puts the one primary in the foot: you opened it to decide.
+ */
+export function ExerciseSheet({ field, exercise, name = null, onClose, onAdd = null }) {
+  const ex = exerciseOf(field, exercise)
+  const title = ex?.name || name || 'Exercise'
+  const m = musclesOf(field, exercise)
+  const video = ex?.video?.url && /^https:\/\//.test(ex.video.url) ? ex.video : null
+  const context = [ex?.group, ex?.measure === 'time' ? 'Held for time' : null].filter(Boolean).join(' · ')
+
+  return (
+    <Popover label={`About ${title}`} onClose={onClose} over>
+      <div className="pop-head">
+        <div className="pop-who">
+          <strong>{title}</strong>
+          {context && <span className="sub">{context}</span>}
+        </div>
+        <button className="pop-x" onClick={onClose} aria-label="Close"><Icon name="X" size={18} /></button>
+      </div>
+      <div className="pop-body exsheet">
+        {m && (
+          <div className="exsheet-works">
+            <BodyMap primary={m.primary} secondary={m.secondary} size={56} label={`${title} works ${m.primary.join(', ')}`} />
+            <dl className="exsheet-facts">
+              <dt>Works</dt><dd>{m.primary.map(muscleName).join(', ')}</dd>
+              {m.secondary.length > 0 && <><dt>Also</dt><dd>{m.secondary.map(muscleName).join(', ')}</dd></>}
+              {ex?.equipment && <><dt>Needs</dt><dd>{ex.equipment}</dd></>}
+            </dl>
+          </div>
+        )}
+        {!m && ex?.equipment && (
+          <dl className="exsheet-facts"><dt>Needs</dt><dd>{ex.equipment}</dd></dl>
+        )}
+
+        {ex?.how ? <HowBody how={ex.how} showFigure={false} />
+          : <p className="sub exsheet-none">No step-by-step for this one yet.</p>}
+
+        {video && (
+          <div className="exsheet-video">
+            <button type="button" className="btn secondary" onClick={() => window.open(video.url, '_blank', 'noopener')}>
+              <Icon name="Play" size={16} /> Watch how
+            </button>
+            {(video.channel || video.title) && (
+              <span className="sub">{[video.title, video.channel].filter(Boolean).join(' · ')}</span>
+            )}
+          </div>
+        )}
+      </div>
+      {onAdd && (
+        <div className="exsheet-foot">
+          <button type="button" className="btn" onClick={onAdd}>
+            <Icon name="Plus" size={16} /> Add {title}
+          </button>
+        </div>
+      )}
+    </Popover>
   )
 }
 
@@ -160,13 +253,17 @@ export function Stepper({
  */
 export function ExercisePicker({ field, onPick, onClose }) {
   const [q, setQ] = useState('')
-  const hits = useMemo(() => searchExercises(field, q, { limit: 24 }), [field, q])
+  // A tapped group chip is that group exactly; typing makes it a search again.
+  const [chip, setChip] = useState(null)
+  const hits = useMemo(() => searchExercises(field, chip ? '' : q, { limit: 24, group: chip }), [field, q, chip])
   const { exercises, groups } = catalogOf(field)
+  // "What is this?" before adding it (issue #63): the sheet, with Add in its foot.
+  const [about, setAbout] = useState(null)
 
   return (
     <div className="expick">
       <div className="expick-head">
-        <input autoFocus value={q} onChange={e => setQ(e.target.value)}
+        <input autoFocus value={q} onChange={e => { setQ(e.target.value); setChip(null) }}
           aria-label="Search for an exercise"
           placeholder={`search ${exercises.length} exercises…`} />
         {onClose && (
@@ -177,26 +274,36 @@ export function ExercisePicker({ field, onPick, onClose }) {
       {!q.trim() && groups.length > 0 && (
         <div className="expick-groups">
           {groups.map(g => (
-            <button key={g} type="button" className="implchip" onClick={() => setQ(g)}>{g}</button>
+            <button key={g} type="button" className="implchip" onClick={() => { setQ(g); setChip(g) }}>{g}</button>
           ))}
         </div>
       )}
 
       <div className="expick-list">
         {hits.map(ex => (
-          <button key={ex.key} className="expick-row" onClick={() => onPick(ex.key)}>
-            <ExerciseBody field={field} exercise={ex.key} name={ex.name} size={26} />
-            <span>{ex.name}</span>
-            {ex.group && <span className="sub">{ex.group}</span>}
-          </button>
+          <div key={ex.key} className="expick-line">
+            <button className="expick-row" onClick={() => onPick(ex.key)}>
+              <ExerciseBody field={field} exercise={ex.key} name={ex.name} size={26} />
+              <span>{ex.name}</span>
+              {ex.group && <span className="sub">{ex.group}</span>}
+            </button>
+            <button type="button" className="iconbtn expick-about" onClick={() => setAbout(ex.key)}
+              aria-label={`What is ${ex.name}?`}>
+              <Icon name="Info" size={18} />
+            </button>
+          </div>
         ))}
         {!hits.length && q.trim() && (
           <p className="sub">
-            Nothing called that. Try the movement&rsquo;s other name — or add it to the catalog
-            in plan.json, which is where this list lives.
+            Nothing matches that. Try the movement&rsquo;s other name, or what it works
+            (&ldquo;lower abs&rdquo;, &ldquo;no equipment&rdquo;).
           </p>
         )}
       </div>
+      {about && (
+        <ExerciseSheet field={field} exercise={about} onClose={() => setAbout(null)}
+          onAdd={() => { const key = about; setAbout(null); onPick(key) }} />
+      )}
     </div>
   )
 }
@@ -217,6 +324,7 @@ export function ExerciseCard({
   onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove,
 }) {
   const [open, setOpen] = useState(defaultOpen)
+  const [about, setAbout] = useState(false)
   const offered = liftField && item.exercise ? implementsFor(liftField, item.exercise) : []
   const muscles = musclesOf(liftField, item.exercise)
   /*
@@ -228,27 +336,44 @@ export function ExerciseCard({
    * both the planning screen and the log are where the number is actually chosen.
    * Same `lastLift` everywhere, so no two of them can disagree about last time.
    */
+  const measure = item.kind === 'lift' ? measureOfItem(item) : null
   const prior = useMemo(
-    () => (item.exercise ? lastLift(entries, item.exercise, entryId, liftField) : null),
-    [entries, item.exercise, entryId, liftField])
+    () => (item.exercise ? lastLift(entries, item.exercise, entryId, liftField, measure) : null),
+    [entries, item.exercise, entryId, liftField, measure])
   const swap = weightSwitch(liftField, item, onPatch)
+  const count = countSwitch(liftField, item, onPatch)
   // A mode other than the default, said under the name, so the summary beside it
   // stays short enough not to squeeze the name on a phone.
   const modeWords = item.kind === 'lift' ? weightModeWords(liftField, item) : null
 
   return (
     <div className={`presc-item k-${item.kind || 'lift'}`}>
-      <button className="presc-itemhead" onClick={() => setOpen(v => !v)} aria-expanded={open}>
-        {/* What it works, on the row, wherever the name is. */}
-        <ExerciseBody field={liftField} exercise={item.exercise} name={item.name} size={30} />
-        <span className="presc-itemname">
-          {item.name}
-          {muscles && <span className="presc-muscles">{muscleWords(muscles)}</span>}
-          {modeWords && <span className="presc-mode">{modeWords}</span>}
-        </span>
-        <span className="presc-itemline">{item.line}</span>
-        <span className={`alt-chev ${open ? 'open' : ''}`}><Icon name="ChevronDown" size={15} /></span>
-      </button>
+      {/*
+        * The whole head folds the card, as it always has: cards start folded,
+        * so this is the tap made most. A movement out of the catalog also has
+        * what it is (issue #63), on its own 44px ⓘ beside the head, as in the
+        * picker, so neither target is a sliver of the other.
+        */}
+      <div className="presc-itemrow">
+        <button className="presc-itemhead" onClick={() => setOpen(v => !v)} aria-expanded={open}>
+          {/* What it works, on the row, wherever the name is. */}
+          <ExerciseBody field={liftField} exercise={item.exercise} name={item.name} size={30} />
+          <span className="presc-itemname">
+            {item.name}
+            {muscles && <span className="presc-muscles">{muscleWords(muscles)}</span>}
+            {modeWords && <span className="presc-mode">{modeWords}</span>}
+          </span>
+          <span className="presc-itemline">{item.line}</span>
+          <span className={`alt-chev ${open ? 'open' : ''}`}><Icon name="ChevronDown" size={15} /></span>
+        </button>
+        {item.exercise && (
+          <button type="button" className="iconbtn presc-about" onClick={() => setAbout(true)}
+            aria-label={`What is ${item.name}?`}>
+            <Icon name="Info" size={18} />
+          </button>
+        )}
+      </div>
+      {about && <ExerciseSheet field={liftField} exercise={item.exercise} name={item.name} onClose={() => setAbout(false)} />}
 
       {open && (
         <>
@@ -297,7 +422,7 @@ export function ExerciseCard({
                 {setFieldsFor(item, s).map(f => (
                   <Stepper key={f} {...STEP[f](item, s)} value={s[f]} blank={blank}
                     placeholder={s.hint?.[f] != null && s.hint[f] !== '' ? String(s.hint[f]) : '—'}
-                    swap={f === 'weight' ? swap : null}
+                    swap={f === 'weight' ? swap : (f === 'reps' || f === 'seconds') ? count : null}
                     onChange={v => onPatchSet(s.id, { [f]: v })} />
                 ))}
                 {/* Lifting has no programmed rest — see `normalizeSet`. An

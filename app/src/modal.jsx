@@ -12,7 +12,8 @@
  * form to a stray tap is the single most annoying thing a log app can do.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Icon } from './lib/icons.jsx'
 
 /*
@@ -222,13 +223,26 @@ export function FullScreen({ title, sub, icon, tone, onBack, tabs, active, onTab
  * `anchor` is a DOMRect from the trigger. Absent, it centres — which is what the
  * render suite gets, and what a keyboard-opened menu gets.
  */
-export function Popover({ anchor, label, onClose, children }) {
+export function Popover({ anchor, label, onClose, children, over = false }) {
   useModalLayer()
+  const box = useRef(null)
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    /*
+     * Escape closes this and nothing under it. Caught on the way DOWN and
+     * stopped there, so the sheet or full screen it was opened from (which
+     * listen on the way up) keeps its place: Escape from the exercise sheet
+     * over a session closes the exercise sheet.
+     */
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      onClose()
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
   }, [onClose])
+  // Focus moves in, so the keyboard and a screen reader are where the reader is.
+  useEffect(() => { box.current?.focus({ preventScroll: true }) }, [])
 
   // Right-aligned to the trigger, because the trigger lives in the top right and
   // a panel that grows leftward from it cannot run off the screen. Clamped so a
@@ -240,13 +254,21 @@ export function Popover({ anchor, label, onClose, children }) {
       }
     : undefined
 
-  return (
-    <div className="pop-scrim" onClick={onClose} role="presentation">
-      <div className={`pop ${anchor ? '' : 'centred'}`} style={style}
+  const pop = (
+    <div className={`pop-scrim ${over ? 'over' : ''}`} onClick={onClose} role="presentation">
+      <div className={`pop ${anchor ? '' : 'centred'}`} style={style} ref={box} tabIndex={-1}
         role="dialog" aria-modal="true" aria-label={label}
         onClick={(e) => e.stopPropagation()}>
         {children}
       </div>
     </div>
   )
+  /*
+   * `over`: a reference opened from inside another sheet or a full screen (the
+   * exercise sheet, issue #63). It goes to the body, because a fixed box inside
+   * a sheet that is still animating is fixed to the SHEET, and above full
+   * screens. Server rendering has no body, so the smoke suite gets it inline.
+   */
+  if (over && typeof document !== 'undefined') return createPortal(pop, document.body)
+  return pop
 }

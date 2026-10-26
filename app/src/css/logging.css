@@ -1247,3 +1247,44 @@ button.btn.danger:hover { border-color: var(--bad); }
 .plandraft-del:hover { color: var(--bad); }
 .plan-working-stop { margin-top: var(--sp-3); }
 @media (prefers-reduced-motion: reduce) { .plandraft.working .plandraft-open > svg { animation: none; } }
+
+/* ======================================================= the exercise sheet */
+
+/*
+ * The card head folds the card; a catalog movement's ⓘ beside it opens what it
+ * is (issue #63). The ⓘ is the base 44px icon button, pulled into the card's
+ * padding so the head keeps its height.
+ */
+.presc-itemrow { display: flex; align-items: flex-start; gap: var(--sp-1); }
+.presc-itemrow .presc-itemhead { flex: 1; min-width: 0; }
+.presc-about { flex: none; margin: -5px -8px -5px 0; }
+
+.run-moveabout {
+  display: inline-flex; align-items: center; gap: var(--sp-2); min-height: var(--tap);
+  background: none; border: 0; padding: 0; margin: 0;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.run-moveabout svg { flex: none; color: var(--ink-faint); }
+
+/* The picker row and its "what is this?" share one line and one divider. */
+.expick-line { display: flex; align-items: stretch; border-bottom: 1px solid var(--line); }
+.expick-line .expick-row { flex: 1; min-width: 0; border-bottom: 0; }
+.expick-about { flex: none; align-self: center; margin-right: var(--sp-1); }
+
+/* Above a full screen too: the runner opens it mid-workout. */
+.pop-scrim.over { z-index: 90; }
+.exsheet { padding: var(--sp-4); display: grid; gap: var(--sp-4); align-content: start; }
+.exsheet .how-body { padding: 0; }
+.exsheet .how-note:first-of-type { margin-top: var(--sp-3); }
+.exsheet-works { display: flex; align-items: center; gap: var(--sp-4); }
+.exsheet-facts {
+  margin: 0; display: grid; grid-template-columns: auto 1fr; gap: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-small); line-height: var(--lh-tight);
+}
+.exsheet-facts dt { color: var(--ink-dim); }
+.exsheet-facts dd { margin: 0; color: var(--ink); }
+.exsheet-none { margin: 0; }
+.exsheet-video { display: grid; gap: var(--sp-1); justify-items: start; }
+.exsheet-video .sub { margin: 0; font-size: var(--fs-caption); }
+.exsheet-foot { flex: none; padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--line); }
+.exsheet-foot .btn { width: 100%; }

@@ -1750,6 +1750,54 @@ process.stdin.on('end', () => {
     }
   }
 
+  /* ------------------------------------- the shared exercise library (#63) */
+  {
+    const FIXTURE = path.join(__dirname, '..', 'test', 'fixtures', 'exercises.json')
+    const lib = await boot({
+      env: { BUSHIDO_AUTH: 'proxy', BUSHIDO_EXERCISES_FILE: FIXTURE },
+      seed: { 'users.json': JSON.stringify({ users: [{ id: 'owner', name: 'Alex', emails: [] }, { id: 'sam', name: 'Sam', emails: [] }] }) },
+    })
+    const liftsOf = (plan) => plan.dailyMenu.flatMap(m => m.outputs || []).filter(f => f.type === 'lifts')
+    try {
+      await step('library: /api/content serves every lift catalog with the library merged in', async () => {
+        const plan = await (await get(`${lib.base}/api/content`)).json()
+        const fields = liftsOf(plan)
+        ok(fields.length >= 2, 'the starter has more than one lift field')
+        for (const f of fields) {
+          const plank = f.exercises.find(e => e.key === 'plank')
+          eq([plank.name, plank.measure], ['Plank', 'time'], 'the plan names it; the library says it is held')
+          ok(plank.how?.steps?.length >= 3, 'no how-to filled')
+          ok(f.exercises.some(e => e.key === 'couch-stretch'), 'a library-only exercise is missing')
+          ok(f.groups.includes('Mobility & stretching'), 'a library group is missing')
+        }
+        const onDisk = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'content', 'starter.json'), 'utf8'))
+        ok(!liftsOf(onDisk)[0].exercises.some(e => e.key === 'couch-stretch'), 'the starter file itself was changed')
+      })
+      await step('library: someone else\'s content is merged the same way', async () => {
+        const r = await get(`${lib.base}/api/people/sam/content`)
+        eq(r.status, 200)
+        ok(liftsOf(await r.json())[0].exercises.some(e => e.key === 'couch-stretch'))
+      })
+    } finally { await lib.stop() }
+
+    const brokenDir = mkdtemp('bushido-lib-')
+    const broken = path.join(brokenDir, 'exercises.json')
+    fs.writeFileSync(broken, '{ "exercises": [ nope')
+    const bad = await boot({ env: { BUSHIDO_AUTH: 'proxy', BUSHIDO_EXERCISES_FILE: broken } })
+    const none = await boot({ env: { BUSHIDO_AUTH: 'proxy', BUSHIDO_EXERCISES_FILE: path.join(brokenDir, 'absent.json') } })
+    try {
+      await step('library: a broken library serves the plan byte for byte, with a warning; an absent one says nothing', async () => {
+        const starterText = fs.readFileSync(path.join(__dirname, '..', 'content', 'starter.json'), 'utf8')
+        const r = await get(`${bad.base}/api/content`)
+        eq(r.status, 200)
+        ok(await r.text() === starterText, 'the plan was not served unchanged')
+        ok(/exercise library .* ignored/.test(bad.log()), `no warning: ${bad.log()}`)
+        ok(await (await get(`${none.base}/api/content`)).text() === starterText)
+        ok(!/exercise library/.test(none.log()), 'an install without a library was warned about it')
+      })
+    } finally { await bad.stop(); await none.stop() }
+  }
+
   if (failed) { console.log(`\n${failed} failed`); process.exit(1) }
   console.log('\nhttp ok')
 })().catch((e) => { console.error(e); process.exit(1) })

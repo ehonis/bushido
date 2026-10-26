@@ -79,6 +79,15 @@ export function HowBody({ how, showFigure = true, style }: { how: any; showFigur
           </View>
         </View>
       ) : null}
+      {how.harder ? (
+        <View style={s.note}>
+          <Icon name="TrendingUp" size={15} color={colors.inkFaint} style={s.noteIcon} />
+          <View style={{ flex: 1 }}>
+            <T size={13} weight={600} style={{ marginBottom: 2 }}>Make it harder</T>
+            <T size={13} dim lineHeight={20}>{how.harder}</T>
+          </View>
+        </View>
+      ) : null}
     </View>
   )
 }

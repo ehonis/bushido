@@ -39,7 +39,9 @@ import { PlanProvider } from './src/lib/planctx.jsx'
 import { PrefsProvider } from './src/lib/prefs.jsx'
 import { ProgressView } from './src/progress.jsx'
 import { SessionLog, NameField, SessionDetails } from './src/sessionlog.jsx'
-import { ExercisePicker, STEP, implementPick } from './src/exercises.jsx'
+import { ExercisePicker, ExerciseSheet, ExerciseCard, STEP, implementPick } from './src/exercises.jsx'
+import { searchExercises } from './src/lib/lifts.js'
+import { createRequire } from 'node:module'
 import { buildSections, SectionBody } from './src/session.jsx'
 import { HowSheet, MovesList, HowRow } from './src/howto.jsx'
 import { FIGURES, hasFigure } from './src/lib/figures.jsx'
@@ -290,6 +292,28 @@ const PLANNED_ENTRY = {
     slot: 'main', optId: 'planned', name: PRESCRIPTION.title, minutes: 45, level: 2,
     done: false, plan: PRESCRIPTION, out: { activity: 'lift', category: 'lift' },
   },
+}
+
+/* ------------------------------------------- the shared exercise library (#63)
+ *
+ * The fixture plan with the test library merged in, as /api/content serves it:
+ * holds (`measure: "time"`), how-tos, a video, a library-only exercise with no
+ * how-to at all.
+ */
+// The server's own merge, required at run time: it is CommonJS and reads files.
+const { mergeLibrary } = createRequire(import.meta.url)('../server/library.js')
+const LIBRARY = JSON.parse(readFileSync(new URL('../test/fixtures/exercises.json', import.meta.url), 'utf8'))
+const HELD_PLAN = mergeLibrary(plan, LIBRARY)
+const HELD_CARD = HELD_PLAN.dailyMenu.find(m => m.id === 'log-workout')
+const HELD_FIELD = HELD_CARD.outputs.find(f => f.type === 'lifts')
+const HELD_ENTRY = {
+  ...PLANNED_ENTRY,
+  data: { ...PLANNED_ENTRY.data, plan: normalizePrescription({
+    title: 'Core', blocks: [{ name: 'Main', items: [
+      { kind: 'lift', exercise: 'plank', implement: 'bodyweight', sets: [{ seconds: 45 }, { seconds: 45 }, { seconds: 45 }] },
+      { kind: 'lift', exercise: 'dead-bug', implement: 'bodyweight', sets: [{ reps: 10 }] },
+    ] }],
+  }, { liftField: HELD_FIELD }) },
 }
 
 /* Mid-session, ninety seconds into a rest — the state the runner has to be able
@@ -1575,6 +1599,145 @@ const cases = [
     html => {
       if (!/aria-label="Search for an exercise"/.test(html)) throw new Error('no exercise search')
       if (!/Forearms & grip|Forearms &amp; grip/.test(html)) throw new Error('no group to browse by')
+    }],
+  /*
+   * The exercise sheet (#63): reference, so a popover, never a full screen. It
+   * says what a movement works and needs, how to do it, and offers the video
+   * only when the library has one.
+   */
+  ['ExerciseSheet(muscles in words, what it needs, numbered steps, and Watch how)',
+    <ExerciseSheet field={HELD_FIELD} exercise="dead-bug" onClose={noop} />,
+    html => {
+      const t = text(html)
+      if (!/class="pop[ "]/.test(html) || /class="fs[ "]/.test(html)) throw new Error('not a popover, or a full screen')
+      if (!/role="dialog"[^>]*aria-label="About Dead bug"/.test(html)) throw new Error('the dialog is not named for the exercise')
+      if (!/class="bodymap"/.test(html)) throw new Error('no body diagram')
+      if (!/Works.*abs/.test(t)) throw new Error('the muscles are not in words')
+      if (!/Needs.*None/.test(t)) throw new Error('no equipment')
+      if (!/Lie on your back and slowly lower/.test(t)) throw new Error('no gist')
+      if ((html.match(/class="how-n"/g) || []).length !== 4) throw new Error('the steps are not numbered, one each')
+      for (const w of ['Most common mistake', 'Make it easier', 'Make it harder']) if (!t.includes(w)) throw new Error(`no "${w}"`)
+      if (!/<button[^>]*>.*?Watch how<\/button>/.test(t)) throw new Error('no Watch how button for an exercise with a video')
+      if (!/Example: the dead bug · Example channel/.test(t)) throw new Error('the video does not say what it is')
+      if (/class="btn"[^>]*>.*?Add /.test(t)) throw new Error('an Add button where nothing is being picked')
+    }],
+  ['ExerciseSheet(no video and no how-to: still the body and the muscles, and no Watch how)',
+    <ExerciseSheet field={HELD_FIELD} exercise="wall-sit" onClose={noop} />,
+    html => {
+      const t = text(html)
+      if (!/class="bodymap"/.test(html)) throw new Error('no body diagram without a how-to')
+      if (!/Works.*quads/.test(t) || !/Also.*glutes/.test(t)) throw new Error('primary and secondary muscles are not in words')
+      if (!/Held for time/.test(t)) throw new Error('a hold does not say so')
+      if (/Watch how/.test(t)) throw new Error('Watch how without a video')
+      if (!/No step-by-step/.test(t)) throw new Error('an empty how-to is not said')
+    }],
+  ['ExerciseSheet(from the picker, before adding: the one primary is Add)',
+    <ExerciseSheet field={HELD_FIELD} exercise="couch-stretch" onClose={noop} onAdd={noop} />,
+    html => {
+      if ((html.match(/class="btn"/g) || []).length !== 1) throw new Error('not exactly one primary')
+      if (!/Add Couch stretch/.test(text(html))) throw new Error('no way to add it from what it is')
+    }],
+  /* Reachability: every exercise the picker lists has its "what is this?", and
+   * every exercise in the merged catalog is found by its own name. */
+  ['ExercisePicker(every exercise listed has "what is this?" beside it)',
+    <ExercisePicker field={HELD_FIELD} onPick={noop} onClose={noop} />,
+    html => {
+      const rows = (html.match(/class="expick-row"/g) || []).length
+      const about = (html.match(/aria-label="What is [^"]+\?"/g) || []).length
+      if (!rows) throw new Error('the picker listed nothing, so this proves nothing')
+      if (rows !== about) throw new Error(`${rows} rows, ${about} ways to ask what one is`)
+    }],
+  ['ExercisePicker(every exercise in the merged catalog can be found by its name)', null, () => {
+    const lost = HELD_FIELD.exercises.filter(ex => !searchExercises(HELD_FIELD, ex.name, { limit: 1000 }).includes(ex))
+    if (lost.length) throw new Error(`unreachable: ${lost.slice(0, 5).map(e => e.key).join(', ')}`)
+    for (const key of ['couch-stretch', 'wall-sit', 'reverse-crunch']) {
+      if (!HELD_FIELD.exercises.some(e => e.key === key)) throw new Error(`the library's ${key} is not in the catalog`)
+    }
+  }],
+  ['searchExercises(by description: "lower abs no equipment" finds Dead bug and Reverse crunch)', null, () => {
+    const hits = searchExercises(HELD_FIELD, 'lower abs no equipment').map(e => e.key)
+    for (const k of ['dead-bug', 'reverse-crunch']) if (!hits.includes(k)) throw new Error(`missed ${k}: ${hits.join(', ')}`)
+    if (searchExercises(HELD_FIELD, 'bench')[0]?.key !== 'bench-press') throw new Error('a name no longer ranks first')
+  }],
+  /*
+   * The card's whole head folds it, name included, as it always did (cards start
+   * folded, so it is the tap made most); what it is moved to a 44px ⓘ beside
+   * the head (#63 review). Both addresses pinned. A piece with no catalog
+   * identity (a swim, a bike) has nothing to explain.
+   */
+  ['ExerciseCard(a catalog movement: the whole head folds, the ⓘ beside it says what it is)',
+    <ExerciseCard item={{ ...HELD_ENTRY.data.plan.blocks[0].items[1], line: '1 × 10' }} liftField={HELD_FIELD}
+      onPatch={noop} onPatchSet={noop} onAddSet={noop} onRemoveSet={noop} onRemove={noop} />,
+    html => {
+      const head = (html.match(/<button[^>]*class="presc-itemhead"[^>]*aria-expanded="false"[^>]*>([\s\S]*?)<\/button>/) || [])[1] || ''
+      if (!head) throw new Error('the head no longer folds the card')
+      if (!/Dead bug/.test(text(head)) || !/1 × 10/.test(text(head))) throw new Error('the name or the numbers are no longer part of the fold')
+      if (!/<button[^>]*class="iconbtn presc-about"[^>]*aria-label="What is Dead bug\?"/.test(html)) throw new Error('no ⓘ for what it is')
+      if (/presc-itemabout|presc-itemfold|how to do it/.test(html)) throw new Error('the name is a second button again')
+      if (/class="pop/.test(html)) throw new Error('the sheet is open before anyone asked')
+    }],
+  ['ExerciseCard(a piece with no catalog identity: one button that folds, no ⓘ)',
+    <ExerciseCard item={{ ...PRESCRIPTION.blocks[0].items[0], line: '10 min' }} liftField={HELD_FIELD}
+      onPatch={noop} onPatchSet={noop} onAddSet={noop} onRemoveSet={noop} onRemove={noop} />,
+    html => {
+      if (/presc-about|What is/.test(html)) throw new Error('a bike piece offers a how-to')
+      if (!/<button[^>]*class="presc-itemhead"[^>]*aria-expanded/.test(html)) throw new Error('the piece no longer folds')
+    }],
+  /* A new hold can be counted in reps: the count's label is the switch, one tap,
+   * until something is counted on it. A reps movement never offers it. */
+  ['ExerciseCard(a new hold: "sec" under the count is the switch to reps)',
+    <ExerciseCard item={{ id: 'h', kind: 'lift', name: 'Plank', exercise: 'plank', measure: 'time', line: '', sets: [{ id: '0', seconds: '', weight: '' }] }}
+      liftField={HELD_FIELD} defaultOpen blank=""
+      onPatch={noop} onPatchSet={noop} onAddSet={noop} onRemoveSet={noop} onRemove={noop} />,
+    html => {
+      if (!/<button[^>]*aria-label="Counted in seconds\. Switch to reps"/.test(html)) throw new Error('no switch on a new hold')
+      if (!/aria-label="less sec"/.test(html)) throw new Error('the hold is not in seconds')
+    }],
+  ['ExerciseCard(no switch once a hold is counted, and none on a reps movement)', null, () => {
+    const card = (item) => renderToString(<ExerciseCard item={{ kind: 'lift', line: '', ...item }} liftField={HELD_FIELD} defaultOpen
+      onPatch={noop} onPatchSet={noop} onAddSet={noop} onRemoveSet={noop} onRemove={noop} />)
+    if (/Counted in/.test(card({ id: 'h', name: 'Plank', exercise: 'plank', sets: [{ id: '0', seconds: 30, weight: '' }] }))) throw new Error('a counted hold can still be switched')
+    if (/Counted in/.test(card({ id: 'd', name: 'Dead bug', exercise: 'dead-bug', sets: [{ id: '0', reps: '', weight: '' }] }))) throw new Error('a reps movement offers to be a hold')
+    if (!/Counted in reps\. Switch to seconds/.test(card({ id: 'h', name: 'Plank', exercise: 'plank', sets: [{ id: '0', reps: '', weight: '' }] }))) throw new Error('a hold counted in reps cannot go back')
+  }],
+  /* A hold in the log: seconds, not reps, and a summary in seconds. */
+  ['SessionLog(a hold: seconds and weight, "3 × 45 s", no volume)', <SessionLog session={HELD_CARD}
+    entry={{ id: 'held1', kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { optId: 'log-workout', level: 2, out: { activity: 'lift', lifts: [
+        { uid: 'plank-1', key: 'plank', name: 'Plank', group: 'Core', implement: 'bodyweight', implementLabel: 'Bodyweight',
+          sets: [{ seconds: 45, weight: '' }, { seconds: 45, weight: '' }, { seconds: 45, weight: '' }] },
+      ] } } }}
+    entries={[]} onSave={noop} bare />,
+    html => {
+      const t = text(html)
+      if (!/class="presc-sets"/.test(html)) throw new Error('the card is not open, so this proves nothing')
+      if (!/aria-label="less sec"/.test(html)) throw new Error('a hold has no seconds stepper')
+      if (/aria-label="less reps"/.test(html)) throw new Error('a hold is asked for reps')
+      if (!/3 × 45 s/.test(t)) throw new Error('the summary is not "3 × 45 s"')
+      if (!/1 exercise · 3 sets(?! ·)/.test(t)) throw new Error('the session line is not "1 exercise · 3 sets", or a hold claims a volume')
+    }],
+  ['SessionLog(a Plank logged as reps before the library reads exactly as before)', <SessionLog session={HELD_CARD}
+    entry={{ id: 'held2', kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { optId: 'log-workout', level: 2, out: { activity: 'lift', lifts: [
+        { uid: 'plank-1', key: 'plank', name: 'Plank', group: 'Core', implement: 'bodyweight', implementLabel: 'Bodyweight',
+          sets: [{ reps: 60, weight: '' }, { reps: 45, weight: '' }] },
+      ] } } }}
+    entries={[]} onSave={noop} bare />,
+    html => {
+      if (!/aria-label="less reps"/.test(html)) throw new Error('an old reps row lost its reps')
+      if (/aria-label="less sec"/.test(html)) throw new Error('an old reps row is asked for seconds')
+      if (!/60, 45/.test(text(html))) throw new Error('the old row reads differently')
+    }],
+  /* A hold in the runner: the set is seconds, the target says so, the name explains it. */
+  ['WorkoutRunner(a hold: the set is seconds, and the name opens what it is)', <PlanProvider plan={HELD_PLAN}><WorkoutRunner session={PLANNED_CARD}
+    entry={HELD_ENTRY} entries={[]} onRun={noop} onExit={noop} /></PlanProvider>,
+    html => {
+      const t = text(html)
+      if (!/class="bigstep-in"/.test(html)) throw new Error('the set screen did not render, so this proves nothing')
+      if (!/aria-label="less sec"/.test(html) || /aria-label="less reps"/.test(html)) throw new Error('the hold is not asked in seconds')
+      if (!/Planned.*45 s/.test(t)) throw new Error('the target is not in seconds')
+      if (!/3 × 45 s/.test(t)) throw new Error('the set line is not "3 × 45 s"')
+      if (!/<button[^>]*class="run-moveabout"[^>]*aria-label="Plank: how to do it"/.test(html)) throw new Error('the runner\'s name does not open the sheet')
     }],
   // Workout mode, in every state it can be left in. It owns the whole screen
   // and runs with chalky hands mid-set, so a bad property access here is the

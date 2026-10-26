@@ -60,6 +60,57 @@ export function exerciseOf(field, key) {
   return catalogOf(field).exercises.find(e => e.key === key) || null
 }
 
+/* ---------------------------------------------------- reps, or held for time */
+
+/*
+ * How a movement's sets are counted (issue #63). Most are reps; a hold or a
+ * stretch is SECONDS (`measure: "time"` in the catalog), and its sets are
+ * `{ seconds, weight }` instead of `{ reps, weight }`. Time sets have no
+ * volume: forty-five seconds under a plate is not a number to multiply.
+ */
+
+/** The catalog's answer for a movement: 'time' or 'reps'. */
+export const measureFor = (field, key) => (exerciseOf(field, key)?.measure === 'time' ? 'time' : 'reps')
+
+/**
+ * How one LOGGED row is counted, read off the row's own sets before the
+ * catalog: a Plank logged as reps before the catalog called it a hold has
+ * `reps` on its sets and stays reps, whatever the catalog says now. Only a row
+ * with no sets to read falls back to the catalog.
+ */
+export function liftMeasure(row, field = null) {
+  const sets = (Array.isArray(row?.sets) ? row.sets : []).filter(r => r && typeof r === 'object')
+  if (sets.some(r => 'seconds' in r)) return 'time'
+  if (sets.some(r => 'reps' in r)) return 'reps'
+  return measureFor(field, row?.key)
+}
+
+/* ------------------------------------------------------------ muscles, in words */
+
+/*
+ * The body map's vocabulary (react-body-highlighter) in the words people use,
+ * for the detail sheet and for search: nobody types "gluteal". The first word
+ * is what is shown; the rest are only searched.
+ */
+const MUSCLE_WORDS = {
+  'front-deltoids': ['front delts', 'shoulders', 'deltoids'],
+  'back-deltoids': ['rear delts', 'shoulders', 'deltoids'],
+  gluteal: ['glutes', 'gluteal', 'butt'],
+  quadriceps: ['quads', 'quadriceps', 'thighs'],
+  hamstring: ['hamstrings'],
+  adductor: ['adductors', 'inner thighs'],
+  abductors: ['abductors', 'outer hips'],
+  trapezius: ['traps', 'trapezius'],
+  forearm: ['forearms', 'grip'],
+  abs: ['abs', 'core'],
+  obliques: ['obliques', 'core'],
+  'upper-back': ['upper back'],
+  'lower-back': ['lower back'],
+}
+
+/** "front delts" for "front-deltoids"; the vocabulary's word, de-hyphenated, otherwise. */
+export const muscleName = (m) => MUSCLE_WORDS[m]?.[0] || String(m || '').replace(/-/g, ' ')
+
 /**
  * The implements this movement can be loaded with.
  *
@@ -255,7 +306,7 @@ export function rememberedWeightMode(field, entries = [], key, implement, exclud
     if (e?.deleted || e?.kind !== 'daily' || e.id === excludeId || !(String(e.date || '') <= today)) continue
     if (e.data?.done === false && e.data?.undone === true) continue
     const row = liftsIn(e.data?.out).find(l => l?.key === key && l.implement === implement
-      && (l.sets || []).some(r => num(r?.reps) !== null || num(r?.weight) !== null))
+      && (l.sets || []).some(r => num(r?.reps) !== null || num(r?.seconds) !== null || num(r?.weight) !== null))
     if (!row) continue
     const at = `${e.date || ''}|${e.updatedAt || ''}`
     if (!best || at > best.at) best = { at, row }
@@ -264,6 +315,35 @@ export function rememberedWeightMode(field, entries = [], key, implement, exclud
 }
 
 /* -------------------------------------------------------------- the search */
+
+/*
+ * What a search reads off one exercise, worked out once per exercise object
+ * (the catalog is about five hundred of them, searched on every keystroke).
+ * `name` … `base` are what the search has always matched; `about` is the words
+ * of its description (issue #63): tags, muscles in words, equipment, the gist
+ * and the steps.
+ */
+const searchable = new WeakMap()
+function searchText(ex) {
+  let t = searchable.get(ex)
+  if (t) return t
+  const name = String(ex.name || '').toLowerCase()
+  const group = String(ex.group || '').toLowerCase()
+  const aka = (ex.aka || []).map(a => String(a).toLowerCase())
+  const muscles = [...(ex.muscles?.primary || []), ...(ex.muscles?.secondary || [])]
+    .flatMap(m => [String(m).replace(/-/g, ' '), ...(MUSCLE_WORDS[m] || [])])
+  const words = (list) => list.join(' ').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+  t = {
+    name, group, aka,
+    base: [name, group, String(ex.key || '').replace(/-/g, ' '), ...aka].join(' '),
+    // Tags, muscles and equipment are said ABOUT the movement; the gist and
+    // the steps only mention things, so they rank last.
+    about: words([...(Array.isArray(ex.tags) ? ex.tags : []), ...muscles, String(ex.equipment || '')]),
+    how: words([String(ex.how?.gist || ''), ...(Array.isArray(ex.how?.steps) ? ex.how.steps : [])]),
+  }
+  searchable.set(ex, t)
+  return t
+}
 
 /**
  * The catalog, filtered and ranked for a typed query.
@@ -277,38 +357,49 @@ export function rememberedWeightMode(field, entries = [], key, implement, exclud
  *   2  an alias starts with it                 "rdl"   → Romanian deadlift
  *   3  the name contains it anywhere           "row"   → Pendlay row
  *   4  the muscle group matches                "back"  → everything for backs
+ *   5  its tags, muscles or equipment          "lower abs no equipment" → Dead bug
+ *   6  its gist or steps                       "wall" → Couch stretch
  *
  * Multi-word queries have to match every word somewhere ("db bent row"), which is
- * how a half-remembered name still finds the exercise. With no query at all it
- * returns the catalog in its own order, so the list is browsable rather than only
- * searchable.
+ * how a half-remembered name still finds the exercise. A word matches the name,
+ * group, key or an alias anywhere in it, as it always has, or the START of a word
+ * in the description, so "abs" does not find everything with "tabs" in a step.
+ * With no query at all it returns the catalog in its own order, so the list is
+ * browsable rather than only searchable.
+ *
+ * `group` is a picker's group chip: exactly that group, in catalog order, and
+ * nothing that merely mentions it ("Triceps" is not a bench press). Description
+ * matching is for words someone typed.
  */
-export function searchExercises(field, query = '', { limit = 60 } = {}) {
+export function searchExercises(field, query = '', { limit = 60, group = null } = {}) {
   const { exercises } = catalogOf(field)
+  if (group) return exercises.filter(ex => ex.group === group).slice(0, limit)
   const q = String(query || '').trim().toLowerCase()
   if (!q) return exercises.slice(0, limit)
   const words = q.split(/\s+/).filter(Boolean)
+  const starts = (list, w) => list.some(x => x.startsWith(w))
 
   const scored = []
   for (const ex of exercises) {
-    const name = String(ex.name || '').toLowerCase()
-    const group = String(ex.group || '').toLowerCase()
-    const aka = (ex.aka || []).map(a => String(a).toLowerCase())
-    const haystack = [name, group, String(ex.key || '').replace(/-/g, ' '), ...aka].join(' ')
-
+    const t = searchText(ex)
     // Every word has to be in there somewhere, or "bent row" would match
     // anything with "row" in it and the ranking below would be sorting noise.
-    if (!words.every(w => haystack.includes(w))) continue
-
-    const rank = name.startsWith(q) ? 0
-      : name.split(/[\s-]+/).some(part => part.startsWith(q)) ? 1
-      : aka.some(a => a.startsWith(q)) ? 2
-      : name.includes(q) ? 3
-      : 4
+    let rank
+    if (words.every(w => t.base.includes(w))) {
+      rank = t.name.startsWith(q) ? 0
+        : t.name.split(/[\s-]+/).some(part => part.startsWith(q)) ? 1
+        : t.aka.some(a => a.startsWith(q)) ? 2
+        : t.name.includes(q) ? 3
+        : 4
+    } else if (words.every(w => t.base.includes(w) || starts(t.about, w))) {
+      rank = 5
+    } else if (words.every(w => t.base.includes(w) || starts(t.about, w) || starts(t.how, w))) {
+      rank = 6
+    } else continue
     scored.push({ ex, rank })
   }
   return scored
-    .sort((a, b) => a.rank - b.rank || a.ex.name.localeCompare(b.ex.name))
+    .sort((a, b) => a.rank - b.rank || String(a.ex.name).localeCompare(String(b.ex.name)))
     .slice(0, limit)
     .map(s => s.ex)
 }
@@ -358,7 +449,7 @@ export function addLift(field, list, key, { entries = [], excludeId = null } = {
     name: ex.name,
     group: ex.group || null,
     implement,
-    sets: [blankSet()],
+    sets: [blankSet(measureFor(field, key))],
   }, rememberedWeightMode(field, entries, key, implement, excludeId))]
 }
 
@@ -374,7 +465,8 @@ function withWeightMode(field, row, mode) {
   return 'weightLabel' in rest ? { ...rest, weightLabel } : rest
 }
 
-export const blankSet = () => ({ reps: '', weight: '' })
+/** One empty set: `{ reps, weight }`, or `{ seconds, weight }` for a movement held for time. */
+export const blankSet = (measure = 'reps') => (measure === 'time' ? { seconds: '', weight: '' } : { reps: '', weight: '' })
 
 const mapLift = (list, uid, fn) => liftsIn({ [LIFT_FIELD]: list }).map(l => (l.uid === uid ? fn(l) : l))
 
@@ -382,9 +474,33 @@ export function removeLift(list, uid) {
   return liftsIn({ [LIFT_FIELD]: list }).filter(l => l.uid !== uid)
 }
 
-/** Change the implement (or anything else) on one logged exercise. */
+/**
+ * Whether a row is counted in reps or held for seconds can be switched while
+ * it has no count on it yet (issue #63: someone may count a hold in reps). The
+ * row's own sets ARE its measure (`liftMeasure`), so switching renames the
+ * blank count on each set and keeps the weights; nothing else is stored.
+ */
+export function canSwitchMeasure(field, row) {
+  if (measureFor(field, row?.key) !== 'time') return false
+  return (Array.isArray(row?.sets) ? row.sets : []).every(r => num(r?.reps) === null && num(r?.seconds) === null)
+}
+
+function withMeasure(row, measure) {
+  const sets = (Array.isArray(row.sets) ? row.sets : []).map(r => {
+    const { reps: _r, seconds: _s, ...rest } = r || {}
+    return measure === 'time' ? { seconds: '', ...rest } : { reps: '', ...rest }
+  })
+  return { ...row, sets: sets.length ? sets : [blankSet(measure)] }
+}
+
+/** Change the implement (or anything else) on one logged exercise. `measure` switches reps and seconds. */
 export function patchLift(field, list, uid, patch) {
   return mapLift(list, uid, l => {
+    if ('measure' in patch) {
+      const { measure, ...rest } = patch
+      const switched = canSwitchMeasure(field, l) ? withMeasure(l, measure === 'time' ? 'time' : 'reps') : l
+      return Object.keys(rest).length ? patchLift(field, [switched], uid, rest)[0] : switched
+    }
     const next = { ...l, ...patch }
     // The label travels with the value for the same reason the exercise name
     // does — the log has to read back without the catalog.
@@ -409,7 +525,7 @@ export function addLiftSet(list, uid) {
   return mapLift(list, uid, l => {
     const rows = Array.isArray(l.sets) ? l.sets : []
     const last = rows.at(-1)
-    return { ...l, sets: [...rows, last ? { ...last } : blankSet()] }
+    return { ...l, sets: [...rows, last ? { ...last } : blankSet(liftMeasure(l))] }
   })
 }
 
@@ -418,7 +534,7 @@ export function removeLiftSet(list, uid, i) {
     const rows = (Array.isArray(l.sets) ? l.sets : []).filter((_, j) => j !== i)
     // Never zero rows: an exercise with no sets is an exercise the user did not do,
     // and the way to say that is to remove the exercise.
-    return { ...l, sets: rows.length ? rows : [blankSet()] }
+    return { ...l, sets: rows.length ? rows : [blankSet(liftMeasure(l))] }
   })
 }
 
@@ -469,11 +585,12 @@ export const liftReps = (out) =>
  * plainly not the load moved, so `liftsLine` says "as entered" whenever a set
  * in it was per side rather than present it as the total. Only sets with both
  * numbers count; a set logged as reps alone contributes nothing rather than
- * zero-weight noise.
+ * zero-weight noise. A row held for time has no volume at all (`liftMeasure`).
  */
 export function liftVolume(out) {
   let total = 0
   for (const l of liftsIn(out)) {
+    if (liftMeasure(l) === 'time') continue
     for (const r of l.sets || []) {
       const reps = num(r.reps)
       const w = num(r.weight)
@@ -488,18 +605,22 @@ export function liftVolume(out) {
  * A row in a mode other than its default says so ("3 × 8 @ 25 lb · one
  * dumbbell"), unless `mode: false` (a card's header, which says the mode under
  * the name instead). `field` is the catalog; without one, the coded modes.
+ * A row held for time reads "3 × 45 s" (`liftMeasure`).
  */
 export function liftSummary(lift, field = null, { mode = true } = {}) {
-  const rows = (lift?.sets || []).filter(r => num(r.reps) !== null || num(r.weight) !== null)
+  const count = liftMeasure(lift, field) === 'time' ? 'seconds' : 'reps'
+  const rows = (lift?.sets || []).filter(r => num(r?.[count]) !== null || num(r?.weight) !== null)
   if (!rows.length) return ''
-  const same = rows.every(r => String(r.reps) === String(rows[0].reps) && String(r.weight) === String(rows[0].weight))
+  const same = rows.every(r => String(r[count]) === String(rows[0][count]) && String(r.weight) === String(rows[0].weight))
   const unit = (mode && modeLabel(field, lift)) || 'lb'
   const load = (r) => (num(r.weight) === null ? '' : ` @ ${num(r.weight)} ${unit}`)
-  if (same) {
-    const reps = num(rows[0].reps)
-    return `${rows.length} × ${reps ?? '—'}${load(rows[0])}`
+  const each = (r) => {
+    const n = num(r[count])
+    if (n === null) return '—'
+    return count === 'seconds' ? `${n} s` : `${n}`
   }
-  return rows.map(r => `${num(r.reps) ?? '—'}${load(r)}`).join(', ')
+  if (same) return `${rows.length} × ${each(rows[0])}${load(rows[0])}`
+  return rows.map(r => `${each(r)}${load(r)}`).join(', ')
 }
 
 /** One line for the whole session: "6 exercises · 18 sets · 4,120 lb". `field` as for `liftSummary`. */
@@ -524,14 +645,16 @@ export function liftsLine(out, field = null) {
  * The lifting equivalent of `PriorNote`, and there for the same reason: what you
  * pressed last time is the number you are trying to beat, and looking it up in
  * the history tab mid-set is not something that happens. Newest first, the entry
- * being edited excluded.
+ * being edited excluded. `measure` keeps a hold's last time to holds: sixty
+ * reps of an old Plank is not a number to beat in seconds.
  */
-export function lastLift(entries = [], key, excludeId = null, field = null) {
+export function lastLift(entries = [], key, excludeId = null, field = null, measure = null) {
   const hits = []
   for (const e of entries) {
     if (e?.deleted || e?.kind !== 'daily' || e.id === excludeId) continue
     for (const l of liftsIn(e.data?.out)) {
       if (l?.key !== key) continue
+      if (measure && liftMeasure(l, field) !== measure) continue
       const summary = liftSummary(l, field)
       if (summary) hits.push({ date: e.date, implement: l.implementLabel || l.implement || null, summary })
     }

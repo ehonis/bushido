@@ -183,9 +183,13 @@ export function FullScreen({ title, sub, icon, tone, onBack, tabs, active, onTab
   )
 }
 
-export function Popover({ label, onClose, children }: { label?: string; onClose: () => void; children?: React.ReactNode }) {
+// `visible` and `onDismiss` let a sheet slide away before what it started
+// happens (iOS presents one transition at a time): the exercise sheet's Add.
+export function Popover({ label, onClose, children, visible = true, onDismiss }: {
+  label?: string; onClose: () => void; children?: React.ReactNode; visible?: boolean; onDismiss?: () => void
+}) {
   return (
-    <RNModal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose} accessibilityLabel={label}>
+    <RNModal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose} onDismiss={onDismiss} accessibilityLabel={label}>
       <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={st.sheet}>{children}</View>
       </GestureHandlerRootView>

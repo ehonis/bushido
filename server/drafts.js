@@ -380,7 +380,7 @@ function rememberedModes(entries, today) {
     const at = `${e.date || ''}|${e.updatedAt || ''}`
     const seen = new Set()
     for (const l of Array.isArray(e.data?.out?.lifts) ? e.data.out.lifts : []) {
-      if (!l?.key || !l.implement || !(l.sets || []).some(r => has(r?.reps) || has(r?.weight))) continue
+      if (!l?.key || !l.implement || !(l.sets || []).some(r => has(r?.reps) || has(r?.seconds) || has(r?.weight))) continue
       const k = `${l.key}|${l.implement}`
       if (seen.has(k)) continue
       seen.add(k)

@@ -161,6 +161,34 @@ dumbbell or kettlebell between per hand and one dumbbell, and a bar between on t
 per side. The choice is remembered per exercise, so the next Bulgarian split squat starts
 the way the last one was logged.
 
+**The exercise library** (issue #63). `content/exercises.json` is a shared library of
+exercises, merged into the lift catalog of whatever plan the install runs on (the owner's,
+the starter, an imported one) as `/api/content` serves it, so the web, the iPhone app, every
+person and the workout planner see the same list. The plan's own fields win; the library
+fills what a plan exercise lacks (how-to, video, tags, equipment, whether it is held for
+time, and muscles when the plan has none), adds the exercises the plan does not have, and
+adds its own search aliases. An install without the file, or with a broken one, runs on the
+plan exactly as it is.
+
+- **What is this?** The ⓘ beside a lift card's head (in the log and the plan editor; the
+  head itself still folds the card), the exercise's name in the runner, or the ⓘ beside it
+  in the exercise picker, before adding it, opens a sheet:
+  the body diagram with the muscles in words, what it needs, the one-line gist, numbered
+  steps, the most common mistake, how to make it easier or harder, and **Watch how** when
+  the library has a video for it. From the picker, the sheet's button adds it.
+- **Search reads descriptions.** Names still rank first (name, a word of it, an alias,
+  anywhere in it, the group), then what it is said to be (tags, muscles in plain words,
+  equipment), then its gist and steps. Every word has to match somewhere, so "lower abs no
+  equipment" finds the dead bug and the reverse crunch. A group chip is that group and
+  nothing else.
+- **Holds and stretches are timed.** An exercise with `measure: "time"` is logged in seconds
+  per set instead of reps (a plank, a wall sit, a couch stretch), with a weight box for a
+  plate, and reads back as "3 × 45 s". Time sets have no volume, and "last time" beside a
+  hold is the last hold. Until something is counted on a new hold, the "sec" under its box
+  switches it to reps (and back), for whoever counts their planks. A row logged as reps
+  before the library called the movement a hold stays reps: the shape is read off the row's
+  own sets, never rewritten.
+
 A treadmill run asks its incline and never its elevation; an outdoor run is the reverse.
 The old card gated incline on `activity: ["run","walk"]` and got both backwards.
 

@@ -195,6 +195,20 @@ test('logged lifts: their copy gets the owner\'s exercises and set counts, blank
   assert.equal(copyExercises(copy, mine), copy, 'nothing left to copy still changed something')
 })
 
+test('a hold copies as a hold: blank seconds, and seconds they hold are their marks (#63)', () => {
+  const plank = (sets) => ({ uid: 'plank-1', key: 'plank', name: 'Plank', group: 'Core', implement: 'bodyweight', sets })
+  let copy = sharedCopy(gym([plank([{ seconds: '45', weight: '' }, { seconds: '45', weight: '' }])]), { session: workoutCard })
+  assert.deepEqual(liftsOf(copy)[0].sets, [{ seconds: '', weight: '' }, { seconds: '', weight: '' }])
+  assert.equal(hasOwnMarks(copy, workoutCard), false)
+  copy = editTheirs(copy, [plank([{ seconds: '30', weight: '' }, { seconds: '', weight: '' }])])
+  assert.equal(hasOwnMarks(copy, workoutCard), true, 'seconds held were not counted as theirs')
+  const more = copyExercises(copy, gym([plank([{ seconds: '45', weight: '' }, { seconds: '45', weight: '' }, { seconds: '60', weight: '' }])]))
+  assert.deepEqual(liftsOf(more)[0].sets, [{ seconds: '30', weight: '' }, { seconds: '', weight: '' }, { seconds: '', weight: '' }])
+  // A plank logged as reps copies as reps.
+  const old = sharedCopy(gym([plank([{ reps: '60', weight: '' }])]), { session: workoutCard })
+  assert.deepEqual(liftsOf(old)[0].sets, [B])
+})
+
 test('copying only adds: what they took out of a set count, and their own lifts, stay as they are', () => {
   const copy = editTheirs(sharedCopy(gym([squat([set(5, 100)])]), { session: workoutCard }),
     [squat([set(5, 60), set(5, 60), set(5, 60)]), { uid: 'row-1', name: 'Row', sets: [set(10, 40)] }])
