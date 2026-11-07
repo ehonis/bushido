@@ -753,6 +753,46 @@ async function waitFor(fn, label, ms = 8000) {
     eq(namesIn(ownOn(id)), ['Squat'], 'keeping Sam\'s set brought Deadlift back on the owner\'s side')
   })
 
+  await step('sync: numbers in Sam\'s sets are Sam\'s log; the owner removing the exercise or a set over there never takes them', async () => {
+    const { id } = await freshShare('2026-10-29', { sync: true })
+    // Sam types weights on the sheet, never starting the runner: no run at all. The editor
+    // marks each set it typed into (prescription.js patchSet); the copy's target reps are not.
+    eq((await saveSams(replan(theirsOn(id), bs => { bs[0].items = bs[0].items.map(i => ({ ...i, sets: i.sets.map(x => ({ ...x, weight: 60, typed: true })) })); return bs }))).status, 200)
+    ok(!theirsOn(id).data.run, 'Sam has a run, so this proves nothing about typed sets')
+    // The owner drops Deadlift and Squat's second set.
+    eq((await saveOwn(replan(ownOn(id), bs => {
+      bs[0].items = bs[0].items.filter(i => i.name !== 'Deadlift').map(i => ({ ...i, sets: i.sets.slice(0, 1) }))
+      return bs
+    }))).status, 200)
+    eq(namesIn(ownOn(id)), ['Squat'])
+    eq(namesIn(theirsOn(id)), ['Squat', 'Deadlift'], 'the owner\'s removal took Sam\'s typed Deadlift')
+    eq(itemsIn(theirsOn(id)).map(i => i.sets.map(x => x.weight)), [[60, 60], [60]], 'a typed set of Sam\'s was dropped')
+    // Neither comes back on the owner's side: Sam's numbers stay Sam's.
+    eq(namesIn(ownOn(id)), ['Squat'])
+    eq(itemsIn(ownOn(id))[0].sets.length, 1)
+  })
+
+  await step('sync: every write answers with its receipt, and a device that kept editing adds one set, not two', async () => {
+    const { id } = await freshShare('2026-10-30', { sync: true })
+    // The owner's sheet writes Sam's copy through the people endpoint: W1 adds a set.
+    const held = theirsOn(id)
+    const plusOne = (e) => replan(e, bs => { bs[0].items[0] = { ...bs[0].items[0], sets: [...bs[0].items[0].sets, { ...bs[0].items[0].sets[0], reps: null, weight: null }] }; return bs })
+    const w1 = plusOne(held)
+    const r1 = await (await post('sam', { ...w1, updatedAt: tick() })).json()
+    eq(itemsIn(theirsOn(id))[0].sets.length, 3)
+    ok(r1.ack && r1.ack.of === id, 'the people endpoint sent no receipt')
+    // Before the answer was read the sheet added another set: on the receipt, that is one more.
+    const w2 = plusOne(w1)
+    eq((await post('sam', { ...w2, updatedAt: tick(), data: { ...w2.data, syncBase: r1.ack } })).status, 200)
+    eq(itemsIn(theirsOn(id))[0].sets.length, 4, 'the second write applied the first one again')
+    eq(itemsIn(ownOn(id))[0].sets.length, 4, 'the owner did not get the same four sets')
+    // The owner's own whole-log push answers with receipts too.
+    const pushed = await (await get(`${two.base}/api/state`, { method: 'PUT', headers: { ...json, ...owns().headers },
+      body: JSON.stringify({ state: { entries: { [id]: { ...plusOne(ownOn(id)), updatedAt: tick() } } } }) })).json()
+    ok(pushed.acks && pushed.acks[id], 'a whole-log push sent no receipt for a synced workout')
+    eq(itemsIn(ownOn(id))[0].sets.length, 5)
+  })
+
   await step('sync: never into an entry Sam logged themselves, even when the owner\'s entry points at it', async () => {
     const own = { id: 'daily-2026-10-21', kind: 'daily', date: '2026-10-21', data: { optId: 'planned', plan: ids({ title: 'Mine', blocks: [{ name: 'A', note: '', items: [lifted('Squat', st(1))] }] }) } }
     eq((await saveSams(own)).status, 200)

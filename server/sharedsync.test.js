@@ -46,6 +46,10 @@ const sam = () => ({
   run: { sets: { b0i0s0: { reps: 8, weight: 40 } }, cursor: 'b0i0s1', skipped: [] },
 })
 
+/** `data` with no numbers in the named exercises' sets: planned, nothing filled in yet. */
+const blanked = (data, which) => ({ ...data, plan: { ...data.plan, blocks: data.plan.blocks.map(b => ({ ...b,
+  items: b.items.map(i => (which.includes(i.name) ? { ...i, sets: i.sets.map(x => ({ ...x, reps: null, weight: null, seconds: null })) } : i)) })) } })
+
 /** A plan after an edit, re-minting positional ids the way the editor does. */
 const edit = (data, fn) => {
   const blocks = fn(data.plan.blocks.map(b => ({ ...b, items: b.items.map(i => ({ ...i, sets: [...i.sets] })) })))
@@ -94,10 +98,112 @@ check('a rename keeps the exercise (same uid), and Sam\'s numbers on it', () => 
 check('removed on one side: gone on the other unless the other logged on it', () => {
   const before = alex()
   const after = edit(before, bs => { bs[0].items = []; return bs })
-  const theirs = carry(sam(), shapeOf(before), after)
-  // Sam logged a Squat set, so Squat stays on Sam's side; Deadlift goes.
+  const theirs = carry(blanked(sam(), ['Squat', 'Deadlift']), shapeOf(before), after)
+  // Sam logged a Squat set in the run, so Squat stays on Sam's side; the blank Deadlift goes.
   eq(names(theirs), ['Squat'])
   eq(theirs.run.sets, { b0i0s0: { reps: 8, weight: 40 } })
+})
+
+/** `data` as if every number in it had been typed on the sheet (prescription.js `patchSet` marks it). */
+const typedAll = (data) => ({ ...data, plan: { ...data.plan, blocks: data.plan.blocks.map(b => ({ ...b,
+  items: b.items.map(i => ({ ...i, sets: i.sets.map(x => ({ ...x, typed: true })) })) })) } })
+
+check('numbers typed into the plan are logged too: the other side\'s removal never takes them', () => {
+  // Sam filled in sets on the sheet without ever starting the runner.
+  const typed = typedAll({ ...sam(), run: undefined })
+  const before = alex()
+  const gone = edit(before, bs => { bs[0].items = []; return bs })
+  eq(names(carry(typed, shapeOf(before), gone)), ['Squat', 'Deadlift'], 'an exercise with typed numbers was removed')
+  // Fewer sets over there: Sam's typed sets stay, a blank one goes.
+  const fewer = edit(before, bs => { bs[0].items[0].sets = [bs[0].items[0].sets[0]]; return bs })
+  eq(itemNamed(carry(typed, shapeOf(before), fewer), 'Squat').sets.map(x => x.weight), [40, 40], 'a typed set was dropped')
+  const halfTyped = edit(typed, bs => { bs[0].items[0].sets[1] = set({ typed: true }); return bs })
+  eq(itemNamed(carry(halfTyped, shapeOf(before), fewer), 'Squat').sets.map(x => x.weight), [40], 'a blank set was kept')
+  // A weight alone, reps alone, or a hold's seconds alone is a number someone typed.
+  for (const one of [{ weight: 25 }, { reps: 12 }, { seconds: 30 }]) {
+    const just = edit(blanked(typed, ['Squat', 'Deadlift']), bs => { bs[0].items[1].sets[0] = set({ ...one, typed: true }); return bs })
+    eq(names(carry(just, shapeOf(before), gone)), ['Deadlift'], `${JSON.stringify(one)} did not keep the exercise`)
+  }
+})
+
+check('targets the plan arrived with are not typed: an untouched copy still follows a removal', () => {
+  // Exactly what a share writes: target reps on every set, no weight, nothing typed.
+  const untouched = { ...sam(), run: undefined, plan: planOf([{ uid: 'B1', name: 'Main', items: [
+    lift('SQ', 'Squat', [set({ reps: 5 }), set({ reps: 5 })]), lift('DL', 'Deadlift', [set({ reps: 3 })])] }]) }
+  const before = alex()
+  eq(names(carry(untouched, shapeOf(before), edit(before, bs => { bs[0].items.pop(); return bs }))), ['Squat'])
+  eq(itemNamed(carry(untouched, shapeOf(before), edit(before, bs => { bs[0].items[0].sets.pop(); return bs })), 'Squat').sets.length, 1)
+})
+
+check('kept sets never make the other side\'s next add an extra set (wantSets)', () => {
+  // The owner's typed row stays at 3 while Sam goes 3 -> 1; Sam then adds one (1 -> 2).
+  const owner = typedAll({ ...alex(), run: undefined, plan: planOf([{ uid: 'B1', name: 'Main', items: [
+    lift('RW', 'Row', [set({ reps: 10, weight: 90 }), set({ reps: 10, weight: 90 }), set({ reps: 10, weight: 90 })])] }]) })
+  const three = blanked(owner, ['Row'])
+  const one = edit(three, bs => { bs[0].items[0].sets = bs[0].items[0].sets.slice(0, 1); return bs })
+  const two = edit(three, bs => { bs[0].items[0].sets = bs[0].items[0].sets.slice(0, 2); return bs })
+  let mine = carry(owner, shapeOf(three), one)
+  eq(itemNamed(mine, 'Row').sets.length, 3)
+  mine = carry(mine, shapeOf(one), two)
+  eq(itemNamed(mine, 'Row').sets.length, 3, 'an add on the other side became a fourth set here')
+})
+
+check('a set removed here and one added over there: the difference, the removal stays (council r2)', () => {
+  // Base 3. This side took one off (2); the other side added one (4): 3, not 4.
+  const three = blanked({ ...alex(), run: undefined, plan: planOf([{ uid: 'B1', name: 'Main', items: [lift('RW', 'Row', [set(), set(), set()])] }]) }, ['Row'])
+  const two = edit(three, bs => { bs[0].items[0].sets.pop(); return bs })
+  const four = edit(three, bs => { bs[0].items[0].sets.push(set()); return bs })
+  eq(itemNamed(carry(two, shapeOf(three), four), 'Row').sets.length, 3, 'the carry undid this side\'s removal')
+  // The same on a writer's own stale write: stored 2 (rev 2), the device on rev 1 sends 4.
+  const rev1 = nextBase('d', null, three)
+  const stored = { ...two, syncBase: nextBase('d', rev1, two) }
+  const r = rebase(stored, stampData({ ...four, syncBase: rev1 }, stored), 'd')
+  eq([r.intent, itemNamed(r.data, 'Row').sets.length], ['stale', 3], 'a stale add undid the removal it had not seen')
+  // One side down by two, the other up by one: 2.
+  const one = edit(three, bs => { bs[0].items[0].sets = bs[0].items[0].sets.slice(0, 1); return bs })
+  eq(itemNamed(rebase({ ...one, syncBase: nextBase('d', rev1, one) }, stampData({ ...four, syncBase: rev1 }, one), 'd').data, 'Row').sets.length, 2)
+})
+
+check('an exercise moved into a circuit over there is one set here, typed or not (#68)', () => {
+  const C = { work: 40, rest: 20, rounds: 3, roundRest: 60, countIn: 10 }
+  const base = { ...alex(), run: undefined, plan: planOf([
+    { uid: 'B1', name: 'Main', items: [lift('SQ', 'Squat', [set({ reps: 5 }), set({ reps: 5 }), set({ reps: 5 })])] },
+    { uid: 'B2', name: 'Core', circuit: C, items: [lift('CR', 'Crunch', [set()])] },
+  ]) }
+  const moved = edit(base, bs => { const sq = { ...bs[0].items[0], sets: [bs[0].items[0].sets[0]] }; bs[0].items = []; bs[1].items.push(sq); return bs })
+  const theirs = typedAll({ ...base, sharedFrom: { id: 'owner', name: 'Alex' } })
+  const got = carry(theirs, shapeOf(base), moved)
+  eq(itemNamed(got, 'Squat').sets.length, 1, 'typed sets kept a circuit exercise at three sets')
+})
+
+check('the incident: their sets dropped and re-added over there come back blank, never over typed weights', () => {
+  // The owner's row at 90 / 90 / 90; on the other side two sets go, then come back.
+  const owner = typedAll({ ...alex(), run: undefined, plan: planOf([{ uid: 'B1', name: 'Main', items: [
+    lift('RW', 'Row', [set({ reps: 10, weight: 90 }), set({ reps: 10, weight: 90 }), set({ reps: 10, weight: 90 })])] }]) })
+  const three = { ...blanked(owner, ['Row']), sharedFrom: { id: 'owner', name: 'Alex' } }
+  const one = edit(three, bs => { bs[0].items[0].sets = bs[0].items[0].sets.slice(0, 1); return bs })
+  const again = edit(three, bs => bs)
+  let mine = carry(owner, shapeOf(three), one)
+  mine = carry(mine, shapeOf(one), again)
+  eq(itemNamed(mine, 'Row').sets.map(x => x.weight), [90, 90, 90], 'typed weights were lost')
+})
+
+check('switched to a circuit over there: one set per exercise here too, typed numbers or not (#68)', () => {
+  // A circuit's exercise has one set saying how it is timed; the rounds are the circuit's.
+  const C = { work: 40, rest: 20, rounds: 3, roundRest: 60, countIn: 10 }
+  const before = alex()
+  const on = edit(before, bs => { bs[0] = { ...bs[0], circuit: C, items: bs[0].items.map(i => ({ ...i, sets: i.sets.slice(0, 1) })) }; return bs })
+  const theirs = carry({ ...sam(), run: undefined }, shapeOf(before), on)
+  eq(theirs.plan.blocks[0].circuit, C)
+  eq(theirs.plan.blocks[0].items.map(i => i.sets.length), [1, 1], 'a typed set kept a second set in a circuit')
+})
+
+check('a piece\'s targets are its shape, not a log: an interval still goes when the other side removes it', () => {
+  const piece = { uid: 'RN', kind: 'interval', name: 'Run', unit: 'mi', note: '', sets: [set({ distance: 1, seconds: 480 })] }
+  const withPiece = (data) => edit(data, bs => { bs[0].items.push({ ...piece }); return bs })
+  const before = withPiece(alex())
+  const gone = edit(before, bs => { bs[0].items.pop(); return bs })
+  eq(names(carry(withPiece(sam()), shapeOf(before), gone)), ['Squat', 'Deadlift'])
 })
 
 check('fewer sets never takes a logged set', () => {
@@ -106,7 +212,7 @@ check('fewer sets never takes a logged set', () => {
   const s = sam()
   s.run.sets = { b0i0s0: { reps: 8 }, b0i0s1: { reps: 8 } }
   eq(itemNamed(carry(s, shapeOf(before), after), 'Squat').sets.length, 2, 'a logged set was dropped')
-  eq(itemNamed(carry(sam(), shapeOf(before), after), 'Squat').sets.length, 1, 'an unlogged set was not dropped')
+  eq(itemNamed(carry(blanked({ ...sam(), run: undefined }, ['Squat']), shapeOf(before), after), 'Squat').sets.length, 1, 'an unlogged set was not dropped')
 })
 
 check('a reorder on one side is followed on the other', () => {
@@ -447,7 +553,7 @@ check('THE RULE: only a write whose base lines up with the stored entry changes 
     if (carried === null) eq(carries.length, 0, `${at}: carried a write with no structural intent`)
     else {
       eq(carries.length, 1, `${at}: carry`)
-      eq(names(carry(sam(), carries[0].before, carries[0].after)), carried.filter(n => n !== 'Row'), `${at}: what reached the other side`)
+      eq(names(carry(blanked(sam(), ['Deadlift']), carries[0].before, carries[0].after)), carried.filter(n => n !== 'Row'), `${at}: what reached the other side`)
     }
   }
 })
@@ -465,6 +571,68 @@ check('a numbers-only write never loses a set it logged, and does not carry it',
   // With a stale base that had Deadlift, the same: logged data is never removed by anyone else's write.
   const stale = rebase(storedData, stampData({ ...noBase, syncBase: rev1 }, storedData), 'd')
   eq([stale.intent, names(stale.data), names(stale.carry)], ['stale', ['Squat', 'Deadlift'], ['Squat']])
+})
+
+check('a receipt for every write: a device that kept editing never applies its last change twice', () => {
+  // One device: Squat at 2 sets (rev 1). It adds a set and sends (W1); before the answer
+  // lands it adds another, so it keeps its own copy, and with it the base W1 carried.
+  let at = 0
+  const stamp = () => `2026-10-25T10:0${at++}:00.000Z`
+  const land = (stored, data) => {
+    const was = { id: 'd', kind: 'daily', date: '2026-10-25', updatedAt: stored.updatedAt, data: stored.data }
+    const e = { ...was, updatedAt: stamp(), data }
+    const r = onWrite({ entries: { d: was } }, { entries: { d: e } }, ['d'], () => ({ wasSynced: true, to: [{ personId: 'sam', entryId: 'd' }] }))
+    return { stored: r.state.entries.d, ack: r.acks.d || null }
+  }
+  const sets = (data) => itemNamed(data, 'Squat').sets.length
+  const base0 = alex()
+  const stored0 = { updatedAt: stamp(), data: { ...base0, syncBase: nextBase('d', null, base0) } }
+  const plus = (data) => edit(data, bs => { bs[0].items[0].sets.push(set()); return bs })
+  const minus = (data) => edit(data, bs => { bs[0].items[0].sets.pop(); return bs })
+  const w1 = plus(stored0.data)
+  const one = land(stored0, w1)
+  eq([sets(one.stored.data), one.ack], [3, one.stored.data.syncBase], 'the receipt of a write that stood is the stored base')
+  // Without the receipt the old base reads W1 again: an add is held to what was asked
+  // (wantSets), but a set taken off after W1 comes back. That is what the receipt is for.
+  eq(sets(land(one.stored, plus(w1)).stored.data), 4)
+  const back = land(one.stored, minus(w1))
+  eq(sets(back.stored.data), 3, 'a set taken off after W1 comes back without the receipt')
+  // With it, the next write is only what changed since W1.
+  const acked = (data) => ({ ...data, syncBase: one.ack })
+  eq(sets(land(one.stored, acked(plus(w1))).stored.data), 4, 'one more set is one more set')
+  eq(sets(land(one.stored, acked(minus(w1))).stored.data), 2, 'a set taken off stays off')
+})
+
+check('a receipt when the other side\'s change met the write: the base it sent, with what it sent', () => {
+  // Rev 1: Squat, Deadlift. Row arrives from the other side (rev 2). The device, still on
+  // rev 1, adds a squat set (stale), then adds another while that is on the way.
+  const base1 = alex()
+  const rev1 = nextBase('d', null, base1)
+  const withRow = edit(base1, bs => { bs[0].items.push(lift('RW', 'Row', [set()])); return bs })
+  const was = { id: 'd', kind: 'daily', date: '2026-10-25', updatedAt: '2026-10-25T10:00:00.000Z', data: { ...withRow, syncBase: nextBase('d', rev1, withRow) } }
+  const links = () => ({ wasSynced: true, to: [{ personId: 'sam', entryId: 'd' }] })
+  const w1 = edit({ ...base1, syncBase: rev1 }, bs => { bs[0].items[0].sets.push(set()); return bs })
+  const r1 = onWrite({ entries: { d: was } }, { entries: { d: { ...was, updatedAt: '2026-10-25T10:01:00.000Z', data: w1 } } }, ['d'], links)
+  const stored = r1.state.entries.d
+  eq([names(stored.data), itemNamed(stored.data, 'Squat').sets.length, stored.data.syncBase.rev], [['Squat', 'Deadlift', 'Row'], 3, 3])
+  eq(r1.acks.d, { of: 'd', rev: 1, ...shapeOf(stampData(w1, was.data)) }, 'the receipt is what W1 said, on the base it said it from')
+  const w2 = edit({ ...w1, syncBase: r1.acks.d }, bs => { bs[0].items[0].sets.push(set()); return bs })
+  const r2 = onWrite({ entries: { d: stored } }, { entries: { d: { ...stored, updatedAt: '2026-10-25T10:02:00.000Z', data: w2 } } }, ['d'], links)
+  eq([names(r2.state.entries.d.data), itemNamed(r2.state.entries.d.data, 'Squat').sets.length], [['Squat', 'Deadlift', 'Row'], 4],
+    'the second write added one set and kept the Row it never saw')
+})
+
+check('no receipt for a write whose structure did not count, or one last-write-wins turned away', () => {
+  const old = alex()
+  const rev1 = nextBase('d', null, old)
+  const now = edit(old, bs => { bs[0].items.pop(); return bs })
+  const was = { id: 'd', kind: 'daily', date: '2026-10-25', updatedAt: '2026-10-25T10:00:00.000Z', data: { ...now, syncBase: nextBase('d', rev1, now) } }
+  const links = () => ({ wasSynced: true, to: [] })
+  const { syncBase: _b, ...noBase } = edit(old, bs => { bs[0].items[0].sets.push(set()); return bs })
+  const r = onWrite({ entries: { d: was } }, { entries: { d: { ...was, updatedAt: '2026-10-25T10:01:00.000Z', data: noBase } } }, ['d'], links)
+  eq(r.acks, {}, 'a numbers-only write got a receipt')
+  const kept = onWrite({ entries: { d: was } }, { entries: { d: was } }, ['d'], links)
+  eq(kept.acks, {}, 'a write that did not land got a receipt')
 })
 
 check('only links with sync on are synced; older shares are not', () => {
@@ -487,7 +655,7 @@ check('onWrite: a synced entry is rebased, stamped and carried; with sync off no
 })
 
 check('receive: lands on a shared copy just past its OWN instant, never the sender\'s; never on an entry they logged themselves', () => {
-  const copy = { id: 'd', kind: 'daily', updatedAt: '2026-10-25T09:00:00.000Z', data: sam() }
+  const copy = { id: 'd', kind: 'daily', updatedAt: '2026-10-25T09:00:00.000Z', data: blanked(sam(), ['Deadlift']) }
   const before = alex()
   const after = edit(before, bs => { bs[0].items.pop(); return bs })
   const c = { before: shapeOf(before), after, at: '2026-10-25T10:00:00.000Z' }

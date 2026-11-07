@@ -130,8 +130,11 @@ function keyed(pres) {
  */
 const noMode = ({ weightMode: _m, weightLabel: _l, ...rest }) => rest
 
+/** One of the owner's sets on their side: the target, not the owner's weight, and nothing they typed. */
+const theirSet = ({ typed: _t, ...s }) => ({ ...s, weight: null })
+
 /** One of the owner's exercises on their side: the target, not the owner's weight or what it meant. */
-const theirItem = (item) => ({ ...noMode(item), sets: (item.sets || []).map(s => ({ ...s, weight: null })) })
+const theirItem = (item) => ({ ...noMode(item), sets: (item.sets || []).map(theirSet) })
 
 /**
  * The owner's plan as the start of theirs: the exercises, never the owner's
@@ -162,7 +165,7 @@ function copyPlan(theirs, mine) {
     } else if ((item.sets || []).length > (t.sets || []).length) {
       // More sets of the owner's: copies of their own last set, as adding a set does.
       const sets = [...(t.sets || [])]
-      while (sets.length < item.sets.length) sets.push(sets.length ? { ...sets.at(-1), note: '' } : { ...item.sets[sets.length], weight: null })
+      while (sets.length < item.sets.length) sets.push(sets.length ? { ...sets.at(-1), note: '' } : theirSet(item.sets[sets.length]))
       const b = blocks.find(x => x.items.includes(t))
       b.items = b.items.map(x => (x === t ? { ...t, sets } : x))
       changed = true

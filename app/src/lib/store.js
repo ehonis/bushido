@@ -61,6 +61,33 @@ export function mergeState(base, incoming) {
   return out
 }
 
+/**
+ * A synced shared workout edited again while its write was on the way: this
+ * device keeps its own copy (it is newer), and with it the base it SENT, so its
+ * next write would carry the change already sent a second time (one set added
+ * became two, one removed came back). `ack` is the server's receipt for exactly
+ * what was sent (server/sharedsync.js `ackFor`); a copy that has gone on from
+ * `sent` takes it as its base. Anything else is left as it is: an entry the
+ * server's answer replaced, one with another base since, a tombstone.
+ */
+export function withAck(local, sent, ack) {
+  if (!ack || !local || !sent || local === sent || local.id !== sent.id || local.deleted || !local.data) return local
+  if (JSON.stringify(local.data.syncBase ?? null) !== JSON.stringify(sent.data?.syncBase ?? null)) return local
+  return { ...local, data: { ...local.data, syncBase: ack } }
+}
+
+/** `withAck` for every receipt a whole-log push came back with (`acks`, by entry id). */
+export function adoptAcks(state, sent, acks) {
+  if (!acks || typeof acks !== 'object') return state
+  let entries = null
+  for (const [id, ack] of Object.entries(acks)) {
+    const local = state.entries?.[id]
+    const next = withAck(local, sent?.entries?.[id], ack)
+    if (next !== local) { entries = entries || { ...state.entries }; entries[id] = next }
+  }
+  return entries ? { ...state, entries } : state
+}
+
 function readCache() {
   try {
     const CACHE_KEY = cacheKey()
@@ -129,19 +156,21 @@ export function useStore() {
     if (inFlight.current) return
     inFlight.current = true
     const sent = writes.current
+    const sentState = stateRef.current
     setStatus('syncing')
     try {
       const res = await fetch('/api/state', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ state: stateRef.current }),
+        body: JSON.stringify({ state: sentState }),
       })
       if (!res.ok) throw new Error(`push failed: ${res.status}`)
       const doc = await res.json()
       versionRef.current = doc.version
       dirtyRef.current = writes.current !== sent
-      // Server's merged doc may contain edits from the other device.
-      const merged = mergeState(stateRef.current, doc.state)
+      // Server's merged doc may contain edits from the other device. A shared
+      // workout edited while this push was out goes on from the push's receipt.
+      const merged = adoptAcks(mergeState(stateRef.current, doc.state), sentState, doc.acks)
       stateRef.current = merged
       setState(merged)
       writeCache(merged, doc.version, dirtyRef.current)

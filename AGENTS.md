@@ -119,7 +119,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Notifications client | `app/src/lib/push.js`, `app/src/notifications.jsx` | |
 | Device screen probe | `app/src/screeninfo.jsx` | Measures the iOS safe-area bug on the device (§10.5). |
 | Whose log this is | `app/src/lib/whoami.js` | Decided before the store mounts; per-person cache key; `X-Bushido-User` on every API call (§3). |
-| Shared workouts | `app/src/lib/shared.js`, `app/src/sharedwith.jsx` | "With …" on the sheet; someone's copy through the people endpoints (§3). |
+| Shared workouts | `app/src/lib/shared.js`, `app/src/sharedwith.jsx`, `app/src/lib/copyqueue.js` | "With …" on the sheet; someone's copy through the people endpoints, one write at a time (§3). |
 | The owner as trainer | `app/src/lib/trainer.js`, `app/src/trainer.jsx` | "For: You / Sam" in Plan a workout, the workout side switcher, "Sam's day", About you (§3). `placeEntries` is the one place day ids are minted for a batch, for anyone's log. |
 
 ---
@@ -315,7 +315,7 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     and `syncBase` on the receiving entry. A set
     or exercise that arrives is blank (an interval keeps its own last set's shape); the
     implement is each person's own. A removal never takes an exercise (or a set) the other
-    side has logged on. **Whether a hold is counted in seconds or reps is each person's
+    side has logged on (next bullet). **Whether a hold is counted in seconds or reps is each person's
     own** (#63): an exercise arrives counted the way the sender has it, and after that the
     "sec ⇆" / "reps ⇆" switch on either side changes that side only, like the implement. A
     writer that sends no `measure` key (an app from before holds) keeps the stored one.
@@ -323,6 +323,21 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     (`copyExercises`, add-only) is the way to bring the owner's over; it is hidden while
     sync is on. A link without the flag (shared before sync existed) is off; turning sync
     on aligns the two by name once and adds what their side lacks.
+  - **Numbers typed on the sheet are the log too.** Sets are mostly filled in straight on the
+    sheet, never through the runner, so for a change arriving from the OTHER side "logged on"
+    also means a lift's set someone typed a number into: the editor marks it `typed: true`
+    (`patchSet` in `lib/prescription.js`) and the carry keeps it and its exercise (`typedOn`,
+    `loggedOf(…, typed)` in `server/sharedsync.js`). A target the plan arrived with is not
+    typed: keeping a plan from the planner clears the mark (`dropEmptyBlocks`), and a share
+    never copies it (`theirSet` in `lib/shared.js`), so an untouched set still follows a
+    removal. A model revision on the entry keeps the mark on every set it left as it was
+    (`keepTyped`, through `reviseWeightModes`). Two carve-outs: inside a circuit (one there or one the exercise moved into) an
+    exercise has one set, its timing, whatever was typed; and a device's OWN write keeps the
+    narrower rule (marked in its run), so an exercise the same person removed on another
+    device stays removed. Kept sets leave one side above the other, so when both sides ADDED,
+    `wantSets` takes the larger, not the sum; any other mix is the difference, so a removal
+    is never undone by an add on the other side. Numbers typed before the mark existed
+    carry none.
   - **The merge runs on the server**, because only it sees every write (the owner's
     devices, the other person's own phone, and the owner writing their side through
     `/api/people/:id/entry`) and only it can write both logs (`commitSynced` in
@@ -350,6 +365,21 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     write with no base (in practice only a copy pulled before sync existed) silently drops
     the structural edits it made to exercises it has not logged on. Last-write-wins still
     holds per entry for everything else.
+  - **Every synced write gets a receipt** (`acks` on `PUT /api/state` and `POST /api/entry`,
+    `ack` on `POST /api/people/:id/entry`; `ackFor` in `server/sharedsync.js`): the base for
+    exactly what that write sent. A device that kept editing while the write was out keeps its
+    newer copy, and takes the receipt as that copy's base (`withAck`/`adoptAcks` in
+    `lib/store.js`, both stores); without it the next write carried the earlier change a
+    second time (one set added became two, one taken off came back). A reply lost on the way
+    is no receipt, and the next write then reads the change again as before. The owner's
+    sheet writes someone's copy one request at a time (`lib/copyqueue.js`, in
+    `usePersonCopy`): edits made while one is out go as one write of the copy as it stands
+    then, a write still waiting takes each receipt even after the sheet switched sides, a
+    copy reopened while its edit is unanswered shows that edit, and one reopened while a save
+    landed shows the save, never an older read (`newest`, `openedCopy`), and an answer never
+    replaces edits made since it was sent. That covers the sheet's edits; a
+    circuit done together writes through its own path (§3, the together rule). An older app
+    that ignores receipts behaves as before.
   - A write the sync makes is stamped one millisecond past the RECEIVING entry's own
     `updatedAt`, never the sender's time or the server's clock: a later or skewed sender
     stamp would beat the receiver's own write saved earlier but arriving later (offline

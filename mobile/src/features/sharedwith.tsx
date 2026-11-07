@@ -26,7 +26,9 @@ import { tap } from '../ui/haptics'
 import { Icon } from '../lib/icons'
 import { SessionLog } from './sessionlog'
 import { withLine, openSide } from '../lib/shared.js'
-import { getPersonEntry, putPersonEntry } from '../lib/peopleapi.js'
+import { getPersonEntry, putPersonEntry, sendPersonEntry } from '../lib/peopleapi.js'
+import { createCopyQueue, openedCopy } from '../lib/copyqueue.js'
+import { withAck } from '../lib/store.js'
 import * as trainerLib from '../lib/trainer.js'
 
 type Person = { id: string; name: string; entryId?: string; tone?: number }
@@ -225,7 +227,12 @@ export function SharedNote({ entry, people = [] }: { entry: any; people?: Person
   )
 }
 
-/** Someone's copy of a shared workout, read and written through `/api/people/:id/entry`. */
+/**
+ * Someone's copy of a shared workout, read and written through `/api/people/:id/entry`.
+ * The screen is the truth while you edit: writes go one at a time (lib/copyqueue.js),
+ * and an answer to an older write never replaces newer edits; the copy takes that
+ * write's receipt as its base instead (lib/store.js `withAck`).
+ */
 export function usePersonCopy(personId?: string | null, entryId?: string | null, name = '') {
   // Loading from the first frame: a sheet that reopens on their side must not flash "not in their log".
   // `server` is what the server last said, apart from `entry`, which may hold a
@@ -234,24 +241,56 @@ export function usePersonCopy(personId?: string | null, entryId?: string | null,
   const [state, setState] = useState<{ entry: any; server: any; loading: boolean; error: string | null }>(
     () => ({ entry: null, server: null, loading: Boolean(personId && entryId), error: null }))
   const latest = useRef<any>(null)
-  const writing = useRef(0)
+  // Who the copy on screen belongs to, for answers that land after the sheet switched sides.
+  const owner = useRef<string | null>(null)
+  owner.current = personId && entryId ? `${personId}\n${entryId}` : null
+  const named = useRef(name)
+  named.current = name
+  const mine = (pid: string, e: any) => Boolean(e && owner.current === `${pid}\n${e.id}`)
+  // An answer that landed while the copy was still being read (`openedCopy`).
+  const early = useRef<any>(null)
+  const queue = useRef<any>(null)
+  if (!queue.current) {
+    queue.current = createCopyQueue({
+      send: (pid: string, e: any) => sendPersonEntry(pid, e),
+      current: (pid: string, e: any) => (mine(pid, e) && latest.current?.id === e.id ? latest.current : e),
+      landed: (pid: string, sent: any, reply: any) => {
+        if (!mine(pid, sent)) return
+        const merged = reply.entry
+        if (!latest.current) { early.current = merged; return }
+        if (latest.current === sent) { latest.current = merged; setState((s) => ({ ...s, entry: merged, server: merged })) }
+        else { latest.current = withAck(latest.current, sent, reply.ack); setState((s) => ({ ...s, server: merged })) }
+      },
+      failed: (pid: string, sent: any, err: any) => {
+        if (mine(pid, sent)) setState((s) => ({ ...s, error: `Not saved to ${named.current || 'their'} log yet: ${err.message}` }))
+      },
+    })
+  }
 
   useEffect(() => {
     latest.current = null
+    early.current = null
     if (!personId || !entryId) { setState({ entry: null, server: null, loading: false, error: null }); return undefined }
     let live = true
     setState({ entry: null, server: null, loading: true, error: null })
     getPersonEntry(personId, entryId)
-      .then((e: any) => { if (!live) return; latest.current = e; setState({ entry: e, server: e, loading: false, error: null }) })
+      .then((e: any) => {
+        if (!live) return
+        // An edit of this copy still unanswered, or a save that landed meanwhile: not an older read.
+        const mine = openedCopy(e, queue.current.newest(personId, entryId), early.current)
+        early.current = null
+        latest.current = mine
+        setState({ entry: mine, server: e, loading: false, error: null })
+      })
       .catch((err: any) => { if (live) setState({ entry: null, server: null, loading: false, error: `Could not open ${name || 'their'} log: ${err.message}` }) })
     // Re-read while open (and in the foreground), never over an edit still on its way.
     const iv = setInterval(() => {
-      if (writing.current || AppState.currentState !== 'active') return
+      if (queue.current.busy || AppState.currentState !== 'active') return
       const was = latest.current
       getPersonEntry(personId, entryId).then((e: any) => {
         if (!live || !e) return
         setState((s) => (s.server === e ? s : { ...s, server: e }))
-        if (writing.current || latest.current !== was) return
+        if (queue.current.busy || latest.current !== was) return
         if (was && String(e.updatedAt || '') <= String(was.updatedAt || '')) return
         latest.current = e
         setState((s) => ({ ...s, entry: e }))
@@ -272,20 +311,9 @@ export function usePersonCopy(personId?: string | null, entryId?: string | null,
     const next = fn(cur)
     if (!next) return true
     latest.current = next
-    writing.current += 1
     setState((s) => ({ ...s, entry: next, error: null }))
-    try {
-      const merged = await putPersonEntry(personId as string, next)
-      if (latest.current === next) { latest.current = merged; setState((s) => ({ ...s, entry: merged, server: merged })) }
-      else setState((s) => ({ ...s, server: merged }))
-      return true
-    } catch (err: any) {
-      setState((s) => ({ ...s, error: `Not saved to ${name || 'their'} log yet: ${err.message}` }))
-      return false
-    } finally {
-      writing.current -= 1
-    }
-  }, [personId, name])
+    return queue.current.push(personId as string, next)
+  }, [personId])
 
   /** An entry the server just answered with, written elsewhere (a circuit done together). */
   const accept = useCallback((e: any) => {

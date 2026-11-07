@@ -6,6 +6,9 @@ import {
   sharedCopy, withSharedPerson, addPerson, removePerson, copyExercises, hasExercises,
   isSynced, withSync, openSide,
 } from './src/lib/shared.js'
+import { withAck, adoptAcks } from './src/lib/store.js'
+import { createCopyQueue, openedCopy } from './src/lib/copyqueue.js'
+import { patchSet, dropEmptyBlocks, keepTyped } from './src/lib/prescription.js'
 
 const tests = []
 const test = (name, fn) => tests.push([name, fn])
@@ -284,6 +287,182 @@ test('what a weight means is the owner\'s: no copy carries their mode, first sha
   const more = planned([mine.data.plan.blocks[0].items[0], { ...item('b0i1', 'Goblet squat', [40]), exercise: 'goblet', ...one }])
   const grown = copyExercises(pcopy, more)
   assert.deepEqual(grown.data.plan.blocks[0].items.map(i => hasMode(i)), [false, false], 'Copy my exercises carried a planned mode')
+})
+
+/* ---------------------------------------- receipts and one write at a time */
+
+const base1 = { of: 'daily-2026-11-07', rev: 1, plan: [] }
+const ack2 = { of: 'daily-2026-11-07', rev: 2, plan: [{ uid: 'B', items: [] }] }
+const copyOf = (sets, syncBase = base1, at = 'a') => ({ id: 'daily-2026-11-07', kind: 'daily', updatedAt: at, data: { plan: { sets }, syncBase } })
+
+test('withAck: a copy edited again while its write was out takes that write\'s receipt as its base', () => {
+  const sent = copyOf(3)
+  const local = copyOf(4, base1, 'b')
+  assert.deepEqual(withAck(local, sent, ack2).data, { plan: { sets: 4 }, syncBase: ack2 }, 'kept its edits and took the receipt')
+  assert.equal(withAck(sent, sent, ack2), sent, 'the copy that was sent is replaced by the answer, not re-based')
+  assert.equal(withAck(local, sent, null), local, 'no receipt: left as it is')
+  const other = copyOf(4, { ...base1, rev: 5 }, 'b')
+  assert.equal(withAck(other, sent, ack2), other, 'a copy on another base since is left alone')
+  const gone = { ...local, deleted: true }
+  assert.equal(withAck(gone, sent, ack2), gone, 'a tombstone is left alone')
+  assert.equal(withAck({ ...local, id: 'x' }, sent, ack2).data.syncBase, base1, 'another entry is left alone')
+})
+
+test('adoptAcks: only entries the push answered for, only where this device went on editing', () => {
+  const sentState = { entries: { a: copyOf(3), b: copyOf(1) } }
+  const now = { entries: { a: copyOf(4, base1, 'b'), b: sentState.entries.b, c: copyOf(9) } }
+  const out = adoptAcks(now, sentState, { a: ack2, b: ack2, zz: ack2 })
+  assert.equal(out.entries.a.data.syncBase, ack2)
+  assert.equal(out.entries.b, now.entries.b, 'an entry not edited since was re-based')
+  assert.equal(out.entries.c, now.entries.c)
+  assert.ok(!('zz' in out.entries), 'a receipt for an entry this device lacks made one up')
+  assert.equal(adoptAcks(now, sentState, undefined), now, 'an older server sends no receipts')
+})
+
+test('createCopyQueue: one write at a time, the newest edit sent next, every caller told how it went', async () => {
+  const sent = []
+  const gates = []
+  const send = (pid, e) => { sent.push([pid, e.data.n]); return new Promise((res, rej) => gates.push({ res, rej })) }
+  let latest = null
+  const landedWith = []
+  const q = createCopyQueue({
+    send,
+    current: (pid, e) => (latest && latest.id === e.id ? latest : e),
+    landed: (pid, e, reply) => landedWith.push([e.data.n, reply.ack]),
+    failed: () => {},
+  })
+  const edit = (n) => { latest = { id: 'c', data: { n } }; return q.push('sam', latest) }
+  const tick = () => new Promise(r => setTimeout(r, 0))
+  const a = edit(1)
+  const b = edit(2)
+  const c = edit(3)
+  await tick()
+  assert.deepEqual(sent, [['sam', 1]], 'more than one write went out at once')
+  assert.ok(q.busy)
+  gates[0].res({ entry: {}, ack: 'r1' })
+  await tick(); await tick()
+  assert.deepEqual(sent, [['sam', 1], ['sam', 3]], 'the edits made meanwhile went as one write of the newest copy')
+  gates[1].res({ entry: {}, ack: 'r2' })
+  assert.deepEqual(await Promise.all([a, b, c]), [true, true, true])
+  assert.deepEqual(landedWith, [[1, 'r1'], [3, 'r2']])
+  assert.ok(!q.busy)
+  // A failure says false to the edits it carried; the next edit is tried afresh.
+  const d = edit(4)
+  await tick()
+  gates[2].rej(new Error('offline'))
+  assert.equal(await d, false)
+  const e = edit(5)
+  await tick()
+  gates[3].res({ entry: {}, ack: null })
+  assert.equal(await e, true)
+  assert.deepEqual(sent.map(x => x[1]), [1, 3, 4, 5])
+})
+
+test('createCopyQueue: a copy of someone else\'s queued meanwhile is not lost or merged into another\'s', async () => {
+  const sent = []
+  const gates = []
+  const q = createCopyQueue({
+    send: (pid, e) => { sent.push([pid, e.id]); return new Promise(res => gates.push(res)) },
+    current: (pid, e) => e,
+    landed: () => {},
+    failed: () => {},
+  })
+  const tick = () => new Promise(r => setTimeout(r, 0))
+  q.push('sam', { id: 'x', data: {} })
+  q.push('sam', { id: 'x', data: {} })
+  q.push('kim', { id: 'x', data: {} })
+  await tick()
+  gates[0]({ entry: {} }); await tick(); await tick()
+  gates[1]({ entry: {} }); await tick(); await tick()
+  gates[2]?.({ entry: {} }); await tick()
+  assert.deepEqual(sent, [['sam', 'x'], ['sam', 'x'], ['kim', 'x']])
+})
+
+test('createCopyQueue: a write waiting when the sheet switched sides still takes the receipt (council r1)', async () => {
+  // Sam at 2 sets: one write out (3), one waiting (4), then the sheet shows You.
+  const sent = []
+  const gates = []
+  const q = createCopyQueue({
+    send: (pid, e) => { sent.push(e); return new Promise(res => gates.push(res)) },
+    current: (pid, e) => e, // the screen is someone else's now: the queued copy is all there is
+    landed: () => {},
+    failed: () => {},
+  })
+  const tick = () => new Promise(r => setTimeout(r, 0))
+  const w1 = copyOf(3)
+  q.push('sam', w1)
+  q.push('sam', copyOf(4, base1, 'b'))
+  await tick()
+  gates[0]({ entry: {}, ack: ack2 }); await tick(); await tick()
+  assert.equal(sent.length, 2)
+  assert.deepEqual(sent[1].data, { plan: { sets: 4 }, syncBase: ack2 }, 'the waiting write went with the old base')
+  gates[1]({ entry: {}, ack: null })
+})
+
+test('a number typed on the sheet marks its set; a plan kept from the planner, and a share, carry no mark', () => {
+  const pres = { blocks: [{ id: 'b0', name: 'Main', items: [{ id: 'b0i0', kind: 'lift', name: 'Row', sets: [{ id: 'b0i0s0', reps: 10, weight: null }] }] }] }
+  const typed = patchSet(pres, 'b0i0', 'b0i0s0', { weight: 40 })
+  assert.equal(typed.blocks[0].items[0].sets[0].typed, true, 'a typed weight was not marked')
+  assert.equal(patchSet(pres, 'b0i0', 'b0i0s0', { note: 'slow' }).blocks[0].items[0].sets[0].typed, undefined, 'a note is not a number')
+  assert.equal(dropEmptyBlocks(typed).blocks[0].items[0].sets[0].typed, undefined, 'numbers typed while planning were kept as typed')
+  const owner = { id: 'daily-2026-11-07', kind: 'daily', date: '2026-11-07', updatedAt: 'z',
+    data: { optId: 'planned', slot: 'main', done: true, plan: typed, out: {} } }
+  const copy = sharedCopy(owner, { session: { id: 'planned' } })
+  assert.deepEqual(copy.data.plan.blocks[0].items[0].sets.map(x => [x.weight, x.typed]), [[null, undefined]], 'the owner\'s typing crossed in a share')
+  const more = { ...owner, data: { ...owner.data, plan: { blocks: [{ ...typed.blocks[0], items: [{ ...typed.blocks[0].items[0],
+    sets: [...typed.blocks[0].items[0].sets, { id: 'b0i0s1', reps: 10, weight: 45, typed: true }] }] }] } } }
+  const theirs = copyExercises({ ...copy, data: { ...copy.data, plan: { blocks: [{ ...copy.data.plan.blocks[0], items: [{ ...copy.data.plan.blocks[0].items[0], sets: [] }] }] } } }, more)
+  assert.ok(theirs.data.plan.blocks[0].items[0].sets.every(x => x.typed === undefined && x.weight === null), 'Copy my exercises carried the owner\'s typing')
+})
+
+test('createCopyQueue.newest: a copy reopened while its edit waits shows the edit, not an older read (council r2)', async () => {
+  const gates = []
+  const sent = []
+  const q = createCopyQueue({
+    send: (pid, e) => { sent.push(e.data.plan.sets); return new Promise(res => gates.push(res)) },
+    current: (pid, e) => e,
+    landed: () => {},
+    failed: () => {},
+  })
+  const tick = () => new Promise(r => setTimeout(r, 0))
+  const w1 = copyOf(3)
+  const w2 = copyOf(4, base1, 'b')
+  q.push('sam', w1)
+  q.push('sam', w2)
+  await tick()
+  assert.equal(q.newest('sam', w1.id), w2, 'the waiting edit is the newest')
+  assert.equal(q.newest('kim', w1.id), null)
+  gates[0]({ entry: {}, ack: ack2 }); await tick(); await tick()
+  assert.equal(q.newest('sam', w1.id).data.plan.sets, 4, 'the edit on its way is the newest')
+  gates[1]({ entry: {}, ack: null }); await tick(); await tick()
+  assert.equal(q.newest('sam', w1.id), null, 'nothing unanswered')
+  assert.deepEqual(sent, [3, 4])
+})
+
+test('keepTyped: a model revision keeps the mark on a set it left as typed, nowhere else (council r2)', () => {
+  const before = { blocks: [{ items: [{ uid: 'R', kind: 'lift', sets: [{ reps: 10, weight: 40, typed: true }, { reps: 10, weight: 40, typed: true }, { reps: 10, weight: null }] }] }] }
+  const after = { blocks: [{ items: [
+    { uid: 'R', kind: 'lift', sets: [{ reps: 10, weight: 40 }, { reps: 8, weight: 45 }, { reps: 10, weight: null }, { reps: 10, weight: 40 }] },
+    { uid: 'N', kind: 'lift', sets: [{ reps: 10, weight: 40 }] },
+  ] }] }
+  const got = keepTyped(before, after).blocks[0].items
+  assert.deepEqual(got[0].sets.map(x => x.typed === true), [true, false, false, false])
+  assert.deepEqual(got[1].sets.map(x => x.typed === true), [false])
+  // A reply that dropped the uid: matched by exercise, as reviseWeightModes matches (council r3).
+  const named = keepTyped({ blocks: [{ items: [{ uid: 'R', kind: 'lift', exercise: 'row', sets: [{ reps: 10, weight: 40, typed: true }] }] }] },
+    { blocks: [{ items: [{ kind: 'lift', exercise: 'row', sets: [{ reps: 10, weight: 40 }] }] }] })
+  assert.equal(named.blocks[0].items[0].sets[0].typed, true)
+})
+
+test('openedCopy: a sheet reopened mid-save opens on the save, never an older read (council r3)', () => {
+  const read = copyOf(2, base1, '2026-11-07T17:00:00.000Z')
+  const saved = copyOf(3, ack2, '2026-11-07T17:00:05.000Z')
+  const waiting = copyOf(4, base1, '2026-11-07T17:00:06.000Z')
+  assert.equal(openedCopy(read, waiting, saved), waiting, 'an edit still unanswered comes first')
+  assert.equal(openedCopy(read, null, saved), saved, 'the read left before the save landed: it is older')
+  assert.equal(openedCopy(saved, null, read), saved, 'a read newer than what landed stands')
+  assert.equal(openedCopy(read, null, null), read)
+  assert.equal(openedCopy(null, null, saved), saved, 'a copy the read did not find, just saved')
 })
 
 let failed = 0

@@ -1112,10 +1112,17 @@ const mapItem = (pres, itemId, fn) => reindex({
   })).filter(blockSurvives),
 })
 
+/**
+ * A number typed into one set. The set says so (`typed: true`): on a shared
+ * workout a change from the other side never takes a set someone filled in
+ * (server/sharedsync.js `typedOn`), and only the marker tells a number typed on
+ * the sheet from a target the plan arrived with. A plan being built is all
+ * targets, so `dropEmptyBlocks` clears the marker as it is kept.
+ */
 export const patchSet = (pres, itemId, setId, patch) =>
   mapItem(pres, itemId, it => ({
     ...it,
-    sets: it.sets.map(s => (s.id === setId ? { ...s, ...patch } : s)),
+    sets: it.sets.map(s => (s.id === setId ? { ...s, ...patch, ...(SET_FIELDS.some(f => f in patch) ? { typed: true } : {}) } : s)),
   }))
 
 /** Another set of the same thing, copying the last one — same rule `addLiftSet` follows. */
@@ -1308,6 +1315,35 @@ export function patchRunItem(pres, run, itemId, patch, out = {}, liftField = nul
 }
 
 /**
+ * A revision's sets that are still what was typed keep saying so (`typed`, see
+ * `patchSet`). The model's reply is normalized, which rebuilds every set; a weight
+ * typed on the sheet that the model left as it was is still the log, and must still
+ * be kept from the other side's removals. Matched by the exercise's uid (else its
+ * exercise) and the set's place, and only where reps, weight and seconds are unchanged.
+ */
+export function keepTyped(before, after) {
+  if (!after?.blocks) return after
+  const left = (before?.blocks || []).flatMap(b => b.items || []).filter(it => it.kind === 'lift')
+  // As `reviseWeightModes` matches: by uid, else (a reply that dropped it) by exercise, each used once.
+  const take = (it) => {
+    const at = it.uid ? left.findIndex(o => o.uid === it.uid) : left.findIndex(o => o.exercise && o.exercise === it.exercise)
+    return at < 0 ? null : left.splice(at, 1)[0]
+  }
+  const same = (a, b) => ['reps', 'weight', 'seconds'].every(f => num(a?.[f]) === num(b?.[f]))
+  return {
+    ...after,
+    blocks: after.blocks.map(b => ({
+      ...b,
+      items: (b.items || []).map(it => {
+        const old = it.kind === 'lift' ? take(it) : null
+        if (!old) return it
+        return { ...it, sets: (it.sets || []).map((x, i) => (old.sets?.[i]?.typed === true && same(old.sets[i], x) ? { ...x, typed: true } : x)) }
+      }),
+    })),
+  }
+}
+
+/**
  * A model's revision, with the weight modes put back (#58).
  *
  * The model is never asked what a weight means, so its answer is in every
@@ -1316,9 +1352,11 @@ export function patchRunItem(pres, run, itemId, patch, out = {}, liftField = nul
  * uids, else by exercise, each earlier item used once. Only an exercise new in
  * the revision (or moved to another implement) gets memory
  * (`rememberedWeightMode`, from `entries`). server/drafts.js does the same to a
- * draft, where it survives the page closing.
+ * draft, where it survives the page closing. Sets still as typed stay typed
+ * (`keepTyped`).
  */
 export function reviseWeightModes(before, after, liftField, entries = [], { excludeId = null, today } = {}) {
+  after = keepTyped(before, after)
   if (!after?.blocks) return after
   const left = (before?.blocks || []).flatMap(b => b.items || []).filter(it => it.kind === 'lift')
   const take = (it) => {
@@ -1498,7 +1536,10 @@ export const dropEmptyBlocks = (pres) => reindex({
   ...pres,
   blocks: (pres?.blocks || []).filter(b => (b.items || []).length > 0 || b.note)
     // A circuit switched off in the editor has nothing left to come back to.
-    .map(({ wasCircuit: _w, ...b }) => b),
+    // Numbers typed while planning are targets, not a log (`patchSet`).
+    .map(({ wasCircuit: _w, ...b }) => ({ ...b, items: (b.items || []).map(untyped) })),
 })
+
+const untyped = (it) => ({ ...it, sets: (it.sets || []).map(({ typed: _t, ...s }) => s) })
 
 export { catalogOf }
