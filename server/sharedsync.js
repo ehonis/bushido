@@ -51,6 +51,17 @@
  * or set the receiving side has logged on; a write keeps an exercise its own
  * device has logged on even when the merge lacks it (on that device's side,
  * not carried), whatever base it sent. When in doubt the structure is kept.
+ * For a carry, "logged on" includes a lift's set someone typed a number into on
+ * the sheet (`typed`, marked by the editor): most sets are filled in there, never
+ * through the runner, and the other person's edit must not take them. A target
+ * the plan arrived with is not typed, so an untouched set still goes.
+ *
+ * A RECEIPT FOR EVERY WRITE (`acks` from `onWrite`). A device that goes on
+ * editing while its write is on the way keeps its own copy, and with it the
+ * base it sent; its next write would then carry its earlier change a second
+ * time (one set added became two). So the server answers each synced write
+ * with the base for exactly what that write sent, and a device that kept
+ * editing takes it as its base (`withAck` in the app's lib/store.js).
  *
  * Pure: no fs, no clock except `bump`, no I/O. server.js wires it to the writes.
  */
@@ -203,7 +214,12 @@ function place(list, x, order, at) {
  * change arriving twice); otherwise both changed and the difference is added.
  */
 function wantSets(t, b, n) {
-  const want = t === b ? n : t === n ? t : t + (n - b)
+  // Both ADDED: this side already has at least as many as asked for, or the
+  // difference; never both. Sets kept because they were filled in leave this side
+  // above the other, and adding the difference on top of that is how one tap became
+  // an extra set that never went away. Any other mix is the difference, so a set
+  // removed on one side is not undone by an add on the other.
+  const want = t === b ? n : t === n ? t : n > b && t > b ? Math.max(t, n) : t + (n - b)
   return Math.max(1, Math.min(MAX_SETS, want))
 }
 
@@ -264,13 +280,30 @@ function indexPlan(shape) {
   return { blocks, items }
 }
 
-/** item uid → indexes of its sets this side has logged in its run. */
-function loggedOf(plan, run) {
+/**
+ * A lift's planned set with a number someone typed into it on the sheet: the editor
+ * marks it (`typed`, prescription.js `patchSet`). A target the plan arrived with is
+ * not marked, nor is an interval's (its numbers are its shape, not a log).
+ */
+const typedOn = (it, s) => it.kind === 'lift' && isObj(s) && s.typed === true && (!blank(s.reps) || !blank(s.weight) || !blank(s.seconds))
+
+/**
+ * item uid → indexes of its sets this side has logged on: marked in its run,
+ * and with `typed` also any lift set with a number in it (`typedOn`). A carry
+ * from the OTHER side asks with `typed`: their change never takes your numbers.
+ * A device's own write does not: an exercise its own person removed elsewhere
+ * (another phone, the owner on their sheet) stays removed. Never `typed` in a
+ * circuit (one here, or `inCircuit`: item uids in a circuit over there, which
+ * covers a block switched to one and an exercise moved into one): an exercise's
+ * one set there says how it is timed, and the rounds are the circuit's.
+ */
+function loggedOf(plan, run, typed = false, inCircuit = new Set()) {
   const marked = new Set(Object.keys(run?.sets || {}))
   const out = new Map()
-  for (const it of blocksOf(plan).flatMap(itemsOf)) {
+  for (const b of blocksOf(plan)) for (const it of itemsOf(b)) {
+    const typing = typed && !b.circuit && !inCircuit.has(it.uid)
     const idx = new Set()
-    setsOf(it).forEach((s, i) => { if (s?.id && marked.has(s.id)) idx.add(i) })
+    setsOf(it).forEach((s, i) => { if ((s?.id && marked.has(s.id)) || (typing && typedOn(it, s))) idx.add(i) })
     if (idx.size) out.set(it.uid, idx)
   }
   return out
@@ -467,7 +500,8 @@ function carry(target, before, after) {
     const meta = Object.fromEntries(PLAN_META_KEYS.filter(k => after.plan[k] !== undefined).map(k => [k, after.plan[k]]))
     const tPlan = hasPlan(target) ? target.plan : { ...meta, why: '', notes: [], blocks: [] }
     const base = hasPlan(target) ? (before?.plan || []) : []
-    const plan = reindex(applyPlan(tPlan, base, next.plan, after.plan, loggedOf(tPlan, target.run)))
+    const inCircuit = new Set(next.plan.filter(b => b.circuit).flatMap(b => b.items.map(i => i.uid)))
+    const plan = reindex(applyPlan(tPlan, base, next.plan, after.plan, loggedOf(tPlan, target.run, true, inCircuit)))
     if (same(plan, target.plan)) return target
     const data = { ...target, plan }
     if (target.run) data.run = remapRun(target.run, tPlan, plan)
@@ -692,11 +726,13 @@ function settle(entry, data, prevBase) {
  * `{ wasSynced, to: [carry targets, `align: true` where sync just came on],
  * ref? }`. On the owner's log those are its synced links; on anyone else's the
  * owner's entry that links this copy with sync on (`ref` is its data). Returns
- * `{ state, carries }`; `state` is `next` itself when nothing changed.
+ * `{ state, carries, acks }`; `state` is `next` itself when nothing changed, and
+ * `acks` is each written entry's receipt (`ackFor`), by id, for the response.
  */
 function onWrite(prev, next, ids, linksOf) {
   let entries = null
   const carries = []
+  const acks = {}
   for (const id of ids) {
     const e = next.entries?.[id]
     const was = prev.entries?.[id]
@@ -710,13 +746,17 @@ function onWrite(prev, next, ids, linksOf) {
     // landing just as sync is switched on cannot mint uids of its own that the
     // alignment would then see as different exercises.
     const ref = link.ref ? { plan: { blocks: [...blocksOf(live?.data?.plan), ...blocksOf(link.ref.plan)] } } : live?.data
-    let data = stampData(e.data, ref)
+    const sent = stampData(e.data, ref)
+    let data = sent
+    let intent = null
     // Only a write that expresses structural intent (`intentOf`) changes or carries structure.
     let structural = live ? null : data
-    if (live && link.wasSynced) ({ data, carry: structural } = rebase(live.data, data, id))
+    if (live && link.wasSynced) ({ data, carry: structural, intent } = rebase(live.data, data, id))
     else if (live) structural = data
     const wrote = settle(e, data, live?.data?.syncBase)
     if (wrote !== e) { entries = entries || { ...next.entries }; entries[id] = wrote }
+    const ack = ackFor(id, sent, wrote.data.syncBase, intent)
+    if (ack) acks[id] = ack
     const before = live && link.wasSynced ? shapeOf(live.data) : null
     const changed = Boolean(before && structural && !same(before, shapeOf(structural)))
     for (const to of link.to) {
@@ -724,7 +764,29 @@ function onWrite(prev, next, ids, linksOf) {
       else if (changed) carries.push({ ...to, before, after: structural })
     }
   }
-  return { state: entries ? { ...next, entries } : next, carries }
+  return { state: entries ? { ...next, entries } : next, carries, acks }
+}
+
+/**
+ * The receipt for a write of `sent` (as stamped) that landed with the base
+ * `stored`: the base the device should go on from if it kept editing while the
+ * write was on the way. The stored base when the structure stored is the one it
+ * sent. Otherwise (the other side's change met it, or its change was applied
+ * onto something newer) the base it sent, with the structure it sent, so its
+ * next write reads as a change from what it already said. Nothing for a write
+ * whose structure did not count ('numbers') and does not match what is stored:
+ * the device is not up to date, and its next write must say so. (A write whose
+ * structure IS what is stored gets the stored base whatever its intent.) A reply
+ * lost on the way is no receipt: the device's next write then reads its earlier
+ * change again, as before receipts existed.
+ */
+function ackFor(id, sent, stored, intent) {
+  const shape = shapeOf(sent)
+  if (!shape || !isBase(stored, id)) return null
+  if (same(shapePart(stored), shape)) return stored
+  const was = sent.syncBase
+  if ((intent === 'current' || intent === 'stale') && isBase(was, id) && was.rev < stored.rev) return { of: id, rev: was.rev, ...shape }
+  return null
 }
 
 /**

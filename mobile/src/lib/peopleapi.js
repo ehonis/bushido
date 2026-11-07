@@ -38,14 +38,24 @@ export async function getPersonDay(personId, date) {
   return (await call(`${base(personId)}?date=${encodeURIComponent(date)}`)).entries || []
 }
 
-/** Upsert their copy (last write wins on `updatedAt`); resolves to the entry as merged on the server. */
-export async function putPersonEntry(personId, entry) {
+/**
+ * Upsert their copy (last write wins on `updatedAt`); resolves to `{ entry, ack }`:
+ * the entry as merged on the server, and the write's receipt for a synced
+ * workout (lib/store.js `withAck`), or null.
+ */
+export async function sendPersonEntry(personId, entry) {
   const stamped = { ...entry, updatedAt: nowIso() }
-  return (await call(base(personId), {
+  const body = await call(base(personId), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ entry: stamped }),
-  })).entry
+  })
+  return { entry: body.entry, ack: body.ack || null }
+}
+
+/** `sendPersonEntry`, for a caller that needs only the entry as merged. */
+export async function putPersonEntry(personId, entry) {
+  return (await sendPersonEntry(personId, entry)).entry
 }
 
 /** Their whole log, read-only: for their day list and for planning with their context. */

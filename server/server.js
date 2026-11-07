@@ -1554,24 +1554,30 @@ function ownerEntryLinking(ownerLog, personId, copy) {
 
 /**
  * `commit` for a write that may touch a shared workout. `merge(base)` is the
- * write's own merge; `ids` the entries it carried. Resolves `{ doc, before }`
- * once the other side has been written too.
+ * write's own merge; `ids` the entries it carried. Resolves `{ doc, before, acks }`
+ * once the other side has been written too; `acks` is each synced entry's
+ * receipt, for the response (sharedsync.js `ackFor`).
  */
 async function commitSynced(space, ids, merge) {
   let before = null
   let carries = []
+  let acks = {}
   const doc = await commit(space, base => {
     before = base
     const next = merge(base)
     const r = sharedSync.onWrite(base, next, ids, syncLinksFor(space))
     carries = r.carries
+    acks = r.acks
     return r.state
   })
   for (const c of carries) {
     try { await carryShared(space, c) } catch (err) { console.error('[bushido] shared workout sync failed:', err.message) }
   }
-  return { doc, before }
+  return { doc, before, acks }
 }
+
+/** A response with the write's receipts, when it has any (sharedsync.js `ackFor`). */
+const withAcks = (doc, acks) => (Object.keys(acks || {}).length ? { ...doc, acks } : doc)
 
 const isCopy = (e) => Boolean(e.data?.sharedFrom)
 
@@ -1662,8 +1668,9 @@ async function peopleRoute(req, res, url, ctx) {
     const owner = users.owner()
     const NOT_SHARED = 'not-shared'
     let doc
+    let acks
     try {
-      ;({ doc } = await commitSynced(space, [entry.id], base => {
+      ;({ doc, acks } = await commitSynced(space, [entry.id], base => {
         const cur = base.entries?.[entry.id]
         const live = cur && !cur.deleted
         // Thrown, not returned: a refusal must not write a new version or a backup.
@@ -1684,7 +1691,7 @@ async function peopleRoute(req, res, url, ctx) {
       })
     }
     // No syncDailyEntries: habit sync and the "logged" push are the owner's, about the owner's log.
-    return send(res, 200, { entry: doc.state.entries[entry.id], version: doc.version })
+    return send(res, 200, { entry: doc.state.entries[entry.id], ack: acks[entry.id] || null, version: doc.version })
   }
 
   return send(res, 405, { error: 'GET or POST' })
@@ -2406,10 +2413,10 @@ const server = http.createServer(async (req, res) => {
       }
       // `commit` hands the mutator the state as it was on disk, under the write
       // lock. That snapshot is what makes a full-log push quiet.
-      const { doc, before } = await commitSynced(space, Object.keys(body.state.entries || {}), base => mergeState(base, body.state))
+      const { doc, before, acks } = await commitSynced(space, Object.keys(body.state.entries || {}), base => mergeState(base, body.state))
       // The habit and the "nice session" push are the owner's, about the owner's log.
       if (space.owner) syncDailyEntries(body.state, doc.state, before)
-      return send(res, 200, doc)
+      return send(res, 200, withAcks(doc, acks))
     }
 
     if (p === '/api/entry' && req.method === 'POST') {
@@ -2417,9 +2424,9 @@ const server = http.createServer(async (req, res) => {
       const entry = body && body.entry
       if (!entry || !entry.id) return send(res, 400, { error: 'expected { entry: { id, ... } }' })
       const stamped = { ...entry, updatedAt: entry.updatedAt || new Date().toISOString() }
-      const { doc, before } = await commitSynced(space, [entry.id], base => mergeState(base, { entries: { [entry.id]: stamped } }))
+      const { doc, before, acks } = await commitSynced(space, [entry.id], base => mergeState(base, { entries: { [entry.id]: stamped } }))
       if (space.owner) syncDailyEntries({ entries: { [entry.id]: stamped } }, doc.state, before)
-      return send(res, 200, doc)
+      return send(res, 200, withAcks(doc, acks))
     }
 
     if (p === '/api/export' && req.method === 'GET') {

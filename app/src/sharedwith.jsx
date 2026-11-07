@@ -21,7 +21,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
 import { SessionLog } from './sessionlog.jsx'
 import { withLine, openSide } from './lib/shared.js'
-import { getPersonEntry, putPersonEntry } from './lib/peopleapi.js'
+import { getPersonEntry, putPersonEntry, sendPersonEntry } from './lib/peopleapi.js'
+import { createCopyQueue, openedCopy } from './lib/copyqueue.js'
+import { withAck } from './lib/store.js'
 import { pendingFor, retryPending, andWords } from './lib/trainer.js'
 
 /** How often an open side re-reads their copy, for changes made on their own phone. */
@@ -172,8 +174,10 @@ export function SharedNote({ entry, people = [] }) {
 /**
  * Someone's copy of a shared workout, read and written through
  * `/api/people/:id/entry`. `update(fn)` applies `fn` to the latest copy (never a
- * closure's), shows it at once and sends it; the server's merged answer
- * replaces it unless a newer edit has gone out since.
+ * closure's) and shows it at once; the screen is the truth while you edit. Writes
+ * go one at a time (lib/copyqueue.js). The server's merged answer replaces the
+ * copy only if nothing was edited since it was sent; otherwise the copy keeps
+ * your edits and takes the write's receipt as its base (lib/store.js `withAck`).
  */
 export function usePersonCopy(personId, entryId, name = '') {
   // Loading from the first frame: a sheet that reopens on their side must not flash "not in their log".
@@ -182,15 +186,47 @@ export function usePersonCopy(personId, entryId, name = '') {
   // fooled by that (a side's "done", a circuit done together) reads `server`.
   const [state, setState] = useState(() => ({ entry: null, server: null, loading: Boolean(personId && entryId), error: null }))
   const latest = useRef(null)
-  const writing = useRef(0)
+  // Who the copy on screen belongs to, for answers that land after the sheet switched sides.
+  const owner = useRef(null)
+  owner.current = personId && entryId ? `${personId}\n${entryId}` : null
+  const named = useRef(name)
+  named.current = name
+  const mine = (pid, e) => Boolean(e && owner.current === `${pid}\n${e.id}`)
+  // An answer that landed while the copy was still being read (`openedCopy`).
+  const early = useRef(null)
+  const queue = useRef(null)
+  if (!queue.current) {
+    queue.current = createCopyQueue({
+      send: (pid, e) => sendPersonEntry(pid, e),
+      current: (pid, e) => (mine(pid, e) && latest.current?.id === e.id ? latest.current : e),
+      landed: (pid, sent, reply) => {
+        if (!mine(pid, sent)) return
+        const merged = reply.entry
+        if (!latest.current) { early.current = merged; return }
+        if (latest.current === sent) { latest.current = merged; setState(s => ({ ...s, entry: merged, server: merged })) }
+        else { latest.current = withAck(latest.current, sent, reply.ack); setState(s => ({ ...s, server: merged })) }
+      },
+      failed: (pid, sent, err) => {
+        if (mine(pid, sent)) setState(s => ({ ...s, error: `Not saved to ${named.current || 'their'} log yet: ${err.message}` }))
+      },
+    })
+  }
 
   useEffect(() => {
     latest.current = null
+    early.current = null
     if (!personId || !entryId) { setState({ entry: null, server: null, loading: false, error: null }); return undefined }
     let live = true
     setState({ entry: null, server: null, loading: true, error: null })
     getPersonEntry(personId, entryId)
-      .then(e => { if (!live) return; latest.current = e; setState({ entry: e, server: e, loading: false, error: null }) })
+      .then(e => {
+        if (!live) return
+        // An edit of this copy still unanswered, or a save that landed meanwhile: not an older read.
+        const mine = openedCopy(e, queue.current.newest(personId, entryId), early.current)
+        early.current = null
+        latest.current = mine
+        setState({ entry: mine, server: e, loading: false, error: null })
+      })
       .catch(err => { if (live) setState({ entry: null, server: null, loading: false, error: `Could not open ${name || 'their'} log: ${err.message}` }) })
     /*
      * Re-read while open, so an exercise they add on their own phone (or one
@@ -198,12 +234,12 @@ export function usePersonCopy(personId, entryId, name = '') {
      * over an edit still on its way: the server's answer to that replaces it.
      */
     const iv = setInterval(() => {
-      if (writing.current || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) return
+      if (queue.current.busy || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) return
       const was = latest.current
       getPersonEntry(personId, entryId).then(e => {
         if (!live || !e) return
         setState(s => (s.server === e ? s : { ...s, server: e }))
-        if (writing.current || latest.current !== was) return
+        if (queue.current.busy || latest.current !== was) return
         if (was && String(e.updatedAt || '') <= String(was.updatedAt || '')) return
         latest.current = e
         setState(s => ({ ...s, entry: e }))
@@ -224,20 +260,9 @@ export function usePersonCopy(personId, entryId, name = '') {
     const next = fn(cur)
     if (!next) return true
     latest.current = next
-    writing.current += 1
     setState(s => ({ ...s, entry: next, error: null }))
-    try {
-      const merged = await putPersonEntry(personId, next)
-      if (latest.current === next) { latest.current = merged; setState(s => ({ ...s, entry: merged, server: merged })) }
-      else setState(s => ({ ...s, server: merged }))
-      return true
-    } catch (err) {
-      setState(s => ({ ...s, error: `Not saved to ${name || 'their'} log yet: ${err.message}` }))
-      return false
-    } finally {
-      writing.current -= 1
-    }
-  }, [personId, name])
+    return queue.current.push(personId, next)
+  }, [personId])
 
   /** An entry the server just answered with, written elsewhere (a circuit done together). */
   const accept = useCallback((e) => {
