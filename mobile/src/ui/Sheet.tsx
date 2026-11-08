@@ -41,6 +41,7 @@ import { warn } from './haptics'
 import { useKeyboardShown } from './KeyboardBar'
 import ToastHost from './ToastHost'
 import { SheetDirty } from './sheetDirty'
+import { canSwipe as swipeAllowed, showFoot as footAllowed } from './sheetPolicy'
 
 /** The tones the CSS gives .modal.t-* / .fs.t-*: which colour the icon and the edge take. */
 export const TONES: Record<string, string> = {
@@ -127,8 +128,8 @@ export function Modal({
   const markDirty = useCallback(() => setTouched(true), [])
   // The toasts sit under this sheet's header, so they never cover its X.
   const [headH, setHeadH] = useState(0)
-  const canSwipe = dismissable && !touched && !typing
-  const showFoot = Boolean(footer) && !confirming && !typing
+  const canSwipe = swipeAllowed({ dismissable, touched, typing })
+  const showFoot = footAllowed({ footer, confirming, typing })
   const body = confirming ? (
     <View style={st.confirm}>
       <Icon name="TriangleAlert" size={34} color={colors.vizCrit} />
@@ -185,7 +186,7 @@ export function Modal({
           <ScrollView
             ref={scrollRef}
             style={{ flex: 1 }}
-            contentContainerStyle={[{ padding: space[4], paddingBottom: showFoot ? 16 : typing ? 24 : insets.bottom + 24 }, bodyStyle]}
+            contentContainerStyle={[{ padding: space[4], paddingBottom: showFoot ? space[4] : typing ? space[6] : insets.bottom + space[6] }, bodyStyle]}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             contentOffset={offset}

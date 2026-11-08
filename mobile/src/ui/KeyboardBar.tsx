@@ -24,6 +24,7 @@ import { colors, font, radius, space, TAP } from '../theme'
 import { Icon } from '../lib/icons'
 import { T } from './Text'
 import { tap } from './haptics'
+import { keyboardEvents } from './sheetPolicy'
 
 /* Which field of how many has focus, from one listener however many inputs are mounted. */
 let focus = { current: 0, count: 0 }
@@ -54,8 +55,9 @@ const snapshot = () => focus
 export function useKeyboardShown() {
   const [shown, setShown] = useState(() => Keyboard.isVisible())
   useEffect(() => {
-    const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setShown(true))
-    const hide = Keyboard.addListener('keyboardDidHide', () => setShown(false))
+    const on = keyboardEvents(Platform.OS)
+    const show = Keyboard.addListener(on.show, () => setShown(true))
+    const hide = Keyboard.addListener(on.hide, () => setShown(false))
     return () => { show.remove(); hide.remove() }
   }, [])
   return shown

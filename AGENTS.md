@@ -96,7 +96,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Naming | `app/src/lib/naming.js` | `nameFor`, `titleFor`, `out.title`, quick-name chips. |
 | Grades | `app/src/lib/grades.js` | The only grade scales in the app. |
 | Prescriptions | `app/src/lib/prescription.js` | The model under planning and the runner. Pure; `now` is an argument. |
-| Runner | `app/src/runner.jsx` | Set-by-set screen for a planned session. One writer. |
+| Runner | `app/src/runner.jsx`, `app/src/lib/runflow.js` | Set-by-set screen for a planned session. One writer. Its state and every tap's write are `useRunner` and the `*Tap` functions in `lib/runflow.js` (#98), shared with the phone; each platform's `WorkoutRunner` is its screens and its own sounds (`feedback`). Tested as data by `app/runflow.test.js` and tap by tap in a real DOM by `app/runner.dom.test.jsx`. |
 | Workout mode | `app/src/workout.jsx`, `app/src/lib/workout.js` | The climbing cards' rep clock and set log. |
 | Interval timer | `app/src/timer.jsx`, `app/src/timer.css`, `app/src/lib/timer.js` | The general timer: from any workout's sheet and the + menu. Pure model, `now` as an argument; presets are `kind: 'timer'` entries (§6.5). |
 | Circuits | `app/src/circuit.jsx`, `lib/timer.js` (`exercises`, `circuitDone`, `stopRun`), `lib/prescription.js` (`block.circuit`, `blockTimer`, `endCircuit`, `circuitPlan`, `loggedCircuit`) | #68. One editor (Work / Rest / Rounds, each exercise's own timing behind a tap) for a plan's block switched to Circuit and a timer preset with exercises; both run on `TimerRun` and log themselves (§6.5, §6.6). Tested by `app/circuit.test.js`. |

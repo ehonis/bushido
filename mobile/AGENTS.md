@@ -145,6 +145,13 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
   `Input`. While the keyboard is up a `Modal` shows no footer and allows no swipe-down, and
   the planner's `StepPage` hides its sticky bar (`useKeyboardShown`); they come back on
   `keyboardDidHide`. Deliberate and native: the web hides its footers on focus instead.
+  Every layer asks the same predicates, `ui/sheetPolicy.ts` (`showFoot`, `canSwipe`,
+  `showActs`, `keyboardEvents`), which have no React Native import so `app/native.test.js`
+  runs them in node and holds each call site to them. `useKeyboardShown` is the only
+  keyboard listener in the app.
+- **The runner's state and writes are `lib/runflow.js`** (#98, the web's, copied): `useRunner`
+  and the `*Tap` functions. `features/runner.tsx` is the screens and `nativeFeedback` (cues and
+  haptics per tap); a change to how a set is marked is made once, in the lib.
 - **Toasts over sheets (#77).** A presented `Modal`, `FullScreen` or `Popover` is drawn above
   the root, so each mounts its own `ToastHost` (inside its native modal) and only the most
   recently mounted live host renders (`useTopHost` in `ui/ToastHost.tsx`); the root's takes
