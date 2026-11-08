@@ -29,7 +29,7 @@ import { optFor } from './menu.js'
 import { sharePeople, sharedPeopleOn, addPerson } from './shared.js'
 import {
   isLiftOnly, followWeightModes, endCircuit, circuitOnly, circuitEnded, runProgress, prescriptionSteps, finishRun,
-  runOutputs, fillOut, blockTimer, remapRun,
+  runOutputs, fillOut, blockTimer, remapRun, circuitTiming,
 } from './prescription.js'
 import { compile, settle } from './timer.js'
 import { liftFieldIn } from './lifts.js'
@@ -569,6 +569,15 @@ export const togetherWords = (sides = [], here = null) => {
 }
 
 /**
+ * A circuit's exercises as a result done together names them: the sync's uid,
+ * the name, and how the clock ran each one (`by`, prescription.js
+ * `circuitTiming`), so a side whose copy of an exercise arrived blank logs a
+ * counted exercise as a count, never as a hold of the seconds spent on its reps.
+ */
+export const togetherItems = (block) => (block?.items || [])
+  .map(it => ({ uid: it.uid || null, name: it.name, by: circuitTiming(it).by }))
+
+/**
  * What one side's own entry gets from a circuit done together, by rule 1:
  *
  *   { kind: 'write', run, out, done }  write this (its writer's arguments)
@@ -577,7 +586,8 @@ export const togetherWords = (sides = [], here = null) => {
  *   { kind: 'running' }   its own clock is going: leave it be
  *   { kind: 'none' }      it has no such circuit
  *
- * `result` is `{ block: { uid, id, name }, items: [{ uid, name }], done, at, seconds, key, with }`
+ * `result` is `{ block: { uid, id, name }, items: [{ uid, name, by }], done, at, seconds, key, with }`
+ * (`togetherItems`; `by` is how the clock ran each exercise, absent on a miss kept from before #96)
  * from the side that ran the clock; `with` is who was offered Together when it
  * started (side ids, null for the owner), and only they are written. The block and each exercise are found here
  * by uid (the sync's identity), then by name, each of this side's exercises
@@ -604,16 +614,20 @@ export function togetherWrite(entry, result, now = Date.now()) {
     if (circuitEnded(block, run) || run?.endedAt) return { kind: 'already' }
   }
   const taken = new Set()
-  const done = block.items.map(it => {
+  const match = block.items.map(it => {
     let j = it.uid ? result.items.findIndex((x, n) => !taken.has(n) && x.uid === it.uid) : -1
     if (j < 0) j = result.items.findIndex((x, n) => !taken.has(n) && x.name === it.name)
-    if (j < 0) return []
-    taken.add(j)
-    return result.done[j] || []
+    if (j >= 0) taken.add(j)
+    return j
   })
+  const done = match.map(j => (j < 0 ? [] : result.done[j] || []))
+  // A count on the side that ran the clock is a count here too where this side's own
+  // timing is blank (#96): its seconds were time spent on reps, never a hold. A side
+  // that says reps or seconds keeps its own shape (`endCircuit`).
+  const counted = match.map(j => j >= 0 && result.items[j]?.by === 'reps')
   const base = run?.circuitKeys?.[block.id] === result.key
     ? { ...run, circuitKeys: { ...run.circuitKeys, [block.id]: null } } : run
-  let next = endCircuit(base, pres, block.id, done, { at: result.at, seconds: result.seconds, key: result.key, fill: true })
+  let next = endCircuit(base, pres, block.id, done, { at: result.at, seconds: result.seconds, key: result.key, fill: true, counted })
   const finished = circuitOnly(pres) && runProgress(next, prescriptionSteps(pres)).left === 0
   if (finished) next = finishRun(next, { at: result.at })
   const out = fillOut(entry.data.out || {}, runOutputs(pres, next, {}))

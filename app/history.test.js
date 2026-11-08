@@ -79,6 +79,34 @@ test('times you DID it: not a plan still to come or untouched today, not one mar
   assert.deepEqual(dates(priorSessions([...LOGBOOK, ahead, undone], PLANNED, PULL.id)), ['2026-10-20 Pull day', '2026-10-10 Pull day'])
 })
 
+test('a past workout’s last times are the ones before it, never after (#96)', () => {
+  const oct20 = LOGBOOK.find(e => e.date === '2026-10-20')
+  assert.deepEqual(dates(priorSessions(LOGBOOK, PLANNED, oct20.id)), ['2026-10-10 Pull day'], 'Nov 7’s Pull listed as an earlier time')
+  // The same day, in the day list's order: the main session, then the extras by id.
+  const day = (id, slot, name) => ({ ...planned('2026-11-12', name, ['bent-over-row', 'dumbbell-curl', 'pull-up'], {}), id,
+    data: { ...planned('2026-11-12', name, ['bent-over-row', 'dumbbell-curl', 'pull-up']).data, slot } })
+  const am = day('daily-2026-11-12', 'main', 'Pull AM')
+  const pm = day('daily-2026-11-12-planned', 'extra', 'Pull PM')
+  const late = day('daily-2026-11-12-planned-2', 'extra', 'Pull late')
+  const log = [...LOGBOOK, am, pm, late]
+  assert.deepEqual(dates(priorSessions(log, PLANNED, pm.id)).slice(0, 2), ['2026-11-12 Pull AM', '2026-11-07 Pull'], 'earlier today is gone, or not first')
+  assert.deepEqual(dates(priorSessions(log, PLANNED, late.id)).slice(0, 3), ['2026-11-12 Pull PM', '2026-11-12 Pull AM', '2026-11-07 Pull'])
+  assert.equal(dates(priorSessions(log, PLANNED, am.id)).some(d => d.startsWith('2026-11-12')), false, 'a later session of the same day listed as before')
+  // Where both say when they started, that decides: an extra done at seven beats the main one at six in the evening.
+  const at = (e, iso, how) => ({ ...e, data: { ...e.data, ...(how === 'run' ? { run: { startedAt: Date.parse(iso) } } : { out: { ...e.data.out, whoop: { start: iso } } }) } })
+  const timed = [...LOGBOOK, at(am, '2026-11-12T18:00:00Z', 'run'), at(pm, '2026-11-12T07:00:00Z', 'whoop'), late]
+  assert.deepEqual(dates(priorSessions(timed, PLANNED, am.id)).slice(0, 2), ['2026-11-12 Pull PM', '2026-11-07 Pull'], 'the earlier start is not "before"')
+  assert.equal(dates(priorSessions(timed, PLANNED, pm.id)).some(d => d.startsWith('2026-11-12')), false)
+  // Untimed itself, the late extra still comes after both by the day list; between them, their times say
+  // the main one (18:00) is the newer.
+  assert.deepEqual(dates(priorSessions(timed, PLANNED, late.id)).slice(0, 3), ['2026-11-12 Pull AM', '2026-11-12 Pull PM', '2026-11-07 Pull'])
+  // A card with no entry to stand on is not bounded.
+  const board = { id: 'board' }
+  const e = (date) => ({ id: date, kind: 'daily', date, data: { optId: 'board', done: true, out: {} } })
+  assert.equal(priorSessions([e('2026-11-01'), e('2026-10-01')], board, null).length, 2)
+  assert.deepEqual(priorSessions([e('2026-11-01'), e('2026-10-01')], board, '2026-10-01').map(x => x.date), [])
+})
+
 test('a card that is not a container is still its own history, renames and splits included', () => {
   const board = { id: 'board', aka: ['old-board'], priorIds: ['hard-home'] }
   assert.deepEqual(priorIdsOf(board), ['board', 'old-board', 'hard-home'])

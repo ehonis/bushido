@@ -16,6 +16,7 @@ import { activityOf, activityLabel } from './lib/activities.js'
 import { liftsLine, liftsDone, liftFieldIn } from './lib/lifts.js'
 import { priorSessions } from './lib/history.js'
 import { climbLine, mootHardest } from './lib/grades.js'
+import { formOut } from './lib/category.js'
 import { asksItsOwnDuration, minutesFor, minutesSourceOf } from './lib/minutes.js'
 import { visibleOutputs, pruneHidden, derivedValue, filledBy } from './lib/outputs.js'
 import { gateResolver } from './lib/activities.js'
@@ -556,7 +557,8 @@ export function SessionLog({
 }) {
   const declared = session?.outputs || []
   const hasSets = Boolean(session?.logSpec?.exercises?.length)
-  const out = entry?.data?.out || {}
+  // An older copy names no activity; its plan does: the form shows that one (#96, category.js `formOut`).
+  const out = formOut(entry, session)
 
   // Which fields are questions today. On the free-form cards the answer to the
   // first one decides that: miles and incline are the point of a run and noise

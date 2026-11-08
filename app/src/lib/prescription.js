@@ -769,7 +769,8 @@ export function circuitMinutes(pres) {
 function circuitRow(it, mark) {
   const rounds = Array.isArray(mark?.rounds) ? mark.rounds.filter(n => Number(n) > 0) : []
   if (!rounds.length) return null
-  const byReps = circuitTiming(it).by === 'reps'
+  // A mark with no seconds was a count (`endCircuit`), whatever the item says now.
+  const byReps = circuitTiming(it).by === 'reps' || mark.seconds == null
   // The planned weight is what it was done with: a plan says "15 @ 10 lb".
   const weight = num(it.sets[0]?.weight) ?? ''
   return {
@@ -796,7 +797,7 @@ function circuitRow(it, mark) {
  * write of a circuit done together (lib/trainer.js `togetherWrite`) can never
  * add its minutes twice.
  */
-export function endCircuit(run, pres, blockId, done = [], { at = Date.now(), seconds = 0, key = null, fill = false } = {}) {
+export function endCircuit(run, pres, blockId, done = [], { at = Date.now(), seconds = 0, key = null, fill = false, counted = [] } = {}) {
   if (key != null && run?.circuitKeys?.[blockId] === key) return run
   const base = run || emptyRun(at)
   const block = (pres?.blocks || []).find(b => b.id === blockId)
@@ -811,7 +812,12 @@ export function endCircuit(run, pres, blockId, done = [], { at = Date.now(), sec
     if (fill && (sets[setId] || skipped.includes(setId))) return
     const rounds = (done[i] || []).map(n => Math.round(n)).filter(n => n > 0)
     if (rounds.length) {
-      sets[setId] = { ...(circuitTiming(it).by === 'reps' ? {} : { seconds: rounds.reduce((a, b) => a + b, 0) }), rounds, at }
+      // A count is marked without seconds. `counted` (by index, a result from another
+      // side's clock): it counted this one, which decides only where this side's own
+      // timing is blank; a side that says reps or seconds keeps its own shape.
+      const own = circuitTiming(it).by
+      const byReps = own === 'reps' || (own === 'circuit' && counted[i] === true)
+      sets[setId] = { ...(byReps ? {} : { seconds: rounds.reduce((a, b) => a + b, 0) }), rounds, at }
       skipped = skipped.filter(id => id !== setId)
     } else if (!sets[setId] && !skipped.includes(setId)) skipped.push(setId)
   })

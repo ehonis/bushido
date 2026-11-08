@@ -1517,6 +1517,10 @@ function proxySettingsRefusal(mode, req, p) {
  *     they logged themselves, and the owner must never overwrite it (409
  *     `not-shared`; the app picks another id).
  *     Both markers are stamped here from users.json, never taken from the request.
+ *   - A copy whose person was taken off is theirs now (409 `not-linked`, #96):
+ *     the server stamps it `sharedFrom.off` when the owner's link to it goes and
+ *     clears that when one comes back. A copy never linked yet is not refused,
+ *     because adding someone writes the copy first and links it second.
  *   - A planned session is a daily entry with a derivable id. (Planning someone's
  *     week, their `quota-<monday>`, went with the quotas on 2026-10-25.)
  *   - A new daily entry is `done: false` whatever the request said, so it never
@@ -1557,6 +1561,16 @@ function syncLinksFor(space) {
   }
 }
 
+/**
+ * Is this copy still on one of the owner's workouts (a link in `sharedWith`, sync
+ * on or off)? A copy whose person was taken off is theirs now (#96): it stays in
+ * their log, and the owner's devices no longer write to it (`peopleRoute`).
+ */
+function copyLinked(ownerLog, personId, copy) {
+  return Object.values(ownerLog).some(e => e?.kind === 'daily' && e.date === copy.date
+    && sharedSync.allLinks(e).some(l => l.id === personId && l.entryId === copy.id))
+}
+
 /** The owner's entry that links this copy with sync on, or null. */
 function ownerEntryLinking(ownerLog, personId, copy) {
   for (const e of Object.values(ownerLog)) {
@@ -1582,7 +1596,7 @@ async function commitSynced(space, ids, merge) {
     const r = sharedSync.onWrite(base, next, ids, syncLinksFor(space))
     carries = r.carries
     acks = r.acks
-    return space.owner ? r.state : flagWritten(space, r.state, ids)
+    return space.owner ? r.state : flagWritten(space, r.state, ids, base)
   })
   for (const c of carries) {
     try { await carryShared(space, c) } catch (err) { console.error('[bushido] shared workout sync failed:', err.message) }
@@ -1592,7 +1606,7 @@ async function commitSynced(space, ids, merge) {
     for (const f of sharedSync.flagChanges(before, doc.state, ids)) {
       const person = users.get(f.personId)
       try {
-        if (person) await commit(spaceFor(person), st => (isCopy(st.entries?.[f.entryId] || {}) ? sharedSync.flagCopy(st, f.entryId, f.sync) : st))
+        if (person) await commit(spaceFor(person), st => (isCopy(st.entries?.[f.entryId] || {}) ? sharedSync.flagCopy(st, f.entryId, f.sync, f.linked) : st))
       } catch (err) { console.error('[bushido] shared workout flag failed:', err.message) }
     }
   }
@@ -1606,7 +1620,7 @@ async function commitSynced(space, ids, merge) {
  * device sent. A stale phone cannot say "in step" over a link switched off, or
  * rename who it was shared by.
  */
-function flagWritten(space, state, ids) {
+function flagWritten(space, state, ids, before = null) {
   let ownerLog = null
   let out = state
   const owner = users.owner()
@@ -1615,7 +1629,10 @@ function flagWritten(space, state, ids) {
     const e = out.entries?.[id]
     if (!e || e.deleted || !isCopy(e)) continue
     ownerLog = ownerLog || readStateSync(OWNER_SPACE).state.entries || {}
-    const data = sharedSync.flagged(e.data, Boolean(ownerEntryLinking(ownerLog, space.id, e)), stamp)
+    // Taken off stays taken off while no link is back, whatever a stale device sent (#96).
+    const was = before?.entries?.[id]
+    const off = !copyLinked(ownerLog, space.id, e) && (e.data.sharedFrom.off === true || (!was?.deleted && was?.data?.sharedFrom?.off === true))
+    const data = sharedSync.withOff(sharedSync.flagged(e.data, Boolean(ownerEntryLinking(ownerLog, space.id, e)), stamp), off)
     if (data !== e.data) out = { ...out, entries: { ...out.entries, [id]: { ...e, data } } }
   }
   return out
@@ -1714,6 +1731,7 @@ async function peopleRoute(req, res, url, ctx) {
     }
     const owner = users.owner()
     const NOT_SHARED = 'not-shared'
+    const NOT_LINKED = 'not-linked'
     let doc
     let acks
     try {
@@ -1722,6 +1740,12 @@ async function peopleRoute(req, res, url, ctx) {
         const live = cur && !cur.deleted
         // Thrown, not returned: a refusal must not write a new version or a backup.
         if (live && !fromOwner(cur.data)) throw new Error(NOT_SHARED)
+        // A copy they were taken off is theirs now (#96): only they write it. Known by
+        // the server's own stamp (`sharedFrom.off`), because a copy whose link has not
+        // been written yet (adding writes the copy first, then the link) has no link either.
+        if (live && cur.data.sharedFrom?.off === true && !copyLinked(readStateSync(OWNER_SPACE).state.entries || {}, person.id, cur)) {
+          throw new Error(NOT_LINKED)
+        }
         const stamp = { id: owner.id, name: owner.name }
         const data = { ...entry.data }
         if (data.sharedFrom) data.sharedFrom = stamp
@@ -1731,6 +1755,9 @@ async function peopleRoute(req, res, url, ctx) {
         return mergeState(base, { entries: { [entry.id]: stamped } })
       }))
     } catch (err) {
+      if (err.message === NOT_LINKED) {
+        return send(res, 409, { error: `${person.name} is no longer on this workout; it is ${person.name}'s own now`, code: NOT_LINKED })
+      }
       if (err.message !== NOT_SHARED) throw err
       return send(res, 409, {
         error: `${person.name} already logged something else under that id`,

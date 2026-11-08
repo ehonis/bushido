@@ -20,7 +20,8 @@
  * Native: the person bar goes in the sheet's header (`sub`), which sits outside
  * the ScrollView, so it stays put while the body scrolls (the web pins it with
  * `position: sticky`). The sync switch is the system Switch; taking someone off
- * asks with a system alert (`confirm`), and switching sides gives a haptic.
+ * never deletes what they logged and says so in a toast with Undo, and
+ * switching sides gives a haptic.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
@@ -29,11 +30,11 @@ import { colors, font, mix, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
 import { Btn, IconBtn, Press, Spinner, Toggle, s as kit } from '../ui/kit'
 import { Popover } from '../ui/Sheet'
-import { confirm } from '../ui/menu'
 import { toneColor } from '../ui/Person'
 import { success, tap } from '../ui/haptics'
 import { Icon } from '../lib/icons'
 import { pushToast } from '../lib/toast'
+import { UNDO_MS } from './exercises'
 import { SessionLog } from './sessionlog'
 import * as sharedLib from '../lib/shared.js'
 import * as peopleApi from '../lib/peopleapi.js'
@@ -46,7 +47,7 @@ type Person = { id: string; name: string; entryId?: string; tone?: number }
 
 const {
   withLine, inStepLine, openSide, shareSummary, isSynced, addPerson, removePerson, withSharedPerson,
-  withSync, copyExercises, hasExercises,
+  withSync, copyExercises, hasExercises, takeOffWords, undoTakeOff,
 } = sharedLib as any
 
 /** How often an open side re-reads their copy, for changes made on their own phone. */
@@ -86,8 +87,8 @@ export function ShareChip({ entry, on = [], people = [], onOpen }: {
 /**
  * Everything that changes who is on a workout, and how, behind the sharing chip:
  * per person their sync switch, "Copy my exercises to Sam" while sync is off,
- * and "Take Sam off this workout" (which asks first when they have logged on
- * their copy); then a row for everyone who could be added. A page sheet over
+ * and "Take Sam off this workout" (which keeps their copy in their log when
+ * they have logged on it, lib/shared.js `removePerson`); then a row for everyone who could be added. A page sheet over
  * the session sheet, like the exercise sheet.
  */
 export function SharePanel({ entry, on = [], people = [], busy = null, error = null, onAdd, onRemove, onSync, onCopy = null, onClose }: {
@@ -192,11 +193,19 @@ export function useSharing({ entry, opt, me, onSaveEntry, side, setSide, theirs,
   const remove = (person: Person) => {
     setState((s) => ({ ...s, isOpen: false }))
     void run('Taking off', person, async () => {
-      const next = await removePerson({ ownerEntry: latest.current, person, session: opt, api: peopleApi,
-        confirmFn: (q: string) => confirm(q, { confirmLabel: 'Take it out' }) })
-      if (!next) return false
+      // Nothing they logged goes (lib/shared.js `removePerson`): a copy with their
+      // marks stays in their log, unlinked. Said in a toast, with Undo.
+      const taken = await removePerson({ ownerEntry: latest.current, person, session: opt, api: peopleApi })
+      if (!taken) return false
       if (side === person.id) setSide(null)
       onSaveEntry?.(withSharedPerson(latest.current, person.id, null, { remove: true }))
+      pushToast(takeOffWords(person, taken), 'info', {
+        duration: UNDO_MS,
+        action: { label: 'Undo', icon: null, onClick: () => { void run('Adding', person, async () => {
+          onSaveEntry?.(await undoTakeOff({ ownerEntry: latest.current, person, taken, api: peopleApi }))
+          return true
+        }) } },
+      })
       return true
     })
   }

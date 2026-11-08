@@ -966,7 +966,7 @@ function allLinks(entry) {
 /**
  * The copies whose flag an owner's write changed (`prev` → `next`, the ids it
  * carried): sync switched, someone added or taken off, the entry removed.
- * `[{ personId, entryId, sync }]`.
+ * `[{ personId, entryId, sync, linked }]`; `linked` false is taken off.
  */
 function flagChanges(prev, next, ids) {
   const out = []
@@ -974,24 +974,37 @@ function flagChanges(prev, next, ids) {
     const was = new Map(allLinks(prev.entries?.[id]).map(l => [`${l.id}\n${l.entryId}`, l.sync]))
     const now = new Map(allLinks(next.entries?.[id]).map(l => [`${l.id}\n${l.entryId}`, l.sync]))
     for (const key of new Set([...was.keys(), ...now.keys()])) {
-      if (Boolean(was.get(key)) === Boolean(now.get(key))) continue
+      if (was.has(key) === now.has(key) && Boolean(was.get(key)) === Boolean(now.get(key))) continue
       const [personId, entryId] = key.split('\n')
-      out.push({ personId, entryId, sync: Boolean(now.get(key)) })
+      out.push({ personId, entryId, sync: Boolean(now.get(key)), linked: now.has(key) })
     }
   }
   return out
 }
 
+/**
+ * `data` with `sharedFrom.off` saying whether its person was taken off the
+ * workout (#96): true once a link to it is removed, gone once one is back. A
+ * copy with it is theirs; the owner's devices no longer write it (server.js
+ * `peopleRoute`). A copy never linked yet (adding writes the copy first) has none.
+ */
+function withOff(data, off) {
+  const from = data?.sharedFrom
+  if (!isObj(from) || Boolean(from.off) === Boolean(off)) return data
+  const { off: _o, ...rest } = from
+  return { ...data, sharedFrom: off ? { ...rest, off: true } : rest }
+}
+
 /** A copy in `state` flagged, stamped a millisecond past its own time; `state` unchanged if nothing moves. */
-function flagCopy(state, entryId, synced) {
+function flagCopy(state, entryId, synced, linked = true) {
   const e = state.entries?.[entryId]
   if (!e || e.deleted || !isObj(e.data)) return state
-  const data = flagged(e.data, synced)
+  const data = withOff(flagged(e.data, synced), !linked)
   if (data === e.data) return state
   return { ...state, entries: { ...state.entries, [entryId]: { ...e, data, updatedAt: bump(e.updatedAt) } } }
 }
 
 module.exports = {
   shapeOf, stampData, carry, rebase, intentOf, nextBase, align, syncedLinks, onWrite, receive, bump,
-  flagged, flagChanges, flagCopy, liftedOf,
+  flagged, flagChanges, flagCopy, liftedOf, allLinks, withOff,
 }

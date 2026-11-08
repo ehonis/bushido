@@ -246,13 +246,21 @@ check('a copy says whether it is in step (#80): set on a carry, switched with th
   const entry = (links) => ({ id: 'o', kind: 'daily', date: '2026-10-01', data: { sharedWith: links } })
   const prev = { entries: { o: entry([{ id: 'sam', entryId: 'c1', sync: true }, { id: 'jo', entryId: 'c2' }]) } }
   const next = { entries: { o: entry([{ id: 'sam', entryId: 'c1' }, { id: 'kim', entryId: 'c3', sync: true }]) } }
-  eq(flagChanges(prev, next, ['o']), [{ personId: 'sam', entryId: 'c1', sync: false }, { personId: 'kim', entryId: 'c3', sync: true }])
+  // Jo's link had sync off: taking Jo off still reaches Jo's copy (#96, `linked`).
+  eq(flagChanges(prev, next, ['o']), [{ personId: 'sam', entryId: 'c1', sync: false, linked: true },
+    { personId: 'jo', entryId: 'c2', sync: false, linked: false }, { personId: 'kim', entryId: 'c3', sync: true, linked: true }])
   eq(flagChanges(prev, prev, ['o']), [])
-  eq(flagChanges(prev, { entries: { o: { ...prev.entries.o, deleted: true } } }, ['o']), [{ personId: 'sam', entryId: 'c1', sync: false }])
+  eq(flagChanges(prev, { entries: { o: { ...prev.entries.o, deleted: true } } }, ['o']),
+    [{ personId: 'sam', entryId: 'c1', sync: false, linked: false }, { personId: 'jo', entryId: 'c2', sync: false, linked: false }])
   const log = { entries: { c1: { id: 'c1', updatedAt: '2026-10-01T00:00:00.000Z', data: copy } } }
   const f = flagCopy(log, 'c1', false)
   eq([f.entries.c1.data.sharedFrom.sync, f.entries.c1.updatedAt], [false, '2026-10-01T00:00:00.001Z'])
   ok(flagCopy(f, 'c1', false) === f, 'an unchanged flag wrote again')
+  // Taken off (#96): stamped `off`, and the stamp goes when a link is back.
+  const off = flagCopy(f, 'c1', false, false)
+  eq(off.entries.c1.data.sharedFrom, { id: 'owner', name: 'Alex', sync: false, off: true })
+  eq(flagCopy(off, 'c1', true, true).entries.c1.data.sharedFrom, { id: 'owner', name: 'Alex', sync: true })
+  ok(flagCopy(off, 'c1', false, false) === off, 'an unchanged stamp wrote again')
 })
 
 check('a carry that changes something fills in what kind of workout it is on a side that names none (#74)', () => {

@@ -30,7 +30,7 @@ import { loggedMinutes } from '../lib/minutes.js'
 import { titleFor } from '../lib/naming.js'
 import { loggedActivity } from '../lib/activities.js'
 import { currentMe } from '../lib/whoami.js'
-import { sharePeople, sharedPeopleOn, isSynced } from '../lib/shared.js'
+import { sharePeople, sharedPeopleOn, syncedSides, planShown, ownWordsOn, withStoredWords } from '../lib/shared.js'
 import {
   PersonSwitch, SharedNote, TheirSide, usePersonCopy, useSide, TogetherPending,
   ShareChip, SharePanel, useSharing, useSidesDone,
@@ -136,7 +136,9 @@ export function SessionSheet({
   const done = planned && isDone(entry)
   // The prescription, if this session has one. Its presence turns the sheet from
   // a protocol you read into a workout you edit.
-  const pres = entry?.data?.plan || null
+  // As this log's person sees it: on a copy, never the owner's planner words, the
+  // exercises' notes included (lib/shared.js `planShown`, #96). Every use below reads it.
+  const pres: any = planShown(entry)
   /*
    * DOING MODE (#79, D9). A planned workout on its day or after is where the
    * lifting is done, so the sheet opens on the work: the first exercise with a
@@ -169,7 +171,6 @@ export function SessionSheet({
   const sidePerson = (side && on.find((p) => p.id === side)) || null
   const theirs = usePersonCopy(sidePerson?.id, sidePerson?.entryId, sidePerson?.name)
   const theirLog = usePersonLog(sidePerson?.id || null)
-  const synced = Boolean(sidePerson && isSynced(entry, sidePerson.id))
   // The entry as of the latest render, for writes that land after a tap.
   const latestEntry = useRef(entry)
   latestEntry.current = entry
@@ -187,8 +188,10 @@ export function SessionSheet({
   const flipMine = useDoneFlip({ read: () => latestEntry.current, outlives: true,
     write: (v: any) => { setDirty(true); onSetDone?.(latestEntry.current, v) } })
   /* Their plan, edited from their side: the same write `savePlan` makes on the owner's. */
-  const saveTheirPlan = (next: any) => { setDirty(true); theirs.update((cur: any) => applyPlan(cur, opt, next)) }
-  const theirPres = theirs.entry?.data?.plan || null
+  /* What the sheet shows is `planShown`; what it writes is the stored plan with the
+     edit in it, every hidden word back as stored (lib/shared.js `withStoredWords`). */
+  const saveTheirPlan = (next: any) => { setDirty(true); theirs.update((cur: any) => applyPlan(cur, opt, withStoredWords(cur, next))) }
+  const theirPres: any = planShown(theirs.entry)
 
   /* A write to their log that did not land says so, with the way to send it again.
      It stays only while it is true: the cleanup takes it down when the error
@@ -258,15 +261,14 @@ export function SessionSheet({
     if (planned && !isFuture && onSetDone) status = <DoneChip done={done} onToggle={flipMine} />
     if (startable) footer = start()
   }
-  /* The other sides of a synced workout, for a removal toast's one line about them
-     (lib/removal.js: never a claim about what happened there). */
   const planTalk = pres ? (
     <PlanTalk pres={pres} compact entries={entries} entryId={entry?.id}
-      onChange={(next: any) => { setDirty(true); onSavePlan?.(latestEntry.current, next) }} />
+      // What this person asks the model on their own copy is theirs to read (`ownWordsOn`).
+      onChange={(next: any) => { setDirty(true); onSavePlan?.(latestEntry.current, ownWordsOn(latestEntry.current, next)) }} />
   ) : null
-  const syncedWith = sidePerson
-    ? (synced ? ['you'] : null)
-    : (() => { const s = on.filter((p) => isSynced(entry, p.id)).map((p) => p.name); return s.length ? s : null })()
+  /* The other sides of a synced workout, for a removal toast's one line about them
+     (lib/removal.js: never a claim about what happened there). */
+  const syncedWith = syncedSides(entry, on, sidePerson)
   /* Under the title: the done chip, then who is on it ("with Sam · in sync ›", #80). */
   /* Whose copy this sheet is filling in (only on a shared workout) sits in the
      header too, so it stays put while the body scrolls (the web pins it with
@@ -367,7 +369,7 @@ export function SessionSheet({
           {planTalkWhere({ ai, doing }) === 'sheet' ? planTalk : null}
           <PrescriptionEditor pres={pres} liftField={liftField}
             entries={entries} entryId={entry?.id} categories={thePlan?.quotaCategories || []}
-            onChange={(next: any) => { setDirty(true); onSavePlan?.(latestEntry.current, next) }} syncedWith={syncedWith} compact
+            onChange={(next: any) => { setDirty(true); onSavePlan?.(latestEntry.current, withStoredWords(latestEntry.current, next)) }} syncedWith={syncedWith} compact
             doing={doing} asWritten={asWritten(entry)} />
           {pres.notes?.length > 0 && (
             <View style={{ marginTop: space[4], gap: space[2] }}>

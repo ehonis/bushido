@@ -28,12 +28,14 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Undo2 } from 'lucide-react'
 import { Icon } from './lib/icons.jsx'
+import { UNDO_MS } from './exercises.jsx'
 import { Popover } from './modal.jsx'
 import { SessionLog } from './sessionlog.jsx'
 import {
   withLine, inStepLine, openSide, shareSummary, isSynced, addPerson, removePerson, withSharedPerson,
-  withSync, copyExercises, hasExercises,
+  withSync, copyExercises, hasExercises, takeOffWords, undoTakeOff,
 } from './lib/shared.js'
 import * as peopleApi from './lib/peopleapi.js'
 import { createCopyQueue, openedCopy } from './lib/copyqueue.js'
@@ -73,8 +75,8 @@ export function ShareChip({ entry, on = [], people = [], onOpen }) {
  * Everything that changes who is on a workout, and how, behind the sharing chip:
  * per person their sync switch, "Copy my exercises to Sam" while sync is off,
  * and "Take Sam off this workout"; then a row for everyone who could be added.
- * Taking someone off asks first when they have logged on their copy
- * (lib/shared.js `removePerson`).
+ * Taking someone off never deletes what they logged: their copy stays in
+ * their log, unlinked, and the toast has Undo (lib/shared.js `removePerson`).
  */
 export function SharePanel({ entry, on = [], people = [], busy = null, error = null, onAdd, onRemove, onSync, onCopy = null, onClose }) {
   const free = people.filter(p => !on.some(o => o.id === p.id))
@@ -166,12 +168,24 @@ export function useSharing({ entry, opt, me, onSaveEntry, side, setSide, theirs,
       owner: { id: me.real.id, name: me.real.name }, api: peopleApi })
     onSaveEntry(withSharedPerson(latest.current, person.id, copy.id))
   })
-  const remove = (person) => run('Taking off', person, async () => {
-    const next = await removePerson({ ownerEntry: latest.current, person, session: opt, api: peopleApi,
-      confirmFn: async (q) => typeof window !== 'undefined' && window.confirm(q) })
-    if (!next) return
+  /* Nothing they logged goes (lib/shared.js `removePerson`): a copy with their
+     marks stays in their log, unlinked. Said in a toast, with Undo. */
+  const remove = (person) => {
+    // Closed first, as on the phone: the toast's Undo must not sit under the panel's scrim.
+    setState(s => ({ ...s, isOpen: false }))
+    return takeOff(person)
+  }
+  const takeOff = (person) => run('Taking off', person, async () => {
+    const taken = await removePerson({ ownerEntry: latest.current, person, session: opt, api: peopleApi })
+    if (!taken) return
     if (side === person.id) setSide(null)
     onSaveEntry(withSharedPerson(latest.current, person.id, null, { remove: true }))
+    pushToast(takeOffWords(person, taken), 'info', {
+      duration: UNDO_MS,
+      action: { label: 'Undo', icon: Undo2, onClick: () => run('Adding', person, async () => {
+        onSaveEntry(await undoTakeOff({ ownerEntry: latest.current, person, taken, api: peopleApi }))
+      }) },
+    })
   })
   /* Sync lives on the owner's link; the server does the keeping-the-same (server/sharedsync.js). */
   const sync = (person, v) => onSaveEntry(withSync(latest.current, person.id, v))

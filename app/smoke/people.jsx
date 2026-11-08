@@ -270,6 +270,43 @@ export default [
         if (/last \d+ sessions?|nothing written down/i.test(t)) throw new Error('the history header is back to "sessions"')
         if (/last time \(/.test(draw([]).replace(/<[^>]+>/g, ''))) throw new Error('a last time with no history')
       }],
+      ['SessionSheet(an older copy never shows the owner\'s notes or reasoning, and its form reads its kind (#96))', null, () => {
+        const plannedOpt = plan.dailyMenu.find(m => m.id === 'planned')
+        // The seed's shape: shared before the share stripped the planner's words, and before #74 filed it.
+        const pres = { title: 'Legs', category: 'lift', activity: 'lift', why: 'Your recovery is 51% today, so loads stay flat.',
+          notes: ['Yellow recovery today (51%): holding loads flat.'], ask: 'legs please', thread: [{ role: 'you', text: 'my knee hurts' }],
+          blocks: [{ id: 'b0', name: 'Legs', items: [{ id: 'b0i0', kind: 'lift', name: 'Goblet squat',
+            note: '3x10 at 95 was RPE 6 last time — bump up 5 lb.', sets: [{ id: 'b0i0s0', reps: 10, weight: null, note: 'Last logged 125/125/150.' }] }] }] }
+        const copy = (date) => ({ ...entry, id: `daily-${date}`, date, data: { optId: 'planned', name: 'Legs', done: false, out: {}, plan: pres,
+          sharedFrom: { id: 'owner', name: 'Alex', sync: true } } })
+        const samMe = { id: 'sam', owner: false, acting: false, real: { id: 'sam', name: 'Sam', admin: false }, people: [], features: { ai: true } }
+        const actingMe = { ...ownerMe, id: 'sam', acting: true, features: { ai: true } }
+        const draw = (me, e, own = false) => text(renderToString(<PlanProvider plan={plan}><SessionSheet opt={plannedOpt} entry={e} tone="rec" entries={[]}
+          isFuture={e.date > TODAY} me={me} onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop}
+          onSaveEntry={own ? noop : null} /></PlanProvider>))
+        for (const [who, me] of [['Sam', samMe], ['the owner acting as Sam', actingMe]]) {
+          for (const date of [TODAY, '2999-01-01']) {
+            const t = draw(me, copy(date)).replace(/<[^>]+>/g, ' ')
+            if (/51%|recovery|knee|legs please|RPE 6 last time|125\/125\/150/i.test(t)) throw new Error(`${who} reads the owner's planner words (${date}): ${t.slice(0, 400)}`)
+            if (!/Goblet squat/.test(t)) throw new Error(`${who}'s copy lost its exercise (${date})`)
+          }
+          const t = draw(me, copy(TODAY))
+          if (/What kind of workout was this/.test(t)) throw new Error(`${who}'s older copy asks what kind of workout it was`)
+          if (!/Lift/.test(t)) throw new Error(`${who}'s older copy does not read Lift`)
+        }
+        // The notes line and an exercise's note are still there, on the owner's own plan.
+        const { sharedFrom: _f, ...mine } = copy(TODAY).data
+        const own = draw({ ...ownerMe, features: { ai: true } }, { ...copy(TODAY), data: mine }, true)
+        if (!/Yellow recovery today/.test(own)) throw new Error('the plan\'s notes went from the owner\'s own sheet')
+        if (!/RPE 6 last time/.test(own)) throw new Error('an exercise\'s note went from the owner\'s own sheet')
+        // The runner on a copy: the step's cue is never the owner's note on it.
+        const mixed = normalizePrescription({ title: 'Row', blocks: [{ name: 'Main', items: [
+          { kind: 'interval', name: 'Row easy', note: 'Last time 2:05/500m at your recovery 51%.', sets: [{ seconds: 600, note: 'Owner held 2:05.' }] }] }] })
+        const run = (data) => text(renderToString(<PlanProvider plan={plan}><WorkoutRunner session={plannedOpt}
+          entry={{ ...copy(TODAY), data: { ...data, plan: mixed } }} entries={[]} onRun={noop} onExit={noop} /></PlanProvider>)).replace(/<[^>]+>/g, ' ')
+        if (/2:05|51%/.test(run(copy(TODAY).data))) throw new Error('the runner shows the owner\'s note on a copy\'s step')
+        if (!/Owner held 2:05/.test(run(mine))) throw new Error('the runner lost a step\'s cue on the owner\'s own plan')
+      }],
       ['SessionSheet(their own copy says it is in step with the owner\'s, and only while it is)', null, () => {
         const samMe = { id: 'sam', owner: false, acting: false, real: { id: 'sam', name: 'Sam', admin: false }, people: [] }
         const hers = (from) => ({ ...entry, data: { ...entry.data, sharedFrom: from } })

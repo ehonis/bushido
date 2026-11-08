@@ -55,3 +55,33 @@ function filedOut(entry) {
   const activity = plan.activity || named.activity || null
   return { ...out, ...(category ? { category } : {}), ...(activity ? { activity } : {}) }
 }
+
+/**
+ * `out` as a logging form shows it (#96): an older copy's own `out`, with the
+ * activity its plan files it under when it names none, so its "What kind of
+ * workout was this?" reads Lift, as a new copy's does, instead of asking with
+ * nothing picked. Only the activity, and only for the form: what is stored is
+ * written when the person saves, never by reading.
+ *
+ * A plan that names only a category (`lift`, no activity) reads the content's
+ * lifting activity when that category is the lifting activity's own: the first
+ * catalog activity whose shape the session's lift field asks for, the rule a
+ * plan with no filing is placed by (prescription.js `circuitFiling`). Any other
+ * category alone (support, a run) names no one activity and is left to ask.
+ */
+export function formOut(entry, session = null) {
+  const out = entry?.data?.out || {}
+  if (out.activity) return out
+  const filed = filedOut(entry)
+  const activity = filed.activity || liftingActivityFor(filed.category, session)
+  return activity ? { ...out, activity } : out
+}
+
+function liftingActivityFor(category, session) {
+  if (!category) return null
+  const outputs = session?.outputs || []
+  const shapes = outputs.find(o => o?.type === 'lifts')?.when?.shape || []
+  const field = outputs.find(o => o?.type === 'activity')
+  const act = (field?.activities || []).find(a => shapes.includes(a?.shape))
+  return act && act.category === category ? act.key : null
+}

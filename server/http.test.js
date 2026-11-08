@@ -995,6 +995,44 @@ async function waitFor(fn, label, ms = 8000) {
     eq(ownOn(id).data.sharedFrom, undefined, 'the owner\'s own entry was flagged')
   })
 
+  /*
+   * Taking someone off (#96, lib/shared.js removePerson / undoTakeOff): a copy Sam
+   * logged on is never deleted, only unlinked; Undo puts the link back exactly and
+   * Sam's numbers are as they were. An untouched copy is tombstoned and Undo writes
+   * it back through the people route, over its own tombstone.
+   */
+  await step('take off (#96): Sam\'s logged copy stays and Undo relinks it; an untouched one comes back over its tombstone', async () => {
+    const { id } = await freshShare('2026-09-14', { sync: true })
+    const logged = replan(theirsOn(id), bs => { bs[0].items[0] = { ...bs[0].items[0], sets: bs[0].items[0].sets.map(x => ({ ...x, reps: 8, weight: 40, typed: true })) }; return bs })
+    eq((await saveSams({ ...logged, data: { ...logged.data, out: { rpe: 6 } } })).status, 200)
+    const sams = () => itemsIn(theirsOn(id)).map(i => [i.name, i.sets.map(x => [x.reps, x.weight])])
+    const before = sams()
+    const link = ownOn(id).data.sharedWith[0]
+    eq((await saveOwn({ ...ownOn(id), data: { ...ownOn(id).data, sharedWith: [] } })).status, 200)
+    ok(!theirsOn(id).deleted, 'taking Sam off deleted what Sam logged')
+    eq([sams(), theirsOn(id).data.out.rpe, theirsOn(id).data.sharedFrom.sync], [before, 6, false])
+    // Sam's now: the owner's devices can no longer write it (a stale sheet, a Together retry).
+    const kept = JSON.stringify(theirsOn(id))
+    const refused = await post('sam', { ...theirsOn(id), updatedAt: tick(), data: { ...theirsOn(id).data, out: { rpe: 1 } } })
+    eq([refused.status, (await refused.json()).code], [409, 'not-linked'], 'the owner wrote a copy Sam was taken off')
+    eq(JSON.stringify(theirsOn(id)), kept, 'a refused write changed Sam\'s copy')
+    eq((await saveSams({ ...theirsOn(id), data: { ...theirsOn(id).data, out: { rpe: 7 } } })).status, 200, 'Sam cannot write Sam\'s own copy')
+    eq((await saveOwn({ ...ownOn(id), data: { ...ownOn(id).data, sharedWith: [link] } })).status, 200)
+    eq((await post('sam', { ...theirsOn(id), updatedAt: tick() })).status, 200, 'relinked, the owner still cannot write it')
+    eq([sams(), theirsOn(id).data.sharedFrom.sync, ownOn(id).data.sharedWith, theirsOn(id).data.out.rpe], [before, true, [link], 7], 'Undo did not put it back as it was')
+
+    const fresh = await freshShare('2026-09-15', { sync: true })
+    const copy = theirsOn(fresh.id)
+    eq((await post('sam', { ...copy, deleted: true, updatedAt: tick() })).status, 200)
+    eq((await saveOwn({ ...ownOn(fresh.id), data: { ...ownOn(fresh.id).data, sharedWith: [] } })).status, 200)
+    ok(theirsOn(fresh.id).deleted, 'not tombstoned')
+    const { deleted: _d, ...back } = copy
+    eq((await post('sam', { ...back, updatedAt: tick() })).status, 200)
+    eq((await saveOwn({ ...ownOn(fresh.id), data: { ...ownOn(fresh.id).data, sharedWith: [{ id: 'sam', entryId: fresh.id, sync: true }] } })).status, 200)
+    ok(!theirsOn(fresh.id).deleted, 'Undo did not bring the copy back')
+    eq([namesIn(theirsOn(fresh.id)), theirsOn(fresh.id).data.sharedFrom.sync, theirsOn(fresh.id).data.done], [['Squat', 'Deadlift'], true, false])
+  })
+
   /* ------------------------------------------ the owner as trainer (peopleRoute) */
   const planned = { id: 'daily-2026-10-08', kind: 'daily', date: '2026-10-08', updatedAt: '2026-10-08T07:00:00Z',
     data: { optId: 'planned', slot: 'main', done: true, name: 'Legs', plan: { title: 'Legs', blocks: [] }, out: {}, plannedBy: { id: 'sam', name: 'forged' } } }

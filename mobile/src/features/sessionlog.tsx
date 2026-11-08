@@ -21,6 +21,7 @@ import { ActivityPicker } from './activitypicker'
 import { liftsLine, liftsDone, liftFieldIn } from '../lib/lifts.js'
 import { priorSessions } from '../lib/history.js'
 import { climbLine, mootHardest } from '../lib/grades.js'
+import { formOut } from '../lib/category.js'
 import { asksItsOwnDuration, minutesFor, minutesSourceOf } from '../lib/minutes.js'
 import { visibleOutputs, pruneHidden, derivedValue, filledBy } from '../lib/outputs.js'
 import { gateResolver, activityOf, activityLabel } from '../lib/activities.js'
@@ -475,7 +476,8 @@ export function SessionLog({
 }: any) {
   const declared = session?.outputs || []
   const hasSets = Boolean(session?.logSpec?.exercises?.length)
-  const out = entry?.data?.out || {}
+  // An older copy names no activity; its plan does: the form shows that one (#96, category.js `formOut`).
+  const out = formOut(entry, session)
 
   // The catalog resolver, so a field may gate on what the CATALOG says about the
   // picked activity rather than on a list of ninety-one keys. See lib/outputs.js.
