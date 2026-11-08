@@ -17,7 +17,10 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
 - **`src/lib/` is the web's `app/src/lib/`, at the same relative paths, mostly byte for byte.**
   The pure modules (`store.js`, `category.js`, `prescription.js`, `fingers.js`, `lifts.js`, …) are
   copied as JavaScript, not rewritten: `tsconfig.json` has `allowJs`. When the web changes one,
-  copy it again and re-apply the few native edits, which are all marked in the file:
+  copy it again and re-apply the few native edits, which are all marked in the file.
+  `app/libsync.test.js` (in `npm test`) fails on any other difference, and on a web lib file
+  that is neither copied nor named as not copied; the native edits it allows are written down
+  in `app/libsync.native.diff`:
   - `store.js`: AppState (`lib/foreground.ts`) instead of `visibilitychange`; no hostname handoff.
   - `whoop.jsx`, `strava.jsx`: the same foreground swap.
   - `signout.js`: `confirmFn` may return a promise.

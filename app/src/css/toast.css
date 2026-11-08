@@ -1,0 +1,44 @@
+/*
+ * Toasts (toast.jsx): a removal's Undo, a failed save's Retry.
+ *
+ * Moved out of today.css in #73 section for section, so each file says what is in it
+ * (docs/DESIGN.md, "Wave 2: who owns which file"); main.jsx imports them in an order
+ * that keeps the cascade as it was. Tokens, base components and the shell stay in
+ * styles.css; this file only uses them.
+ */
+/* ------------------------------------------------------------------ toasts
+
+   toast.jsx (docs/DESIGN.md "Toast"): full width under the header, one solid fill
+   per kind, white text. A base component: it lives here until the shell mounts the
+   host for every tab, and then belongs in styles.css with it. */
+.toasts {
+  position: fixed; z-index: 100; left: var(--sp-3); right: var(--sp-3);
+  top: calc(env(safe-area-inset-top) + 60px);
+  max-width: 640px; margin: 0 auto;
+  display: grid; gap: var(--sp-2); pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex; align-items: center; gap: var(--sp-2);
+  min-height: var(--tap); padding: var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-4);
+  border-radius: var(--r-card); box-shadow: var(--elev-3);
+  color: #fff; font-size: var(--fs-body); line-height: var(--lh-tight);
+  animation: toast-in var(--dur) var(--ease-out);
+}
+.toast.t-error { background: var(--toast-error); }
+.toast.t-success { background: var(--toast-success); }
+.toast.t-info { background: var(--toast-info); }
+.toast > svg { flex: none; }
+.toast-text { flex: 1; min-width: 0; padding: var(--sp-2) 0; }
+.toast-n { font-size: var(--fs-caption); font-weight: 600; }
+.toast-act {
+  flex: none; display: inline-flex; align-items: center; gap: var(--sp-1);
+  min-height: 36px; padding: 0 var(--sp-3); border: 0; border-radius: var(--r-control);
+  background: rgb(255 255 255 / 0.15); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+}
+.toast-x {
+  flex: none; width: var(--tap); height: var(--tap); display: grid; place-items: center;
+  border: 0; border-radius: var(--r-pill); background: transparent; color: rgb(255 255 255 / 0.75); cursor: pointer;
+}
+@keyframes toast-in { from { transform: translateY(-8px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }

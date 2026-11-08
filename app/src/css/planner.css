@@ -1,0 +1,317 @@
+/*
+ * Plan a workout (planner.jsx): the kinds, Write it for me, the working dots and the
+ * reasoning (lib/markdown.jsx), drafts, the kept step, talking to it about the session, the
+ * split note.
+ *
+ * Moved out of logging.css in #73 section for section, so each file says what is in it
+ * (docs/DESIGN.md, "Wave 2: who owns which file"); main.jsx imports them in an order
+ * that keeps the cascade as it was. Tokens, base components and the shell stay in
+ * styles.css; this file only uses them.
+ */
+/* Desktop has the width for the argument behind each quota category. */
+@media (min-width: 720px) {
+  .quotarow { grid-template-columns: 22px minmax(0, 1fr) 90px auto; }
+  .quotarow-name .sub { display: block; }
+}
+.bubble.coach { align-self: flex-start; background: none; border: none; padding-left: 0; max-width: 100%; }
+
+/* A turn is an agent reading files; it can take a while, and silence for two
+   minutes reads as a broken box. */
+.thinking { display: flex; align-items: center; gap: 10px; }
+.thinking .sub { margin: 0; font-size: var(--fs-small); }
+.coachdots { display: inline-flex; gap: 4px; }
+.coachdots i {
+  width: 6px; height: 6px; border-radius: 999px; background: var(--accent);
+  animation: coachpulse 1.2s ease-in-out infinite;
+}
+.coachdots i:nth-child(2) { animation-delay: .18s }
+.coachdots i:nth-child(3) { animation-delay: .36s }
+@keyframes coachpulse { 0%,100% { opacity: .25 } 50% { opacity: 1 } }
+
+/* Markdown in a coach reply. Tight vertical rhythm: this is a chat bubble, not a
+   document, so a heading is a size step rather than a section break. */
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+.md p { margin: 0 0 10px; }
+.md h3, .md h4, .md h5, .md h6 { margin: 14px 0 6px; font-size: var(--fs-body); color: var(--ink); }
+.md ul, .md ol { margin: 0 0 10px; padding-left: 20px; }
+.md li { margin: 3px 0; }
+.md li::marker { color: var(--ink-faint); }
+.md strong { color: var(--ink); font-weight: 650; }
+.md em { color: var(--ink); }
+.md code {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px;
+  padding: 1px 5px; font-size: 0.88em;
+}
+.md pre {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px; overflow-x: auto; margin: 0 0 10px;
+}
+.md pre code { background: none; border: none; padding: 0; }
+.md blockquote {
+  margin: 0 0 10px; padding-left: 12px;
+  border-left: 2px solid var(--line); color: var(--ink-dim);
+}
+.md a { color: var(--accent); }
+
+/* --------------------------------------------------------- planner flow */
+
+/* The kinds: a section head over one card of rows per group (docs/DESIGN.md).
+   The trailing mark is the check, numbered in the order the kinds were tapped,
+   because the planner writes the blocks in that order. */
+.kindgroup + .kindgroup .section-head, .plandrafts + .kindgroup .section-head { margin-top: var(--sp-6); }
+.card.kindlist { padding-block: 0; margin-bottom: 0; }
+.kindrow:active { background: var(--panel-2); }
+.kindrow .list-row-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kindrow-check {
+  flex: none; width: 24px; height: 24px; border-radius: var(--r-pill);
+  display: grid; place-items: center;
+  border: 1.5px solid var(--line-strong);
+  font-size: var(--fs-caption); font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.kindrow.on > svg:first-child { color: var(--accent); }
+.kindrow.on .kindrow-check { background: var(--accent-soft); border-color: var(--accent-line); color: var(--ink); }
+
+.kindcustom-row { display: flex; gap: var(--sp-2); margin-top: var(--sp-2); }
+.kindcustom-row input { flex: 1; min-width: 0; }
+.kindcustom-row .btn { flex: 0 0 auto; }
+
+.askblock { margin-bottom: var(--sp-6); }
+.askblock .section-head { margin-top: 0; }
+
+.chiprow { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.chiprow .out-chip { font-variant-numeric: tabular-nums; }
+
+.minstep { display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); }
+.minstep-n { font-size: var(--fs-body); color: var(--ink-dim); font-variant-numeric: tabular-nums; min-width: 72px; text-align: center; }
+
+.goalbox { width: 100%; resize: vertical; }
+
+/* "Write it for me": the box is the screen (#59). Its question is its label,
+   at title size, and the box is tall enough to say a whole session in. */
+.askcanvas { margin-bottom: var(--sp-6); }
+.askcanvas-label { display: block; font-size: var(--fs-title); font-weight: 600; color: var(--ink); margin-bottom: var(--sp-3); }
+.askcanvas-box { width: 100%; min-height: 128px; resize: vertical; font-size: var(--fs-body); line-height: 1.45; }
+/* The kinds, optional and folded: chips under small group names. */
+.askkinds { margin-bottom: 0; }
+.askkinds > summary.section-head { list-style: none; cursor: pointer; align-items: center; min-height: var(--tap); margin: 0; }
+.askkinds > summary::-webkit-details-marker { display: none; }
+.askkinds > summary h3 { flex: 1; }
+.askkinds[open] .kindgroup-chev { transform: rotate(180deg); }
+.askkinds-group { margin-top: var(--sp-3); }
+.askkinds-group h4 { font-size: var(--fs-small); font-weight: 500; color: var(--ink-dim); margin: 0 0 var(--sp-2); }
+.plan-buildself { display: inline-flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+/* A primary that cannot be pressed yet reads as a shape, not as a dimmed accent:
+   nothing typed and nothing picked is not "almost ready". */
+.plan-actions .btn.big:disabled { opacity: 1; background: var(--panel-2); color: var(--ink-faint); border-color: var(--line); }
+.plan-keep-retry { display: inline-flex; align-items: center; gap: var(--sp-2); margin: var(--sp-2) auto 0; }
+
+.plan-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-4); }
+.plan-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2); }
+.plan-actions .btn.big { flex: 1; }
+/* Sticky, because the ask and the review are both taller than a phone and the
+   button that ends the step should never be something you scroll to find. */
+.plan-actions.sticky {
+  position: sticky; bottom: 0; z-index: 2;
+  padding: var(--sp-3) 0 calc(var(--sp-3) + env(safe-area-inset-bottom));
+  /* Solid, with the fade above it rather than behind it. A gradient background
+     leaves the top third of the bar see-through, so a stepper scrolling under the
+     buttons showed through them. */
+  background: var(--bg);
+  box-shadow: 0 -18px 18px -9px var(--bg);
+}
+.plan-fine { margin-top: var(--sp-2); }
+.plan-evicts { display: flex; align-items: center; gap: var(--sp-2); }
+
+/*
+ * The fork: the model's route and your own. Two buttons of the same height,
+ * wrapping rather than squeezing, because a label that ellipsises on a 360px
+ * phone is a choice nobody can read.
+ */
+.plan-actions.fork { flex-wrap: wrap; }
+.plan-actions.fork .btn { flex: 1 1 148px; }
+
+/* Naming a piece of work that is not in the exercise catalogue. */
+.pieceadd {
+  display: grid; gap: 8px; padding: 10px;
+  border: 1px dashed var(--line); border-radius: 8px;
+}
+.pieceadd-row { display: flex; gap: 8px; align-items: center; }
+.pieceadd-row input { flex: 1; min-width: 0; }
+.pieceadd-by { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pieceadd-by .btn { margin-left: auto; }
+
+.plan-working { text-align: center; padding: var(--sp-8) var(--sp-3); }
+.plan-working-ico { display: inline-flex; color: var(--accent); }
+.plan-working-title { margin-top: var(--sp-3); font-size: var(--fs-title); font-weight: 600; }
+.plan-working-stage { margin: var(--sp-2) 0 var(--sp-4); color: var(--ink-dim); font-size: var(--fs-body); }
+.plan-working-dots { display: inline-flex; gap: 6px; margin-bottom: var(--sp-3); }
+.plan-working-dots i {
+  width: 7px; height: 7px; border-radius: var(--r-pill); background: var(--accent);
+  animation: planpulse 1.2s ease-in-out infinite;
+}
+.plan-working-dots i:nth-child(2) { animation-delay: 0.15s; }
+.plan-working-dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes planpulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .plan-working-dots i { animation: none; opacity: 0.6; } }
+
+.plan-failed { padding: var(--sp-6) 0; }
+.plan-failed-lead {
+  display: flex; align-items: flex-start; gap: var(--sp-2); margin: 0 0 var(--sp-2);
+  color: var(--bad); font-size: var(--fs-body);
+}
+
+/* The one paragraph saying what it was thinking. Separated from the sets the way
+   the coach card is separated from the plan's own voice: this is a model's read,
+   and it does not get to look like the programme. */
+.plan-why {
+  display: flex; gap: 10px; margin: 0 0 18px; padding: 12px 14px;
+  background: color-mix(in oklab, var(--accent) 7%, var(--panel-2));
+  border: 1px solid color-mix(in oklab, var(--accent) 24%, var(--line));
+  border-radius: 12px;
+}
+.plan-why-ico { flex: 0 0 auto; color: var(--accent); padding-top: 2px; }
+.plan-why .md { font-size: var(--fs-body); line-height: 1.55; color: var(--ink-dim); }
+.plan-why .md :first-child { margin-top: 0; }
+.plan-why .md :last-child { margin-bottom: 0; }
+
+.plan-notes { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 7px; }
+.plan-notes li {
+  display: flex; gap: 8px; align-items: flex-start;
+  font-size: var(--fs-small); color: var(--ink-faint); line-height: 1.5;
+}
+
+/* ------------------------------------------------- planned, but not started */
+
+.kept { text-align: center; padding: 40px 8px 0; }
+.kept-ico { display: inline-flex; color: var(--viz-good); }
+.kept h2 { margin: var(--sp-3) 0 var(--sp-2); font-size: var(--fs-heading); font-weight: 600; line-height: var(--lh-tight); }
+/* Only the paragraph is centred. `.kept .sub` also matched the sub-line inside
+   each named part, and `margin: 0 auto` centred it under a left-aligned title. */
+.kept > p.sub { max-width: 30em; margin: 0 auto; }
+.kept-acts { display: grid; gap: 10px; margin-top: 28px; }
+.kept-acts .btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+  min-height: var(--tap);
+}
+.kept-acts .btn.big { min-height: 56px; font-size: var(--fs-title); }
+
+/* --------------------------------- talking to it about the session it wrote */
+
+.plantalk {
+  margin: 0 0 20px; border-radius: 12px;
+  background: color-mix(in oklab, var(--accent) 7%, var(--panel-2));
+  border: 1px solid color-mix(in oklab, var(--accent) 24%, var(--line));
+  overflow: hidden;
+}
+.plantalk-head {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 11px 12px; min-height: var(--tap);
+  background: none; border: 0; color: inherit; font: inherit; text-align: left;
+  cursor: pointer;
+}
+.plantalk-head .alt-chev { flex: 0 0 auto; color: var(--ink-faint); }
+/* Folded, it is a line. Open, it is the panel it always was. */
+.plantalk:not(.open) { background: var(--panel-2); }
+.plantalk-ico { display: inline-flex; color: var(--accent); }
+.plantalk-title { flex: 1; font-size: var(--fs-body); font-weight: 600; }
+.plantalk-n {
+  min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+  display: grid; place-items: center;
+  background: var(--accent); color: var(--on-accent); font-size: var(--fs-caption); font-weight: 600;
+}
+.plantalk-body { padding: 0 12px 12px; }
+.plantalk-why { font-size: var(--fs-body); line-height: 1.55; color: var(--ink-dim); }
+.plantalk-why :first-child { margin-top: 0; }
+.plantalk-why :last-child { margin-bottom: 0; }
+/* The paragraph folds; the prompts and the box never do. */
+.plantalk-whywrap.clipped .plantalk-why {
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+.plantalk-more { margin-top: 6px; font-size: var(--fs-small); }
+
+.plantalk-msg {
+  margin: 10px 0; padding: 9px 11px; border-radius: 10px;
+  font-size: var(--fs-small); line-height: 1.5;
+}
+.plantalk-msg .md :first-child { margin-top: 0; }
+.plantalk-msg .md :last-child { margin-bottom: 0; }
+/* The user's words sit right and solid; its words sit left and quiet — the same
+   asymmetry the coach bubble uses, so one habit reads both. */
+.plantalk-msg.you {
+  margin-left: 22%; background: var(--panel); border: 1px solid var(--line);
+  color: var(--ink);
+}
+.plantalk-msg.coach {
+  margin-right: 10%; background: transparent;
+  border-left: 2px solid color-mix(in oklab, var(--accent) 50%, transparent);
+  border-radius: 0 10px 10px 0; color: var(--ink-dim);
+}
+.plantalk-msg.thinking { display: flex; align-items: center; gap: 9px; }
+
+.plantalk-err { margin: 8px 0 0; font-size: var(--fs-small); color: var(--bad); }
+
+.plantalk-prompts { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 10px; }
+.plantalk-prompt {
+  min-height: 32px; padding: 0 11px; border-radius: 999px;
+  background: var(--panel); border: 1px solid var(--line);
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); cursor: pointer;
+}
+.plantalk-prompt:hover { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 45%, var(--line)); }
+
+.plantalk-ask { display: flex; gap: 8px; align-items: flex-end; }
+.plantalk-ask textarea { flex: 1; min-width: 0; resize: vertical; }
+.plantalk-ask .btn { flex: 0 0 auto; }
+
+/* What a multi-part plan will land as, said before it lands. */
+.splitnote {
+  display: flex; gap: 10px; margin: 0 0 18px; padding: 11px 13px;
+  background: color-mix(in oklab, var(--series-1) 9%, var(--panel-2));
+  border: 1px solid color-mix(in oklab, var(--series-1) 28%, var(--line));
+  border-radius: 11px; color: var(--series-1);
+}
+.splitnote > div { display: grid; gap: 3px; min-width: 0; }
+.splitnote strong { color: var(--ink); font-size: var(--fs-body); }
+.splitnote .sub { color: var(--ink-dim); font-size: var(--fs-small); line-height: 1.5; }
+.splitnote em { font-style: normal; color: var(--accent); }
+
+/* ============================================================== 2026-09-19
+ * The endurance catalog on the planner, and the week planner.
+ * ========================================================================= */
+
+/* ------------------------------------------------------- folded kind groups */
+
+/* A group that is a catalog rather than a menu — nine ride variants, ten run
+   variants — folds behind its section head with a count. `<details>`, so every
+   row is still in the page for the reachability test and for find-in-page. */
+.kindgroup.folded > summary { list-style: none; cursor: pointer; min-height: var(--tap); align-items: center; margin-bottom: 0; }
+.kindgroup.folded > summary::-webkit-details-marker { display: none; }
+.kindgroup.folded > summary .sub { font-variant-numeric: tabular-nums; }
+.kindgroup-chev { flex: 0 0 auto; color: var(--ink-faint); transition: transform var(--dur-fast) var(--ease-out); }
+.kindgroup.folded[open] > summary { margin-bottom: var(--sp-2); }
+/* Closed folds in a row read as one list of catalogs, not as separate sections. */
+.kindgroup.folded:not([open]) + .kindgroup.folded > summary { margin-top: var(--sp-1); }
+.kindgroup.folded[open] .kindgroup-chev { transform: rotate(180deg); }
+
+/* ----------------------------------------------------------------- drafts
+ * AI workout drafts on the planner's first screen (planner.jsx DraftList, #28),
+ * as list rows in one card: open on the row, a retry on a failed one, the bin last.
+ */
+.plandrafts { margin: 0 0 var(--sp-2); }
+.plandrafts .card { padding-block: 0; margin-bottom: 0; }
+.plandraft { gap: var(--sp-1); padding: 0; }
+.plandraft-open {
+  flex: 1; min-width: 0; min-height: 52px; display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-2) 0; background: none; border: none; color: inherit;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.plandraft-open > svg { flex: none; color: var(--ink-dim); }
+.plandraft.ready .plandraft-open > svg { color: var(--accent); }
+.plandraft.failed .plandraft-open > svg { color: var(--bad); }
+.plandraft.working .plandraft-open > svg { animation: planpulse 1.6s ease-in-out infinite; }
+.plandraft .list-row-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plandraft-retry { flex: none; }
+.plandraft-del { flex: none; }
+.plandraft-del:hover { color: var(--bad); }
+.plan-working-stop { margin-top: var(--sp-3); }
+@media (prefers-reduced-motion: reduce) { .plandraft.working .plandraft-open > svg { animation: none; } }

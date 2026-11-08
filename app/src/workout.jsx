@@ -419,7 +419,7 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onPause,
    * Workout mode): the phase in words, the clock as wide as the screen allows,
    * where you are, and the row of controls, in the timer's own classes rather than
    * a copy of them, so the two screens cannot drift. `--k` is the phase colour
-   * both read (logging.css maps workout mode's phases onto it). What is workout
+   * both read (workout.css maps workout mode's phases onto it). What is workout
    * mode's own stays its own: the how-to, the rep pips, the set log and the rail.
    */
   return (

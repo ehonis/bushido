@@ -2,12 +2,14 @@
  *   node app/gear.test.js
  *
  * The rebuild in which the Gear tab stopped being a 17-item shopping list and
- * became the things the user owns plus what each has done. Run against the REAL
- * plan.json and a local data/strava.json if one exists, because the two origins
- * are the whole design and a fixture would not exercise real synced gear.
+ * became the things the user owns plus what each has done. Run against the test
+ * plan and a committed Strava cache (test/fixtures/strava.json, the shape
+ * server/strava-api writes), because the two origins are the whole design. It
+ * never reads data/: that is someone's real log, and a test that passes in CI by
+ * skipping and fails on a box with real data protects nothing.
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import {
   gearItems, gearUsage, gearOn, headlineFor, metricOf, kindOf, gearKinds,
   kindsForWorkout, defaultGearFor, gearChoicesFor, buildGearEntry, newGearId,
@@ -18,17 +20,13 @@ import {
 
 const url = (p) => new URL(p, import.meta.url)
 const plan = JSON.parse(readFileSync(url('../test/fixtures/plan.json'), 'utf8'))
-// data/ is gitignored, so CI has no Strava cache; the checks that need it skip there.
-const stravaFile = url('../data/strava.json')
-const strava = existsSync(stravaFile) ? JSON.parse(readFileSync(stravaFile, 'utf8')) : null
+const strava = JSON.parse(readFileSync(url('../test/fixtures/strava.json'), 'utf8'))
 
 let failed = 0
 const check = (name, fn) => {
   try { fn(); console.log(`  PASS  ${name}`) }
   catch (err) { failed++; console.error(`  FAIL  ${name}\n        ${err.message}`) }
 }
-// For checks that only mean something against a local Strava cache in data/.
-const real = (name, fn) => strava ? check(name, fn) : console.log(`  SKIP  ${name} (no data/strava.json)`)
 const eq = (got, want, what = '') => {
   if (JSON.stringify(got) !== JSON.stringify(want)) {
     throw new Error(`${what || 'value'}: got ${JSON.stringify(got)}, wanted ${JSON.stringify(want)}`)
@@ -74,7 +72,7 @@ check('the buying list is gone', () => {
 
 /* ================================================================ origins === */
 
-real('his real Strava gear arrives with its odometer', () => {
+check('Strava gear arrives with its odometer', () => {
   const items = gearItems({ entries: [], strava, plan })
   ok(items.length >= 2, `expected his bike and shoes, got ${items.length}`)
   const bike = items.find(i => i.kind === 'bike')
@@ -83,7 +81,7 @@ real('his real Strava gear arrives with its odometer', () => {
   ok(bike.stravaMiles > 0, 'the odometer should be a real number')
 })
 
-real('local gear and synced gear sit in one list without colliding', () => {
+check('local gear and synced gear sit in one list without colliding', () => {
   const items = gearItems({ entries: [rope], strava, plan })
   eq(items.filter(i => i.source === 'local').map(i => i.name), ['Mammut 9.5'])
   ok(items.some(i => i.source === 'strava'), 'and Strava is still there')
@@ -120,7 +118,7 @@ check('what it had done BEFORE you added it still counts', () => {
   eq(headlineFor(row), { value: 200, unit: 'hr' })
 })
 
-real('THE DOUBLE-COUNT: a ride already on Strava is not added to its odometer', () => {
+check('THE DOUBLE-COUNT: a ride already on Strava is not added to its odometer', () => {
   // Strava keeps counting the bike. Adding this app's own tally on top would
   // inflate it by exactly the rides that ARE on Strava, which is most of them.
   const bikeId = Object.values(strava.gear).find(g => g.kind === 'bike').id
@@ -223,7 +221,7 @@ check('gear ids do not collide', () => {
 
 /* ================================================================ profile === */
 
-real('his name and picture come off Strava', () => {
+check('his name and picture come off Strava', () => {
   const a = athleteOf(strava)
   eq(a.name, 'Sam Rivera')
   ok(a.avatar && /^https:/.test(a.avatar), `no avatar: ${a.avatar}`)

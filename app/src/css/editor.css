@@ -1,0 +1,328 @@
+/*
+ * The prescription editor (editor.jsx) and the exercise cards it shares with the lift
+ * log (exercises.jsx): steppers, the weight label switch, what a movement works, the block
+ * quota, the exercise sheet.
+ *
+ * Moved out of logging.css in #73 section for section, so each file says what is in it
+ * (docs/DESIGN.md, "Wave 2: who owns which file"); main.jsx imports them in an order
+ * that keeps the cascade as it was. Tokens, base components and the shell stay in
+ * styles.css; this file only uses them.
+ */
+/* --------------------------------------------------- prescription editor */
+
+.presc-block { margin-bottom: 22px; }
+.presc-blockhead {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px;
+}
+.presc-blockhead h3 {
+  margin: 0; min-width: 0; font-size: var(--fs-body); font-weight: 600; color: var(--ink);
+}
+/* Count + reorder as one unit, so a long title wraps them onto the next line
+   rather than being squeezed between them. */
+.presc-blockmeta { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.presc-blockn { font-size: var(--fs-small); color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.presc-blocknote { margin: 0 0 var(--sp-2); font-size: var(--fs-small); }
+
+/* The whole section folds. Only the first exercise inside one opens with it. */
+.presc-blocktoggle {
+  display: flex; align-items: center; gap: 7px; flex: 1 1 auto; min-width: 0;
+  background: none; border: 0; padding: 0; min-height: 34px;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.presc-blocktoggle .alt-chev { flex: 0 0 auto; color: var(--ink-faint); }
+.presc-block.shut { margin-bottom: 10px; }
+.presc-reorder {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
+  min-height: 30px; padding: 0 10px; border-radius: 999px;
+  background: transparent; border: 1px solid var(--line);
+  color: var(--ink-faint); font: inherit; font-size: var(--fs-small); cursor: pointer;
+}
+.presc-reorder:hover { color: var(--ink-dim); border-color: var(--ink-faint); }
+.presc-reorder.on { color: var(--accent); border-color: var(--accent); }
+
+/*
+ * REORDER MODE — names, muscles and two arrows, and nothing else.
+ *
+ * "Strips everything away except for the muscle groups and the name of the
+ * exercise to move them around with arrows, since this is a web app not a native
+ * app so no dragging." The glow is not decoration: an arrow press moves a row out
+ * from under the thumb that pressed it, and without a mark on the row you have to
+ * re-read the list to find out whether anything happened.
+ */
+.reorder { display: grid; gap: 6px; }
+.reorder-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 8px; border-radius: 10px;
+  background: var(--panel-2); border: 1px solid var(--line);
+}
+.reorder-name { flex: 1; min-width: 0; font-size: var(--fs-body); font-weight: 600; }
+.reorder-name .presc-muscles { font-weight: 400; }
+.reorder-arrow {
+  flex: 0 0 auto; width: var(--tap); height: var(--tap);
+  display: grid; place-items: center;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+  color: var(--ink-dim); cursor: pointer;
+}
+.reorder-arrow:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.reorder-arrow:disabled { opacity: 0.3; cursor: default; }
+.reorder-hint { margin: 2px 0 0; font-size: var(--fs-small); }
+.reorder-row.moved {
+  animation: reorder-glow 900ms ease-out;
+}
+@keyframes reorder-glow {
+  0%   { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 26%, var(--panel-2)); }
+  60%  { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 12%, var(--panel-2)); }
+  100% { border-color: var(--line); background: var(--panel-2); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reorder-row.moved { animation: none; border-color: var(--accent); }
+}
+
+/*
+ * No side tab. It was a 3px accent stripe down the left edge of every exercise
+ * card, colour-coded by kind; it was removed and the remove button moved to the
+ * bottom right. It coloured in a distinction the user can
+ * already read off the card (a lift has a weight box; an interval has a clock)
+ * and made every card look like it was flagged for attention.
+ */
+.presc-item {
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 12px; margin-bottom: 8px;
+}
+
+.presc-itemhead {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: none; border: 0; padding: 0; min-height: 34px;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+/*
+ * The name, what it works and the summary, stacked.
+ *
+ * The summary was beside the name until #63 put a 44px ⓘ on the head too; then
+ * a long name beside "60 s @ 70 lb, 45 s @ 70 lb, …" had a column of four lines.
+ * Under the name it ellipsises on one line and the name has the width, because
+ * the name is the thing the user is looking for and the summary is a glance,
+ * with the full detail two lines below. `min-width: 0` lets both shrink.
+ */
+.presc-itemname { flex: 1 1 auto; min-width: 0; font-size: var(--fs-body); font-weight: 600; }
+.presc-itemline {
+  display: block; margin-top: 2px; font-weight: 400;
+  font-size: var(--fs-small); color: var(--ink-faint); font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.presc-itemhead { align-items: flex-start; }
+.presc-itemhead .alt-chev { flex: 0 0 auto; padding-top: 1px; }
+.presc-itemnote { margin: 4px 0 8px; font-size: var(--fs-small); }
+
+.presc-impl {
+  display: flex; flex-wrap: nowrap; gap: 6px; margin: 8px 0;
+  overflow-x: auto; scrollbar-width: none;
+  /* Bleed to the card's edge so a half-visible chip says "there are more". */
+  padding-right: 12px; margin-right: -12px;
+}
+.presc-impl::-webkit-scrollbar { display: none; }
+.implchip { flex: 0 0 auto; }
+.implchip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 var(--sp-3); min-height: 36px; border-radius: var(--r-pill);
+  background: var(--panel-2); border: 1px solid var(--line);
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); cursor: pointer;
+}
+.implchip.on { border-color: var(--accent-line); background: var(--accent-soft); color: var(--ink); }
+
+.presc-sets { display: grid; gap: 7px; margin-top: 8px; }
+.presc-set { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.presc-setn {
+  flex: 0 0 auto; width: 20px; text-align: center;
+  font-size: var(--fs-small); color: var(--ink-dim); font-variant-numeric: tabular-nums;
+}
+.presc-setx {
+  flex: 0 0 auto; width: 32px; height: var(--tap); display: grid; place-items: center;
+  background: transparent; border: 0; border-radius: var(--r-control);
+  color: var(--ink-faint); cursor: pointer;
+}
+.presc-setx:hover { color: var(--bad); background: var(--panel); }
+
+/* Add on the left, remove on the far right: they do opposite things and they
+   were a thumb's width apart. */
+.presc-itemfoot { display: flex; align-items: center; gap: 14px; margin-top: 10px; }
+.presc-itemrm { margin-left: auto; }
+.linkbtn.danger:hover, .btn.quiet.presc-itemrm:hover { color: var(--bad); }
+.presc-itemfoot .btn.quiet { padding: 0 var(--sp-2); margin: 0 calc(-1 * var(--sp-2)); }
+
+.presc-add {
+  display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
+  width: 100%; min-height: var(--tap);
+  background: transparent; border: 1px dashed var(--line-strong); border-radius: var(--r-control);
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); cursor: pointer;
+}
+.presc-add:hover { color: var(--ink); border-style: solid; }
+/* Two dashed boxes in a row read as one box with a line through it. */
+.presc-add + .presc-add, .presc-add + .pieceadd { margin-top: 6px; }
+
+/* One number you nudge (docs/DESIGN.md, Stepper): 44px − and +, the value
+   between them with what it measures under it, on the tokens. Two fit beside a
+   set's number on a 390px phone. The big sibling on the runner is `.bigstep`. */
+.stepper {
+  display: inline-flex; align-items: center;
+  background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: var(--r-control);
+}
+.stepper.quiet { background: transparent; border-color: var(--line); }
+.stepper-btn {
+  width: 40px; height: var(--tap); display: grid; place-items: center;
+  background: transparent; border: 0; border-radius: var(--r-control); color: var(--ink-dim); cursor: pointer;
+}
+.stepper-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.stepper-btn:hover:not(:disabled), .stepper-btn:active:not(:disabled) { color: var(--ink); background: var(--panel-3); }
+.stepper-mid { display: grid; justify-items: center; gap: 1px; min-width: 48px; padding: 2px 0; }
+.stepper-mid input {
+  width: 48px; padding: 0; text-align: center; min-height: 0;
+  background: transparent; border: 0; color: var(--ink);
+  font: inherit; font-size: var(--fs-input); font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums;
+}
+.stepper-mid input:focus { outline: none; color: var(--accent); }
+.stepper-label { font-size: var(--fs-caption); color: var(--ink-dim); line-height: 1; }
+/* What a lift's weight means, switched on its own label (#58): the words are the
+   button, raised so they read as one. At most 84px wide, wrapping onto a second
+   line with the last word and the swap mark kept together, so reps, weight and
+   the set number still fit one row on a 390px phone. The tap area reaches past
+   the pill to the sides and below, never up into the number box. The runner's is
+   a full 44px on one line. */
+.stepper-swap {
+  position: relative; display: inline-block; max-width: 84px;
+  padding: 3px 5px; margin-top: 2px;
+  background: var(--panel-3); border: 1px solid var(--line-strong); border-radius: 9px;
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-caption); line-height: 1.2;
+  text-align: center; cursor: pointer;
+}
+.stepper-swap-end { white-space: nowrap; }
+.stepper-swap svg { vertical-align: -1px; margin-left: 2px; }
+.stepper-swap::after { content: ''; position: absolute; inset: -2px -10px -12px; }
+.stepper-swap:hover, .stepper-swap:active { color: var(--ink); }
+.bigstep .stepper-swap {
+  max-width: none; min-height: var(--tap); padding: 0 var(--sp-4); border-radius: var(--r-pill);
+  font-size: var(--fs-small); white-space: nowrap;
+}
+.bigstep .stepper-swap::after { display: none; }
+
+.expick { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.expick-head { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--line); }
+.expick-head input { flex: 1; min-width: 0; }
+/* Browse without typing — the chips search for the group, so browsing and
+   searching are one mechanism. They came across from the log's own picker when
+   the two became one; the planner's version never had them. */
+.expick-groups {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 8px; border-bottom: 1px solid var(--line);
+}
+.expick-groups .implchip { font-size: var(--fs-small); min-height: 32px; }
+.expick-list { max-height: 260px; overflow-y: auto; }
+.expick-row {
+  display: flex; align-items: baseline; gap: 10px; width: 100%;
+  padding: 11px 12px; min-height: var(--tap);
+  background: transparent; border: 0; border-bottom: 1px solid var(--line);
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.expick-row:hover { background: var(--panel-2); }
+.expick-row .sub { margin-left: auto; font-size: var(--fs-small); }
+
+/* ------------------------------------------------- what a movement works */
+
+/*
+ * Two small bodies, anterior and posterior. Drawn by react-body-highlighter (MIT)
+ * from the muscle data in plan.json — see lib/bodymap.jsx and muscles.build.mjs.
+ * A row shows both because a press lights the front and a row lights the back,
+ * and one view would render half the catalog as a body with nothing on it.
+ */
+.bodymap {
+  flex: 0 0 auto; display: inline-flex; gap: 2px; align-items: center;
+  line-height: 0;
+}
+.bodymap svg { display: block; height: auto; }
+
+.presc-muscles {
+  display: block; margin-top: 2px;
+  font-size: var(--fs-caption); font-weight: 500; color: var(--ink-dim);
+  text-transform: lowercase;
+}
+/* What the weight means, when it is not the default (#58): under the name, so
+   the summary beside it stays short. */
+.presc-mode { display: block; margin-top: 2px; font-size: var(--fs-caption); font-weight: 400; color: var(--ink-dim); }
+
+.run-body-map {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  margin: 10px 0 2px;
+}
+.run-muscles { font-size: var(--fs-small); color: var(--ink-faint); text-transform: lowercase; }
+
+.exlog-head .bodymap, .liftpick-hit .bodymap, .expick-row .bodymap { margin-right: 2px; }
+.presc-prior {
+  display: flex; gap: 6px; align-items: baseline;
+  margin: 6px 0 2px; font-size: var(--fs-small); color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.presc-prior strong { color: var(--ink-dim); font-weight: 600; }
+
+/* Which quota each BLOCK fills — a run and a lift in one trip count separately. */
+.blockquota { margin: 0 0 10px; }
+.blockquota summary {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 0; font-size: var(--fs-small); color: var(--ink-faint); cursor: pointer;
+  list-style: none;
+}
+.blockquota summary::-webkit-details-marker { display: none; }
+.blockquota summary strong { color: var(--accent); font-weight: 600; }
+.blockquota summary:hover { color: var(--ink-dim); }
+.blockquota-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
+.blockquota-chips .implchip { display: inline-flex; align-items: center; gap: 6px; }
+.kept-parts {
+  list-style: none; margin: 16px auto 0; padding: 0; max-width: 24em;
+  display: grid; gap: 8px; text-align: left;
+}
+.kept-parts li {
+  display: grid; gap: 1px; padding: 9px 12px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-left: 3px solid var(--accent); border-radius: 9px;
+}
+.kept-parts .sub { font-size: var(--fs-small); color: var(--ink-faint); }
+
+/* ======================================================= the exercise sheet */
+
+/*
+ * The card head folds the card; a catalog movement's ⓘ beside it opens what it
+ * is (issue #63). The ⓘ is the base 44px icon button, pulled into the card's
+ * padding so the head keeps its height.
+ */
+.presc-itemrow { display: flex; align-items: flex-start; gap: var(--sp-1); }
+.presc-itemrow .presc-itemhead { flex: 1; min-width: 0; }
+.presc-about { flex: none; margin: -5px -8px -5px 0; }
+
+.run-moveabout {
+  display: inline-flex; align-items: center; gap: var(--sp-2); min-height: var(--tap);
+  background: none; border: 0; padding: 0; margin: 0;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.run-moveabout svg { flex: none; color: var(--ink-faint); }
+
+/* The picker row and its "what is this?" share one line and one divider. */
+.expick-line { display: flex; align-items: stretch; border-bottom: 1px solid var(--line); }
+.expick-line .expick-row { flex: 1; min-width: 0; border-bottom: 0; }
+.expick-about { flex: none; align-self: center; margin-right: var(--sp-1); }
+
+/* Above a full screen too: the runner opens it mid-workout. */
+.pop-scrim.over { z-index: 90; }
+.exsheet { padding: var(--sp-4); display: grid; gap: var(--sp-4); align-content: start; }
+.exsheet .how-body { padding: 0; }
+.exsheet .how-note:first-of-type { margin-top: var(--sp-3); }
+.exsheet-works { display: flex; align-items: center; gap: var(--sp-4); }
+.exsheet-facts {
+  margin: 0; display: grid; grid-template-columns: auto 1fr; gap: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-small); line-height: var(--lh-tight);
+}
+.exsheet-facts dt { color: var(--ink-dim); }
+.exsheet-facts dd { margin: 0; color: var(--ink); }
+.exsheet-none { margin: 0; }
+.exsheet-video { display: grid; gap: var(--sp-1); justify-items: start; }
+.exsheet-video .sub { margin: 0; font-size: var(--fs-caption); }
+.exsheet-foot { flex: none; padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--line); }
+.exsheet-foot .btn { width: 100%; }

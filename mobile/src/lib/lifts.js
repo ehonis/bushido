@@ -38,6 +38,18 @@ export const LIFT_FIELD = 'lifts'
 /** The `type: "lifts"` field on a session card, or null. */
 export const liftFieldIn = (opt) => (opt?.outputs || []).find(f => f?.type === 'lifts') || null
 
+/**
+ * The plan's `type: "lifts"` field, which carries the exercise catalog: the first
+ * one on any card. Lived in planner.jsx until #73, which made the runner, the
+ * timer and Today import the planner for six lines.
+ */
+export function liftFieldOf(plan) {
+  for (const opt of plan?.dailyMenu || []) {
+    for (const f of opt.outputs || []) if (f.type === 'lifts') return f
+  }
+  return null
+}
+
 const num = (v) => {
   if (v === null || v === undefined || v === '') return null
   const n = Number(v)

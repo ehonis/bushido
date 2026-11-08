@@ -1,0 +1,102 @@
+/*
+ * The per-set log (setlog.jsx): the climbing cards' set table, grades per rep and
+ * the fun days' per-climb detail.
+ *
+ * Moved out of today.css in #73 section for section, so each file says what is in it
+ * (docs/DESIGN.md, "Wave 2: who owns which file"); main.jsx imports them in an order
+ * that keeps the cascade as it was. Tokens, base components and the shell stay in
+ * styles.css; this file only uses them.
+ */
+/* ------------------------------------------------------------ per-set log */
+
+.setlog { display: grid; gap: 18px; }
+.setlog-note { margin: 0; font-size: 12px; color: var(--ink-faint); }
+
+.exlog-head { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
+.exlog-name { font-size: 13px; font-weight: 600; flex: 1; min-width: 0; }
+
+.signtog {
+  font: inherit; font-size: 11px; white-space: nowrap;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+  color: var(--ink-dim); padding: 4px 9px; cursor: pointer; min-height: 30px;
+}
+.signtog.neg { color: var(--series-1); border-color: color-mix(in oklab, var(--series-1) 40%, var(--line)); }
+
+.exlog-table { width: auto; font-size: 13px; }
+.exlog-table th {
+  padding: 0 6px 4px; font-size: var(--fs-caption); color: var(--ink-faint); font-weight: 500;
+}
+.exlog-table td { padding: 3px 6px; border: 0; }
+.exlog-table .c-set { color: var(--ink-faint); font-variant-numeric: tabular-nums; width: 22px; text-align: center; }
+.exlog-table input {
+  min-height: 38px; padding: 6px 8px; font-size: 16px;
+  text-align: center; font-variant-numeric: tabular-nums;
+}
+
+.exlog-x {
+  background: transparent; border: 0; color: var(--ink-faint); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 6px;
+}
+.exlog-x:hover { color: var(--viz-crit); background: var(--panel); }
+
+/* A per-rep row spans the table, so the table has to take the card's width or a
+   third lap pushes it wider than the phone instead of wrapping inside it. */
+.exlog-table.perrep { width: 100%; }
+.exlog-table.perrep td:last-child, .exlog-table.perrep th:last-child { width: 34px; }
+
+/* One grade per rep, on its own line under the set. 16px so iOS does not zoom,
+   44px so it is a real target mid-session. */
+.gradelaps { display: flex; flex-wrap: wrap; gap: 8px 12px; padding: 2px 0 6px; }
+.gradelap { display: inline-flex; align-items: center; gap: 6px; }
+.gradelap-n {
+  font-size: var(--fs-caption); color: var(--ink-faint); white-space: nowrap;
+}
+.gradesel {
+  font: inherit; font-size: 16px; min-height: 44px; padding: 6px 8px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.out-grade .gradesel { margin-top: 8px; }
+
+/* The fun days' optional per-climb detail: one line of pickers per climb, and a
+   felt-for-the-grade slider that only appears once the climb has a grade. Same
+   16px/44px rules as the grade pickers — this is filled in with chalky hands. */
+.signtog.on { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 40%, var(--line)); }
+.climblog { display: flex; flex-direction: column; gap: 10px; padding: 4px 0 6px; }
+.climb { display: flex; flex-direction: column; gap: 2px; }
+.climb-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* The up/down picker sits with the style one and reads as a statement about the
+   climb rather than a filter: its default option is the ordinary case. */
+.climb-down { color: var(--ink-dim); }
+.climb-style {
+  font: inherit; font-size: 16px; min-height: 44px; padding: 6px 8px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  color: var(--ink);
+}
+.climb-fell { font-size: 12px; min-height: 44px; }
+.climb-fell.on svg { color: var(--viz-crit); }
+.climb-felt { display: flex; align-items: center; gap: 10px; padding-left: 2px; }
+.climb-felt .slider { flex: 0 1 200px; }
+.climb-feltword { font-size: 11px; color: var(--ink-faint); white-space: nowrap; }
+.climblog > .exlog-add { align-self: flex-start; }
+
+/* While the detail is on, the count is stepped, never typed — typing passes
+   through states that truncate the climb list. 44px: pressed mid-session. */
+.repstep { display: inline-flex; align-items: center; gap: 5px; }
+.repstep input { text-align: center; color: var(--ink-dim); }
+.repstep-b {
+  font: inherit; font-size: 19px; line-height: 1; color: var(--ink-dim);
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  min-height: 44px; min-width: 44px; cursor: pointer; padding: 0;
+}
+.repstep-b:hover { color: var(--ink); border-color: var(--ink-faint); }
+
+.exlog-foot { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
+.exlog-add {
+  font: inherit; font-size: 12px; color: var(--ink-dim); background: transparent;
+  border: 1px dashed var(--line); border-radius: 7px; padding: 6px 11px;
+  cursor: pointer; min-height: 34px;
+}
+.exlog-add:hover { color: var(--ink); border-color: var(--ink-faint); }
+.exlog-total { font-size: 12px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }

@@ -45,7 +45,7 @@ import { Icon } from './lib/icons.jsx'
 import { NumInput } from './numinput.jsx'
 import { useModalLayer } from './modal.jsx'
 import { CUES, primeAudio, resumeAudio, acquireWakeLock, releaseWakeLock } from './lib/cues.js'
-import { lastLift } from './lib/lifts.js'
+import { lastLift, liftFieldOf } from './lib/lifts.js'
 import {
   prescriptionSteps, runProgress, firstOpen, restLeft, runElapsed,
   markSet, unmarkSet, skipSet, unskipSet, nudgeRest, endRest, goToSet, finishRun,
@@ -57,7 +57,6 @@ import { compile, startRun, circuitDone, view as timerView, describe, totalSecon
 import { clock } from './lib/workout.js'
 import { Stepper, STEP, weightSwitch, SwapWords, ExerciseSheet } from './exercises.jsx'
 import { ExerciseBody, musclesOf, muscleWords } from './lib/bodymap.jsx'
-import { liftFieldOf } from './planner.jsx'
 import { usePlan } from './lib/planctx.jsx'
 import { TimerRun } from './timer.jsx'
 import { timingWords } from './circuit.jsx'

@@ -1,0 +1,15 @@
+{
+  "fetchedAt": "2026-09-20T12:00:00.000Z",
+  "days": 60,
+  "athlete": {
+    "id": 1,
+    "name": "Sam Rivera",
+    "firstname": "Sam",
+    "profileMedium": "https://example.com/avatar.png"
+  },
+  "gear": {
+    "b1": { "id": "b1", "name": "Test Gravel Bike", "kind": "bike", "distanceMi": 1234.5, "primary": true, "retired": false },
+    "g1": { "id": "g1", "name": "Test Trainers", "kind": "shoes", "distanceMi": 210.2, "primary": true, "retired": false }
+  },
+  "activities": []
+}

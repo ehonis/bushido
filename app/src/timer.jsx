@@ -39,12 +39,11 @@ import {
   presetList, lastTimer, buildTimerEntry, buildLastTimerEntry, newTimerId, sessionTimer,
   runKeyFor, saveRun, loadRun, LIMITS, MAX_NAMED, KIND_LABEL, MAX_EXERCISES,
 } from './lib/timer.js'
-import { exerciseOf } from './lib/lifts.js'
+import { exerciseOf, liftFieldOf } from './lib/lifts.js'
 import { usePlan } from './lib/planctx.jsx'
 import { ExerciseBody, musclesOf, muscleWords } from './lib/bodymap.jsx'
 import { ExerciseSheet } from './exercises.jsx'
 import { CircuitList, SecondsRow } from './circuit.jsx'
-import { liftFieldOf } from './planner.jsx'
 
 /* ----------------------------------------------------------- who opens it */
 

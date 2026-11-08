@@ -1,0 +1,93 @@
+/*
+ * Log a workout (picker.jsx, activitypicker.jsx) and the quick-log rows (quicklog.jsx).
+ *
+ * Moved out of logging.css in #73 section for section, so each file says what is in it
+ * (docs/DESIGN.md, "Wave 2: who owns which file"); main.jsx imports them in an order
+ * that keeps the cascade as it was. Tokens, base components and the shell stay in
+ * styles.css; this file only uses them.
+ */
+/* -------------------------------------------- the activity picker */
+
+.actpick { display: grid; gap: var(--sp-2); }
+
+/* Picked: a .list-row that opens the picker again. */
+.list-row.actpick.picked { display: flex; padding: var(--sp-2) 0; border-bottom: 1px solid var(--line); }
+.list-row.actpick.picked > svg:first-child { color: var(--accent); }
+.list-row.actpick.unknown > svg:first-child { color: var(--ink-faint); }
+.actpick.picked .list-row-meta { display: flex; gap: var(--sp-2); align-items: center; }
+
+/* The pinned sports, one tap each, as answer chips. Everything else is behind the search. */
+.actpick-pins.out-choices { margin-top: 0; }
+
+.actpick-more {
+  display: flex; align-items: center; gap: var(--sp-2);
+  min-height: var(--tap); padding: 0 var(--sp-3);
+  background: none; border: 1px dashed var(--line-strong); border-radius: var(--r-control);
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); cursor: pointer; text-align: left;
+}
+
+.actpick-search { display: grid; gap: 8px; }
+.actpick-search input {
+  width: 100%; min-height: var(--tap); padding: 0 var(--sp-3);
+  background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: var(--r-control);
+  color: var(--ink);
+  /* 16px or iOS zooms the viewport every time the keyboard opens. */
+  font-size: var(--fs-input);
+}
+.actpick-search input:focus { outline: none; border-color: var(--accent); }
+
+.actpick-list { max-height: 46vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.actgroup h4 {
+  position: sticky; top: 0; z-index: 1;
+  margin: 10px 0 2px; padding: 4px 0;
+  background: var(--panel);
+  font-size: var(--fs-small); font-weight: 600;
+  color: var(--ink-dim);
+}
+.actrow {
+  display: flex; align-items: center; gap: var(--sp-3); width: 100%;
+  min-height: var(--tap); padding: 0 var(--sp-2);
+  background: none; border: none; border-radius: var(--r-control);
+  color: var(--ink); font: inherit; font-size: var(--fs-body); text-align: left; cursor: pointer;
+}
+.actrow > svg { color: var(--ink-dim); flex: none; }
+.actrow:active { background: var(--panel-2); }
+.actrow-name { flex: 1; min-width: 0; }
+.actrow-group { font-size: var(--fs-small); color: var(--ink-dim); }
+.actpick-none { margin: 10px 2px; line-height: 1.5; }
+.actpick-cancel {
+  min-height: var(--tap);
+  background: none; border: 1px solid var(--line-strong); border-radius: var(--r-control);
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); cursor: pointer;
+}
+
+/* ------------------------------------------------------- log a workout */
+
+/* Search, then each group as a section head over one card of .list-rows
+   (docs/DESIGN.md, "List row"). The rows are the base component; this only
+   gives the card its inset and the search box its field. */
+.spick-search {
+  display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-6);
+  padding: 0 var(--sp-1) 0 var(--sp-3); min-height: var(--tap);
+  border: 1px solid var(--line-strong); border-radius: var(--r-control);
+  background: var(--panel-2); color: var(--ink-faint);
+}
+.spick-search:focus-within { border-color: var(--accent); }
+.spick-search input {
+  flex: 1; min-width: 0; min-height: 42px; background: none; border: 0; padding: 0;
+  font-size: var(--fs-input); color: var(--ink);
+}
+.spick-search input::placeholder { color: var(--ink-faint); }
+.spick-search input:focus { outline: none; }
+.spick-group + .spick-group .section-head { margin-top: var(--sp-6); }
+.card.spick-list { padding-block: 0; margin-bottom: 0; }
+.spick-row > svg:first-child { color: var(--ink-dim); }
+.spick-row:active { background: var(--panel-2); }
+.spick-none { margin: var(--sp-2) 0; }
+
+/* ------------------------------------------------------------- quick log */
+
+/* The quick-log rows (quicklog.jsx). In the + menu they hang under Log a
+   workout, their icons lined up with its title, so they read as its shortcuts. */
+.fabmenu .quicklog { margin: 0 0 var(--sp-1); padding-left: calc(var(--sp-3) + 44px + var(--sp-3)); padding-right: var(--sp-3); }
+.quicklog-row:active { background: var(--panel-2); }

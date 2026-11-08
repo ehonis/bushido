@@ -132,7 +132,10 @@ the user saves, big glanceable display, cues (beeps on web, haptics on the phone
 rules in `AGENTS.md` §6.5 that still make sense (absolute instants so it survives backgrounding,
 count-up when no rest is given) stay; the content-declared climbing timers still work as presets.
 
-### D9. Plan together; say it in a sentence (#59)
+### D8b. Plan together; say it in a sentence (#59)
+
+(Numbered D9 until #73, which gave the number to the 2026-11-08 decisions below, the ones every
+overhaul-2 issue cites.)
 
 - **For is several people at once.** The owner and a partner doing the same lift day is ONE
   workout in the owner's log, shared with the partner with sync on, through the shared-workout
@@ -142,6 +145,31 @@ count-up when no rest is given) stay; the content-declared climbing timers still
 - **"Write it for me" is a blank canvas.** One box and one button; kinds are optional chips.
   The model picks the blocks and their categories from what was written. "Build it myself"
   keeps its kind picker, because a hand-built session needs its blocks named.
+
+### Overhaul 2 (2026-11-08): decisions D9–D13
+
+A council graded every area of the app on 2026-11-08 and most scored 4–6 out of 10. The owner
+trains with the iPhone app, so every UI change lands in `mobile/` and `app/` in the same PR, the
+native one first. These are the owner's answers to what the grading left open; they are binding
+on every overhaul-2 issue (#73–#82).
+
+- **D9. Lift workouts are done on the session sheet.** A lift-only plan gets a "doing" mode on
+  the sheet, not a runner (`AGENTS.md` §10.4, "the runner for lift-only sessions" is gone, still
+  stands).
+- **D10. A plan placed for today is not done until it is touched.** Touched is a set typed or
+  logged, its run started, or Mark done. From the next day on it is done as before (D2). Earlier
+  days are unchanged, and nothing stored is rewritten to get there.
+- **D11. Numbers typed on a planned workout are the log.** Every reader of logged lifts ("last
+  time", history, weight memory, Progress) sees them, on both people's logs of a shared workout.
+- **D12. Climbing is a per-climb log, done well.** Fast entry, grades and the outcome of each
+  climb, with pyramids and grade charts on Progress. There is no new "route" entity.
+- **D13. No native changes in the iPhone app.** No new dependencies and no change to `app.json`
+  or `app.config.js`: JavaScript only, shipped over the air. Core React Native components
+  (`InputAccessoryView`, `Keyboard`) and libraries already in `mobile/package.json` are fine.
+
+With them, for every screen: no exit, close or destructive control within thumb reach of an
+input while it is being edited; removing anything that holds data offers Undo (a toast) or asks
+first; every tap target is at least 44px.
 
 ## Visual system
 
@@ -395,6 +423,37 @@ in its PR description rather than making it.
 `lib/icons.tsx`. The interval timer (`timer.jsx`, `timer.css`, `lib/timer.js`, `features/timer.tsx`)
 is #36's. A batch that needs a token or a component variant adds it to both token files in its
 own PR and says so; it does not restyle a base class locally.
+
+### Overhaul 2, W0: the seams (#73)
+
+One pure-move PR before the overhaul-2 waves, so parallel threads do not edit the same files. No
+behaviour or visual change: the smoke run renders the same 400 cases to the same HTML, every
+suite passes, and the CSS has the same 999 rules with no reordered pair that could style the same
+element.
+
+- **The session sheet is `app/src/sheet.jsx`** (`SessionSheet`, `runnable`), out of `tabs.jsx`,
+  which keeps Today, the day switcher and `DaySessions`. Twin: `mobile/src/features/sheet.tsx`.
+  The meta line both use is `metaline.jsx` (`features/metaline.tsx`), and `dayWords`/`isoShift`
+  are in `lib/dates.js`, so neither file imports the other.
+- **The prescription editor is `app/src/editor.jsx`** (`PrescriptionEditor`, its blocks and
+  items, `PieceAdder`, `BlockQuota`), out of `planner.jsx`, which keeps `PlanFlow` and its steps.
+  Twin: `mobile/src/features/editor.tsx`.
+- **`liftFieldOf` is in `lib/lifts.js`.** It was the planner's, which made the runner, the timer
+  and Today import the planner and closed the app's one import cycle. `app/cycles.test.js` fails
+  on any cycle in `app/src` or `mobile/src`.
+- **The smoke suite is `app/smoke/<area>.jsx`** (today, sheet, editor, planner, runner, workout,
+  timer, log, progress, profile, people, misc) with `fixtures.jsx` and one runner,
+  `app/smoke/index.jsx`, which prints how many cases each area has. A change adds and edits cases
+  in its own area's file; a case that has to change elsewhere is called out in the PR.
+- **CSS files say what is in them.** `logging.css` became `workout.css`, `picker.css`,
+  `planner.css`, `editor.css` and `runner.css`; `today.css` became `sheet.css`, `setlog.css`,
+  `today.css` (the day title and the day list) and `toast.css`; WHOOP, Strava and unlogged
+  workouts moved from `profile.css` to `integrations.css`. Section for section, imported by
+  `main.jsx` in the order that keeps the cascade. A new rule goes in its area's file.
+- **`npm test` runs every suite and says which failed** (`scripts/test.mjs`), and CI runs it plus
+  `npm --prefix mobile run typecheck`. `app/libsync.test.js` holds every file in
+  `mobile/src/lib` to its web original, less the native edits written down in
+  `app/libsync.native.diff`. `app/gear.test.js` reads a committed Strava fixture, never `data/`.
 
 ## Working on the overhaul
 
