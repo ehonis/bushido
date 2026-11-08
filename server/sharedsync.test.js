@@ -785,6 +785,125 @@ check('no receipt for a write whose structure did not count, or one last-write-w
   eq(kept.acks, {}, 'a write that did not land got a receipt')
 })
 
+/*
+ * #105: copies shared before uids existed. The seed's copies from Oct 13 to Oct 24
+ * have no uid anywhere and no syncBase, on either side; one of them is three
+ * "Round N of 3" blocks with the same exercise names, and a plan can have Back
+ * squat in its main block and again in a circuit. A first write must never add,
+ * move or duplicate an exercise, and its numbers land on the exercise it wrote them on.
+ */
+const preUid = (o = {}) => ({ uid: undefined, ...o })
+const strip = (data) => ({ ...data, plan: planOf(data.plan.blocks.map(b => ({ ...b, uid: undefined, items: b.items.map(i => ({ ...i, uid: undefined })) }))) })
+const squatDay = (extra = {}) => ({
+  optId: 'planned', done: false, ...extra,
+  plan: planOf([
+    preUid({ name: 'Main', items: [lift(undefined, 'Back squat', [set({ reps: 5 }), set({ reps: 5 }), set({ reps: 5 })]), lift(undefined, 'Romanian deadlift', [set({ reps: 8 })])] }),
+    preUid({ name: 'Finisher', circuit: { work: 40, rest: 20, rounds: 3 }, items: [lift(undefined, 'Back squat', [set()]), lift(undefined, 'Lunge', [set()])] }),
+  ]),
+})
+const roundsDay = (extra = {}) => {
+  const round = (n) => preUid({ name: `Round ${n} of 3`, items: ['Crunch', 'Rest / transition', 'Dead bug', 'Rest / transition'].map(nm => ({ ...lift(undefined, nm, [set({ seconds: 40 })]), kind: 'interval' })) })
+  return { optId: 'planned', done: false, ...extra, plan: planOf([preUid({ name: 'Warm-up', items: [] }), round(1), round(2), round(3)]) }
+}
+const ownerOf = (data) => ({ ...data, sharedWith: [{ id: 'sam', entryId: 'd', sync: true }] })
+const copyOf = (data) => ({ ...data, sharedFrom: { id: 'owner', name: 'Alex' } })
+/** One write through onWrite: the stored entry, the same entry as its device sends it after `change`. */
+const firstWrite = (stored, change, linksOf) => {
+  const was = { id: 'd', kind: 'daily', date: '2026-10-22', updatedAt: '2026-10-22T10:00:00.000Z', data: stored }
+  const sent = JSON.parse(JSON.stringify(stored))
+  change(sent)
+  const r = onWrite({ entries: { d: was } }, { entries: { d: { ...was, updatedAt: '2026-10-22T10:05:00.000Z', data: sent } } }, ['d'], linksOf)
+  return { ...r, got: r.state.entries.d.data, sent }
+}
+const shapeNames = (data) => data.plan.blocks.map(b => `${b.name}[${b.items.map(i => `${i.name}:${i.sets.length}`).join(',')}]`)
+const ownerLinks = () => ({ wasSynced: true, to: [{ personId: 'sam', entryId: 'd' }] })
+const copyLinks = (ownerData) => () => ({ wasSynced: true, ref: ownerData, to: [{ ownerEntryId: 'd' }] })
+
+check('pre-uid copies (#105): the runner\'s first write marks Back squat in its own block, and adds nothing, on either side', () => {
+  for (const [side, stored, links] of [
+    ['owner', ownerOf(squatDay()), ownerLinks],
+    ['Sam', copyOf(squatDay()), copyLinks(ownerOf(squatDay()))],
+  ]) {
+    const { got, carries } = firstWrite(stored, d => { d.run = { sets: { b0i0s0: { reps: 5, weight: 60 } }, cursor: 'b0i0s1' } }, links)
+    eq(shapeNames(got), shapeNames(stored), `${side}: the structure changed`)
+    eq(got.run.sets, { b0i0s0: { reps: 5, weight: 60 } }, `${side}: the mark left the main block's Back squat`)
+    eq(carries.length, 0, `${side}: a numbers-only write carried`)
+    ok(got.plan.blocks.every(b => b.uid) && got.plan.blocks.flatMap(b => b.items).every(i => i.uid), `${side}: not stamped`)
+    eq(got.syncBase.rev, 1, `${side}: no base written`)
+  }
+})
+
+check('pre-uid copies (#105): a number typed on the sheet lands on the exercise it was typed into, on either side', () => {
+  for (const [side, stored, links] of [
+    ['owner', ownerOf(squatDay()), ownerLinks],
+    ['Sam', copyOf(squatDay()), copyLinks(ownerOf(squatDay()))],
+  ]) {
+    const { got } = firstWrite(stored, d => { Object.assign(d.plan.blocks[0].items[0].sets[0], { weight: 40, typed: true }) }, links)
+    eq(shapeNames(got), shapeNames(stored), `${side}: the structure changed`)
+    eq(got.plan.blocks.map(b => b.items.map(i => i.sets.map(s => s.weight))), [[[40, null, null], [null]], [[null], [null]]], `${side}: the typed 40 was lost or moved`)
+    ok(got.plan.blocks[0].items[0].sets[0].typed, `${side}: lost its typed mark`)
+  }
+})
+
+check('pre-uid copies (#105): the seed\'s three rounds with the same names, a mark and a typed number stay in their round', () => {
+  for (const [side, stored, links] of [
+    ['owner', ownerOf(roundsDay()), ownerLinks],
+    ['Sam', copyOf(roundsDay()), copyLinks(ownerOf(roundsDay()))],
+  ]) {
+    const { got } = firstWrite(stored, d => {
+      d.run = { sets: { b2i0s0: { seconds: 40 } }, cursor: 'b2i1s0' }
+      Object.assign(d.plan.blocks[3].items[2].sets[0], { seconds: 35, typed: true })
+    }, links)
+    eq(shapeNames(got), shapeNames(stored), `${side}: the structure changed`)
+    eq(Object.keys(got.run.sets), ['b2i0s0'], `${side}: the mark moved to another round`)
+    eq(got.plan.blocks.map(b => b.items.map(i => i.sets[0].seconds)), [[], [40, 40, 40, 40], [40, 40, 40, 40], [40, 40, 35, 40]], `${side}: a number landed in another round`)
+    // Every exercise has a uid of its own: none is shared across rounds.
+    const uids = got.plan.blocks.flatMap(b => b.items.map(i => i.uid))
+    eq(new Set(uids).size, uids.length, `${side}: two exercises took one uid`)
+  }
+})
+
+check('pre-uid copies (#105): the first write is no more than a normal synced write: uids and a base on what was sent', () => {
+  const stored = copyOf(squatDay())
+  const { got, sent } = firstWrite(stored, d => { Object.assign(d.plan.blocks[0].items[0].sets[0], { weight: 40, typed: true }); d.out = { rpe: 7 } }, copyLinks(ownerOf(squatDay())))
+  const { syncBase: _b, ...rest } = got
+  const noUids = (x) => JSON.parse(JSON.stringify(x), (k, v) => (k === 'uid' ? undefined : v))
+  eq(noUids(rest), noUids(sent), 'the write rewrote more than uids and the base')
+})
+
+check('pre-uid copies (#105): whichever side is written first, both sides stamp the same uids, and a later change crosses once', () => {
+  // Sam writes first: the owner's entry is still unstamped, so there is nothing to take uids from.
+  const samFirst = firstWrite(copyOf(squatDay()), d => { d.run = { sets: { b0i0s0: { reps: 5 } } } }, copyLinks(ownerOf(squatDay()))).got
+  const ownerAfter = firstWrite(ownerOf(squatDay()), d => { d.run = { sets: { b0i1s0: { reps: 8 } } } }, ownerLinks).got
+  const uidsOf = (data) => data.plan.blocks.map(b => [b.uid, b.items.map(i => i.uid)])
+  eq(uidsOf(samFirst), uidsOf(ownerAfter), 'the two sides minted different uids for the same exercises')
+  // The owner, now up to date, takes the circuit's Back squat out and adds a Step-up; Sam's side follows, nothing doubled.
+  const stored = { id: 'd', kind: 'daily', date: '2026-10-22', updatedAt: '2026-10-22T11:00:00.000Z', data: ownerAfter }
+  const sent = edit(ownerAfter, bs => { bs[1].items.splice(0, 1); bs[1].items.push(lift(undefined, 'Step-up', [set()])); return bs })
+  const r = onWrite({ entries: { d: stored } }, { entries: { d: { ...stored, updatedAt: '2026-10-22T11:05:00.000Z', data: { ...sent, syncBase: ownerAfter.syncBase } } } }, ['d'], ownerLinks)
+  eq(r.carries.length, 1)
+  // On a day still to come, so nothing on Sam's side reads as lifted (`liftedOf`) and the removal follows.
+  const st = receive({ entries: { d: { id: 'd', kind: 'daily', date: '2026-10-22', updatedAt: '2026-10-22T10:05:00.000Z', data: samFirst } } }, 'd', { ...r.carries[0], today: '2026-10-20' }, e => Boolean(e.data.sharedFrom))
+  eq(shapeNames(st.entries.d.data), ['Main[Back squat:3,Romanian deadlift:1]', 'Finisher[Lunge:1,Step-up:1]'])
+  eq(st.entries.d.data.run.sets, { b0i0s0: { reps: 5 } }, 'Sam\'s mark moved')
+})
+
+check('pre-uid copies (#105): a uid is never taken from another block, even where the names match', () => {
+  // Stored and stamped. A device from before uids took the main block's Back squat out, offline.
+  const stored = stampData(squatDay())
+  const [mainSquat, circuitSquat] = [stored.plan.blocks[0].items[0].uid, stored.plan.blocks[1].items[0].uid]
+  const device = edit(strip(stored), bs => { bs[0].items.splice(0, 1); return bs })
+  const stamped = stampData(device, stored)
+  eq(stamped.plan.blocks[1].items[0].uid, circuitSquat, 'the circuit\'s Back squat lost its uid')
+  ok(!stamped.plan.blocks.flatMap(b => b.items).some(i => i.uid === mainSquat), 'the main block\'s uid was given to an exercise in another block')
+  // And on receive: an unstamped copy takes the sender's uids by block, not by name across the plan.
+  const copy = { id: 'd', kind: 'daily', date: '2026-10-22', updatedAt: '2026-10-22T10:00:00.000Z', data: copyOf(edit(squatDay(), bs => { bs[0].items.splice(0, 1); return bs })) }
+  const after = edit(stored, bs => { bs[1].items[1] = { ...bs[1].items[1], name: 'Walking lunge' }; return bs })
+  const st = receive({ entries: { d: copy } }, 'd', { before: shapeOf(stored), after }, e => Boolean(e.data.sharedFrom))
+  eq(shapeNames(st.entries.d.data), ['Main[Romanian deadlift:1]', 'Finisher[Back squat:1,Walking lunge:1]'])
+  eq(st.entries.d.data.plan.blocks[1].items[0].uid, circuitSquat)
+})
+
 check('only links with sync on are synced; older shares are not', () => {
   const e = { id: 'daily-1', data: { sharedWith: [{ id: 'sam', entryId: 'daily-1', sync: true }, { id: 'robin', entryId: 'daily-1' }] } }
   eq(syncedLinks(e), [{ id: 'sam', entryId: 'daily-1' }])

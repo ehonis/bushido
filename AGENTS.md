@@ -383,7 +383,14 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     never matched on. A model revision is asked for each uid back (the planner's reply
     schema allows it, the revise prompt says to copy it) and `normalizePrescription` keeps
     it, so a renamed exercise stays the same one. An item that still arrives without a uid
-    takes the uid of the same-named item it replaced.
+    takes the uid of the same-named item it replaced, in its own block only, never one in
+    another block (#105: a plan can have Back squat in its main block and in a circuit, or
+    three rounds with the same names). An entry shared before uids existed (no uid, no
+    `syncBase`) is stamped by its own items on its first write, the stored entry before the
+    write is laid onto it, with uids derived from where each row is, so both sides get the
+    same ones whichever is written first. That write is numbers only (the rule below): its
+    numbers land on the exercise they were written on, and it adds nothing the stored entry
+    lacks but an exercise its own device logged on, like any numbers-only write.
   - **The rule** (`intentOf`, stated at the top of `server/sharedsync.js`). Each synced
     entry carries `data.syncBase` (`{ of: <entry id>, rev, plan | lifts }`, its structure as
     the server last wrote it, a new `rev` on every change), and a device sends back the base
