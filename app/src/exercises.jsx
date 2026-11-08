@@ -30,7 +30,7 @@
  * survives sharing a component, rather than by rewriting one of the two stores.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
 import { NumInput } from './numinput.jsx'
 import { setFieldsFor, measureOfItem, timeBox, bumpTime } from './lib/prescription.js'
@@ -38,7 +38,8 @@ import { acceptMinutesText, minutesText, numOrNull } from './lib/numtext.js'
 import {
   searchExercises, implementsFor, lastLift, catalogOf, exerciseOf, muscleName, measureFor,
   weightModesFor, weightPatch, nextWeightMode, rememberedWeightMode, weightModeWords, weightBoxOf,
-  implementChoices, implementLabel,
+  implementChoices, implementLabel, weightModeOf, weightMeaning, weightUnit, lastTimeFill, lastTimeWhen,
+  pickerGroupFor, copyDownFills, canCopyDown, unfills, cardIdentity, cardKey,
 } from './lib/lifts.js'
 import { setTicked, itemTicked, setHasNumber } from './lib/prescription.js'
 import { ExerciseBody, BodyMap, musclesOf, muscleWords } from './lib/bodymap.jsx'
@@ -189,13 +190,18 @@ export function SwapWords({ label, size }) {
  * inert at the floor rather than disappearing — a control that vanishes under
  * your thumb mid-session moves everything next to it.
  *
- * `swap` (from `weightSwitch`) turns the label under the number into the
- * switch for what it means: the words are the button, so the thing you read is
- * the thing you tap, and one tap moves to the other meaning.
+ * THE NUMBER IS THE CELL (#93). The box between the ± is the whole middle,
+ * 44px tall, with its unit drawn inside it under the number, so a tap anywhere
+ * between the ± puts the cursor in the number. It used to be a 54×19 box with
+ * the weight's meaning switch ("on the bar ⇆") under it as the biggest thing in
+ * the cell: a tap aimed at 90 turned 90 lb on the bar into 90 lb per side. What
+ * a number means is the card's to say now, once (`ModeSwitch`); nothing in the
+ * cell but the number and its one-word unit (`unit`, else `label`), which never
+ * wraps. `label` stays the box's full accessible name ("lb on the bar").
  */
 export function Stepper({
-  label, value, step = 1, min = null, max = null, suffix = '', quiet = false,
-  blank = null, placeholder = '—', onChange, swap = null, time = false,
+  label, unit = null, value, step = 1, min = null, max = null, suffix = '', quiet = false,
+  blank = null, placeholder = '—', onChange, time = false,
 }) {
   // `time`: a minutes box over seconds (`boxFor`), stepped by `bumpTime`.
   const n = Number(value) || 0
@@ -204,20 +210,55 @@ export function Stepper({
     <span className={`stepper ${quiet ? 'quiet' : ''}`}>
       <button className="stepper-btn" onClick={() => bump(-1)} disabled={min !== null && n <= min}
         aria-label={`less ${label}`}><Icon name="Minus" size={15} /></button>
-      <span className="stepper-mid">
+      <label className="stepper-mid">
         {time
           ? <TimeInput value={value} aria-label={label} placeholder={placeholder} blank={blank} onChange={onChange} />
           : <NumInput value={value} aria-label={label} placeholder={placeholder} blank={blank} onChange={onChange} />}
-        {swap ? (
-          <button type="button" className="stepper-label stepper-swap" onClick={swap.onSwitch}
-            aria-label={swap.aria || `Weight in ${label}. Switch to ${swap.next}`}>
-            <SwapWords label={swap.box} size={10} />
-          </button>
-        ) : <span className="stepper-label">{label}{suffix}</span>}
-      </span>
+        <span className="stepper-label" aria-hidden="true">{unit ?? label}{suffix}</span>
+      </label>
       <button className="stepper-btn" onClick={() => bump(1)} disabled={max !== null && n >= max}
         aria-label={`more ${label}`}><Icon name="Plus" size={15} /></button>
     </span>
+  )
+}
+
+/**
+ * What one tap on the card's meaning switch does (#93): write the next meaning
+ * and offer Undo, because it changes what every number on the exercise stands
+ * for (and what weight memory learns). `write` writes a patch through the
+ * card's LATEST closure, so an Undo seconds later lands on today's plan, not
+ * the one this was made from. Null where the implement has one meaning.
+ */
+export function modeFlip(liftField, item, write, toast = { push: pushToast, dismiss: dismissToast }) {
+  if (item?.kind !== 'lift' || weightModesFor(liftField, item.implement).length < 2) return null
+  const before = weightPatch(liftField, item.implement, weightModeOf(liftField, item))
+  const next = weightPatch(liftField, item.implement, nextWeightMode(liftField, item))
+  const nextWords = weightMeaning(liftField, { implement: item.implement, weightMode: next.weightMode })?.words
+  return {
+    words: weightMeaning(liftField, item)?.words,
+    next: next.weightLabel,
+    onSwitch: () => {
+      write(next)
+      toast.push(`${item.name}: weight now ${nextWords}`, 'info', {
+        duration: UNDO_MS,
+        action: { label: 'Undo', icon: Undo2, onClick: () => write(before) },
+      })
+    },
+  }
+}
+
+/**
+ * The card's one switch for what its weight means (#93; #58's switch, moved
+ * out of every set's cell): "on the bar ⇆", once per exercise, beside what it
+ * is done with. A hold's "seconds ⇆" is the same kind of switch and sits here
+ * too. With one meaning the words are said, not offered.
+ */
+function ModeSwitch({ words, aria, onSwitch }) {
+  if (!onSwitch) return <span className="presc-meaning">{words}</span>
+  return (
+    <button type="button" className="modeswitch" onClick={onSwitch} aria-label={aria}>
+      {words}<Icon name="ArrowLeftRight" size={13} />
+    </button>
   )
 }
 
@@ -301,19 +342,25 @@ export function ExerciseSheet({ field, exercise, name = null, onClose, onAdd = n
  * mechanism rather than two, and a man who does not want to type at all still has
  * a way in. The planner's version had only the box.
  */
-export function ExercisePicker({ field, onPick, onClose }) {
+/**
+ * `group` (#93) is the group it opens on: the block's (`pickerGroupFor`), so a
+ * Legs block opens on legs and not on Bench press. The chips stay up with that
+ * one on; tapping it again is the whole catalog. The search box takes the
+ * keyboard only where there is a real one: on a phone it covered the list.
+ */
+export function ExercisePicker({ field, onPick, onClose, group = null }) {
   const [q, setQ] = useState('')
-  // A tapped group chip is that group exactly; typing makes it a search again.
-  const [chip, setChip] = useState(null)
-  const hits = useMemo(() => searchExercises(field, chip ? '' : q, { limit: 24, group: chip }), [field, q, chip])
   const { exercises, groups } = catalogOf(field)
+  // A tapped group chip is that group exactly; typing makes it a search again.
+  const [chip, setChip] = useState(group && groups.includes(group) ? group : null)
+  const hits = useMemo(() => searchExercises(field, chip ? '' : q, { limit: 24, group: chip }), [field, q, chip])
   // "What is this?" before adding it (issue #63): the sheet, with Add in its foot.
   const [about, setAbout] = useState(null)
 
   return (
     <div className="expick">
       <div className="expick-head">
-        <input autoFocus value={q} onChange={e => { setQ(e.target.value); setChip(null) }}
+        <input autoFocus={finePointer()} value={q} onChange={e => { setQ(e.target.value); setChip(null) }}
           aria-label="Search for an exercise"
           placeholder={`search ${exercises.length} exercises…`} />
         {onClose && (
@@ -322,9 +369,10 @@ export function ExercisePicker({ field, onPick, onClose }) {
       </div>
 
       {!q.trim() && groups.length > 0 && (
-        <div className="expick-groups">
+        <div className="expick-groups" role="group" aria-label="Browse by group">
           {groups.map(g => (
-            <button key={g} type="button" className="implchip" onClick={() => { setQ(g); setChip(g) }}>{g}</button>
+            <button key={g} type="button" className={`implchip ${chip === g ? 'on' : ''}`} aria-pressed={chip === g}
+              onClick={() => setChip(chip === g ? null : g)}>{g}</button>
           ))}
         </div>
       )}
@@ -357,6 +405,9 @@ export function ExercisePicker({ field, onPick, onClose }) {
     </div>
   )
 }
+
+/** A mouse or trackpad: the only place a search box should take focus on its own. */
+const finePointer = () => typeof window !== 'undefined' && Boolean(window.matchMedia?.('(pointer: fine)')?.matches)
 
 /* ------------------------------------------------------ removing, undoably */
 
@@ -484,7 +535,7 @@ export function SetTick({ n, on, onToggle, locked = false, empty = false, onProm
      goes to the set's first box instead, which is what it is missing. */
   if (empty && !on) {
     return (
-      <button type="button" className="presc-tick empty" role="checkbox" aria-checked={false} aria-disabled="true"
+      <button type="button" className="presc-tick unset" role="checkbox" aria-checked={false} aria-disabled="true"
         aria-label={`Set ${n}: type what you did first`} onClick={onPrompt || undefined}>
         <span className="presc-tickn">{n}</span>
       </button>
@@ -517,7 +568,7 @@ export function SetTick({ n, on, onToggle, locked = false, empty = false, onProm
 export function ExerciseCard({
   item, liftField, entries = [], entryId = null, defaultOpen = false, defaultEditing = false, blank = null,
   onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove, doing = false, onTick = null, focus = false,
-  asWritten = false,
+  asWritten = false, onFill = null,
 }) {
   const [open, setOpen] = useState(defaultOpen)
   const [about, setAbout] = useState(false)
@@ -527,6 +578,28 @@ export function ExerciseCard({
   const [choosing, setChoosing] = useState(false)
   // The next exercise to do opens as the last one is ticked off.
   useEffect(() => { if (focus) setOpen(true) }, [focus])
+  /*
+   * EDIT BELONGS TO THE EXERCISE, NOT THE PLACE (#93, A F1). A plan's item ids
+   * are positional, so after Remove the next exercise took this card's place
+   * and its state: Preacher curl opened in Edit with its Remove under the thumb
+   * that had just removed Bent-over row. The section keys cards by `uid`
+   * (`cardKey`); an item that has none yet (a plan the server has not seen) is
+   * caught here: another exercise in this place is a new card.
+   */
+  const ident = cardIdentity(item)
+  const seen = useRef(ident)
+  useEffect(() => {
+    if (seen.current === ident) return
+    seen.current = ident
+    setEditing(false); setChoosing(false); setOpen(defaultOpen)
+  }, [ident])
+  // The card's writes as of the latest render, for an Undo that lands seconds later.
+  const patchNow = useRef(onPatch)
+  patchNow.current = onPatch
+  const fillNow = useRef(onFill)
+  fillNow.current = onFill
+  const itemNow = useRef(item)
+  itemNow.current = item
   const chooses = choosesImplement(liftField, item)
   const muscles = musclesOf(liftField, item.exercise)
   /*
@@ -542,8 +615,9 @@ export function ExerciseCard({
   const prior = useMemo(
     () => (item.exercise ? lastLift(entries, item.exercise, entryId, liftField, measure) : null),
     [entries, item.exercise, entryId, liftField, measure])
-  const swap = weightSwitch(liftField, item, onPatch)
+  const flip = modeFlip(liftField, item, (p) => patchNow.current(p))
   const count = countSwitch(liftField, item, onPatch)
+  const meaning = item.kind === 'lift' ? weightMeaning(liftField, item) : null
   // A mode other than the default, said under the name, so the summary beside it
   // stays short enough not to squeeze the name on a phone.
   const modeWords = item.kind === 'lift' ? weightModeWords(liftField, item) : null
@@ -551,15 +625,24 @@ export function ExerciseCard({
   const ticks = ticking ? item.sets.filter(s => setTicked(s, asWritten)).length : 0
   const finished = ticking && itemTicked(item, asWritten)
   const line = ticking && ticks && !finished
-    ? [item.line, `${ticks} of ${item.sets.length} done`].filter(Boolean).join(' · ')
+    ? [`${ticks} of ${item.sets.length} done`, item.line].filter(Boolean).join(' · ')
     : item.line
-  const lastTime = prior && (
-    <p className="presc-prior">
-      <Icon name="RotateCw" size={12} />
-      <span>last time ({prior.date}): <strong>{prior.summary}</strong>
-        {prior.implement ? ` · ${prior.implement}` : ''}</span>
-    </p>
+  const fill = onFill && prior && !asWritten ? lastTimeFill(liftField, item, prior) : []
+  const copyDown = onFill && !asWritten ? (s) => copyDownWrite(item, s.id, (f) => fillNow.current?.(f), undefined, () => itemNow.current) : null
+  const lastTime = prior && <LastTime prior={prior} onUse={fill.length ? () => onFill(fill) : null} />
+  /* What the weight means and how a hold is counted: once, on the card, beside
+     what it is done with. Never in a set's cell (#93). */
+  const switches = (
+    <>
+      {flip && (
+        <ModeSwitch words={flip.words} onSwitch={flip.onSwitch}
+          aria={`Weight is ${item.weightLabel || 'lb'}. Switch to ${flip.next}`} />
+      )}
+      {!flip && meaning && <ModeSwitch words={meaning.words} />}
+      {count && <ModeSwitch words={count.box === 'sec' ? 'seconds' : 'reps'} aria={count.aria} onSwitch={count.onSwitch} />}
+    </>
   )
+  const hasSwitches = Boolean(flip || meaning || count)
 
   return (
     <div className={`presc-item k-${item.kind || 'lift'}${finished ? ' ticked' : ''}`}>
@@ -579,7 +662,7 @@ export function ExerciseCard({
             {modeWords && !doing && <span className="presc-mode">{modeWords}</span>}
             {/* The summary sits under the name, on one line, so the name has the
                 width (#63 follow-up: beside "60 s @ 70 lb, 45 s …" and the ⓘ, a
-                long name wrapped four lines). */}
+                long name wrapped four lines). How far it is leads (#93). */}
             {line && <span className="presc-itemline">{line}</span>}
           </span>
           {finished && <span className="presc-itemdone" aria-label="All sets done"><Icon name="CircleCheck" size={16} /></span>}
@@ -598,8 +681,9 @@ export function ExerciseCard({
         <>
           {item.note && <p className="sub presc-itemnote">{item.note}</p>}
 
-          {doing ? (
-            /* One line under the head: what it is done with (the switch) and last time. */
+          {/* Doing: one line under the head, what it is done with (the switch),
+              what its weight means, and last time. */}
+          {doing && (
             <div className="presc-doingmeta">
               {chooses && (
                 <button type="button" className={`implswitch ${choosing ? 'on' : ''}`} aria-expanded={choosing}
@@ -609,9 +693,10 @@ export function ExerciseCard({
                   <Icon name="ChevronDown" size={13} />
                 </button>
               )}
+              {switches}
               {lastTime}
             </div>
-          ) : lastTime}
+          )}
 
           {/*
             * What it is loaded with, on ONE line that scrolls. The chosen one
@@ -620,6 +705,10 @@ export function ExerciseCard({
             */}
           {chooses && (!doing || choosing) && (
             <ImplementChips liftField={liftField} item={item} entries={entries} entryId={entryId} onPatch={onPatch} />
+          )}
+          {/* Planning: what the weight means and last time, right above the sets they fill. */}
+          {!doing && (hasSwitches || lastTime) && (
+            <div className="presc-doingmeta">{switches}{lastTime}</div>
           )}
 
           {/*
@@ -630,7 +719,9 @@ export function ExerciseCard({
             * is now its number and its steppers, sharing the row (the number box
             * is the big target) and wrapping as a pair under the first when they
             * cannot fit. Removing a set or the exercise is Edit's, and has Undo.
-            * In doing mode the number is the set's ✓, at the row's end (#79).
+            * In doing mode the set's number is its ✓, in the same place at the
+            * row's START (#93): at the end it sat 9px from the weight's +, the
+            * button pressed most, and a miss logged a set.
             */}
           {editing ? (
             <div className="presc-sets presc-edit">
@@ -642,24 +733,32 @@ export function ExerciseCard({
                     aria-label={`Remove set ${i + 1}`}><Icon name="Trash2" size={16} /> Remove</button>
                 </div>
               ))}
-              <div className="presc-editrow">
-                <span className="presc-editwhat presc-editall">The whole exercise</span>
-                <button type="button" className="btn quiet presc-rm" onClick={onRemove}
-                  aria-label={`Remove ${item.name}`}><Icon name="Trash2" size={16} /> Remove</button>
+              {/* The whole exercise is a different size of removal, so it looks
+                  like one (#93, A F11): under a rule, named, in the bad colour. */}
+              <div className="presc-editrow presc-editall">
+                <button type="button" className="btn quiet presc-rmall" onClick={onRemove}
+                  aria-label={`Remove ${item.name}`}><Icon name="Trash2" size={16} /> Remove {item.name}</button>
               </div>
             </div>
           ) : (
             <div className={ticking ? 'presc-sets doing' : 'presc-sets'}>
               {item.sets.map((s, i) => (
-                <div key={s.id} className={ticking && setTicked(s, asWritten) ? 'presc-set ticked' : 'presc-set'}>
-                  {!ticking && <span className="presc-setn">{i + 1}</span>}
+                <Fragment key={s.id}>
+                <div className={ticking && setTicked(s, asWritten) ? 'presc-set ticked' : 'presc-set'}>
+                  {ticking
+                    ? <SetTick n={i + 1} on={setTicked(s, asWritten)} locked={asWritten} onToggle={(v) => onTick(s.id, v)}
+                        empty={!setHasNumber(s)}
+                        onPrompt={(e) => e.currentTarget.closest('.presc-set')?.querySelector('input')?.focus()} />
+                    : <span className="presc-setn">{i + 1}</span>}
                   <span className="presc-setfields">
-                    {setFieldsFor(item, s).map(f => (
-                      <Stepper key={f} {...boxFor(f, item, s)} value={s[f]} blank={blank}
-                        placeholder={s.hint?.[f] != null && s.hint[f] !== '' ? String(s.hint[f]) : '—'}
-                        swap={f === 'weight' ? swap : (f === 'reps' || f === 'seconds') ? count : null}
-                        onChange={v => onPatchSet(s.id, { [f]: v })} />
-                    ))}
+                    {setFieldsFor(item, s).map(f => {
+                      const box = boxFor(f, item, s)
+                      return (
+                        <Stepper key={f} {...box} unit={f === 'weight' ? weightUnit(box.label) : null} value={s[f]} blank={blank}
+                          placeholder={s.hint?.[f] != null && s.hint[f] !== '' ? String(s.hint[f]) : '—'}
+                          onChange={v => onPatchSet(s.id, { [f]: v })} />
+                      )
+                    })}
                     {/* Lifting has no programmed rest — see `normalizeSet`. An
                         interval piece keeps it: the rest at the wall IS the set. */}
                     {item.kind === 'interval' && (
@@ -667,10 +766,16 @@ export function ExerciseCard({
                         onChange={v => onPatchSet(s.id, { restSec: v })} />
                     )}
                   </span>
-                  {ticking && <SetTick n={i + 1} on={setTicked(s, asWritten)} locked={asWritten} onToggle={(v) => onTick(s.id, v)}
-                    empty={!setHasNumber(s)}
-                    onPrompt={(e) => e.currentTarget.closest('.presc-set')?.querySelector('input')?.focus()} />}
                 </div>
+                {/* Copy down (#93): under the set it copies, lined up with the
+                    steppers, never beside the ✓ or a +. Numbers only, with Undo. */}
+                {copyDown && canCopyDown(item.sets, i) && (
+                  <button type="button" className="btn quiet presc-copydown" onClick={() => copyDown(s)}
+                    aria-label={`Copy set ${i + 1} to the empty sets below`}>
+                    <Icon name="ArrowDownToLine" size={16} /> Copy down
+                  </button>
+                )}
+                </Fragment>
               ))}
             </div>
           )}
@@ -697,6 +802,56 @@ export function ExerciseCard({
     </div>
   )
 }
+
+/**
+ * Copy down, written (#93): set `setId`'s numbers into every empty set below it
+ * (`copyDownFills`) as ONE write through `fill`, then "Copied to 2 sets" with
+ * Undo, which writes those sets back exactly as they were (`unfills`). `fill` is
+ * the card's latest write and `latest()` the card as it is now, so Undo leaves
+ * any set typed into or ticked since. Numbers only: nothing added, removed or ticked.
+ */
+export function copyDownWrite(item, setId, fill, toast = { push: pushToast }, latest = () => null) {
+  const fills = copyDownFills(item.sets, setId)
+  if (!fills.length) return null
+  fill(fills)
+  return toast.push(`Copied to ${fills.length} set${fills.length === 1 ? '' : 's'}`, 'info', {
+    duration: UNDO_MS,
+    action: {
+      label: 'Undo', icon: Undo2,
+      onClick: () => {
+        // Only the sets still as the copy left them (`unfills`, against the card as
+        // it is NOW): anything typed into or ticked since stays.
+        const back = unfills(item.sets, fills, latest()?.sets || undefined)
+        if (back.length) fill(back)
+      },
+    },
+  })
+}
+
+/**
+ * Last time, in words (#93): "Last time · Fri, Nov 7 · 3 × 10 @ 90 lb · EZ bar".
+ * With blanks it can fill (`lastTimeFill`) it is a button that fills them in one
+ * tap ("Use"), the numbers only, never ticked: a set is done when it is ticked.
+ * With nothing to fill it is a line you read.
+ */
+function LastTime({ prior, onUse = null }) {
+  const words = (
+    <span>
+      Last time · {lastTimeWhen(prior)}: <strong>{prior.summary}</strong>
+      {prior.implement ? ` · ${prior.implement}` : ''}
+    </span>
+  )
+  if (!onUse) return <p className="presc-prior"><Icon name="RotateCw" size={12} />{words}</p>
+  return (
+    <button type="button" className="presc-prior presc-use" onClick={onUse}
+      aria-label={`Use last time: ${prior.summary}`}>
+      <Icon name="RotateCw" size={12} />{words}<span className="presc-usego">Use</span>
+    </button>
+  )
+}
+
+/** The card's key, re-exported where the cards are (`cardKey`, lib/lifts.js). */
+export { cardKey }
 
 /* ------------------------------------------------------------- reordering */
 
@@ -762,12 +917,15 @@ function ReorderRow({ item, liftField, first, last, moved, onSettled, onUp, onDo
  * or a function handed the same) is what sits under the head: the open menu
  * and the block's note. `doing` and `onTick` are the card's (doing
  * mode, with `asWritten`); `focusId` is the card to open as it becomes the next one to do.
+ * `onFill(itemId, [{ setId, patch }])` writes "use last time" as ONE write (a
+ * set at a time would each start from the same stale value); without it, last
+ * time is a line to read.
  */
 export function ExerciseSection({
   title, count, items, liftField, entries = [], entryId = null,
   firstOpenId = null, blank = null, addLabel = 'Add an exercise here',
   open = true, onToggle = null,
-  onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove,
+  onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove, onFill = null,
   onMove = null, onAdd = null, extra = null, foot = null, note = null,
   menu = null, tag = null, lead = null, doing = false, onTick = null, focusId = null, asWritten = false,
 }) {
@@ -850,7 +1008,7 @@ export function ExerciseSection({
             </div>
           ) : (
             items.map(it => (
-              <ExerciseCard key={it.id} item={it} liftField={liftField}
+              <ExerciseCard key={cardKey(it)} item={it} liftField={liftField}
                 entries={entries} entryId={entryId} blank={blank}
                 defaultOpen={it.id === firstOpenId || it.id === added}
                 doing={doing} asWritten={asWritten} onTick={onTick ? (setId, v) => onTick(it.id, setId, v) : null}
@@ -859,13 +1017,14 @@ export function ExerciseSection({
                 onPatchSet={(setId, patch) => onPatchSet(it.id, setId, patch)}
                 onAddSet={() => onAddSet(it.id)}
                 onRemoveSet={(setId) => onRemoveSet(it.id, setId)}
-                onRemove={() => onRemove(it.id)} />
+                onRemove={() => onRemove(it.id)}
+                onFill={onFill ? (fills) => onFill(it.id, fills) : null} />
             ))
           )}
 
           {onAdd && liftField && !ordering && (
             adding
-              ? <ExercisePicker field={liftField}
+              ? <ExercisePicker field={liftField} group={pickerGroupFor(liftField, items, title)}
                   onPick={(key) => { setAdded(onAdd(key) || null); setAdding(false) }}
                   onClose={() => setAdding(false)} />
               : <button className="presc-add" onClick={() => setAdding(true)}>

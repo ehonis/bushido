@@ -410,7 +410,7 @@ export default [
       if (!/1 × 15 @ 7\.5 lb/.test(t)) throw new Error('equal sets should collapse')
       // Spacing is at the mercy of how SSR splits the text nodes, so assert the
       // facts rather than the punctuation between them.
-      if (!/last time/.test(t) || !/2026-09-02/.test(t) || !/1 × 5 @ 175 lb/.test(t)) {
+      if (!/Last time/.test(t) || !t.includes(dayWords('2026-09-02')) || !/1 × 5 @ 175 lb/.test(t)) {
         throw new Error("last time's numbers are not on screen")
       }
       if (!/4 sets/.test(t)) throw new Error('the session line is missing')
@@ -418,34 +418,33 @@ export default [
       // plan side uses, rather than a search box always taking up the page.
       if (!/Add an exercise/.test(t)) throw new Error('no way to add an exercise')
     }],
-  /* What the weight MEANS is switched on its own label (#58): a Bulgarian split
-   * squat with ONE dumbbell. The label under the weight is the button, says
-   * what it is now, and one tap is the other meaning. */
-  ['SessionLog(a dumbbell lift: the weight label is the switch, in the mode it was logged in)', <SessionLog session={otherCard}
+  /* What the weight MEANS is switched ONCE, on the card (#58; moved off every
+   * set's cell in #93, where a tap aimed at the number flipped its meaning): a
+   * Bulgarian split squat with ONE dumbbell. The switch says what it is now and
+   * one tap is the other meaning; the set's cell is the number and "lb". */
+  ['SessionLog(a dumbbell lift: the card’s meaning switch, in the mode it was logged in; none in the set row)', <SessionLog session={otherCard}
     entry={{ id: 'ot58', kind: 'daily', date: TODAY, updatedAt: 'z',
       data: { optId: 'log-workout', level: 2, out: { activity: 'lift', lifts: [
         { uid: 'bulgarian-split-squat-1', key: 'bulgarian-split-squat', name: 'Bulgarian split squat', group: 'Quads',
           implement: 'dumbbell', implementLabel: 'Dumbbell', weightMode: 'one', weightLabel: 'lb · one dumbbell',
-          sets: [{ reps: 8, weight: 25 }] },
+          sets: [{ reps: 8, weight: 25 }, { reps: 8, weight: 25 }] },
       ] } } }}
     entries={[]} onSave={noop} bare />,
     html => {
-      const t = text(html)
-      if ((html.match(/class="stepper-label stepper-swap"/g) || []).length !== 1) {
-        throw new Error('a dumbbell lift has no switch on its weight label (one set, one switch)')
-      }
-      if (!/<button[^>]*class="stepper-label stepper-swap"/.test(html)) throw new Error('the switch is not a button')
-      // The box says it in a word or two, so reps and weight keep one row on a phone;
-      // the full wording is the summary's and "last time"'s (review of #60).
-      const box = (html.match(/class="stepper-label stepper-swap"[^>]*>(.*?)<\/button>/) || [])[1] || ''
-      if (box.replace(/<[^>]+>/g, '').replace(/<!--.*?-->/g, '').trim() !== '1 DB') throw new Error(`the weight box says "${box.replace(/<[^>]+>/g, '').replace(/<!--.*?-->/g, '').trim()}", not "1 DB"`)
-      if (!/aria-label="Weight in lb · one dumbbell\. Switch to lb per hand"/.test(html)) {
-        throw new Error('the switch does not say what a tap does')
-      }
+      // Old address: the label under every set's weight. Absent.
+      if (/stepper-swap/.test(html)) throw new Error('a set row still carries the meaning switch')
+      const sets = (html.match(/<div class="presc-sets">([\s\S]*?)<div class="presc-itemfoot">/) || [])[1] || ''
+      if (!sets || /<button/.test(sets.replace(/<button class="stepper-btn"/g, ''))) throw new Error('a button other than ± sits in a set row')
+      // New address: one switch per exercise, on the card.
+      if ((html.match(/class="modeswitch"/g) || []).length !== 1) throw new Error('not one meaning switch per exercise')
+      const sw = (html.match(/<button[^>]*class="modeswitch"[^>]*>(.*?)<\/button>/) || [])[1] || ''
+      if (sw.replace(/<[^>]+>/g, '').replace(/<!--.*?-->/g, '').trim() !== 'one dumbbell') throw new Error(`the switch says "${sw}"`)
+      if (!/aria-label="Weight is lb · one dumbbell\. Switch to lb per hand"/.test(html)) throw new Error('the switch does not say what a tap does')
+      if ((html.match(/<span class="stepper-label" aria-hidden="true">lb<\/span>/g) || []).length !== 2) throw new Error('a set cell does not say just "lb"')
       // The header says the mode under the name, and keeps its summary short so a
       // long name is not squeezed on a phone (review of #60).
       if (!/<span class="presc-mode">one dumbbell<\/span>/.test(html)) throw new Error('the header does not say the meaning')
-      if (!/<span class="presc-itemline">1 × 8 @ 25 lb<\/span>/.test(html)) throw new Error('the header summary is not the short one')
+      if (!/<span class="presc-itemline">2 × 8 @ 25 lb<\/span>/.test(html)) throw new Error('the header summary is not the short one')
       if (/role="dialog"|<dialog/.test(html)) throw new Error('a dialog for a one-tap switch')
     }],
   ['SessionLog(a dumbbell lift in its default: the switch offers one dumbbell)', <SessionLog session={otherCard}
@@ -456,9 +455,9 @@ export default [
       ] } } }}
     entries={[]} onSave={noop} bare />,
     html => {
-      const box = (html.match(/class="stepper-label stepper-swap"[^>]*>(.*?)<\/button>/) || [])[1] || ''
-      if (box.replace(/<[^>]+>/g, '').replace(/<!--.*?-->/g, '').trim() !== 'per hand') throw new Error(`the default's box says "${box.replace(/<[^>]+>/g, '').replace(/<!--.*?-->/g, '').trim()}"`)
-      if (!/aria-label="Weight in lb per hand\. Switch to lb · one dumbbell"/.test(html)) {
+      const sw = (html.match(/<button[^>]*class="modeswitch"[^>]*>(.*?)<\/button>/) || [])[1] || ''
+      if (sw.replace(/<[^>]+>/g, '').replace(/<!--.*?-->/g, '').trim() !== 'per hand') throw new Error(`the default's switch says "${sw}"`)
+      if (!/aria-label="Weight is lb per hand\. Switch to lb · one dumbbell"/.test(html)) {
         throw new Error('an old row with no mode is not in the default, or offers nothing')
       }
     }],
@@ -491,8 +490,8 @@ export default [
     entries={[]} onSave={noop} bare />,
     html => {
       if (!/class="presc-sets"/.test(html)) throw new Error('the card is not open, so this proves nothing')
-      if (/stepper-swap|ArrowLeftRight|Switch to/.test(html)) throw new Error('a machine lift grew a weight switch')
-      if (!/<span class="stepper-label">lb<\/span>/.test(html)) throw new Error('the machine weight lost its plain label')
+      if (/stepper-swap|modeswitch|ArrowLeftRight|Switch to/.test(html)) throw new Error('a machine lift grew a weight switch')
+      if (!/<span class="stepper-label" aria-hidden="true">lb<\/span>/.test(html)) throw new Error('the machine weight lost its plain label')
       if (/presc-mode/.test(html)) throw new Error('a machine lift says a weight mode')
     }],
   /* A number a service measured says so. Attaching is the whole point — time

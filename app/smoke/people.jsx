@@ -4,6 +4,7 @@
  */
 import { renderToString } from 'react-dom/server'
 import { readFileSync } from 'node:fs'
+import { dayWords } from '../src/lib/dates.js'
 import { TodayTab } from '../src/tabs.jsx'
 import { SessionSheet } from '../src/sheet.jsx'
 import { PrescriptionEditor } from '../src/editor.jsx'
@@ -223,6 +224,27 @@ export default [
         </PlanProvider>))
         if (/Copy my exercises|has all your exercises/.test(theirs)) throw new Error('the copy button is back under their log')
       }],
+      /* G-visual-ia F3 (#93): on the other person's side at 390 the meaning
+         switch wrapped to three lines ("on the / bar ⇆") in every set's cell,
+         about 80px a set. It is the card's now, once, on their side as on yours. */
+      ['TheirSide(a barbell lift: one meaning switch on the card, every set cell just "lb")', null, () => {
+        const lf = liftFieldOf(plan)
+        const plannedOpt = plan.dailyMenu.find(m => m.id === 'planned')
+        const pres = { title: 'Pull', blocks: [{ id: 'b0', name: 'Pull', items: [{ id: 'b0i0', uid: 'x1', kind: 'lift', name: 'Bent-over row',
+          exercise: 'bent-over-row', implement: 'ez-bar', weightLabel: 'lb on the bar',
+          sets: [0, 1, 2].map(i => ({ id: `b0i0s${i}`, reps: 10, weight: 90 })) }] }] }
+        const mine = { ...entry, data: { ...entry.data, optId: 'planned', plan: pres, out: {} } }
+        const copy = sharedCopy(mine, { session: plannedOpt, owner: { id: 'owner', name: 'Alex' } })
+        const html = renderToString(<PlanProvider plan={plan}>
+          <TheirSide session={plannedOpt} copy={copy} person={people[1]} ownerOut={{}} onSave={noop} entries={[]}
+            plan={<PrescriptionEditor pres={copy.data.plan} liftField={lf} entries={[]} entryId={copy.id} onChange={noop} compact doing />} />
+        </PlanProvider>)
+        const sets = html.match(/<div class="presc-set(?: ticked)?">/g) || []
+        if (sets.length !== 3) throw new Error(`${sets.length} set rows on their side`)
+        if (/stepper-swap/.test(html)) throw new Error('the meaning switch is back in their set cells')
+        if ((html.match(/<span class="stepper-label" aria-hidden="true">lb<\/span>/g) || []).length !== 3) throw new Error('a set cell on their side says more than "lb"')
+        if ((html.match(/class="modeswitch"/g) || []).length !== 1) throw new Error('not one meaning switch on their card')
+      }],
       ['TheirSide(each exercise shows THEIR last time, from their log, never yours)', null, () => {
         const lf = liftFieldOf(plan)
         const ex = lf.exercises[0]
@@ -241,7 +263,7 @@ export default [
             plan={<PrescriptionEditor pres={copy.data.plan} liftField={lf} entries={log} entryId={copy.id} onChange={noop} compact />} />
         </PlanProvider>))
         const t = draw(theirs).replace(/<[^>]+>/g, '')
-        if (!/last time \(2026-01-02\): 1 × 8 @ 40 lb/.test(t)) throw new Error(`no last time from Sam's log: ${t.slice(0, 300)}`)
+        if (!t.includes(`Last time · ${dayWords('2026-01-02')}: 1 × 8 @ 40 lb`)) throw new Error(`no last time from Sam's log: ${t.slice(0, 300)}`)
         if (/@ 100 lb/.test(t)) throw new Error('your weight shown as Sam\'s last time')
         if (!/Last time Sam did this/.test(t) || /Last time you did/.test(t)) throw new Error('the session history is not labelled as Sam\'s')
         // Plain words (#55): no "last 5 sessions", no "nothing written down yet".

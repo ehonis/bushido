@@ -157,6 +157,56 @@ export default [
     if (!/export type BtnKind = 'primary' \| 'secondary' \| 'quiet' \| 'destructive'/.test(kit)) throw new Error('the phone does not have the four button kinds')
   }],
 
+  /*
+   * The 44 floor on the phone too (#93, F N5): the picker's group chips were 36,
+   * the number box 22, a card's head 34. A minHeight under 44 is allowed only on
+   * what is not a target, or on a chip whose hitSlop grows it to 44 (the done and
+   * share chips, as on the web).
+   */
+  ['native(no target under the 44 floor)', null, () => {
+    const allowed = [['features/sheetparts.tsx', 'chip'], ['features/sharedwith.tsx', 'shareChip'], ['features/whoop.tsx', 'readout'], ['lib/viz.tsx', 'tipline']]
+    const bad = []
+    for (const file of walk('mobile/src', p => /\.tsx?$/.test(p))) {
+      let key = null   // the style the line belongs to: the nearest `name: {` at or above it
+      read(file).split('\n').forEach((l, i) => {
+        key = (/^\s*(\w+): \{/.exec(l) || [])[1] || key
+        const m = /minHeight: (\d+)\b/.exec(l)
+        if (!m || +m[1] >= 44) return
+        if (!allowed.some(([f, k]) => file.endsWith(f) && k === key)) bad.push(`${file}:${i + 1}: ${l.trim().slice(0, 70)}`)
+      })
+    }
+    if (bad.length) throw new Error(`under 44pt:\n        ${bad.join('\n        ')}`)
+  }],
+  /*
+   * A set is ONE row on a 390pt phone (#93, F N1): the ✓, reps and weight, each
+   * stepper two 44pt buttons round a 44pt number. With the meaning switch in the
+   * weight's cell the pair needed 300 of 280 and every set wrapped onto two rows.
+   * Added up from the native styles, as the card lays them out.
+   */
+  ['native(a doing set fits one row at 390pt: ✓, reps, weight)', null, () => {
+    const src = read('mobile/src/features/exercises.tsx')
+    const t = theme()
+    const space = tsObject(t, 'space')
+    const TAP = +(/export const TAP = (\d+)/.exec(t) || [])[1]
+    const val = (v) => (v === 'TAP' ? TAP : /^space\[(\d)\]$/.test(v) ? space[v.slice(6, -1)] : Number(v))
+    const row = Object.fromEntries([...((/export const SET_ROW = \{([^}]*)\}/.exec(src) || [])[1] || '').matchAll(/(\w+): ([\w[\]]+)/g)].map(m => [m[1], val(m[2])]))
+    for (const k of ['tick', 'tickGap', 'mid', 'seam']) if (!Number.isFinite(row[k])) throw new Error(`SET_ROW.${k} is not a token`)
+    if (!/stepperBtn: \{ width: TAP, height: TAP/.test(src) || !/stepperMid: \{ minWidth: SET_ROW\.mid/.test(src)) throw new Error('the stepper no longer reads SET_ROW')
+    if (!/item: \{[^}]*paddingHorizontal: space\[3\]/.test(src)) throw new Error('the card inset moved: redo this sum')
+    if (!/gap: SET_ROW\.tickGap/.test(src) || !/gap: SET_ROW\.seam/.test(src)) throw new Error('the set row does not use SET_ROW')
+    const inside = 390 - 2 * space[4] - 2 * space[3] - 2   // sheet body, card inset, card border
+    const stepper = 2 + 2 * TAP + row.mid
+    const need = row.tick + row.tickGap + 2 * stepper + row.seam
+    if (need > inside) throw new Error(`a set needs ${need}pt of ${inside}: it wraps onto two rows`)
+    if (row.tick < 44 || row.mid < 44) throw new Error('the ✓ or the number is under 44')
+    // The ✓ 16 clear of the reps' −, so a left-thumb miss on − never ticks (#93 review).
+    if (row.tickGap < 16) throw new Error(`the ✓ is ${row.tickGap}pt from the reps' −`)
+    // Copy down on its own line at the right edge, 16 clear of the rows above and below.
+    if (!/copyDown: \{ alignSelf: 'flex-end'[^}]*marginVertical: space\[2\]/.test(src) || !/sets: \{ gap: space\[2\]/.test(src)) throw new Error('Copy down is back beside a stepper column')
+    // The card is keyed by the exercise, from the same lib function the web tests (#93, A F1).
+    if (!/key=\{cardKey\(it\)\}/.test(src) || !/cardIdentity, cardKey,\n\} from '\.\.\/lib\/lifts\.js'/.test(src) || /const identityOf/.test(src)) throw new Error('the native card is not keyed by lib cardKey')
+  }],
+
   /* Four kinds of button on the web too: ghost went into secondary, bad became destructive. */
   ['buttons(four kinds: primary, secondary, quiet, destructive)', null, () => {
     const hits = walk('app/src', p => /\.(jsx|css)$/.test(p))

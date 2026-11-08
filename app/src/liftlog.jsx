@@ -152,6 +152,7 @@ export function LiftLog({ field, out, entries = [], entryId = null, onSave, hint
         note={field.hint}
         onPatch={(uid, patch) => write(patchLift(field, list, uid, patch))}
         onPatchSet={(uid, setId, patch) => write(setLiftSet(list, uid, Number(setId), patch))}
+        onFill={(uid, fills) => write(fills.reduce((l, f) => setLiftSet(l, uid, Number(f.setId), f.patch), list))}
         onAddSet={(uid) => write(addLiftSet(list, uid))}
         onRemoveSet={(uid, setId) => remove(removeLiftSet(list, uid, Number(setId)),
           removalWords(liftOf(uid), Number(setId), { lastTakesItem: false }))}
