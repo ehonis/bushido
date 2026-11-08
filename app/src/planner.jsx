@@ -2,603 +2,208 @@
  * Plan a workout — the screens between "+" and a session with the sets
  * already written in.
  *
- * Say what you want to do, in your own words ("legs, then twenty minutes easy
- * on the bike"), and how long there is; the planner reads what it already has
- * (recent sessions, current health/vitals) and writes a followable workout,
- * sets included. Kinds from the list are optional chips under the box since
- * #59: a sentence is a brief on its own, and the model picks the blocks.
- *
- * So: WHAT and HOW LONG on one screen, then it goes and reads, then the user
- * edits it and keeps it. Three things about the shape are load-bearing.
- *
- * **The kinds are content.** `plan.json` → `plannerKinds`. A list of the things
- * the user might plan is a list that is wrong the day it ships, and "add Shoulders"
- * should be an edit to a file rather than a rebuild. Same reason the activity
- * catalog and the exercise catalog live there.
- *
- * **The review step is a real editor, not a confirmation.** Everything in a
- * planned session must be editable the same way a logged one is, so every
- * number is a stepper before it is ever a workout, and the same editor is what
- * the session sheet shows afterwards. One component, two places, because a
- * second one would drift.
- *
- * **Nothing reaches the log until the user keeps it.** "Write it for me" is a DRAFT
- * the server keeps beside the log (lib/drafts.js, server/drafts.js): the run
- * belongs to the draft, not to this screen, so leaving, locking the phone or
- * opening another device loses nothing, and the drafts are listed on the first
- * screen to reopen where they were. A draft is not an entry. The model never
- * writes to the log — the user does, with a tap, exactly as with the coach's
- * offers, and the draft is discarded once it is kept.
- *
- * **AND THERE ARE TWO ROUTES THROUGH IT**: the user either builds the workout
- * themselves by picking exercises, or has the model write it. With the model on
- * offer the first screen is the model's (one box, one button), and "Build it
- * myself" under it opens the kinds, which the hand-built route still needs to
- * name its blocks. Without the model, the kinds are the first screen.
+ * Two routes, one editor. **Write it for me**: say what you want to do in your
+ * own words ("legs, then twenty minutes easy on the bike") and how long there is;
+ * the model reads the recent log and writes a followable workout, sets included,
+ * as a DRAFT on the server (lib/drafts.js), so leaving the page loses nothing.
+ * **Build it myself**: the same editor, open at once with one empty block; the
+ * kinds are an optional "start from" row, never a required step (#78).
  *
  * What the two share is everything after the fork: `blankPrescription` makes the
  * same object the model's JSON normalises into, so the editor, the split, the
- * quota, the runner and the sheet cannot tell them apart and no second version of
- * any of them was written. What differs is two screens — the model's route asks
- * how long and then goes away and reads; their own route opens the editor with the
- * blocks named and nothing in them.
+ * runner and the sheet cannot tell them apart. Nothing reaches the log until the
+ * user keeps it, on the day chosen here (`date`).
+ *
+ * The flow's state and rules are `lib/planflow.js` (`usePlanFlow`), shared with
+ * the phone; this file is the web's view of it.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
 import { FullScreen } from './modal.jsx'
 import { PrescriptionEditor } from './editor.jsx'
 import { Markdown } from './lib/markdown.jsx'
+import { NumInput } from './numinput.jsx'
+import { reviseWorkout } from './lib/plannerapi.js'
+import { draftTitle, draftLine, draftToEvict } from './lib/drafts.js'
 import {
-  reviseWorkout, plannerContext, aiOffered, createDraft, reviseDraft, retryDraft, saveDraft, discardDraft, claimDraft,
-} from './lib/plannerapi.js'
-import {
-  useDrafts, draftKey, draftStep, draftPres, draftTitle, draftLine, presForServer,
-  placedDraftIds, unplacedDrafts, draftToEvict, keepGate, DRAFT_MAX,
-} from './lib/drafts.js'
-import {
-  normalizePrescription, prescriptionLine, prescriptionSteps, setFieldsFor,
-  reviseWeightModes, splitPrescription, blankPrescription, appendPiece, dropEmptyBlocks,
+  normalizePrescription, prescriptionLine, prescriptionSteps,
+  reviseWeightModes, splitPrescription, appendPiece, dropEmptyBlocks,
 } from './lib/prescription.js'
-import { useWhoop, readinessFor } from './lib/whoop.jsx'
 import { usePlan } from './lib/planctx.jsx'
-import { currentMe } from './lib/whoami.js'
 import { ForChoice, ForLine, usePeopleLogs } from './trainer.jsx'
-import {
-  FOR_ME, forOf, forWords, whoOfDraft, isGroup, forSomeoneElse, namesOf, keepForEach, keepKeyFor, withoutLoads,
-} from './lib/trainer.js'
-import { groupContext } from './lib/plannerapi.js'
+import { FOR_ME, forWords, forSomeoneElse, namesOf } from './lib/trainer.js'
 import { liftFieldOf } from './lib/lifts.js'
-
-const DEFAULT_MINUTES = [20, 30, 45, 60, 75, 90]
+import { fromIso, isoShift, dayWords } from './lib/dates.js'
+import { usePlanFlow, hasWork, dayBounds, DEFAULT_MINUTES } from './lib/planflow.js'
 
 /* ------------------------------------------------------------------ flow */
 
 /*
+ * `iso` is today; `date` the day Today is showing (a plan lands there, or later).
  * `people`, `onKeepFor`, `onShareWith`, `onStartFor`: the owner planning for
- * other people on the install (trainer.jsx, lib/trainer.js). `people` is
- * `planPeople(me)`, empty for anyone but the owner, while acting and with one
- * person, and then nothing here changes.
- *
- * "For" is several at once since #59 (`who`, lib/trainer.js). One other person:
- * the model runs on THEIR log, plan and About you (the server's `for`), the
- * editor's "last time" is theirs, and keeping it writes into their log through
- * `onKeepFor`. More than one: one run on the owner's, told about each of them,
- * with each one's last week as context; keeping it puts it in the owner's log and
- * shares it with the others, sync on (`onShareWith`, lib/shared.js), or, without
- * the owner, into each of their logs. Still only on the tap (§0.4).
+ * other people on the install (lib/trainer.js). `people` is empty for anyone but
+ * the owner, while acting and with one person, and then nothing here changes.
  */
-export function PlanFlow({ plan, entries = [], iso, onKeep, onStart, onClose, people = [], onKeepFor = null, onShareWith = null, onStartFor = null }) {
+export function PlanFlow({ plan, entries = [], iso, date = null, onKeep, onStart, onClose, people = [], onKeepFor = null, onShareWith = null, onStartFor = null }) {
+  const f = usePlanFlow({
+    plan, entries, iso, date, people, usePeopleLogs, onKeep, onKeepFor, onShareWith, onClose, onStart, onStartFor,
+    confirmDiscard: (message) => typeof window === 'undefined' || window.confirm(message),
+  })
+  const { state: s, set, first, forPeople } = f
   const minuteChips = plan?.plannerKinds?.minutes || DEFAULT_MINUTES
-  const liftField = useMemo(() => liftFieldOf(plan), [plan])
-  // Who it is for. Only offered with somewhere to keep it.
-  const forPeople = onKeepFor && onShareWith ? people : []
-  const [who, setWho] = useState(FOR_ME)
-  const group = isGroup(who)
-  const words = forWords(who)
-  const otherIds = who.others.map(p => p.id)
-  const theirs = usePeopleLogs(otherIds)
-  const logOf = (id) => theirs.logs[id] || { entries: [], plan: null }
-  // The editor's "last time" and categories: the owner's when the owner is in it, else the first person's.
-  const ctxPlan = who.me ? plan : (logOf(otherIds[0]).plan || plan)
-  const ctxEntries = who.me ? entries : logOf(otherIds[0]).entries
-
-  /*
-   * The two things the app already knows, gathered here rather than passed in.
-   *
-   * This component mounts inside the WHOOP provider and App does not, so reading
-   * recovery from up there would silently return "no data" — which the planner
-   * would then never mention, and the failure would look like a model that
-   * ignored their sleep rather than a hook in the wrong place.
-   */
-  const { cache: whoopCache } = useWhoop()
-  // WHOOP is the owner's: someone else's plan is told nothing about recovery,
-  // exactly as on an install without it (§7: absent data means no section).
-  const readiness = useMemo(() => (who.me ? readinessFor(whoopCache, iso) : null), [whoopCache, iso, who.me])
-
-  // start | working | review | failed | kept, plus `kind` and `build` — the
-  // hand-built route, which reaches the same editor from the kinds with no model
-  // in it. `start` is the model's first screen; without the model, `kind` is.
-  const [step, setStep] = useState(() => (aiOffered(currentMe().features) ? 'start' : 'kind'))
-  const [keptId, setKeptId] = useState(null)   // the entry "start it" would open
-  const [keptCount, setKeptCount] = useState(1)
-  const [keptWho, setKeptWho] = useState(FOR_ME)  // who it went to
-  const [keptFailed, setKeptFailed] = useState([])  // who it could not be written or shared for, and why
-  const [keptPlan, setKeptPlan] = useState(null)  // others only, kept for some of them: what "Try again" writes
-  const [keptKey, setKeptKey] = useState(null)    // …and the key that keeps it from writing a part twice
-  const [saving, setSaving] = useState(false)
-  // A LIST since 2026-09-17: one gym trip often covers several kinds, and
-  // picking them all up front means the model is told about every one of them.
-  const [picked, setPicked] = useState([])  // kinds[] rows, plus { key: 'custom:…' }
-  const [custom, setCustom] = useState('')
-  const [minutes, setMinutes] = useState(45)
-  const [goal, setGoal] = useState('')
-  const [pres, setPres] = useState(null)
-  const [error, setError] = useState(null)
-
-  /*
-   * The drafts, and the one this screen has open.
-   *
-   * A planning run is a model reading their log for tens of seconds, and it now
-   * runs on the server under a draft, so this screen only looks: `useDrafts`
-   * polls while one is being written, and when the open draft changes STEP (its
-   * run ended, or a revision started) `enter` moves the screen to match. A saved
-   * edit does not change the step, so it never pulls the editor out from under them.
-   */
-  /*
-   * Whether the model is on offer. The server says no (`ai-not-configured`: a fresh
-   * install with no CLI, or someone it is not set up for) and from then on, for
-   * the rest of the session (`aiOffered`, lib/plannerapi.js), this screen is the
-   * hand-built route alone, with nothing that mentions a model.
-   */
-  const [aiRefused, setAiRefused] = useState(false)
-  const ai = aiOffered(currentMe().features) && !aiRefused
-  const first = ai ? 'start' : 'kind'
-  const { drafts: listed, upsert, drop } = useDrafts(ai)
-  /*
-   * Kept ONCE. A draft whose id is already on an entry in the log (this device
-   * kept it, maybe offline, or another device did and it has synced) is on a
-   * day: it is not offered, and its discard is tried again here, because the
-   * one fired when it was kept may never have reached the server.
-   */
-  const placed = useMemo(() => placedDraftIds(entries, ...Object.values(theirs.logs).map(l => l.entries)), [entries, theirs.logs])
-  const drafts = useMemo(() => unplacedDrafts(listed, placed), [listed, placed])
-  useEffect(() => {
-    for (const d of listed) {
-      if (placed.has(d.id)) { drop(d.id); discardDraft(d.id).catch(() => {}) }
-    }
-  }, [listed, placed, drop])
-  const [notice, setNotice] = useState(null)  // why a keep was refused, said on the first screen
-  const [draftId, setDraftId] = useState(null)
-  const open = draftId ? drafts.find(d => d.id === draftId) || null : null
-  const synced = useRef(null)     // draftKey of what the screen last showed
-  const skipSave = useRef(false)  // the plan just came FROM the server; do not send it back
-  const [talkError, setTalkError] = useState(null)
-
-  const label = picked.map(k => k.label).join(' + ')
-  const primary = picked[0] || null
-  const ownerId = currentMe().real?.id || 'owner'
-
-  const enter = useCallback((d) => {
-    synced.current = draftKey(d)
-    const at = draftStep(d)
-    if (at === 'review') {
-      // Weight modes (#58) are already on it: the server lays them on when the
-      // answer lands (server/drafts.js), so they are on the draft, not this screen.
-      const p = draftPres(d, liftField)
-      if (!p) {
-        setError('the planner wrote a session with nothing in it — try again')
-        return setStep('failed')
-      }
-      skipSave.current = true
-      setPres(p)
-      setError(null)
-    } else {
-      setError(at === 'failed' ? d.error || 'the planner failed' : null)
-    }
-    setTalkError(null)
-    setStep(at)
-  }, [liftField])
-
-  useEffect(() => {
-    if (open && draftKey(open) !== synced.current) enter(open)
-  }, [open, enter])
-
-  /*
-   * Their edits on the review screen go onto the draft, so the same draft opened
-   * on another device is the one they were editing. Not while a revision is being
-   * written: its answer replaces the plan anyway.
-   */
-  useEffect(() => {
-    if (step !== 'review' || !draftId || !pres) return undefined
-    if (skipSave.current) { skipSave.current = false; return undefined }
-    if (open?.status === 'working') return undefined
-    const t = setTimeout(() => { saveDraft(draftId, presForServer(pres)).then(upsert).catch(() => {}) }, 800)
-    return () => clearTimeout(t)
-  }, [pres]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  /*
-   * "Write it for me": a draft on the server, already being written.
-   *
-   * The FIRST kind the user picked wins where the model leaves the category
-   * blank (the server lays the answer on that way, server/drafts.js). With
-   * several kinds in one trip there is no single right category — one entry has
-   * one — so the first is only a default, and the review screen asks which.
-   *
-   * Run again from the ask (Redo, Change the ask), the new draft replaces the
-   * one it was redoing rather than leaving two of the same workout in the list.
-   */
-  const run = useCallback(async () => {
-    setStep('working')
-    setError(null)
-    const replacing = draftId
-    /*
-     * Several people: each one's last week under their name, from their own log,
-     * and only the owner's WHOOP. The model reads no one's log but the owner's.
-     */
-    const context = group
-      ? groupContext({ iso, people: [
-          ...(who.me ? [{ name: currentMe().real?.name || 'You', readiness, plan, entries }] : []),
-          ...who.others.map(p => ({ name: p.name, plan: logOf(p.id).plan || plan, entries: logOf(p.id).entries })),
-        ] })
-      : plannerContext({ readiness, plan: ctxPlan, entries: ctxEntries, iso })
-    try {
-      const d = await createDraft({
-        picked,
-        minutes,
-        goal: goal.trim(),
-        context,
-        forId: forOf(who, ownerId),
-      })
-      upsert(d)
-      synced.current = draftKey(d)
-      setDraftId(d.id)
-      if (replacing && replacing !== d.id) {
-        drop(replacing)
-        discardDraft(replacing).catch(() => {})
-      }
-    } catch (e) {
-      // No model here after all: build it by hand, from the same picks (or pick some first).
-      if (e.code === 'ai-not-configured') {
-        setAiRefused(true)
-        return picked.length ? buildRef.current() : setStep('kind')
-      }
-      setError(e.message)
-      setStep('failed')
-    }
-  }, [picked, minutes, goal, readiness, ctxPlan, ctxEntries, iso, who, group, theirs.logs, plan, entries, ownerId, draftId, upsert, drop]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  /** Try a failed draft again; a draft that never got made is simply made. */
-  const retry = useCallback(async (d = open) => {
-    if (!d || d.status !== 'failed') return run()
-    try {
-      const next = await retryDraft(d.id)
-      upsert(next)
-      if (d.id === draftId) enter(next)
-    } catch (e) {
-      setError(e.message)
-    }
-  }, [open, run, upsert, draftId, enter])
-
-  /** Reopen a draft from the list, at the step it is on, with what was asked. */
-  const resume = (d) => {
-    setPicked(d.picked || [])
-    setMinutes(d.ask?.minutes || 45)
-    setGoal(d.ask?.goal || '')
-    setWho(whoOfDraft(d, forPeople))
-    setDraftId(d.id)
-    enter(d)
-  }
-
-  const discard = (d) => {
-    drop(d.id)
-    discardDraft(d.id).catch(() => {})
-    if (d.id === draftId) setDraftId(null)
-  }
-
-  /** A revision on the open draft: the message is on the thread at once, the answer when the run ends. */
-  const talk = draftId ? {
-    busy: open?.status === 'working',
-    error: talkError || (open?.status === 'failed' && open?.run?.kind === 'revise' ? open.error : null),
-    failedMessage: open?.status === 'failed' && open?.run?.kind === 'revise' ? open.run.message : null,
-    onAsk: async (message) => {
-      setTalkError(null)
-      try {
-        upsert(await reviseDraft(draftId, { message, pres: presForServer(pres) }))
-      } catch (e) {
-        setTalkError(e.message)
-        throw e
-      }
-    },
-  } : null
-
-  /**
-   * The other route: the blocks, named, with nothing in them.
-   *
-   * One block per kind the user picked, in the order the user tapped them, each carrying that
-   * kind's quota and sport. That is the whole of what the kinds are for here —
-   * the model uses them as a brief, the user uses them as a skeleton — and it is what
-   * makes "Legs + a ride" land as two entries by hand exactly as it does by
-   * model, because the seam is the block and not the author.
-   *
-   * A kind that names no category (the sport-agnostic endurance ones, which exist
-   * so the model can pick the sport from what the week owes) leaves the block
-   * saying "counts toward nothing" in as many words. Nothing here guesses on their
-   * behalf: the chip that fixes it is the one under the block's own name.
-   */
-  const build = useCallback(() => {
-    setPres(blankPrescription({
-      title: label || 'Workout',
-      category: primary?.category || null,
-      activity: primary?.activity || null,
-      blocks: picked.map(k => ({
-        name: k.label,
-        category: k.category || null,
-        activity: k.activity || null,
-      })),
-    }))
-    setStep('build')
-  }, [picked, label, primary])
-  const buildRef = useRef(build)
-  buildRef.current = build
-
-  /*
-   * The discipline travels with the kind onto the next screen.
-   *
-   * The divider on the grid answers "is this climbing?" while the user is choosing;
-   * this answers it while the user is committing, which is the screen the user is actually
-   * looking at when the user presses go. "Power endurance" alone is the same coin flip
-   * one step later.
-   */
-  /*
-   * The discipline prefix survives multi-select only when it is UNAMBIGUOUS —
-   * every pick in the same group. "Climbing · Power endurance" is useful;
-   * "Climbing · Legs + Power endurance" is a lie about the first half.
-   */
-  const groups = plan?.plannerKinds?.groups || []
-  const oneGroup = picked.length > 0 && picked.every(k => k.group && k.group === picked[0].group)
-  const groupName = oneGroup ? groups.find(g => g.key === picked[0].group)?.name : null
-  const title = step === 'kept' ? forWords(keptWho).title
-    : step === 'review' ? (pres?.title || 'Your workout')
-    : step === 'build' ? (pres?.title || 'Your workout')
-    : step === 'kind' || step === 'start' ? 'Plan a workout'
-    : label ? [groupName, label].filter(Boolean).join(' · ')
-    : 'Plan a workout'
-
-  /**
-   * Keep it, and stop there. Starting it is the next screen's question.
-   *
-   * `dropEmptyBlocks` is for the hand-built route: a block the user picked and never
-   * filled in survives every edit on purpose (see `blockSurvives`) and must not
-   * survive this, or it lands on their day as an entry with no work in it.
-   */
-  const keep = async () => {
-    if (saving) return
-    setError(null)
-    setSaving(true)
-    /*
-     * Claimed first, so a draft is kept once: a second device that still shows it
-     * is told it was kept and sent back to the list. The draft's id goes on the
-     * plan it places, which is what retires it after an offline keep.
-     */
-    const gate = await keepGate({ draftId, placed, claim: claimDraft })
-    if (!gate.go) {
-      setSaving(false)
-      if (!gate.gone) return setError(gate.error)
-      drop(draftId)
-      setDraftId(null)
-      setNotice(gate.error)
-      return setStep(first)
-    }
-    // Several people: shared structure, each logs their own loads (the model's plan has none already).
-    const shaped = dropEmptyBlocks(group ? withoutLoads(pres) : pres)
-    const cleaned = { ...shaped, ...(draftId ? { draftId } : {}) }
-    if (!who.me) {
-      /*
-       * Into each of THEIR logs, through the people endpoints, one person at a
-       * time. Their day is read first so the ids are the ones their own app would
-       * mint. It can fail (offline, their log moved); if it lands nowhere nothing
-       * is claimed and the editor stays as it was. If it lands for some of them,
-       * the last screen says so, by name, and offers to try the rest again with
-       * the same plan and key, so a part already on someone's day is not written
-       * twice. That retry lives on the last screen only: the draft is retired by
-       * the server as soon as its id is in any one log (`isKept`), which is what
-       * stops a second device keeping it again.
-       */
-      const key = keepKeyFor(cleaned)
-      const r = await keepForEach({ people: who.others, keep: (person) => onKeepFor(person, cleaned, key) })
-      setSaving(false)
-      if (!r.first) {
-        if (gate.claimed) claimDraft(draftId, { release: true })
-        return setError(`Not on ${namesOf(who.others)}’s day: ${r.failed[0]?.error || 'it could not be written'}`)
-      }
-      setKeptKey(key)
-      return landed(r.first, r.failed, { me: false, others: r.landed }, r.failed.length ? cleaned : null)
-    }
-    const kept = onKeep(cleaned)
-    // You and others: one workout in your log, shared with each of them, sync on.
-    // Kept already; a person it could not be shared with is said on the last screen.
-    let failed = []
-    if (who.others.length) {
-      try { ({ failed } = await onShareWith(who.others, kept.entries || [])) } catch (e) {
-        failed = who.others.map(person => ({ person, error: e.message }))
-      }
-    }
-    setSaving(false)
-    // One planning run can land as several workouts — see splitPrescription.
-    landed(kept, failed)
-  }
-
-  // Kept, the draft has done its job: it goes, and the entry is what remains.
-  const finishDraft = () => {
-    if (!draftId) return
-    drop(draftId)
-    discardDraft(draftId).catch(() => {})
-    setDraftId(null)
-  }
-
-  /** On the day. `whoLanded` is who it is actually on; `retryPlan` is set while someone still lacks it. */
-  const landed = (kept, failed = [], whoLanded = who, retryPlan = null) => {
-    if (!retryPlan) finishDraft()
-    setKeptId(kept?.first || null)
-    setKeptCount(kept?.count || 1)
-    setKeptWho(whoLanded)
-    setKeptFailed(failed)
-    setKeptPlan(retryPlan)
-    setStep('kept')
-  }
-
-  /** Others only: the same plan, for the people it missed. */
-  const retryKept = async () => {
-    if (saving || !keptPlan) return
-    setSaving(true)
-    const r = await keepForEach({ people: keptFailed.map(f => f.person), keep: (person) => onKeepFor(person, keptPlan, keptKey) })
-    setSaving(false)
-    const got = new Set([...keptWho.others, ...r.landed].map(p => p.id))
-    setKeptWho({ me: false, others: who.others.filter(p => got.has(p.id)) })
-    setKeptFailed(r.failed)
-    if (!keptId && r.first) { setKeptId(r.first.first || null); setKeptCount(r.first.count || 1) }
-    if (!r.failed.length) { setKeptPlan(null); finishDraft() }
-  }
-
-  /** Round again, from the top, with the last ask cleared. */
-  const another = () => {
-    setDraftId(null)
-    setPres(null)
-    setKeptId(null)
-    setKeptFailed([])
-    setKeptPlan(null)
-    setKeptKey(null)
-    setPicked([])
-    setCustom('')
-    setGoal('')
-    setStep(first)
-  }
-
-  const back = () => {
-    // The kinds, reached from the model's screen by "Build it myself", go back to it.
-    if (step === 'kind' && first === 'start') return setStep('start')
-    // Backing out of the builder throws away what the user typed, so it goes back to
-    // the kinds rather than to a screen the user did not come from.
-    if (step === 'build') return setStep('kind')
-    // To the first screen, where the drafts are: a failure there is one tap from
-    // its retry or its bin, and a full list (429) is one tap from making room.
-    if (step === 'failed') { setDraftId(null); return setStep(first) }
-    // Leaving the wait cancels nothing: the draft carries on, and is listed on the
-    // first screen, which is where this goes.
-    if (step === 'working') { setDraftId(null); return setStep(first) }
-    // Backing out of the "what now" screen is the same as "back to today" — the
-    // workout is already on the day either way, which is what that screen says.
-    onClose()
-  }
-
-  // Their logs are read before anything is written for them: the context and the ids come from them.
-  const waiting = otherIds.length > 0 && !theirs.ready
-  const waitLine = theirs.error
-    ? `Could not open ${namesOf(who.others.filter(p => theirs.waitingFor.includes(p.id)))}’s log: ${theirs.error}`
-    : `Opening ${namesOf(who.others.filter(p => theirs.waitingFor.includes(p.id)))}’s log…`
-  const buildOrPick = () => (picked.length ? build() : setStep('kind'))
+  const categories = f.ctxPlan?.quotaCategories || []
+  const day = <PlanDay value={s.date} today={f.today} onChange={set.date} />
+  const fileAs = f.asksFiling ? <FileAs choices={f.fileChoices} value={s.filing} onChange={set.filing} /> : null
+  const kept = s.kept
 
   return (
-    <FullScreen
-      title={title}
-      sub={step === 'review' ? prescriptionLine(pres) : null}
-      icon="ClipboardCheck"
-      onBack={back}
-    >
-      {step === first && notice && <p className="withrow-err plan-keep-err">{notice}</p>}
-      {step === first && ai && (
-        <DraftList drafts={drafts} onOpen={(d) => { setNotice(null); resume(d) }} onRetry={retry} onDiscard={discard} />
+    <FullScreen title={f.title} sub={f.sub} icon="ClipboardCheck" onBack={f.back}>
+      {s.step === first && s.notice && <p className="withrow-err plan-keep-err">{s.notice}</p>}
+      {s.step === first && f.ai && (
+        <DraftList drafts={f.drafts} onOpen={(d) => f.resume(d)} onRetry={f.retry} onDiscard={f.discard} />
       )}
-      {step === first && <ForChoice people={forPeople} who={who} onChange={setWho} />}
-      {step !== 'kept' && <ForLine who={who} people={forPeople} />}
+      {s.step === first && <ForChoice people={forPeople} who={s.who} onChange={set.who} />}
+      {s.step !== 'kept' && <ForLine who={s.who} people={forPeople} />}
+      {s.step === first && f.waitLine && <p className="sub plan-for-wait">{f.waitLine}</p>}
 
-      {step === first && waiting && <p className="sub plan-for-wait">{waitLine}</p>}
-
-      {step === 'start' && (
-        <AskStep goal={goal} setGoal={setGoal} minutes={minutes} setMinutes={setMinutes} chips={minuteChips}
-          plan={plan} picked={picked} setPicked={setPicked}
-          evicts={draftId ? null : draftToEvict(drafts)} busy={waiting}
-          onGo={() => { setNotice(null); run() }} onBuild={() => { setNotice(null); setStep('kind') }} />
+      {s.step === 'start' && (
+        <AskStep goal={s.goal} setGoal={set.goal} minutes={s.minutes} setMinutes={set.minutes} chips={minuteChips}
+          plan={plan} picked={s.picked} setPicked={set.picked} day={day}
+          evicts={s.draftId ? null : draftToEvict(f.drafts)} busy={f.waiting}
+          building={hasWork(s.scratch)}
+          onGo={() => { set.notice(null); f.run() }} onBuild={() => { set.notice(null); f.build() }} />
       )}
 
-      {step === 'kind' && (
-        <KindStep plan={plan} custom={custom} setCustom={setCustom}
-          picked={picked} setPicked={setPicked} busy={waiting} onBuild={build} />
+      {s.step === 'working' && (
+        <Working label={s.picked.map(k => k.label).join(' + ')} minutes={s.minutes} since={f.open?.run?.startedAt || null}
+          onDiscard={f.open ? () => { f.discard(f.open); f.toFirst() } : null} />
       )}
 
-      {step === 'working' && (
-        <Working label={label} minutes={minutes} since={open?.run?.startedAt || null}
-          onDiscard={open ? () => { discard(open); setStep(first) } : null} />
-      )}
-
-      {step === 'failed' && (
+      {s.step === 'failed' && (
         <div className="plan-failed">
           <p className="plan-failed-lead">
-            <Icon name="TriangleAlert" size={16} /> {error}
+            <Icon name="TriangleAlert" size={16} /> {s.error}
           </p>
           <p className="sub">Nothing was written.</p>
           <div className="plan-actions fork">
-            <button className="btn" onClick={() => retry()}><Icon name="RotateCw" size={16} /> Try again</button>
-            {/* Not a dead end. The box being busy is no reason not to plan the
-                session — it is only a reason to write it yourself. */}
-            <button className="btn secondary" onClick={buildOrPick}>
+            <button className="btn" onClick={() => f.retry()}><Icon name="RotateCw" size={16} /> Try again</button>
+            {/* Not a dead end: a busy box is only a reason to write it yourself. */}
+            <button className="btn secondary" onClick={f.build}>
               <Icon name="ListPlus" size={16} /> Build it myself
             </button>
-            <button className="btn ghost" onClick={() => setStep('start')}>Change the ask</button>
-            {!open && drafts.length > 0 && (
-              <button className="btn ghost" onClick={back}>See your drafts</button>
+            <button className="btn ghost" onClick={f.toFirst}>Change the ask</button>
+            {!f.open && f.drafts.length > 0 && (
+              <button className="btn ghost" onClick={f.back}>See your drafts</button>
             )}
           </div>
         </div>
       )}
 
-      {(step === 'build' || step === 'review') && error && <p className="withrow-err plan-keep-err">{error}</p>}
+      {(s.step === 'build' || s.step === 'review') && s.error && <p className="withrow-err plan-keep-err">{s.error}</p>}
 
-      {step === 'build' && pres && (
-        <BuildStep pres={pres} setPres={setPres} liftField={liftField} entries={ctxEntries}
-          categories={ctxPlan?.quotaCategories || []}
-          onKeep={saving ? () => {} : keep} words={words} />
+      {s.step === 'build' && s.pres && (
+        <BuildStep pres={s.pres} setPres={set.pres} liftField={f.liftField} entries={f.ctxEntries}
+          categories={categories} plan={plan} picked={s.picked} setPicked={set.picked} day={day} fileAs={fileAs}
+          busy={f.waiting} onKeep={s.saving ? () => {} : f.keep} words={f.words} />
       )}
 
-      {step === 'review' && pres && (
-        <ReviewStep pres={pres} setPres={setPres} liftField={liftField} entries={ctxEntries}
-          categories={ctxPlan?.quotaCategories || []}
-          onRedo={() => setStep('start')} talk={talk}
-          onKeep={saving || talk?.busy ? () => {} : keep} forId={forOf(who, ownerId)} words={words} />
+      {s.step === 'review' && s.pres && (
+        <ReviewStep pres={s.pres} setPres={set.pres} liftField={f.liftField} entries={f.ctxEntries}
+          categories={categories} day={day} fileAs={fileAs}
+          onRedo={f.toFirst} talk={f.talk}
+          onKeep={s.saving || f.talk?.busy ? () => {} : f.keep} forId={f.forId} words={f.words} />
       )}
 
-      {step === 'kept' && pres && (
-        <KeptStep pres={pres} count={keptCount} parts={splitPrescription(pres)} words={forWords(keptWho)} failed={keptFailed}
-          onRetry={keptPlan ? retryKept : null} retrying={saving}
-          onStart={!keptId ? null
-            : keptWho.me ? () => onStart(keptId)
-            : forSomeoneElse(keptWho) && onStartFor ? () => onStartFor(forSomeoneElse(keptWho), keptId) : null}
-          startLabel={forSomeoneElse(keptWho) ? `Open it on ${forSomeoneElse(keptWho).name}’s side` : null}
-          onAnother={another}
-          onDone={onClose} />
+      {s.step === 'kept' && s.pres && kept && (
+        <KeptStep pres={s.pres} count={kept.count} parts={splitPrescription(s.pres)} words={f.keptWords} failed={kept.failed}
+          onRetry={kept.plan ? f.retryKept : null} retrying={s.saving}
+          /* Nothing to start on a later day; leaving asks first if a workout is set aside (`keptStart`). */
+          onStart={f.start?.run || null} startLabel={f.start?.label || null}
+          onAnother={f.another}
+          onDone={f.close} />
       )}
     </FullScreen>
   )
 }
 
-/* ------------------------------------------------------------ step: what */
+/* ------------------------------------------------------------- the day */
+
+/**
+ * Which day it goes on (#78): the day Today was showing, or any later one. Today
+ * at the earliest, because a workout already done is logged, not planned. The
+ * same ‹ day › as the rest day's form (`.dayswitch`), in words.
+ */
+export function PlanDay({ value, today, onChange }) {
+  const { min, max } = dayBounds(today)
+  const words = dayWords(value, today)
+  const date = /^(Today|Tomorrow)$/.test(words)
+    ? fromIso(value).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })
+    : null
+  return (
+    <section className="planday" aria-label="Which day">
+      <span className="planday-label">Day</span>
+      <div className="dayswitch">
+        <button type="button" className="iconbtn" onClick={() => onChange(isoShift(value, -1))} disabled={value <= min}
+          aria-label="The day before"><Icon name="ChevronLeft" size={20} /></button>
+        <div className="dayswitch-words" aria-live="polite">
+          <span>{words}</span>
+          {date && <span className="sub">{date}</span>}
+        </div>
+        <button type="button" className="iconbtn" onClick={() => onChange(isoShift(value, 1))} disabled={value >= max}
+          aria-label="The day after"><Icon name="ChevronRight" size={20} /></button>
+      </div>
+    </section>
+  )
+}
+
+/* ------------------------------------------------------------ what it is */
+
+/**
+ * "What is it?" (#78): asked on the keep step only when nothing on the workout
+ * says (no kind, no sport on a block, no lift to file it by; `needsFiling`), so a
+ * hand-built ride does not land filed under nothing. One row of the catalog's
+ * pinned sports; "Other…" opens the rest of the catalog, grouped. One tap, and
+ * never in the way: Keep works without it.
+ */
+export function FileAs({ choices, value = null, onChange }) {
+  const [more, setMore] = useState(false)
+  const pinned = choices?.pinned || []
+  const other = value && !pinned.some(a => a.key === value)
+  const chip = (a) => (
+    <button key={a.key} className={`out-chip ${value === a.key ? 'on' : ''}`} aria-pressed={value === a.key}
+      onClick={() => { onChange(value === a.key ? null : a.key); setMore(false) }}>
+      <Icon name={a.icon || 'Dumbbell'} size={15} /> {a.name}
+    </button>
+  )
+  return (
+    <section className="planfile" aria-label="What is it?">
+      <div className="section-head"><h3>What is it?</h3></div>
+      <div className="chiprow">
+        {pinned.map(chip)}
+        {other && chip({ key: value, name: choices.nameOf(value) || value })}
+        <button className={`out-chip ${more ? 'on' : ''}`} aria-expanded={more} onClick={() => setMore(v => !v)}>Other…</button>
+      </div>
+      {more && (choices?.groups || []).map(g => (
+        <div key={g.name} className="askkinds-group" role="group" aria-label={g.name}>
+          <h4>{g.name}</h4>
+          <div className="chiprow">{g.items.map(chip)}</div>
+        </div>
+      ))}
+    </section>
+  )
+}
+
+/* ------------------------------------------------------------ the kinds */
 
 /**
  * The kinds, under discipline headings.
  *
- * Ungrouped, this grid read wrong: "Power" and "Endurance" are climbing
- * categories in this app and both are ordinary words for lifting and cardio, so
- * on a twelve-card grid with no headings they were a coin flip. A "climbing:"
- * prefix or a divider would fix it; a divider is better, because
- * prefixing every climbing label would make four of the twelve cards two lines
- * long to solve a problem that is really about grouping.
- *
- * The groups are CONTENT (`plannerKinds.groups`) like the kinds themselves, and
- * a kind whose `group` matches nothing falls into a trailing section rather than
- * vanishing — the same rule the session picker follows, for the same reason: a
- * card that is in the file and not on the screen is the failure mode this app
- * has already had once today.
+ * Ungrouped, "Power" and "Endurance" were a coin flip: climbing categories in
+ * this app and ordinary words for lifting and cardio. The groups are CONTENT
+ * (`plannerKinds.groups`) like the kinds, and a kind whose `group` matches
+ * nothing falls into a trailing section rather than vanishing: a card in the
+ * file and not on the screen is the failure this app has already had.
  */
 export function groupedKinds(plan) {
   const kinds = plan?.plannerKinds?.kinds || []
@@ -616,123 +221,39 @@ export function groupedKinds(plan) {
   return groups
 }
 
-/*
- * The kinds, as the hand-built route's first step: each kind becomes a named,
- * empty block. With the model on offer this is behind "Build it myself"; without
- * it, it is the first screen. Either way it is building it yourself, and nothing
- * here mentions a model.
+/**
+ * Every kind as an optional chip, folded under one head, open once one is
+ * picked. The ask's "Add a kind" and the builder's "Start from" are this one
+ * component. Labels only: a kind's `hint` and `prompt` are written for the
+ * model and never reach the hand-built route. Every kind is in the page (a
+ * `<details>`), so the reachability tests can see each one.
  */
-export function KindStep({ plan, custom, setCustom, picked, setPicked, onBuild, busy = false }) {
+export function KindChips({ plan, picked = [], setPicked, title, className = 'askkinds' }) {
   const groups = groupedKinds(plan)
-  const at = (k) => picked.findIndex(p => p.key === k.key)
-  const has = (k) => at(k) >= 0
-  const toggle = (k) =>
-    setPicked(has(k) ? picked.filter(p => p.key !== k.key) : [...picked, k])
-
-  const addCustom = () => {
-    const label = custom.trim()
-    if (!label) return
-    const key = `custom:${label.toLowerCase()}`
-    if (!picked.some(p => p.key === key)) setPicked([...picked, { key, label, prompt: label }])
-    setCustom('')
-  }
-  const customs = picked.filter(p => p.key.startsWith('custom:'))
-
-  /*
-   * No paragraph (docs/DESIGN.md D7): the rows are toggles with a check, and the
-   * check carries the ORDER the user tapped them in, because the blocks are
-   * written in that order — which one came first is a fact about the session.
-   */
-  return (
-    <>
-      {groups.map(g => <KindGroup key={g.key} group={g} at={at} toggle={toggle} />)}
-
-      <section className="kindgroup" aria-label="Something else">
-        <div className="section-head"><h3>Something else</h3></div>
-        {customs.length > 0 && (
-          <div className="card kindlist list">
-            {customs.map(k => <KindRow key={k.key} k={k} n={at(k) + 1} onToggle={() => toggle(k)} />)}
-          </div>
-        )}
-        <div className="kindcustom-row">
-          <input id="plan-custom" value={custom} onChange={e => setCustom(e.target.value)}
-            aria-label="Something else" placeholder="A shoulder day, a 40 minute erg, a hike"
-            onKeyDown={e => { if (e.key === 'Enter') addCustom() }} />
-          <button className="btn secondary" disabled={!custom.trim()} onClick={addCustom}>Add</button>
-        </div>
-      </section>
-
-      {/* Once something is picked, because until then there is nothing to build. */}
-      {picked.length > 0 && (
-        <div className="plan-actions sticky">
-          <button className="btn big" onClick={onBuild} disabled={busy}>
-            <Icon name="ListPlus" size={17} />
-            Build it myself
-          </button>
-        </div>
-      )}
-    </>
-  )
-}
-
-/** One kind as a row: its icon, its name, the one line that says what it is, and the check. */
-function KindRow({ k, n, onToggle }) {
-  const on = n > 0
-  return (
-    <button className={`list-row kindrow ${on ? 'on' : ''}`} onClick={onToggle} aria-pressed={on}>
-      <Icon name={k.icon || 'Dumbbell'} size={20} />
-      <span className="list-row-main">
-        <span className="list-row-title">{k.label}</span>
-        {k.hint && <span className="list-row-meta">{k.hint}</span>}
-      </span>
-      <span className="kindrow-check" aria-hidden="true">{on ? n : ''}</span>
+  const has = (k) => picked.some(p => p.key === k.key)
+  const toggle = (k) => setPicked(has(k) ? picked.filter(p => p.key !== k.key) : [...picked, k])
+  const known = new Set(groups.flatMap(g => g.items.map(k => k.key)))
+  // A draft written before #59 may carry a "Something else" kind; it is shown, and can be taken off.
+  const extra = picked.filter(k => !known.has(k.key))
+  const chip = (k) => (
+    <button key={k.key} className={`out-chip ${has(k) ? 'on' : ''}`} onClick={() => toggle(k)} aria-pressed={has(k)}>
+      <Icon name={k.icon || 'Dumbbell'} size={15} /> {k.label}
     </button>
   )
-}
-
-/**
- * One group: a section head over one card of rows.
- *
- * A group may declare `collapsed: true` in content, and then it renders as a
- * native `<details>`: the head with a count, the rows one tap away. This arrived
- * with the endurance catalog on 2026-09-19 — thirty-odd swim, bike and run
- * variants — and thirty rows of ride variants between the zone-2 kinds and the
- * climbing section would have buried both.
- *
- * `<details>` rather than state, for two reasons. Every row is still IN the page
- * — the reachability test in smoke.jsx reads the rendered HTML, and a kind that is
- * only mounted when a group is open is a kind that test cannot see. And it costs
- * nothing on the server render. A group with something picked in it is forced
- * open, so what the user chose is never hidden behind its own header.
- *
- * The groups' `blurb` paragraphs are content and stay in the file; the screen no
- * longer prints them (D7: if a control needs a paragraph, change the control).
- */
-function KindGroup({ group: g, at, toggle }) {
-  const picked = g.items.filter(k => at(k) >= 0).length
-  const rows = (
-    <div className="card kindlist list">
-      {g.items.map(k => <KindRow key={k.key} k={k} n={at(k) + 1} onToggle={() => toggle(k)} />)}
-    </div>
-  )
-
-  if (!g.collapsed) {
-    return (
-      <section className="kindgroup" aria-label={g.name}>
-        <div className="section-head"><h3>{g.name}</h3></div>
-        {rows}
-      </section>
-    )
-  }
-
   return (
-    <details className="kindgroup folded" open={picked > 0 || undefined}>
+    <details className={className} open={picked.length > 0 || undefined}>
       <summary className="section-head">
-        <h3>{g.name}</h3>
-        <span className="sub">{picked ? `${picked} picked · ` : ''}{g.items.length}</span>
+        <h3>{title}</h3>
+        <span className="sub">{picked.length ? `${picked.length} picked` : 'Optional'}</span>
         <Icon name="ChevronDown" size={16} className="kindgroup-chev" />
       </summary>
-      {rows}
+      {extra.length > 0 && <div className="chiprow askkinds-group">{extra.map(chip)}</div>}
+      {groups.map(g => (
+        <div key={g.key} className="askkinds-group" role="group" aria-label={g.name}>
+          <h4>{g.name}</h4>
+          <div className="chiprow">{g.items.map(chip)}</div>
+        </div>
+      ))}
     </details>
   )
 }
@@ -740,31 +261,50 @@ function KindGroup({ group: g, at, toggle }) {
 /* ------------------------------------------------- step: how long, what for */
 
 /**
+ * How long, set ONE way (#78): the content's chips, and "Other" for anything
+ * else, which opens a box in minutes. A time from an older draft that is not a
+ * chip shows as its own chip, picked.
+ */
+export function MinuteChips({ minutes, setMinutes, chips = DEFAULT_MINUTES }) {
+  const [other, setOther] = useState(false)
+  const listed = chips.includes(minutes)
+  return (
+    <div className="chiprow">
+      {chips.map(m => (
+        <button key={m} className={`out-chip ${minutes === m && !other ? 'on' : ''}`}
+          onClick={() => { setOther(false); setMinutes(m) }} aria-pressed={minutes === m && !other}>
+          {m} min
+        </button>
+      ))}
+      {!listed && !other && (
+        <button className="out-chip on" aria-pressed="true" onClick={() => setOther(true)}>{minutes} min</button>
+      )}
+      {other ? (
+        <label className="minother">
+          <NumInput value={minutes} decimal={false} aria-label="How many minutes" autoFocus
+            onChange={(v) => { if (v) setMinutes(Math.min(300, Math.max(5, v))) }} />
+          <span>min</span>
+        </label>
+      ) : (
+        <button className="out-chip" onClick={() => setOther(true)} aria-pressed="false">Other</button>
+      )}
+    </div>
+  )
+}
+
+/**
  * "Write it for me": one box and one button (#59).
  *
- * What they want to do, in their own words, is the whole brief: "legs, then
- * twenty minutes easy on the bike" is enough, and the model decides the blocks
- * and what each one is. How long is a row of chips under it, defaulted. The kinds
- * are still there, folded, as optional chips: a tap is quicker than typing
- * "power endurance", and a kind tells the model exactly which card it means.
- * "Build it myself" is a quiet door at the foot, to the kinds and the editor.
+ * What they want to do, in their own words, is the whole brief: the model decides
+ * the blocks and what each one is. How long is a row of chips; the day is the
+ * ‹ day ›; the kinds are folded optional chips. "Build it myself" is a quiet door
+ * at the foot, straight to the editor ("Back to your workout" once one is set aside).
  */
 export function AskStep({
   goal, setGoal, minutes, setMinutes, chips = DEFAULT_MINUTES, plan = null, picked = [], setPicked,
-  onGo, onBuild = null, evicts = null, busy = false,
+  onGo, onBuild = null, evicts = null, busy = false, day = null, building = false,
 }) {
-  const groups = groupedKinds(plan)
-  const has = (k) => picked.some(p => p.key === k.key)
-  const toggle = (k) => setPicked(has(k) ? picked.filter(p => p.key !== k.key) : [...picked, k])
-  const known = new Set(groups.flatMap(g => g.items.map(k => k.key)))
-  // A draft written before #59 may carry a "Something else" kind; it is shown, and can be taken off.
-  const extra = picked.filter(k => !known.has(k.key))
   const ready = Boolean(goal.trim() || picked.length)
-  const chip = (k) => (
-    <button key={k.key} className={`out-chip ${has(k) ? 'on' : ''}`} onClick={() => toggle(k)} aria-pressed={has(k)}>
-      <Icon name={k.icon || 'Dumbbell'} size={15} /> {k.label}
-    </button>
-  )
 
   return (
     <>
@@ -776,42 +316,17 @@ export function AskStep({
 
       <section className="askblock">
         <div className="section-head"><h3>How long?</h3></div>
-        <div className="chiprow">
-          {chips.map(m => (
-            <button key={m} className={`out-chip ${minutes === m ? 'on' : ''}`}
-              onClick={() => setMinutes(m)} aria-pressed={minutes === m}>
-              {m} min
-            </button>
-          ))}
-        </div>
-        <div className="minstep">
-          <button className="qbtn" onClick={() => setMinutes(m => Math.max(5, m - 5))}
-            aria-label="five minutes less"><Icon name="Minus" size={16} /></button>
-          <span className="minstep-n">{minutes} min</span>
-          <button className="qbtn" onClick={() => setMinutes(m => Math.min(300, m + 5))}
-            aria-label="five minutes more"><Icon name="Plus" size={16} /></button>
-        </div>
+        <MinuteChips minutes={minutes} setMinutes={setMinutes} chips={chips} />
       </section>
 
+      {day && <div className="askblock">{day}</div>}
+
       {/* Folded, so the screen is the box and the button; open when something in it is picked. */}
-      <details className="askkinds" open={picked.length > 0 || undefined}>
-        <summary className="section-head">
-          <h3>Add a kind</h3>
-          <span className="sub">{picked.length ? `${picked.length} picked` : 'Optional'}</span>
-          <Icon name="ChevronDown" size={16} className="kindgroup-chev" />
-        </summary>
-        {extra.length > 0 && <div className="chiprow askkinds-group">{extra.map(chip)}</div>}
-        {groups.map(g => (
-          <div key={g.key} className="askkinds-group" role="group" aria-label={g.name}>
-            <h4>{g.name}</h4>
-            <div className="chiprow">{g.items.map(chip)}</div>
-          </div>
-        ))}
-      </details>
+      <KindChips plan={plan} picked={picked} setPicked={setPicked} title="Add a kind" />
 
       {onBuild && (
         <button className="btn quiet plan-buildself" onClick={onBuild}>
-          <Icon name="ListPlus" size={16} /> Build it myself
+          <Icon name="ListPlus" size={16} /> {building ? 'Back to your workout' : 'Build it myself'}
         </button>
       )}
 
@@ -837,23 +352,14 @@ export function AskStep({
  * The wait, made legible.
  *
  * A planning run is thirty to ninety seconds of an agent reading their log, and a
- * bare spinner for that long is a screen the user backs out of. So it says what it is
- * doing and counts up: an elapsed number is honest about a slow answer in a way
- * a progress bar pretending to know the total is not.
- */
-const WORKING_STAGES = [
-  'Reading your training log…',
-  'Checking what you lifted last time…',
-  'Reading last night\'s recovery…',
-  'Checking your athlete profile…',
-  'Writing the sets…',
-]
-
-/*
+ * bare spinner for that long is a screen the user backs out of. So it counts up:
+ * an elapsed number is honest about a slow answer in a way a progress bar
+ * pretending to know the total is not. One line says what it is doing, and only
+ * what it is doing: no stages on a timer that the run never reported (#78).
+ *
  * `since` is when the draft's run started, so a draft reopened half way through
- * counts from where it is rather than from zero. Leaving cancels nothing (the run
- * is the draft's, on the server) and the screen says so, because the old promise
- * that it did was the reason to stand and watch it.
+ * counts from where it is. Leaving cancels nothing (the run is the draft's, on the
+ * server) and the screen says so.
  */
 export function Working({ label, minutes, since = null, onDiscard = null }) {
   const from = useMemo(() => (since ? Date.parse(since) : Date.now()), [since])
@@ -863,7 +369,6 @@ export function Working({ label, minutes, since = null, onDiscard = null }) {
     return () => clearInterval(iv)
   }, [])
   const secs = Math.max(0, Math.round((now - from) / 1000))
-  const stage = WORKING_STAGES[Math.min(WORKING_STAGES.length - 1, Math.floor(secs / 12))]
 
   return (
     <div className="plan-working">
@@ -871,7 +376,7 @@ export function Working({ label, minutes, since = null, onDiscard = null }) {
       <div className="plan-working-title">
         {label ? `Building ${minutes} minutes of ${label.toLowerCase()}` : `Writing ${minutes} minutes`}
       </div>
-      <p className="plan-working-stage">{stage}</p>
+      <p className="plan-working-stage">{WORKING_LINE}</p>
       <div className="plan-working-dots"><i /><i /><i /></div>
       <p className="sub">{secs}s · You can leave; it keeps going</p>
       {onDiscard && (
@@ -880,6 +385,8 @@ export function Working({ label, minutes, since = null, onDiscard = null }) {
     </div>
   )
 }
+
+export const WORKING_LINE = 'Reading your recent workouts and writing the sets…'
 
 /**
  * The drafts on the first screen: written, being written, or failed.
@@ -1149,27 +656,31 @@ const stripThread = (pres) => {
 /* -------------------------------------------------------------- step: build */
 
 /**
- * The same editor, opened empty.
+ * The same editor, open from the first tap (#78).
  *
- * The build-it-yourself route: the user plans the session by picking exercises
- * rather than having the model write it. This is the first half, and it is deliberately not
- * a new screen so much as the review step with the model taken out of it: the
- * blocks are already named and already carry their quota, and everything the user does
- * to them — add an exercise, step a weight, reorder, change what a block counts
- * toward — is the same component doing the same thing it does to a session the
- * model wrote.
+ * The build-it-yourself route: no kind is needed first. It opens on one empty
+ * block, and the kinds are an optional "Start from" row above it while nothing
+ * is in it yet: tapping Legs and Ride makes the two blocks "Legs + a ride" needs
+ * to land as two entries. Once an exercise is in, the blocks are the user's and
+ * the row goes. The name comes from the kinds, else from what is in it.
  *
- * Three things are missing from it on purpose. There is no `PlanTalk`, because
- * the point of this route is that nothing is being asked of a model; it is one
- * tap away on the entry afterwards if the user wants it. There is no "why", because
- * nobody reasoned about it. And there is no Redo, because there is nothing to
- * redo — the undo for a hand-built session is the thing you just typed.
+ * Missing on purpose: no `PlanTalk` (nothing is being asked of a model), no "why"
+ * (nobody reasoned about it), no Redo (the undo for a hand-built session is what
+ * you just typed).
  */
-export function BuildStep({ pres, setPres, liftField, entries = [], categories = [], onKeep, words = forWords(FOR_ME) }) {
+export function BuildStep({
+  pres, setPres, liftField, entries = [], categories = [], onKeep, words = forWords(FOR_ME),
+  plan = null, picked = [], setPicked = null, day = null, busy = false, fileAs = null,
+}) {
   const sets = prescriptionSteps(pres).length
+  const empty = !hasWork(pres)
 
   return (
     <>
+      {empty && setPicked && (
+        <KindChips plan={plan} picked={picked} setPicked={setPicked} title="Start from" className="askkinds plan-from" />
+      )}
+
       <SplitNote parts={splitPrescription(dropEmptyBlocks(pres))} />
 
       <PrescriptionEditor pres={pres} onChange={setPres} liftField={liftField} entries={entries}
@@ -1177,8 +688,11 @@ export function BuildStep({ pres, setPres, liftField, entries = [], categories =
           (blockId, name, by, unit) => setPres(appendPiece(pres, name, { blockId, by, unit }))
         } />
 
+      {fileAs && <div className="plan-dayfoot">{fileAs}</div>}
+      {day && <div className="plan-dayfoot">{day}</div>}
+
       <div className="plan-actions sticky">
-        <button className="btn big" disabled={!sets} onClick={onKeep}>
+        <button className="btn big" disabled={!sets || busy} onClick={onKeep}>
           <Icon name="Plus" size={17} /> {words.keep}
         </button>
       </div>
@@ -1190,7 +704,7 @@ export function BuildStep({ pres, setPres, liftField, entries = [], categories =
 
 /* ------------------------------------------------------------- step: review */
 
-function ReviewStep({ pres, setPres, liftField, entries = [], categories = [], onRedo, onKeep, forId = null, words = forWords(FOR_ME), talk = null }) {
+function ReviewStep({ pres, setPres, liftField, entries = [], categories = [], onRedo, onKeep, forId = null, words = forWords(FOR_ME), talk = null, day = null, fileAs = null }) {
   return (
     <>
       <PlanTalk pres={pres} onChange={setPres} forId={forId} draft={talk} />
@@ -1209,6 +723,9 @@ function ReviewStep({ pres, setPres, liftField, entries = [], categories = [], o
       <p className="sub plan-fine">
         Written from {words.from}. Change anything before you keep it.
       </p>
+
+      {fileAs && <div className="plan-dayfoot">{fileAs}</div>}
+      {day && <div className="plan-dayfoot">{day}</div>}
 
       <div className="plan-actions sticky">
         <button className="btn ghost" onClick={onRedo}><Icon name="RotateCw" size={16} /> Redo</button>

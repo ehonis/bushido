@@ -64,17 +64,20 @@ export function recentWorkouts({ plan = null, entries = [], iso, days = 7 }) {
 }
 
 /** Rough context the app can hand over for free, so the agent spends its budget elsewhere. */
-export function plannerContext({ readiness = null, plan = null, entries = [], iso = null }) {
-  return [iso ? `Today is ${iso}.` : null, ...personContext({ readiness, plan, entries, iso })].filter(Boolean).join(' ')
+export function plannerContext({ readiness = null, plan = null, entries = [], iso = null, day = null }) {
+  return [iso ? `Today is ${iso}.` : null, forDay(iso, day), ...personContext({ readiness, plan, entries, iso })].filter(Boolean).join(' ')
 }
+
+/** A plan for a later day says so (#78): the model is planning that day's session, not today's. */
+const forDay = (iso, day) => (day && iso && day > iso ? `This workout is for ${day}.` : null)
 
 /**
  * The same for several people at once (#59): one paragraph per person, under
  * their name, each built from THEIR log (read through the people endpoints) and
  * only the owner's with WHOOP. The model reads no one's log but the owner's.
  */
-export function groupContext({ people = [], iso = null }) {
-  const bits = iso ? [`Today is ${iso}.`] : []
+export function groupContext({ people = [], iso = null, day = null }) {
+  const bits = [iso ? `Today is ${iso}.` : null, forDay(iso, day)].filter(Boolean)
   for (const p of people) {
     bits.push(`${p.name || 'One of them'}: ${personContext({ ...p, iso }).join(' ') || 'nothing known.'}`)
   }
@@ -179,10 +182,10 @@ export async function listDrafts() {
  * since #59: `goal`, what they wrote, is a brief on its own); the server keeps
  * them to resume and retry. `forId` is `forOf(who)`: one id or a list.
  */
-export async function createDraft({ picked, minutes, goal, context, forId = null }) {
+export async function createDraft({ picked, minutes, goal, context, forId = null, day = null }) {
   const out = await draftCall('/api/plan/drafts', {
     method: 'POST',
-    body: { picked, minutes, goal, context, ...(forId ? { for: forId } : {}) },
+    body: { picked, minutes, goal, context, ...(day ? { day } : {}), ...(forId ? { for: forId } : {}) },
   })
   return out.draft
 }

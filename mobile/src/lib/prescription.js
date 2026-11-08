@@ -349,14 +349,52 @@ export function setLine(set, item = null) {
   if (set.distance !== null && set.distance !== undefined) {
     bits.push(`${set.distance}${set.unit ? ` ${set.unit}` : ''}`)
   }
-  if (set.seconds !== null && set.seconds !== undefined && !bits.length) bits.push(`${set.seconds} s`)
-  else if (set.seconds !== null && set.seconds !== undefined) bits.push(`${set.seconds} s`)
+  if (set.seconds !== null && set.seconds !== undefined) bits.push(durationWords(set.seconds))
   const head = bits.join(' · ') || '—'
   if (set.weight === null || set.weight === undefined) return head
   // The weight column says what it MEANS — "lb per hand" is a different number
   // from "lb on the bar". See lib/lifts.js.
   const unit = item?.weightLabel || 'lb'
   return `${head} @ ${set.weight} ${unit}`
+}
+
+/**
+ * A time as a person says it (#78): "45 s" under a minute, "15 min" on the
+ * minute, "1:30" otherwise. A fifteen-minute run is never "900 s".
+ */
+export function durationWords(seconds) {
+  const n = Math.round(Number(seconds) || 0)
+  if (n < 60) return `${n} s`
+  if (n % 60 === 0) return `${n / 60} min`
+  return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}`
+}
+
+/**
+ * How a set's time box counts (#78). A lift held for time (a plank) is
+ * SECONDS, stepped by five (thirty from three minutes). A piece of work (an
+ * interval, a ride) is MINUTES, always: the unit is the item's, never the
+ * value's, so it does not flip under the thumb, and the box reads "1:40" or
+ * "0:30" where the time is not whole minutes (lib/numtext.js `minutesText`).
+ * The stored value is seconds either way.
+ */
+export function timeBox(item, set) {
+  if (item?.kind === 'lift') return { label: 'sec', step: Number(set?.seconds) >= 180 ? 30 : 5, time: false }
+  return { label: 'min', step: 1, time: true }
+}
+
+/**
+ * One press on a minutes box, in seconds, landing on the next MARK: five
+ * seconds under a minute, a minute under ten, five minutes from there, the same
+ * marks on the way down (0:07 → 0:10 up, 0:05 down; 1:40 → 2:00 / 1:00; 10:30 →
+ * 15:00 / 10:00; a minute down is 0:55, ten down is 9:00). A 45-minute ride from
+ * the ten a new piece starts at is seven presses, or "45".
+ */
+export function bumpTime(seconds, dir) {
+  const s = Math.max(0, Math.round(Number(seconds) || 0))
+  const at = dir > 0 ? s : s - 1
+  const step = at < 60 ? 5 : at < 600 ? 60 : 300
+  const next = dir > 0 ? (Math.floor(s / step) + 1) * step : (Math.ceil(s / step) - 1) * step
+  return Math.max(0, next)
 }
 
 /**
@@ -1054,21 +1092,51 @@ export function splitPrescription(pres) {
     }]
   }
 
-  return groups.map(g => ({
+  const titles = partTitles(groups, pres.title)
+  return groups.map((g, i) => ({
     category: g.category,
     activity: g.activity,
-    title: g.name || g.category,
+    title: titles[i],
     pres: reindex({
       ...pres,
       // Each half carries the whole reasoning: it was written about the trip, and
       // an entry that quotes half a paragraph reads worse than one that quotes it.
-      title: g.name || g.category,
+      title: titles[i],
       category: g.category,
       activity: g.activity,
       minutes: null,
       blocks: g.blocks,
     }),
   }))
+}
+
+/*
+ * Block names that say where a block sits, not what it is. A part named one of
+ * these would land on the day as "Main", which means nothing in the Log a week
+ * later (#78), so it takes the workout's title instead.
+ */
+const GENERIC_BLOCK = /^(main|main (lifts?|set|block|work|part)|block \d+|part \d+|added|workout|session|exercises|accessor(y|ies)|strength|lifts?|lifting)$/i
+
+export const genericBlockName = (name, category = null) => {
+  const n = String(name || '').trim()
+  return !n || GENERIC_BLOCK.test(n) || (category && n.toLowerCase() === String(category).toLowerCase())
+}
+
+/**
+ * What each part of a split workout is called on the day: its block's name when
+ * that says what it is ("Easy run"), else the workout's title ("Legs and a short
+ * run"). Only one part takes the title as it is; another generic one is
+ * "<title> · 2", so two entries on a day never share a name.
+ */
+function partTitles(groups, title) {
+  const whole = String(title || '').trim() || 'Workout'
+  const used = new Set()
+  return groups.map((g, i) => {
+    let t = genericBlockName(g.name, g.category) ? whole : String(g.name).trim()
+    if (used.has(t)) t = `${whole} · ${i + 1}`
+    used.add(t)
+    return t
+  })
 }
 
 /* -------------------------------------------------------------- the editor */
@@ -1495,7 +1563,9 @@ export function blankPrescription({
  * reading "1 × 0 mi" reads as broken rather than as blank.
  */
 const PIECE_SHAPES = {
-  time: () => ({ seconds: 300 }),
+  // Ten minutes, typed and stepped in minutes (`timeBox`): a 45-minute ride is
+  // "45" or seven taps, an interval a few taps down.
+  time: () => ({ seconds: 600 }),
   distance: (unit) => ({ distance: unit === 'yd' ? 100 : 1 }),
   reps: () => ({ reps: 1 }),
 }

@@ -48,8 +48,8 @@ lands, and a planned day arriving at midnight never is.
 
 ## Plan a workout
 
-**+ → Plan a workout.** Pick what, **as many as you like**, as rows with a check that
-shows the order you tapped them. A gym trip that is legs, then core, then ten minutes on the
+**+ → Plan a workout.** Say what you want to do, or pick kinds, **as many as you like**, as
+optional chips; a hand-built workout gets one block per kind, in the order you tapped them. A gym trip that is legs, then core, then ten minutes on the
 bike is *one* session with three blocks against one time budget for the whole trip. The
 kinds are grouped under section heads (**Lifting**, **Support**, **Endurance** by intent, the
 Swim, Bike and Run catalogs folded, and **Climbing**), because "Power" and "Endurance" are
@@ -57,9 +57,12 @@ climbing categories in this app and ordinary words everywhere else. The whole li
 `plannerKinds` in `plan.json`, groups included, so it grows without a rebuild. The owner
 can also plan **for** someone else on the install (*For: You / Sam*); it lands in their log.
 
-Once something is picked, two buttons appear:
+Two routes:
 
-- **Build it myself** opens the same editor with the blocks you picked and nothing in them.
+- **Build it myself** opens the editor at once with one empty block. The kinds are an
+  optional **Start from** row while it is empty; pick Legs and Ride and you get those two
+  blocks. A workout built with no kind is named from what is in it. Timed pieces are in
+  minutes ("15 min", a box that counts minutes).
 - **Write it for me** (only when the server has a working Claude Code CLI) asks how long you
   have and what you want out of it, then an agent reads your log, your athlete profile (when
   a brain file is configured), what you logged in the last week and last night's WHOOP
@@ -68,8 +71,12 @@ Once something is picked, two buttons appear:
   on the server, so leaving the page, locking the phone or switching devices loses nothing:
   the planner lists drafts being written and drafts ready to keep, and a draft is kept once.
 
-With no AI set up (a fresh install, or a CLI that will not run), Build it myself is the only
-button and nothing on the screen or in the + menu mentions a model. The server says
+Either way the plan goes on **the day Today is showing**, or any later day you step to, and
+the button says which ("Put it on tomorrow"). Backing out of the builder keeps what you put
+in it; closing the planner with work in it asks first.
+
+With no AI set up (a fresh install, or a CLI that will not run), the builder is the first
+screen and nothing on the screen or in the + menu mentions a model. The server says
 `ai-not-configured` for everyone, the owner included; Settings → AI says why.
 
 - **The agent is read-only.** `Read`, `Grep`, `Glob` and nothing else: no shell, no writes,

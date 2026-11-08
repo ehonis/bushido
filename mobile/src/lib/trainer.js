@@ -115,31 +115,35 @@ export function namesOf(list = []) {
 
 /**
  * The words the planner's screens use for who it is for, so the button, the
- * line under the title and the last screen cannot disagree.
+ * line under the title and the last screen cannot disagree. `day` is when it
+ * lands, as a sentence says it: "today" (the default), "tomorrow", "Sat, Oct 24";
+ * the last screen's title names it too ("On tomorrow").
  */
-export function forWords(who) {
+export function forWords(who, day = 'today') {
   const others = who?.others || []
   const names = namesOf(others)
+  const today = day === 'today'
   if (!others.length) {
-    return { keep: 'Put it on today', where: 'on today', title: 'On your day', from: 'your log', line: null, after: 'Nothing has started.' }
+    return { keep: `Put it on ${day}`, where: `on ${day}`, title: `On ${day}`, from: 'your log', line: null, after: 'Nothing has started.' }
   }
   if (who.me) {
     return {
-      keep: `Put it on today with ${names}`, where: `on today, with ${names}`, title: `On your day, with ${names}`,
+      keep: `Put it on ${day} with ${names}`, where: `on ${day}, with ${names}`, title: `On ${day}, with ${names}`,
       from: `your log and ${names}’s last week`,
       line: `You and ${names} · one shared workout`,
       after: 'Nothing has started. The exercises stay the same on every side; each of you logs your own numbers.',
     }
   }
+  const when = today ? '' : `, ${day}`
   if (others.length === 1) {
     return {
-      keep: `Put it on ${names}’s day`, where: `on ${names}’s day`, title: `On ${names}’s day`,
+      keep: `Put it on ${names}’s day${when}`, where: `on ${names}’s day${when}`, title: `On ${names}’s day${when}`,
       from: `${names}’s log`, line: `Planning for ${names} · it goes in ${names}’s log`,
       after: `Nothing has started. ${names} can edit or log it.`,
     }
   }
   return {
-    keep: `Put it on ${names}’s days`, where: `on ${names}’s days`, title: `On ${names}’s days`,
+    keep: `Put it on ${names}’s days${when}`, where: `on ${names}’s days${when}`, title: `On ${names}’s days${when}`,
     from: `${names}’s last week`, line: `Planning for ${names} · a copy goes in each of their logs`,
     after: 'Nothing has started. Each of them can edit or log their own copy.',
   }

@@ -39,3 +39,35 @@ export function numOrNull(v) {
   const n = Number(v)
   return Number.isFinite(n) ? n : null
 }
+
+/*
+ * A box that counts MINUTES over a value stored in seconds (#78): a timed piece.
+ * It reads "15" on the minute and "1:40" / "0:30" otherwise, so the unit never
+ * changes under the thumb while it is edited. It takes "45", "1.5" or "1:40";
+ * "1:" and "1:4" are still being typed and change nothing yet.
+ */
+const MINUTES = /^\d{0,3}(\.\d*)?$/
+const MIN_SEC = /^\d{0,3}:\d{0,2}$/
+
+/** Seconds as the minutes box shows them: "15", "1:40", "0:30"; blank is ''. */
+export function minutesText(seconds) {
+  const n = numOrNull(seconds)
+  if (n === null) return ''
+  const s = Math.max(0, Math.round(n))
+  return s % 60 === 0 ? String(s / 60) : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+/** `acceptNumberText` for the minutes box: `value` is SECONDS. Null rejects the keystroke. */
+export function acceptMinutesText(raw) {
+  const text = String(raw ?? '').replace(',', '.')
+  if (text === '') return { text, emit: true, value: null }
+  if (MIN_SEC.test(text)) {
+    const [m, sec] = text.split(':')
+    if (sec.length < 2) return { text, emit: false, value: null }
+    if (Number(sec) > 59) return null
+    return { text, emit: true, value: Number(m || 0) * 60 + Number(sec) }
+  }
+  if (!MINUTES.test(text)) return null
+  if (text === '.') return { text, emit: false, value: null }
+  return { text, emit: true, value: Math.round(Number(text) * 60) }
+}

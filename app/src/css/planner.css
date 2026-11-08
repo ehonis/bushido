@@ -82,8 +82,23 @@
 .chiprow { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 .chiprow .out-chip { font-variant-numeric: tabular-nums; }
 
-.minstep { display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); }
-.minstep-n { font-size: var(--fs-body); color: var(--ink-dim); font-variant-numeric: tabular-nums; min-width: 72px; text-align: center; }
+/* How long, one way (#78): the chips, and "Other" opens a box in minutes in the row. */
+.minother {
+  display: inline-flex; align-items: center; gap: var(--sp-2);
+  min-height: var(--tap); padding: 0 var(--sp-3) 0 var(--sp-1);
+  border: 1px solid var(--accent-line); border-radius: var(--r-pill); background: var(--accent-soft);
+  color: var(--ink-dim); font-size: var(--fs-small);
+}
+.minother input { width: 4.5ch; min-height: 36px; padding: 0 var(--sp-2); font-size: var(--fs-body); text-align: center; font-variant-numeric: tabular-nums; }
+
+/* Which day it goes on (#78): a label beside the same ‹ day › as the rest day's form. */
+.planday { display: flex; align-items: center; gap: var(--sp-3); }
+.planday-label { flex: none; font-size: var(--fs-small); font-weight: 500; color: var(--ink-dim); }
+.planday .dayswitch { flex: 1; min-width: 0; }
+.planday .dayswitch .iconbtn { width: var(--tap); height: var(--tap); }
+.plan-dayfoot { margin-top: var(--sp-6); }
+/* The builder's optional kinds sit above its one empty block. */
+.plan-from { margin-bottom: var(--sp-4); }
 
 .goalbox { width: 100%; resize: vertical; }
 

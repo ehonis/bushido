@@ -94,7 +94,7 @@ const BLOCK = {
   type: 'object',
   properties: {
     uid: { type: 'string', description: 'REVISIONS: copy it UNCHANGED from the session you were given whenever this is the same block, even renamed, moved or with different sets. Leave it out on a new one. Never invent one.' },
-    name: { type: 'string', description: 'Warm-up, Main, Accessory, Cool-down — whatever the session actually has.' },
+    name: { type: 'string', description: 'What this block is, in a few words: "Warm-up", "Squat and hinge", "Easy run", "Core finisher". A block with a category is named on the day by this, so never "Main", "Block 1" or "Accessory".' },
     note: { type: 'string', description: 'What this block is for, in one sentence. Anything without sets goes here rather than becoming an item.' },
     category: { type: 'string', description: 'Which category THIS BLOCK is — exact key from the list below. A block with a category BECOMES ITS OWN WORKOUT on the day: a trip that is lifting then a run lands as a lift entry and a run entry, each with its own log. A warm-up or cool-down that belongs to the block beside it must leave this out, or it becomes a third workout nobody did.' },
     activity: { type: 'string', description: 'The activity key for THIS BLOCK, from the list below — it decides what the block\'s own log form asks for. `run` on a run block, `lift` on a lifting block. Leave it out on a block with no category.' },

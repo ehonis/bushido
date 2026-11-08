@@ -52,6 +52,16 @@ const ASK = { picked: [{ key: 'legs', label: 'Legs', prompt: 'a leg day', catego
     eq(createDrafts().read(dir, d.id).status, 'ready', 'a finished draft did not survive a new reader')
   })
 
+  // #78: the day a draft is for is kept on its ask, so reopening it lands it there; a bad one is dropped.
+  await step('a draft remembers the day it is for', async () => {
+    const dir = tmp(); const s = createDrafts(); const p = fakePlanner()
+    const d = s.create(dir, { ...ASK, day: '2026-11-09' }, p.fn)
+    eq(s.read(dir, d.id).ask.day, '2026-11-09')
+    const bad = s.create(dir, { ...ASK, day: 'tomorrow; rm -rf' }, p.fn)
+    ok(!('day' in s.read(dir, bad.id).ask), 'a day that is not a date was kept')
+    ok(!('day' in s.read(dir, s.create(dir, ASK, p.fn).id).ask), 'a draft with no day grew one')
+  })
+
   await step('two drafts at once run and land independently', async () => {
     const dir = tmp(); const s = createDrafts(); const p = fakePlanner()
     const a = s.create(dir, ASK, p.fn)

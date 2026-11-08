@@ -56,7 +56,7 @@ export interface AppData {
   setTab: (t: TabId) => void
   placeAll: (items: { optId: string; data?: any }[], opts?: { open?: boolean; close?: boolean; date?: string }) => string[]
   placeToday: (optId: string, data?: any, opts?: { open?: boolean; close?: boolean; date?: string }) => string | null
-  keepPlan: (pres: any) => { ids: string[]; count: number; first: string | null; entries: any[] }
+  keepPlan: (pres: any, opts?: { date?: string }) => { ids: string[]; count: number; first: string | null; entries: any[] }
   startPlanned: (id: string) => void
   /** A circuit from the + timer (#68): put on today as a planned workout. */
   placeCircuit: (name: string, config: any) => void
@@ -65,7 +65,7 @@ export interface AppData {
   /** Who the owner can plan for (lib/trainer.js): nobody unless this is the owner, on the owner's own log, with someone else on the install. */
   people: { id: string; name: string }[]
   /** Keep a plan in someone else's log, through the people endpoints. */
-  keepPlanFor: (person: { id: string; name: string }, pres: any, key?: string | null) => Promise<{ ids: string[]; count: number; first: string | null }>
+  keepPlanFor: (person: { id: string; name: string }, pres: any, key?: string | null, date?: string) => Promise<{ ids: string[]; count: number; first: string | null }>
   /** You and others (#59): the entries just kept, shared with each of them, sync on. */
   shareKeptWith: (others: { id: string; name: string }[], kept: any[]) => Promise<{ entries: any[]; failed: { person: any; error: string }[] }>
   restOpt: any
@@ -171,11 +171,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const placeToday: AppData['placeToday'] = (optId, data = {}, opts = {}) => placeAll([{ optId, data }], opts)[0] || null
 
   /** Keep a prescription, as one entry per WORKOUT in it (see App.jsx keepPlan). */
-  const keepPlan = (pres: any) => {
+  const keepPlan = (pres: any, { date = localIso() }: { date?: string } = {}) => {
     const entries = placeWritten(
       plannedItems(splitPrescription(pres)),
-      // They land on the day, but nothing opens: the planner's last screen asks.
-      { open: false, close: false },
+      // They land on the day the planner chose (#78), but nothing opens: its last screen asks.
+      { open: false, close: false, date },
     )
     const ids = entries.map((e) => e.id)
     return { ids, count: ids.length, first: ids[0] || null, entries }
@@ -187,8 +187,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * own + would mint against their day.
    */
   const people = planPeople(me)
-  const keepPlanForPerson: AppData['keepPlanFor'] = (person, pres, key = null) => keepPlanFor({
-    person, parts: splitPrescription(pres), menu: plan?.dailyMenu || [], date: localIso(),
+  const keepPlanForPerson: AppData['keepPlanFor'] = (person, pres, key = null, date = localIso()) => keepPlanFor({
+    person, parts: splitPrescription(pres), menu: plan?.dailyMenu || [], date,
     owner: { id: me.real.id, name: me.real.name }, api: peopleApi, key,
   })
 
