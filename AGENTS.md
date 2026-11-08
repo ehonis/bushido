@@ -605,8 +605,9 @@ override, and its absence must render exactly like the app before it existed.
     entry stored as done, and keeps a marker the stored copy already has. An entry already
     stored as `done: false` without one (a plan, a legacy entry) is never touched.
   - **"Done" no longer means "finished running".** Today's session is done before it
-    starts, so "Start" asks `canStart()` (run not ended; on an earlier day, only once
-    undone) and the sides runner hands over by what was finished on screen.
+    starts, so "Start" asks `canStart()` (on today and later always, a finished run
+    included, which Start reopens (#75); on an earlier day, only once undone) and the
+    sides runner hands over by what was finished on screen.
 - **Nothing rewrites history to suit a component.** Old shapes are read as they are
   (positional lift sets, `out.notes` on old entries, `out.intensity`/`out.effort`, the
   retired `hard-home` card id). New code adapts to stored data, not the reverse.
@@ -938,6 +939,19 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
 - **Timer presets are entries**: one undated `kind: 'timer'` entry per preset (like gear),
   plus `timer-last`, the one-tap default, rewritten only when Start runs something
   different. Per person, synced, merged per preset, deleted by tombstone.
+- **Every workout screen wears one chrome** (#75, timer.jsx `WorkHead`, `LeaveDialog`,
+  `ControlRow`; the same exports in `features/timer.tsx`): the exit is an X at the top
+  left; leaving asks with Keep going as the primary, and Finish is the primary only
+  once every set is marked (before that, a quiet "Finish with N sets left" that asks
+  again, and All sets has no Finish); every clock (the runner's rest and timed sets,
+  workout mode, the timer, a circuit) has Back · −10 · Pause · +10 · Skip at the
+  bottom. Skip on a set is up by the set count, never under Done set. A finished run
+  is reopened by the first write in it (`reopened`, lib/timer.js).
+- **A timed set runs on a clock** (#75): seconds and nothing else counted
+  (`isTimedSet`) makes the runner's primary "Start 0:30", a one-exercise circuit on
+  the run as `run.hold` (`startHold`), which marks the set with the seconds held when
+  it ends (`heldSeconds`; under `DONE_AFTER` it marks nothing). The runner's rest
+  pauses (`run.restPause`, keyed by the `restUntil` it belongs to).
 - **A lift always offers a weight box**, even when the prescription has no load
   (`setFieldsFor()` decides for both editor and runner).
 - **Lift-only planned sessions are not runnable** (`runnable(opt, pres)`, `isLiftOnly`,

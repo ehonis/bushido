@@ -38,38 +38,43 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  KeyboardAvoidingView, Modal as RNModal, Platform, ScrollView, StyleSheet, View,
+  Keyboard, KeyboardAvoidingView, Modal as RNModal, Platform, ScrollView, StyleSheet, View,
   useWindowDimensions, type StyleProp, type ViewStyle,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Svg, { Circle } from 'react-native-svg'
-import { colors, font, radius, space, TAP } from '../theme'
+import { colors, font, mix, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
 import { Btn, Card, IconBtn, Press, SectionHeader, Sub, Toggle, s as kit, type BtnKind } from '../ui/kit'
 import { Modal } from '../ui/Sheet'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
-import { impact, success, tap } from '../ui/haptics'
+import { impact, success, tap, warn } from '../ui/haptics'
 import { Icon } from '../lib/icons'
 import { onForeground } from '../lib/foreground'
 import { NumInput } from './numinput'
 import { CUES, primeAudio, resumeAudio, acquireWakeLock, releaseWakeLock } from '../lib/cues'
 import { lastLift, liftFieldOf } from '../lib/lifts.js'
 import {
-  prescriptionSteps, runProgress, firstOpen, restLeft, runElapsed,
-  markSet, unmarkSet, skipSet, unskipSet, nudgeRest, endRest, goToSet, finishRun,
+  prescriptionSteps, runProgress, firstOpen, runElapsed,
+  markSet, unmarkSet, skipSet, unskipSet, endRest, goToSet, finishRun,
   emptyRun, setDraft, carryForward, runOutputs, isLogged, isSkipped, setLine, itemLine,
   setFieldsFor, addSetLike, patchRunItem, measureOfItem,
   blockTimer, circuitOnly, circuitTiming, endCircuit, circuitToOpen, nextCircuit,
 } from '../lib/prescription.js'
 import * as timerLib from '../lib/timer.js'
 import { clock } from '../lib/workout.js'
-import { TimerRun } from './timer'
+import { TimerRun, WorkHead, LeaveDialog, leaveActions, ControlRow, setsWord, KIND_COLOR } from './timer'
 import { timingWords } from './circuit'
 import * as trainerLib from '../lib/trainer.js'
 import { Stepper, STEP, weightSwitch, ExerciseSheet, type WeightSwap } from './exercises'
 import { ExerciseBody, musclesOf, muscleWords } from '../lib/bodymap'
 import { usePlan } from '../lib/planctx.jsx'
-import { SideRule, SideWho } from '../ui/Person'
+
+const {
+  compile: tCompile, settle, back: tBack, bump: tBump, skip: tSkip, togglePause, moved, cueFor, view: tView,
+  holdConfig, isTimedSet, holdOn, startHold, heldSeconds,
+  restClock, restPausedAt, toggleRest, bumpRest, restBack, reopened,
+} = timerLib as any
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).padStart(2, '0')}`
 
@@ -124,7 +129,10 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
   const [cursor, setCursor] = useState(() => run?.cursor || (firstOpen as any)(run, steps))
   const [draft, setDraft_] = useState<any>(null)
   const [listOpen, setListOpen] = useState(false)
-  const [confirmExit, setConfirmExit] = useState(false)
+  // The leave dialog: null, 'ask' (Keep going / Leave it open / Finish…), or
+  // 'finish' (finishing with sets still to do asks again).
+  const [leaving, setLeaving] = useState<null | 'ask' | 'finish'>(null)
+  const [skipping, setSkipping] = useState(false) // a whole circuit's Skip asks first
   const [muted, setMuted] = useState(false)
   const lock = useRef<string | null>(null)
   const rangAt = useRef(0)
@@ -154,9 +162,24 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
 
   const step = steps.find(s => s.setId === cursor) || steps[0] || null
   const progress: any = runProgress(run, steps)
-  const rest = restLeft(run, now)
+  // The rest stands still while paused (lib/timer.js `restClock`).
+  const rest: number = restClock(run, now)
+  const restPaused = restPausedAt(run) != null
   const elapsed = runElapsed(run, now)
   const done = progress.left === 0 && progress.total > 0
+
+  /*
+   * A timed set's clock (#75): a plank or a 90-second interval is started with
+   * "Start 0:30", counts down on the timer's face and marks itself, logging the
+   * seconds actually held. It is on the run (`run.hold`), so it survives the
+   * app closing like the rest clock does.
+   */
+  const hold: any = step ? holdOn(run, step.setId) : null
+  const holdProgram = useMemo(
+    () => (hold ? tCompile(holdConfig(hold.seconds, { name: step.item.name, key: step.item.exercise || null })) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hold?.seconds, step?.item?.name, step?.item?.exercise])
+  const holdNow: any = hold ? settle(holdProgram, hold.timer, now) : null
 
   /* ------------------------------------------------------------ the clock */
 
@@ -220,10 +243,18 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
 
   /* ------------------------------------------------------------- the writes */
 
+  /*
+   * Every write goes through `reopened` (lib/timer.js): a workout finished and
+   * opened again from its sheet is running again from the first thing done in
+   * it, and only a write that finishes it sets an end.
+   */
+  const write = (nextRun: any, opts: any) => onRun(reopened(nextRun, run), opts)
+
   /** Persist run state, and the outputs it implies where they changed. */
   const commit = useCallback((nextRun: any, { outputs = false, done = undefined }: { outputs?: boolean; done?: boolean } = {}) => {
-    onRun(nextRun, {
-      out: outputs ? runOutputs(pres, nextRun, entry?.data?.out || {}) : null,
+    const r = reopened(nextRun, entry?.data?.run || null)
+    onRun(r, {
+      out: outputs ? runOutputs(pres, r, entry?.data?.out || {}) : null,
       done,
     })
   }, [onRun, pres, entry])
@@ -263,13 +294,13 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
   const addAnother = () => {
     if (!step) return
     impact()
-    onRun(run, { plan: (addSetLike as any)(pres, step.itemId, { ...step.set, ...(draft || {}) }) })
+    write(run, { plan: (addSetLike as any)(pres, step.itemId, { ...step.set, ...(draft || {}) }) })
   }
 
   // What this exercise's weight means (#58), on the plan, and on the log in the
   // same write once a set of it is logged, so every set and the log say the same.
   const patchThisItem = (p: any) => {
-    if (step) onRun(run, (patchRunItem as any)(pres, run, step.itemId, p, entry?.data?.out || {}, liftField))
+    if (step) write(run, (patchRunItem as any)(pres, run, step.itemId, p, entry?.data?.out || {}, liftField))
   }
 
   const jump = (setId: string) => {
@@ -279,7 +310,54 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
     setListOpen(false)
   }
 
+  /* ---------------------------------------------------- a timed set's clock */
+
+  const beginHold = () => {
+    if (!step) return
+    impact()
+    const at = Date.now()
+    const seconds = Number(draft?.seconds) > 0 ? draft.seconds : step.set.seconds
+    commit(startHold(run || emptyRun(at), step.setId, seconds, at, { name: step.item.name, key: step.item.exercise || null }))
+    setNow(at)
+  }
+  const holdAct = (fn: any, ...args: any[]) => {
+    if (!hold) return
+    const at = Date.now()
+    commit({ ...run, hold: { ...hold, timer: fn(holdProgram, settle(holdProgram, hold.timer, at), at, ...args) } })
+    setNow(at)
+  }
+  const stopHold = () => { tap(); commit({ ...run, hold: null }) }
+
+  // Its cues, on each change of segment (the count-in ending, the hold ending).
+  const heard = useRef<any>(null)
+  useEffect(() => {
+    if (!holdNow) { heard.current = null; return }
+    const was = heard.current
+    heard.current = holdNow
+    if (was && was.startedAt === holdNow.startedAt && moved(was, holdNow) && shown && !muted) {
+      const c = cueFor(holdProgram, holdNow)
+      if (c && c !== 'finished') (CUES as any)[c]?.()
+    }
+  })
+
+  // The end of a hold marks the set with what was held, once per clock; under
+  // DONE_AFTER (a mis-tap, a look) it marks nothing and the set is as it was.
+  const ended = useRef<number | null>(null)
+  useEffect(() => {
+    if (!hold || holdNow?.finishedAt == null || ended.current === hold.timer.startedAt) return
+    ended.current = hold.timer.startedAt
+    const secs = heldSeconds(holdProgram, holdNow)
+    const base = { ...run, hold: null }
+    if (secs == null) { commit(base); return }
+    // A hidden side's hold ends silently, as the web's: the cue is about the side on screen.
+    if (shown) { if (muted) success(); else CUES.setDone() }
+    const next: any = (markSet as any)(base, step, { ...(draft || {}), seconds: secs }, { steps })
+    commit(next, { outputs: true })
+    setCursor(next.cursor)
+  }, [holdNow?.finishedAt]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const finish = () => {
+    setLeaving(null)
     if (muted) success(); else CUES.finished()
     // Done, the outputs and the end time in one write, for the same reason as
     // above — `onSetDone` used to be a second call and would have taken the run
@@ -289,10 +367,7 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
     ;(onFinish || onExit)()
   }
 
-  const askExit = () => {
-    impact()
-    setConfirmExit(true)
-  }
+  const askExit = () => setLeaving('ask')
 
   const frame = (body: React.ReactNode) => embedded ? (
     <View style={[st.run, { paddingBottom: insets.bottom }]}>{body}</View>
@@ -346,18 +421,9 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
 
   return frame(
     <>
-      <SideRule who={who} />
-      <View style={st.head}>
-        <IconBtn icon="ChevronDown" size={22} label="Leave the workout" onPress={askExit} />
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <SideWho who={who} />
-          <T size={font.title} weight={600} lineHeight={22} numberOfLines={1}>{pres.title}</T>
-          <T size={font.small} dim tabular>{`${progress.done} of ${progress.total} sets`}</T>
-        </View>
-        <IconBtn icon={muted ? 'VolumeX' : 'Volume2'} size={19} color={muted ? colors.inkFaint : colors.inkDim}
-          label={muted ? 'Unmute cues' : 'Mute cues'} onPress={() => setMuted(v => !v)} />
-        <T size={font.body} dim tabular style={{ paddingRight: 6 }}>{mmss(elapsed)}</T>
-      </View>
+      <WorkHead title={pres.title} who={who} muted={muted} onMute={setMuted}
+        sub={`${progress.done} of ${progress.total} sets · ${mmss(elapsed)}`}
+        onExit={askExit} />
 
       {switcher}
 
@@ -367,8 +433,10 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
       </View>
 
       {rest > 0 ? (
-        <RestScreen seconds={rest} of={run.restOf} next={step}
-          onAdd={(n: number) => commit((nudgeRest as any)(run, n))}
+        <RestScreen seconds={rest} of={run.restOf} next={step} paused={restPaused}
+          onBack={() => { const next: any = restBack(run); commit(next); setCursor(next.cursor) }}
+          onBump={(n: number) => commit(bumpRest(run, Date.now(), n))}
+          onPause={() => commit(toggleRest(run, Date.now()))}
           onSkip={() => commit(endRest(run))} />
       ) : done ? (
         <FinishScreen progress={progress} elapsed={elapsed}
@@ -376,16 +444,19 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
       ) : step?.block?.circuit ? (
         <CircuitStep block={step.block} together={together}
           onStart={() => { impact(); setCircuitId(step.blockId) }}
-          onSkip={() => {
-            const next: any = (endCircuit as any)(run, pres, step.blockId, [], {})
-            commit(next)
-            setCursor(next.cursor)
-          }} />
+          onList={() => { tap(); setListOpen(true) }}
+          onSkip={() => { warn(); setSkipping(true) }} />
+      ) : hold && holdNow ? (
+        <HoldScreen step={step} program={holdProgram} timer={holdNow} now={now}
+          onFace={() => holdAct(togglePause)}
+          onBack={() => holdAct(tBack)} onBump={(n: number) => holdAct(tBump, n)} onPause={() => holdAct(togglePause)}
+          onSkip={() => holdAct(tSkip)} onStop={stopHold} />
       ) : step ? (
         <SetScreen
           step={step} steps={steps} run={run} draft={draft} entries={entries} entryId={entry?.id}
           briefing={briefingFor(pres, step)}
           onPatch={patch} onMark={mark} onSkip={skip} onUnmark={() => unmark(step.setId)} onAddSet={addAnother}
+          onStartHold={beginHold}
           onPatchItem={patchThisItem}
           onList={() => setListOpen(true)} />
       ) : null}
@@ -393,24 +464,32 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
       {listOpen && (
         <SetList pres={pres} steps={steps} run={run} cursor={cursor} onJump={jump}
           onUnmark={unmark} onUnskip={(id: string) => { tap(); commit(unskipSet(run, id)); setCursor(id) }}
-          onClose={() => setListOpen(false)} onFinish={finish} />
+          onClose={() => setListOpen(false)} onFinish={progress.left === 0 ? finish : null} />
       )}
 
-      {confirmExit && (
-        <View style={st.confirm} accessibilityViewIsModal accessibilityLabel="Leave the workout?">
-          <View style={st.confirmBox}>
-            <T size={font.title} weight={600} style={{ marginBottom: space[2] }}>Leave the workout?</T>
-            <Sub>Every set you marked is saved, and the clock keeps running.</Sub>
-            {/* One primary: finishing is the decision this asks for; leaving it open
-                is the quieter second, and Keep going backs out. */}
-            <View style={st.confirmActs}>
-              <Btn kind="ghost" title="Keep going" style={st.confirmBtn} onPress={() => setConfirmExit(false)} />
-              <Btn kind="secondary" title="Leave it open" style={st.confirmBtn} onPress={onExit} />
-              <Btn title="Finish now" style={st.confirmBtn} onPress={() => { setConfirmExit(false); finish() }} />
-            </View>
-          </View>
-        </View>
-      )}
+      {leaving === 'ask' ? (
+        <LeaveDialog title="Leave the workout?"
+          body="Every set you marked is saved, and the clock keeps running."
+          onKeep={() => setLeaving(null)}
+          actions={leaveActions({ left: progress.left, onLeave: onExit, onFinish: finish, onAskFinish: () => { warn(); setLeaving('finish') } })} />
+      ) : null}
+      {leaving === 'finish' ? (
+        <LeaveDialog title={`Finish with ${setsWord(progress.left)} left?`}
+          body="They stay unmarked. Start on the workout's sheet opens it again."
+          onKeep={() => setLeaving(null)}
+          actions={[{ label: 'Finish anyway', kind: 'secondary', onClick: finish }]} />
+      ) : null}
+      {skipping && step?.block?.circuit ? (
+        <LeaveDialog title={`Skip ${step.block.name}?`}
+          body="None of the circuit is logged. All sets puts it back."
+          keepLabel="Keep it" onKeep={() => setSkipping(false)}
+          actions={[{ label: 'Skip the circuit', kind: 'secondary', onClick: () => {
+            setSkipping(false)
+            const next: any = (endCircuit as any)(run, pres, step.blockId, [], {})
+            commit(next)
+            setCursor(next.cursor)
+          } }]} />
+      ) : null}
     </>,
   )
 }
@@ -518,14 +597,21 @@ function CircuitRun({ pres, block, run, only, intro, who, switcher, shown, onRun
  * sync on it also asks whether it is done together: one clock, logged for
  * everyone in it. Remembered per device; on until turned off.
  */
-function CircuitStep({ block, onStart, onSkip, together = null }: any) {
+function CircuitStep({ block, onStart, onSkip, onList, together = null }: any) {
   const { compile, describe, totalSeconds } = timerLib as any
   const { andWords } = trainerLib as any
   const config = blockTimer(block)
   const total = totalSeconds(compile(config))
   return (
     <ScrollView contentContainerStyle={{ padding: space.gutter, gap: space[3] }}>
-      <T size={font.small} dim>{block.name} · Circuit</T>
+      {/* Skipping a whole circuit is at the top, away from Start, and asks first. */}
+      <View style={[st.where, { justifyContent: 'space-between' }]}>
+        <T size={font.small} dim numberOfLines={1} style={{ flexShrink: 1 }}>{block.name} · Circuit</T>
+        <Press onPress={onSkip} style={st.addSet} accessibilityRole="button" accessibilityLabel={`Skip ${block.name}`}>
+          <Icon name="SkipForward" size={14} color={colors.inkDim} />
+          <T size={font.small} dim>Skip</T>
+        </Press>
+      </View>
       <T size={font.heading} weight={600}>{block.name}</T>
       <T size={font.small} dim>{describe(config)}{total ? ` · ${clock(total)}` : ''}</T>
       <Card style={{ padding: 0 }}>
@@ -552,7 +638,7 @@ function CircuitStep({ block, onStart, onSkip, together = null }: any) {
       ) : (
         <>
           <Btn icon="Play" title="Start the circuit" onPress={onStart} style={{ minHeight: 56 }} />
-          <Btn kind="quiet" icon="SkipForward" title="Skip" onPress={onSkip} />
+          <Btn kind="quiet" icon="Layers" title="All sets" onPress={onList} />
         </>
       )}
     </ScrollView>
@@ -593,7 +679,7 @@ function briefingFor(pres: any, step: any) {
   return out
 }
 
-function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], onPatch, onMark, onSkip, onUnmark, onList, onAddSet, onPatchItem }: any) {
+function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], onPatch, onMark, onSkip, onUnmark, onList, onAddSet, onPatchItem, onStartHold }: any) {
   const { item } = step
   const logged = isLogged(run, step.setId)
   const liftField = liftFieldOf(usePlan())
@@ -607,23 +693,30 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
   const target = setLine(step.set, item)
   const mine = steps.filter((s: any) => s.itemId === item.id)
   const doneHere = mine.filter((s: any) => isLogged(run, s.setId)).length
+  const fields: string[] = setFieldsFor(item, step.set)
+  // Seconds and nothing else counted: the primary starts its clock (#75).
+  const timed = !logged && isTimedSet(fields, { seconds: draft?.seconds ?? step.set.seconds })
+  const holdFor = Number(draft?.seconds) > 0 ? Number(draft.seconds) : Number(step.set.seconds)
+  const typing = useKeyboardUp()
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={st.body}
         keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+        {/* Skip is up here, beside the count it changes, and not under Done set:
+            the two were 8pt apart where the thumb works (#75). A skip is put back
+            from All sets. */}
         <View style={st.where}>
           <T size={font.small} dim tabular numberOfLines={1} style={{ flexShrink: 1 }}>
             {`${step.blockName} · Set ${step.index + 1} of ${step.of}`}
           </T>
-          {/* One more of these, same numbers. Quiet and beside the count it
-              changes, because the big button on this screen is for marking a set
-              and a second one would compete with it; the 44pt target is padding. */}
-          <Press onPress={onAddSet} style={st.addSet} accessibilityRole="button"
-            accessibilityLabel={`One more set of ${item.name}, same as this one`}>
-            <Icon name="Plus" size={14} color={colors.inkDim} />
-            <T size={font.small} dim>Add a set</T>
-          </Press>
+          {!logged ? (
+            <Press onPress={onSkip} style={st.addSet} accessibilityRole="button"
+              accessibilityLabel={`Skip set ${step.index + 1} of ${item.name}`}>
+              <Icon name="SkipForward" size={14} color={colors.inkDim} />
+              <T size={font.small} dim>Skip</T>
+            </Press>
+          ) : null}
         </View>
 
         {/* A catalog movement's name opens what it is (issue #63), for the set
@@ -658,7 +751,7 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
         {/* The same fields the editor shows, from the same function — a box the
             user can plan in and not record in is worse than no box. */}
         <View style={st.inputs}>
-          {setFieldsFor(item, step.set).map((f: string) => (
+          {fields.map((f: string) => (
             <BigStepper key={f} {...(STEP as any)[f](item, step.set)} value={draft?.[f]}
               swap={f === 'weight' ? swap : null}
               onChange={(v: any) => onPatch({ [f]: v })} />
@@ -679,6 +772,11 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
             <Icon name="Info" size={14} color={colors.inkDim} style={{ marginTop: 3 }} />
             <T size={font.small} dim lineHeight={20} style={{ flexShrink: 1 }}>{step.set.note || item.note}</T>
           </View>
+        ) : null}
+
+        {timed ? (
+          <RunBtn kind="quiet" icon="Check" label="Log this set without the clock" style={{ alignSelf: 'center', marginTop: space[2] }}
+            onPress={onMark} />
         ) : null}
 
         {prior ? (
@@ -702,23 +800,32 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
         ) : null}
       </ScrollView>
 
-      {/* The bottom third is where a thumb reaches, so everything pressed mid-set
-          lives here and nothing else does. ONE primary on this screen (D7): Done
-          set. A set already marked offers its undo as a secondary in its place. */}
-      <View style={st.acts}>
-        {logged ? (
-          <RunBtn big kind="secondary" icon="RotateCw" iconSize={20} label="Undo this set" onPress={onUnmark} />
-        ) : (
-          <RunBtn big icon="Check" iconSize={24} label="Done set" onPress={onMark} />
-        )}
-        <View style={st.actsRow}>
-          <RunBtn kind="quiet" icon="SkipForward" label="Skip" onPress={onSkip} />
-          <T size={font.caption} dim tabular align="center" numberOfLines={1} style={{ flex: 1 }}>
-            {`${doneHere} of ${step.of} · ${itemLine(item)}`}
-          </T>
-          <RunBtn kind="quiet" icon="Layers" label="All sets" onPress={onList} />
+      {/* The bottom third is where a thumb reaches. ONE primary (D7): Done set,
+          or for a timed set Start, which marks it when the clock runs out. A set
+          already marked offers its undo as a secondary in its place. Under it only
+          things that cannot lose a set: All sets and one more set.
+          While the keyboard is up none of it is drawn, so nothing rides onto the
+          keypad (#75); a tap on empty space puts the keyboard away. The keyboard's
+          own Done bar belongs to NumInput (another issue). */}
+      {typing ? null : (
+        <View style={st.acts}>
+          {logged ? (
+            <RunBtn big kind="secondary" icon="RotateCw" iconSize={20} label="Undo this set" onPress={onUnmark} />
+          ) : timed ? (
+            <RunBtn big icon="Play" iconSize={24} label={`Start ${mmss(holdFor)}`} onPress={onStartHold} />
+          ) : (
+            <RunBtn big icon="Check" iconSize={24} label="Done set" onPress={onMark} />
+          )}
+          <View style={st.actsRow}>
+            <RunBtn kind="quiet" icon="Layers" label="All sets" onPress={() => { tap(); onList() }} />
+            <T size={font.caption} dim tabular align="center" numberOfLines={1} style={{ flex: 1 }}>
+              {`${doneHere} of ${step.of} · ${itemLine(item)}`}
+            </T>
+            {/* One more of these, same numbers: quiet, the big button is for marking a set. */}
+            <RunBtn kind="quiet" icon="Plus" label="Add a set" a11y={`One more set of ${item.name}, same as this one`} onPress={onAddSet} />
+          </View>
         </View>
-      </View>
+      )}
     </KeyboardAvoidingView>
   )
 }
@@ -811,18 +918,79 @@ function BigStepper({ label, value, step = 1, min = null, onChange, swap = null 
   )
 }
 
+/** Whether the keyboard is up, from React Native's own events (D13: no new native code). */
+function useKeyboardUp() {
+  const [up, setUp] = useState(false)
+  useEffect(() => {
+    const show = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow'
+    const hide = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide'
+    const a = Keyboard.addListener(show, () => setUp(true))
+    const b = Keyboard.addListener(hide, () => setUp(false))
+    return () => { a.remove(); b.remove() }
+  }, [])
+  return up
+}
+
+/* ------------------------------------------------------------ a timed set */
+
+/**
+ * A timed set running (#75): the interval timer's face, coloured by its phase,
+ * and the one control row. It marks itself when it runs out (WorkoutRunner).
+ * Stopping the clock is at the top, away from the thumb, and logs nothing.
+ */
+function HoldScreen({ step, program, timer, now, onFace, onBack, onBump, onPause, onSkip, onStop }: any) {
+  const { width } = useWindowDimensions()
+  const v: any = tView(program, timer, now)
+  if (v.finished) return null
+  const seg = v.segment
+  const counting = seg.kind === 'countin'
+  const k = KIND_COLOR[seg.kind] || colors.inkDim
+  const big = Math.min(220, Math.max(96, width * 0.34))
+  return (
+    <View style={{ flex: 1 }}>
+      <View style={[st.body, { flex: 1 }]}>
+        <View style={[st.where, { justifyContent: 'space-between' }]}>
+          <T size={font.small} dim tabular numberOfLines={1} style={{ flexShrink: 1 }}>
+            {`${step.blockName} · Set ${step.index + 1} of ${step.of}`}
+          </T>
+          <Press onPress={onStop} style={st.addSet} accessibilityRole="button" accessibilityLabel="Stop the clock, log nothing">
+            <Icon name="X" size={14} color={colors.inkDim} />
+            <T size={font.small} dim>Stop the clock</T>
+          </Press>
+        </View>
+        <T size={font.heading} weight={600} lineHeight={28} align="center" style={{ marginTop: space[3] }}>{step.item.name}</T>
+        <Press onPress={() => { impact(); onFace() }} accessibilityRole="button" accessibilityLabel={v.paused ? 'Resume' : 'Pause'}
+          style={st.face}>
+          <T size={Math.min(36, Math.max(font.heading, width * 0.08))} weight={600} color={k}>{counting ? 'Get ready' : 'Hold'}</T>
+          <T size={big} weight={600} tabular color={k}
+            style={{ lineHeight: big * 1.02, letterSpacing: -big * 0.03, opacity: v.paused ? 0.4 : 1 }}>
+            {clock(Math.ceil(v.left))}
+          </T>
+          {v.progress != null ? (
+            <View style={[st.holdBar, { backgroundColor: mix(k, 20, colors.bg) }]}>
+              <View style={{ width: `${v.progress * 100}%`, height: '100%', backgroundColor: k }} />
+            </View>
+          ) : null}
+          <T size={font.small} dim>{v.paused ? 'Paused · tap to carry on' : counting ? 'Then the set starts' : 'It marks itself at zero · Skip ends it here'}</T>
+        </Press>
+      </View>
+      <View style={st.acts}>
+        <ControlRow paused={v.paused} onBack={onBack} onLess={() => onBump(-10)} onPause={onPause}
+          onMore={() => onBump(10)} onSkip={onSkip} skipLabel={counting ? 'Skip the count-in' : 'End the set here'} />
+      </View>
+    </View>
+  )
+}
+
 /* ---------------------------------------------------------------- resting */
 
 /**
- * The rest, given the whole screen.
- *
- * Big enough to read from the floor, and the two nudge buttons are the ones the
- * user will actually want: a set that went badly needs another thirty seconds
- * and a set that went well does not need the full ninety. "Skip" is the third,
- * and it is deliberately the quietest of the three — no primary while resting,
- * because the commonest mistake is not resting long enough.
+ * The rest, given the whole screen. Big enough to read from the floor, with the
+ * one control row every clock in the app has (#75): Back to the set just done,
+ * ten seconds either way, Pause, and Skip. No primary while resting: the
+ * commonest mistake is not resting long enough.
  */
-function RestScreen({ seconds, of, next, onAdd, onSkip }: any) {
+function RestScreen({ seconds, of, next, paused, onBack, onBump, onPause, onSkip }: any) {
   const pct = of > 0 ? Math.max(0, Math.min(1, seconds / of)) : 0
   const { width } = useWindowDimensions()
   // The web's conic ring (min(62vw, 230px), the inner 79% cut out), as one arc.
@@ -833,7 +1001,7 @@ function RestScreen({ seconds, of, next, onAdd, onSkip }: any) {
   return (
     <View style={{ flex: 1 }}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={[st.body, { justifyContent: 'center' }]}>
-        <T size={font.title} weight={600} dim align="center">Rest</T>
+        <T size={font.title} weight={600} dim align="center">{paused ? 'Rest · paused' : 'Rest'}</T>
         <View style={[st.ring, { width: size, height: size }]}>
           <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
             <Circle cx={size / 2} cy={size / 2} r={r} stroke={colors.panel2} strokeWidth={thick} fill="none" />
@@ -843,12 +1011,7 @@ function RestScreen({ seconds, of, next, onAdd, onSkip }: any) {
             ) : null}
           </Svg>
           {/* The runner's own clock size (above font.display, as BigStepper's). */}
-          <T size={56} weight={600} tabular lineHeight={64}>{mmss(seconds)}</T>
-        </View>
-
-        <View style={st.nudge}>
-          <RunBtn haptic kind="secondary" icon="Minus" iconSize={18} label="15s" a11y="15 seconds less" style={st.nudgeBtn} onPress={() => onAdd(-15)} />
-          <RunBtn haptic kind="secondary" icon="Plus" iconSize={18} label="30s" a11y="30 seconds more" style={st.nudgeBtn} onPress={() => onAdd(30)} />
+          <T size={56} weight={600} tabular lineHeight={64} style={{ opacity: paused ? 0.4 : 1 }}>{mmss(seconds)}</T>
         </View>
 
         {next ? (
@@ -860,8 +1023,8 @@ function RestScreen({ seconds, of, next, onAdd, onSkip }: any) {
       </ScrollView>
 
       <View style={st.acts}>
-        <RunBtn kind="ghost" icon="SkipForward" iconSize={18} label="Skip the rest" style={{ width: '100%' }}
-          onPress={() => { tap(); onSkip() }} />
+        <ControlRow paused={paused} onBack={onBack} onLess={() => onBump(-10)} onPause={onPause}
+          onMore={() => onBump(10)} onSkip={onSkip} skipLabel="Skip the rest" />
       </View>
     </View>
   )
@@ -880,7 +1043,7 @@ function FinishScreen({ progress, elapsed, onFinish, onReview }: any) {
         </Sub>
       </ScrollView>
       <View style={st.acts}>
-        <RunBtn big icon="Flag" iconSize={22} label="Finish and log it" onPress={onFinish} />
+        <RunBtn big icon="Flag" iconSize={22} label="Finish workout" onPress={onFinish} />
         <View style={[st.actsRow, { justifyContent: 'center' }]}>
           <RunBtn kind="quiet" icon="Layers" label="Go back over the sets" onPress={() => { tap(); onReview() }} />
         </View>
@@ -895,6 +1058,9 @@ function FinishScreen({ progress, elapsed, onFinish, onReview }: any) {
  * The whole session as a list — where you go to jump, to fix a set you marked
  * wrong, or to see what is left. A sheet rather than a permanent column, because
  * on a phone it would cost the set screen the room that makes it readable.
+ * Finishing is in its footer only once every set is marked or skipped
+ * (`onFinish` null otherwise): opened to jump to a set, it used to offer
+ * "Finish and log it" at one set of seven with no confirm (#75).
  */
 function SetList({ pres, steps, run, cursor, onJump, onUnmark, onUnskip, onClose, onFinish }: any) {
   // Blocks that are only prose have no rows, so they get named here rather than
@@ -909,7 +1075,7 @@ function SetList({ pres, steps, run, cursor, onJump, onUnmark, onUnskip, onClose
   }
   return (
     <Modal title="All sets" onClose={onClose} bodyStyle={{ paddingHorizontal: space.gutter, paddingTop: space[4] }}
-      footer={<Btn icon="Flag" title="Finish and log it" flex onPress={onFinish} />}>
+      footer={onFinish ? <Btn icon="Flag" title="Finish workout" flex onPress={onFinish} /> : undefined}>
       {proseBlocks.map((b: any) => (
         <View key={b.id} style={st.prose}>
           <T size={font.body} weight={600}>{b.name}</T>
@@ -965,10 +1131,6 @@ const st = StyleSheet.create({
   moveAbout: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[2], marginTop: space[3], marginBottom: 2, minHeight: TAP, alignSelf: 'center' },
   run: { flex: 1, backgroundColor: colors.bg },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space[3], padding: space[6] },
-  head: {
-    flexDirection: 'row', alignItems: 'center', gap: space[2],
-    paddingHorizontal: 10, paddingVertical: space[2], borderBottomWidth: 1, borderBottomColor: colors.line,
-  },
   bar: { height: 3, backgroundColor: colors.panel2 },
   barFill: { height: '100%', backgroundColor: colors.accent },
   body: { flexGrow: 1, paddingTop: space[5], paddingHorizontal: space.gutter, paddingBottom: space[3], width: '100%', maxWidth: 560, alignSelf: 'center' },
@@ -1007,8 +1169,9 @@ const st = StyleSheet.create({
   quietBtn: { paddingHorizontal: space[2] },
   actsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[2], marginTop: space[2] },
   ring: { alignSelf: 'center', marginVertical: space[4], alignItems: 'center', justifyContent: 'center' },
-  nudge: { flexDirection: 'row', justifyContent: 'center', gap: space[2] },
-  nudgeBtn: { minWidth: 112 },
+  // The timer's face, for a timed set (timer.tsx `st.face`/`st.bar`).
+  face: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space[3] },
+  holdBar: { width: '80%', maxWidth: 320, height: 6, borderRadius: radius.pill, overflow: 'hidden' },
   prose: {
     gap: space[1], marginBottom: space[3], paddingVertical: space[3], paddingHorizontal: space[4],
     backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.card,
@@ -1017,15 +1180,4 @@ const st = StyleSheet.create({
   listRow: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
   listRowLine: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   listGo: { flex: 1, minWidth: 0, minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: space[3], paddingVertical: space[2] },
-  // The leave confirm: a box over the scrim, the clock still running behind it.
-  confirm: {
-    position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: colors.scrim,
-    alignItems: 'center', justifyContent: 'center', padding: space[5],
-  },
-  confirmBox: {
-    width: '100%', maxWidth: 420, padding: space[5],
-    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.sheet,
-  },
-  confirmActs: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2], marginTop: space[5] },
-  confirmBtn: { flexGrow: 1, flexBasis: 118 },
 })

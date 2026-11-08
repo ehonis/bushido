@@ -116,6 +116,12 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
   for a plan's circuit block (`CircuitRun` in `features/runner.tsx`), and `features/circuit.tsx`
   is the web's `circuit.jsx`, the one circuit editor for the planner and the timer setup.
   A circuit from the + timer logs through `logCircuit` / `placeCircuit` in `shell/AppData.tsx`.
+- **One workout chrome (#75).** `features/timer.tsx` exports `WorkHead` (the X exit at the top
+  left, name, sub line, sound), `LeaveDialog` (Keep going first and primary unless finishing is
+  all that is left) and `ControlRow` (Back · −10 · Pause · +10 · Skip); the runner (its rest and
+  timed sets), workout mode and `TimerRun` all use them, as the web's `timer.jsx` does. The
+  runner's set screen draws no bottom actions while the keyboard is up, so nothing rides onto
+  the keypad.
 - Scrolling screens pad their foot by `FAB_CLEAR` (or `DOCK_CLEAR` with no + row) so nothing ends
   up under the floating bar.
 

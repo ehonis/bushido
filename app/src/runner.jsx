@@ -47,18 +47,22 @@ import { useModalLayer } from './modal.jsx'
 import { CUES, primeAudio, resumeAudio, acquireWakeLock, releaseWakeLock } from './lib/cues.js'
 import { lastLift, liftFieldOf } from './lib/lifts.js'
 import {
-  prescriptionSteps, runProgress, firstOpen, restLeft, runElapsed,
-  markSet, unmarkSet, skipSet, unskipSet, nudgeRest, endRest, goToSet, finishRun,
+  prescriptionSteps, runProgress, firstOpen, runElapsed,
+  markSet, unmarkSet, skipSet, unskipSet, endRest, goToSet, finishRun,
   emptyRun, setDraft, carryForward, runOutputs, isLogged, isSkipped, setLine, itemLine,
   setFieldsFor, addSetLike, patchRunItem, measureOfItem,
   blockTimer, circuitOnly, circuitTiming, endCircuit, circuitToOpen, nextCircuit,
 } from './lib/prescription.js'
-import { compile, startRun, circuitDone, view as timerView, describe, totalSeconds } from './lib/timer.js'
+import {
+  compile, startRun, circuitDone, view as timerView, describe, totalSeconds, settle, back, bump, skip as skipSegment,
+  togglePause, moved, cueFor, holdConfig, isTimedSet, holdOn, startHold, heldSeconds,
+  restClock, restPausedAt, toggleRest, bumpRest, restBack, reopened,
+} from './lib/timer.js'
 import { clock } from './lib/workout.js'
 import { Stepper, STEP, weightSwitch, SwapWords, ExerciseSheet } from './exercises.jsx'
 import { ExerciseBody, musclesOf, muscleWords } from './lib/bodymap.jsx'
 import { usePlan } from './lib/planctx.jsx'
-import { TimerRun } from './timer.jsx'
+import { TimerRun, WorkHead, LeaveDialog, leaveActions, ControlRow, setsWord } from './timer.jsx'
 import { timingWords } from './circuit.jsx'
 import { andWords, togetherSaid } from './lib/trainer.js'
 
@@ -102,7 +106,10 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
   const [draft, setDraft_] = useState(null)
   const [listOpen, setListOpen] = useState(false)
   const [muted, setMuted] = useState(false)
-  const [confirmExit, setConfirmExit] = useState(false)
+  // The leave dialog: null, 'ask' (Keep going / Leave it open / Finish…), or
+  // 'finish' (finishing with sets still to do asks again).
+  const [leaving, setLeaving] = useState(null)
+  const [skipping, setSkipping] = useState(false) // a whole circuit's Skip asks first
   const lock = useRef(null)
   const rangAt = useRef(0)
 
@@ -135,9 +142,23 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
 
   const step = steps.find(s => s.setId === cursor) || steps[0] || null
   const progress = runProgress(run, steps)
-  const rest = restLeft(run, now)
+  // The rest stands still while paused (lib/timer.js `restClock`).
+  const rest = restClock(run, now)
+  const restPaused = restPausedAt(run) != null
   const elapsed = runElapsed(run, now)
   const done = progress.left === 0 && progress.total > 0
+
+  /*
+   * A timed set's clock (#75): a plank or a 90-second interval is started with
+   * "Start 0:30", counts down on the timer's face and marks itself, logging the
+   * seconds actually held. It is on the run (`run.hold`), so it survives the
+   * app closing like the rest clock does.
+   */
+  const hold = step ? holdOn(run, step.setId) : null
+  const holdProgram = useMemo(
+    () => (hold ? compile(holdConfig(hold.seconds, { name: step.item.name, key: step.item.exercise || null })) : null),
+    [hold?.seconds, step?.item?.name, step?.item?.exercise]) // eslint-disable-line react-hooks/exhaustive-deps
+  const holdNow = hold ? settle(holdProgram, hold.timer, now) : null
 
   /* ------------------------------------------------------------ the clock */
 
@@ -205,10 +226,18 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
 
   /* ------------------------------------------------------------- the writes */
 
+  /*
+   * Every write goes through `reopened` (lib/timer.js): a workout finished and
+   * opened again from its sheet is running again from the first thing done in
+   * it, and only a write that finishes it sets an end.
+   */
+  const write = (nextRun, opts) => onRun(reopened(nextRun, run), opts)
+
   /** Persist run state, and the outputs it implies where they changed. */
   const commit = useCallback((nextRun, { outputs = false, done = undefined } = {}) => {
-    onRun(nextRun, {
-      out: outputs ? runOutputs(pres, nextRun, entry?.data?.out || {}) : null,
+    const r = reopened(nextRun, entry?.data?.run || null)
+    onRun(r, {
+      out: outputs ? runOutputs(pres, r, entry?.data?.out || {}) : null,
       done,
     })
   }, [onRun, pres, entry])
@@ -244,12 +273,12 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
    */
   const addAnother = () => {
     if (!step) return
-    onRun(run, { plan: addSetLike(pres, step.itemId, { ...step.set, ...(draft || {}) }) })
+    write(run, { plan: addSetLike(pres, step.itemId, { ...step.set, ...(draft || {}) }) })
   }
 
   // What this exercise's weight means (#58), on the plan, and on the log in the
   // same write once a set of it is logged, so every set and the log say the same.
-  const patchThisItem = (p) => onRun(run, patchRunItem(pres, run, step.itemId, p, entry?.data?.out || {}, liftField))
+  const patchThisItem = (p) => write(run, patchRunItem(pres, run, step.itemId, p, entry?.data?.out || {}, liftField))
 
   const jump = (setId) => {
     commit(goToSet(run || emptyRun(), setId))
@@ -257,7 +286,54 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
     setListOpen(false)
   }
 
+  /* ---------------------------------------------------- a timed set's clock */
+
+  const beginHold = () => {
+    if (!step) return
+    primeAudio()
+    const at = Date.now()
+    const seconds = Number(draft?.seconds) > 0 ? draft.seconds : step.set.seconds
+    commit(startHold(run || emptyRun(at), step.setId, seconds, at, { name: step.item.name, key: step.item.exercise || null }))
+    setNow(at)
+  }
+  const holdAct = (fn, ...args) => {
+    if (!hold) return
+    primeAudio()
+    const at = Date.now()
+    commit({ ...run, hold: { ...hold, timer: fn(holdProgram, settle(holdProgram, hold.timer, at), at, ...args) } })
+    setNow(at)
+  }
+  const stopHold = () => commit({ ...run, hold: null })
+
+  // Its cues, on each change of segment (the count-in ending, the hold ending).
+  const heard = useRef(null)
+  useEffect(() => {
+    if (!holdNow) { heard.current = null; return }
+    const was = heard.current
+    heard.current = holdNow
+    if (was && was.startedAt === holdNow.startedAt && moved(was, holdNow) && shown && !muted) {
+      const c = cueFor(holdProgram, holdNow)
+      if (c && c !== 'finished') CUES[c]?.()
+    }
+  })
+
+  // The end of a hold marks the set with what was held, once per clock; under
+  // DONE_AFTER (a mis-tap, a look) it marks nothing and the set is as it was.
+  const ended = useRef(null)
+  useEffect(() => {
+    if (!hold || holdNow?.finishedAt == null || ended.current === hold.timer.startedAt) return
+    ended.current = hold.timer.startedAt
+    const secs = heldSeconds(holdProgram, holdNow)
+    const base = { ...run, hold: null }
+    if (secs == null) { commit(base); return }
+    if (!muted && shown) CUES.setDone()
+    const next = markSet(base, step, { ...(draft || {}), seconds: secs }, { steps })
+    commit(next, { outputs: true })
+    setCursor(next.cursor)
+  }, [holdNow?.finishedAt]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const finish = () => {
+    setLeaving(null)
     if (!muted && shown) CUES.finished()
     // Done, the outputs and the end time in one write, for the same reason as
     // above — `onSetDone` used to be a second call and would have taken the run
@@ -303,23 +379,9 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
 
   return (
     <div className="run" data-tone={who ? who.tone : undefined}>
-      <header className="run-head">
-        <button className="run-x" onClick={() => setConfirmExit(true)} aria-label="Leave the workout">
-          <Icon name="ChevronDown" size={22} />
-        </button>
-        <div className="run-headmid">
-          <div className="run-title">
-            {who && <span className="side-who" data-tone={who.tone}>{who.name}</span>}
-            {pres.title}
-          </div>
-          <div className="run-sub">{progress.done} of {progress.total} sets</div>
-        </div>
-        <button className={`run-mute ${muted ? 'on' : ''}`} onClick={() => setMuted(v => !v)}
-          aria-label={muted ? 'Unmute cues' : 'Mute cues'}>
-          <Icon name={muted ? 'VolumeX' : 'Volume2'} size={19} />
-        </button>
-        <span className="run-clock">{mmss(elapsed)}</span>
-      </header>
+      <WorkHead title={pres.title} who={who} muted={muted} onMute={setMuted}
+        sub={`${progress.done} of ${progress.total} sets · ${mmss(elapsed)}`}
+        onExit={() => setLeaving('ask')} />
 
       {switcher}
 
@@ -328,8 +390,10 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
       </div>
 
       {rest > 0 ? (
-        <RestScreen seconds={rest} of={run.restOf} next={step}
-          onAdd={(n) => commit(nudgeRest(run, n))}
+        <RestScreen seconds={rest} of={run.restOf} next={step} paused={restPaused}
+          onBack={() => { const next = restBack(run); commit(next); setCursor(next.cursor) }}
+          onBump={(n) => commit(bumpRest(run, Date.now(), n))}
+          onPause={() => commit(toggleRest(run, Date.now()))}
           onSkip={() => commit(endRest(run))} />
       ) : done ? (
         <FinishScreen progress={progress} elapsed={elapsed}
@@ -337,16 +401,19 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
       ) : step?.block?.circuit ? (
         <CircuitStep block={step.block} together={together}
           onStart={() => setCircuitId(step.blockId)}
-          onSkip={() => {
-            const next = endCircuit(run, pres, step.blockId, [], {})
-            commit(next)
-            setCursor(next.cursor)
-          }} />
+          onList={() => setListOpen(true)}
+          onSkip={() => setSkipping(true)} />
+      ) : hold && holdNow ? (
+        <HoldScreen step={step} program={holdProgram} timer={holdNow} now={now}
+          onFace={() => holdAct(togglePause)}
+          onBack={() => holdAct(back)} onBump={(n) => holdAct(bump, n)} onPause={() => holdAct(togglePause)}
+          onSkip={() => holdAct(skipSegment)} onStop={stopHold} />
       ) : step ? (
         <SetScreen
           step={step} steps={steps} run={run} draft={draft} entries={entries} entryId={entry?.id}
           briefing={briefingFor(pres, step)}
           onPatch={patch} onMark={mark} onSkip={skip} onUnmark={() => unmark(step.setId)} onAddSet={addAnother}
+          onStartHold={beginHold}
           onPatchItem={patchThisItem}
           onList={() => setListOpen(true)} />
       ) : null}
@@ -354,23 +421,31 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
       {listOpen && (
         <SetList pres={pres} steps={steps} run={run} cursor={cursor} onJump={jump}
           onUnmark={unmark} onUnskip={(id) => { commit(unskipSet(run, id)); setCursor(id) }}
-          onClose={() => setListOpen(false)} onFinish={finish} />
+          onClose={() => setListOpen(false)} onFinish={progress.left === 0 ? finish : null} />
       )}
 
-      {confirmExit && (
-        <div className="run-confirm">
-          <div className="run-confirm-box" role="dialog" aria-label="Leave the workout?">
-            <h3>Leave the workout?</h3>
-            <p className="sub">Every set you marked is saved, and the clock keeps running.</p>
-            {/* One primary: finishing is the decision this asks for; leaving it open
-                is the quieter second, and Keep going backs out. */}
-            <div className="run-confirm-acts">
-              <button className="btn ghost" onClick={() => setConfirmExit(false)}>Keep going</button>
-              <button className="btn secondary" onClick={onExit}>Leave it open</button>
-              <button className="btn" onClick={finish}>Finish now</button>
-            </div>
-          </div>
-        </div>
+      {leaving === 'ask' && (
+        <LeaveDialog title="Leave the workout?"
+          body="Every set you marked is saved, and the clock keeps running."
+          onKeep={() => setLeaving(null)}
+          actions={leaveActions({ left: progress.left, onLeave: onExit, onFinish: finish, onAskFinish: () => setLeaving('finish') })} />
+      )}
+      {leaving === 'finish' && (
+        <LeaveDialog title={`Finish with ${setsWord(progress.left)} left?`}
+          body="They stay unmarked. Start on the workout's sheet opens it again."
+          onKeep={() => setLeaving(null)}
+          actions={[{ label: 'Finish anyway', kind: 'secondary', onClick: finish }]} />
+      )}
+      {skipping && step?.block?.circuit && (
+        <LeaveDialog title={`Skip ${step.block.name}?`}
+          body="None of the circuit is logged. All sets puts it back."
+          keepLabel="Keep it" onKeep={() => setSkipping(false)}
+          actions={[{ label: 'Skip the circuit', kind: 'secondary', onClick: () => {
+            setSkipping(false)
+            const next = endCircuit(run, pres, step.blockId, [], {})
+            commit(next)
+            setCursor(next.cursor)
+          } }]} />
       )}
     </div>
   )
@@ -483,12 +558,18 @@ function CircuitRun({
  * sync on it also asks whether it is done together (`together`): one clock,
  * logged for everyone in it. Remembered per device; on until turned off.
  */
-function CircuitStep({ block, onStart, onSkip, together = null }) {
+function CircuitStep({ block, onStart, onSkip, onList, together = null }) {
   const config = blockTimer(block)
   const total = totalSeconds(compile(config))
   return (
     <div className="run-body">
-      <div className="run-where"><span>{block.name} · Circuit</span></div>
+      {/* Skipping a whole circuit is at the top, away from Start, and asks first. */}
+      <div className="run-where">
+        <span>{block.name} · Circuit</span>
+        <button className="run-addset" onClick={onSkip} aria-label={`Skip ${block.name}`}>
+          <Icon name="SkipForward" size={14} /> Skip
+        </button>
+      </div>
       <h2 className="run-move">{block.name}</h2>
       <p className="run-target">{describe(config)}{total ? ` · ${clock(total)}` : ''}</p>
       <ol className="run-circuit">
@@ -517,7 +598,7 @@ function CircuitStep({ block, onStart, onSkip, together = null }) {
             <Icon name="Play" size={22} /><span>Start the circuit</span>
           </button>
           <div className="run-acts-row">
-            <button className="btn quiet" onClick={onSkip}><Icon name="SkipForward" size={16} /> Skip</button>
+            <button className="btn quiet" onClick={onList}><Icon name="Layers" size={16} /> All sets</button>
           </div>
         </div>
       )}
@@ -561,7 +642,7 @@ function briefingFor(pres, step) {
   return out
 }
 
-function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], onPatch, onMark, onSkip, onUnmark, onList, onAddSet, onPatchItem }) {
+function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], onPatch, onMark, onSkip, onUnmark, onList, onAddSet, onPatchItem, onStartHold }) {
   const { item } = step
   const liftField = liftFieldOf(usePlan())
   const logged = isLogged(run, step.setId)
@@ -575,18 +656,23 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
   const target = setLine(step.set, item)
   const mine = steps.filter(s => s.itemId === item.id)
   const doneHere = mine.filter(s => isLogged(run, s.setId)).length
+  const fields = setFieldsFor(item, step.set)
+  // Seconds and nothing else counted: the primary starts its clock (#75).
+  const timed = !logged && isTimedSet(fields, { seconds: draft?.seconds ?? step.set.seconds })
+  const holdFor = Number(draft?.seconds) > 0 ? Number(draft.seconds) : Number(step.set.seconds)
 
   return (
     <div className="run-body">
+      {/* Skip is up here, beside the count it changes, and not under Done set:
+          the two were 8px apart where the thumb works (#75). A skip is put back
+          from All sets. */}
       <div className="run-where">
         <span>{step.blockName} · Set {step.index + 1} of {step.of}</span>
-        {/* One more of these, same numbers. Quiet and beside the count it changes,
-            because the big button on this screen is for marking a set and a second
-            one would compete with it; the 44px target is padding. */}
-        <button className="run-addset" onClick={onAddSet}
-          aria-label={`One more set of ${item.name}, same as this one`}>
-          <Icon name="Plus" size={14} /> Add a set
-        </button>
+        {!logged && (
+          <button className="run-addset" onClick={onSkip} aria-label={`Skip set ${step.index + 1} of ${item.name}`}>
+            <Icon name="SkipForward" size={14} /> Skip
+          </button>
+        )}
       </div>
 
       {/* A catalog movement's name opens what it is (issue #63), for the set
@@ -616,7 +702,7 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
       {/* The same fields the editor shows, from the same function — a box the user can
           plan in and not record in is worse than no box. See setFieldsFor. */}
       <div className="run-inputs">
-        {setFieldsFor(item, step.set).map(f => (
+        {fields.map(f => (
           <BigStepper key={f} {...STEP[f](item, step.set)} value={draft?.[f]}
             swap={f === 'weight' ? swap : null}
             onChange={v => onPatch({ [f]: v })} />
@@ -632,6 +718,12 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
 
       {(step.set.note || item.note) && (
         <p className="run-cue"><Icon name="Info" size={14} /> {step.set.note || item.note}</p>
+      )}
+
+      {timed && (
+        <button className="btn quiet run-noclock" onClick={onMark}>
+          <Icon name="Check" size={16} /> Log this set without the clock
+        </button>
       )}
 
       {prior && (
@@ -653,13 +745,20 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
         </div>
       )}
 
-      {/* ONE primary on this screen (docs/DESIGN.md D7): Done set. A set already
-          marked offers its undo as a secondary in the same place instead. */}
+      {/* ONE primary on this screen (docs/DESIGN.md D7): Done set, or for a
+          timed set Start, which marks it when the clock runs out. A set already
+          marked offers its undo as a secondary in the same place instead. Under
+          it only things that cannot lose a set: All sets and one more set. */}
       <div className="run-acts">
         {logged ? (
           <button className="btn big secondary run-done" onClick={onUnmark}>
             <Icon name="RotateCw" size={20} />
             <span>Undo this set</span>
+          </button>
+        ) : timed ? (
+          <button className="btn big run-done" onClick={onStartHold}>
+            <Icon name="Play" size={24} />
+            <span>Start {mmss(holdFor)}</span>
           </button>
         ) : (
           <button className="btn big run-done" onClick={onMark}>
@@ -668,12 +767,15 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
           </button>
         )}
         <div className="run-acts-row">
-          <button className="btn quiet" onClick={onSkip}>
-            <Icon name="SkipForward" size={16} /> Skip
-          </button>
-          <span className="run-acts-mid">{doneHere} of {step.of} · {itemLine(item)}</span>
           <button className="btn quiet" onClick={onList}>
             <Icon name="Layers" size={16} /> All sets
+          </button>
+          <span className="run-acts-mid">{doneHere} of {step.of} · {itemLine(item)}</span>
+          {/* One more of these, same numbers. Quiet, because the big button is for
+              marking a set and a second one would compete with it. */}
+          <button className="btn quiet" onClick={onAddSet}
+            aria-label={`One more set of ${item.name}, same as this one`}>
+            <Icon name="Plus" size={16} /> Add a set
           </button>
         </div>
       </div>
@@ -721,29 +823,58 @@ function BigStepper({ label, value, step = 1, min = null, onChange, swap = null 
   )
 }
 
+/* ------------------------------------------------------------ a timed set */
+
+/**
+ * A timed set running (#75): the interval timer's face, coloured by its phase,
+ * and the one control row. It marks itself when it runs out (WorkoutRunner).
+ * Stopping the clock is at the top, away from the thumb, and logs nothing.
+ */
+function HoldScreen({ step, program, timer, now, onFace, onBack, onBump, onPause, onSkip, onStop }) {
+  const v = timerView(program, timer, now)
+  if (v.finished) return null
+  const seg = v.segment
+  const counting = seg.kind === 'countin'
+  return (
+    <div className={`run-body run-hold k-${seg.kind}`}>
+      <div className="run-where">
+        <span>{step.blockName} · Set {step.index + 1} of {step.of}</span>
+        <button className="run-addset" onClick={onStop} aria-label="Stop the clock, log nothing">
+          <Icon name="X" size={14} /> Stop the clock
+        </button>
+      </div>
+      <h2 className="run-move">{step.item.name}</h2>
+      <button className={`it-face ${v.paused ? 'paused' : ''}`} onClick={onFace} aria-label={v.paused ? 'Resume' : 'Pause'}>
+        <span className="it-phase">{counting ? 'Get ready' : 'Hold'}</span>
+        <span className="it-count">{clock(Math.ceil(v.left))}</span>
+        {v.progress != null && <span className="it-bar"><span style={{ width: `${v.progress * 100}%` }} /></span>}
+        <span className="it-hint">{v.paused ? 'Paused · tap to carry on' : counting ? 'Then the set starts' : 'It marks itself at zero · Skip ends it here'}</span>
+      </button>
+      <div className="run-acts">
+        <ControlRow paused={v.paused} onBack={onBack} onLess={() => onBump(-10)} onPause={onPause}
+          onMore={() => onBump(10)} onSkip={onSkip} skipLabel={counting ? 'Skip the count-in' : 'End the set here'} />
+      </div>
+    </div>
+  )
+}
+
 /* ---------------------------------------------------------------- resting */
 
 /**
  * The rest, given the whole screen.
  *
- * Big enough to read from the floor, and the two nudge buttons are the ones the user
- * will actually want: a set that went badly needs another thirty seconds and a
- * set that went well does not need the full ninety. "Skip" is the third, and it
- * is deliberately the smallest of the three — the commonest mistake is not
- * resting long enough.
+ * Big enough to read from the floor, with the one control row every clock in
+ * the app has (#75): Back to the set just done, ten seconds either way (a set
+ * that went badly wants more, one that went well wants less), Pause, and Skip.
+ * No primary while resting: the commonest mistake is not resting long enough.
  */
-function RestScreen({ seconds, of, next, onAdd, onSkip }) {
+function RestScreen({ seconds, of, next, paused, onBack, onBump, onPause, onSkip }) {
   const pct = of > 0 ? Math.max(0, Math.min(1, seconds / of)) : 0
   return (
     <div className="run-body rest">
-      <div className="rest-label">Rest</div>
-      <div className="rest-clock" style={{ '--pct': pct }}>
+      <div className="rest-label">{paused ? 'Rest · paused' : 'Rest'}</div>
+      <div className={`rest-clock ${paused ? 'paused' : ''}`} style={{ '--pct': pct }}>
         <span>{mmss(seconds)}</span>
-      </div>
-
-      <div className="rest-nudge">
-        <button className="btn secondary" onClick={() => onAdd(-15)}><Icon name="Minus" size={18} /> 15s</button>
-        <button className="btn secondary" onClick={() => onAdd(30)}><Icon name="Plus" size={18} /> 30s</button>
       </div>
 
       {next && (
@@ -753,13 +884,9 @@ function RestScreen({ seconds, of, next, onAdd, onSkip }) {
         </p>
       )}
 
-      {/* No primary while resting: the commonest mistake is not resting long enough,
-          so ending it early is a quiet button, not the big one. */}
       <div className="run-acts">
-        <button className="btn ghost run-skip" onClick={onSkip}>
-          <Icon name="SkipForward" size={18} />
-          <span>Skip the rest</span>
-        </button>
+        <ControlRow paused={paused} onBack={onBack} onLess={() => onBump(-10)} onPause={onPause}
+          onMore={() => onBump(10)} onSkip={onSkip} skipLabel="Skip the rest" />
       </div>
     </div>
   )
@@ -778,7 +905,7 @@ function FinishScreen({ progress, elapsed, onFinish, onReview }) {
       </p>
       <div className="run-acts">
         <button className="btn big run-done" onClick={onFinish}>
-          <Icon name="Flag" size={22} /><span>Finish and log it</span>
+          <Icon name="Flag" size={22} /><span>Finish workout</span>
         </button>
         <div className="run-acts-row center">
           <button className="btn quiet" onClick={onReview}><Icon name="Layers" size={16} /> Go back over the sets</button>
@@ -794,8 +921,12 @@ function FinishScreen({ progress, elapsed, onFinish, onReview }) {
  * The whole session as a list — where you go to jump, to fix a set you marked
  * wrong, or to see what is left. A sheet rather than a permanent column, because
  * on a phone it would cost the set screen the room that makes it readable.
+ *
+ * Finishing is in its footer only once every set is marked or skipped
+ * (`onFinish` null otherwise): opened to jump to a set, it used to offer
+ * "Finish and log it" at one set of seven, full width, with no confirm.
  */
-function SetList({ pres, steps, run, cursor, onJump, onUnmark, onUnskip, onClose, onFinish }) {
+export function SetList({ pres, steps, run, cursor, onJump, onUnmark, onUnskip, onClose, onFinish }) {
   // Blocks that are only prose have no rows, so they get named here rather than
   // being missing from the one screen that claims to show the whole session.
   const proseBlocks = (pres?.blocks || []).filter(b => !b.items.length && b.note)
@@ -862,9 +993,11 @@ function SetList({ pres, steps, run, cursor, onJump, onUnmark, onUnskip, onClose
             </section>
           ))}
         </div>
-        <footer className="setlist-foot">
-          <button className="btn" onClick={onFinish}><Icon name="Flag" size={16} /> Finish and log it</button>
-        </footer>
+        {onFinish && (
+          <footer className="setlist-foot">
+            <button className="btn" onClick={onFinish}><Icon name="Flag" size={16} /> Finish workout</button>
+          </footer>
+        )}
       </div>
     </div>
   )

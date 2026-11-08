@@ -138,11 +138,13 @@ test('someone\'s day: live entries, main first; a row says done, planned by, in 
   assert.equal(dayRow(planned, menu, OWNER_ME).done, true, 'their planned session is done once its day has come')
 })
 
-test('"Start" while the run has not ended: on today even though it is done, on an earlier day once undone', () => {
+test('"Start": on today even though it is done, and even once finished (it reopens, #75); on an earlier day once undone', () => {
   const today = '2026-10-08'
   const on = (date, data = {}) => ({ id: `daily-${date}`, kind: 'daily', date, data: { optId: 'planned', done: true, plan: pres, ...data } })
   assert.equal(canStart(on(today), today), true, 'today\'s session, done by default, lost its Start')
-  assert.equal(canStart(on(today, { run: { startedAt: 1, endedAt: 2 } }), today), false, 'a finished run offered Start again')
+  assert.equal(canStart(on(today, { run: { startedAt: 1, endedAt: 2 } }), today), true, 'a run finished by mistake today cannot be reopened')
+  assert.equal(canStart(on('2026-10-01', { run: { startedAt: 1, endedAt: 2 } }), today), false, 'last week\'s finished, done session offered Start')
+  assert.equal(canStart(on('2026-10-01', { done: false, undone: true, run: { startedAt: 1, endedAt: 2 } }), today), true, 'an undone, finished session lost its Start')
   assert.equal(canStart(on('2026-10-01'), today), false, 'last week\'s done session offered Start')
   assert.equal(canStart(on('2026-10-01', { done: false, undone: true }), today), true, 'an undone session lost its Start')
   assert.equal(canStart(null, today), false)

@@ -29,7 +29,8 @@ import {
   notePending, pendingFor, retryPending,
 } from './lib/trainer.js'
 import { isDone } from './lib/store.js'
-import { prescriptionSteps, runProgress, restLeft, itemLine, prescriptionLine } from './lib/prescription.js'
+import { prescriptionSteps, runProgress, itemLine, prescriptionLine } from './lib/prescription.js'
+import { restClock, restPausedAt } from './lib/timer.js'
 import { fromIso, localIso, mondayOf, weekDays, shiftWeek } from './lib/dates.js'
 import { currentMe } from './lib/whoami.js'
 
@@ -139,8 +140,9 @@ export function sideStatus(kind, entry, now = Date.now(), finished = false) {
   if (finished || entry.data?.run?.endedAt) return 'done'
   if (kind !== 'runner') return ''
   const run = entry.data?.run || null
-  const left = restLeft(run, now)
-  if (left > 0) return `rest ${mmss(left)}`
+  // A paused rest stands still here too (#75, lib/timer.js `restClock`).
+  const left = restClock(run, now)
+  if (left > 0) return `rest ${mmss(left)}${restPausedAt(run) != null ? ' · paused' : ''}`
   if (run?.restUntil && now - run.restUntil < 60000) return 'rest up'
   const p = runProgress(run, prescriptionSteps(entry.data?.plan))
   return p.total ? `${p.done}/${p.total}` : ''

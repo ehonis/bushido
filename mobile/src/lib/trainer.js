@@ -379,10 +379,15 @@ export const applyDone = (entry, done) => markDone(entry, done)
  *
  * It used to be "while not done", but a session is done from the moment it lands
  * on today (§4), and running it is the point of planning one. So: on today and
- * later, until its run has ended; on an earlier day, only once marked undone.
+ * later, always; on an earlier day, only once marked undone.
+ *
+ * A finished run is no exception (#75). Finishing used to close the runner for
+ * good, so one mis-tap on Finish with sets still to do ended the workout with
+ * no way back in; now Start reopens it where it was, and the runner takes the
+ * end off the run with the first thing done in it (`reopened`).
  */
 export const canStart = (entry, today = localIso()) => Boolean(entry && !entry.deleted &&
-  !entry.data?.run?.endedAt && ((entry.date && entry.date >= today) || !isDone(entry, today)))
+  ((entry.date && entry.date >= today) || !isDone(entry, today)))
 
 /* -------------------------------------------------------------- sides */
 

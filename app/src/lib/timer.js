@@ -678,3 +678,123 @@ export function loadRun(storage, key, now) {
     return null
   }
 }
+
+/* ------------------------------------------- the runner's own clocks (#75) */
+
+/*
+ * TWO CLOCKS IN THE RUNNER, both kept as instants on the planned workout's run
+ * (`data.run`, lib/prescription.js), so a pocket, a reload or the other device
+ * lands on the right second, and both pure, with `now` an argument.
+ *
+ * A TIMED SET (a plank, a 90-second interval: seconds and no reps or distance)
+ * runs on this timer, as a circuit of one exercise and one round with a short
+ * count-in. That is not a trick to save code: it is exactly a circuit's
+ * booking, so what is logged is the seconds actually held (Skip ends a hold
+ * early and logs what was done; less than DONE_AFTER is a mis-tap and logs
+ * nothing), and Back, ±10, Pause and Skip mean on it what they mean on every
+ * other clock in the app. It lives on the run as `hold: { setId, seconds, timer }`.
+ */
+export const HOLD_COUNT_IN = 5
+
+/** The program a timed set runs: a short count-in, then the seconds asked for. */
+export function holdConfig(seconds, { name = 'Hold', key = null } = {}) {
+  const s = clampInt(seconds, LIMITS.work, null)
+  if (s == null) return null
+  return circuitConfig({ work: s, rest: 0, rounds: 1, roundRest: 0, countIn: HOLD_COUNT_IN },
+    [{ name, ...(key ? { key } : {}), seconds: s }])
+}
+
+/**
+ * Does the runner time this set? Seconds asked for, and nothing else counted
+ * (`setFieldsFor`), and within what a timer runs (LIMITS.work, 5 s to an
+ * hour): a 90-minute ride would be clamped to an hour and logged as one, so
+ * outside that it stays a number with Done set.
+ */
+export const isTimedSet = (fields = [], set = null) =>
+  fields.includes('seconds') && !fields.includes('reps') && !fields.includes('distance') &&
+  Number(set?.seconds) >= LIMITS.work[0] && Number(set.seconds) <= LIMITS.work[1]
+
+/** The hold running on this set, or null. */
+export const holdOn = (run, setId) =>
+  (setId && run?.hold?.setId === setId && run.hold.timer && Number(run.hold.seconds) > 0 ? run.hold : null)
+
+/** Start the clock on a timed set. The run's other fields are untouched; the caller passes a run. */
+export function startHold(run, setId, seconds, now, { name, key } = {}) {
+  const config = holdConfig(seconds, { name, key })
+  if (!run || !config) return run
+  return { ...run, startedAt: run.startedAt || now, hold: { setId, seconds: config.work, timer: startRun(compile(config), now) } }
+}
+
+/** The seconds a finished hold logs, or null when nothing counts as done. */
+export function heldSeconds(program, timer) {
+  if (timer?.finishedAt == null) return null
+  const done = circuitDone(program, timer)[0] || []
+  return done.length ? done[0] : null
+}
+
+/*
+ * THE RUNNER'S REST, PAUSED. The rest is `restUntil` (an instant); a pause is
+ * `restPause: { until, at }`, naming the rest it belongs to by that deadline.
+ * Marking the next set writes a new `restUntil`, so a pause left behind by a
+ * rest that has since been replaced is ignored rather than freezing the next.
+ */
+export const restPausedAt = (run) =>
+  (run?.restUntil && run.restPause && run.restPause.until === run.restUntil ? run.restPause.at : null)
+
+/** Seconds of rest left at `now`, standing still while paused. */
+export function restClock(run, now) {
+  if (!run?.restUntil) return 0
+  const t = restPausedAt(run) ?? now
+  return Math.max(0, Math.ceil((run.restUntil - t) / 1000))
+}
+
+export function pauseRest(run, now) {
+  if (!run?.restUntil || restPausedAt(run) != null || run.restUntil <= now) return run
+  return { ...run, restPause: { until: run.restUntil, at: now } }
+}
+
+/**
+ * Resuming moves the deadline later by however long it sat paused. Only the
+ * deadline: `restFrom` is the instant the set that started the rest was marked,
+ * which is how Back finds that set (`restBack`), and a pause does not move it.
+ */
+export function resumeRest(run, now) {
+  const at = restPausedAt(run)
+  if (at == null) return run
+  const held = Math.max(0, now - at)
+  return { ...run, restUntil: run.restUntil + held, restPause: null }
+}
+
+export const toggleRest = (run, now) => (restPausedAt(run) != null ? resumeRest(run, now) : pauseRest(run, now))
+
+/** ±seconds on the rest, never below a second left; a paused rest stays paused. */
+export function bumpRest(run, now, delta) {
+  if (!run?.restUntil) return run
+  const paused = restPausedAt(run)
+  const t = paused ?? now
+  const until = Math.max(t + 1000, run.restUntil + delta * 1000)
+  return {
+    ...run, restUntil: until,
+    // The rest's length moves with the deadline (not from `restFrom`, which a pause leaves behind).
+    restOf: Math.max(0, Math.round((Number(run.restOf) || 0) + (until - run.restUntil) / 1000)),
+    ...(paused != null ? { restPause: { until, at: paused } } : {}),
+  }
+}
+
+/**
+ * Back, from a rest: to the set whose mark started it (the one logged at the
+ * rest's own start), to look at or correct it. The rest ends; the set stays logged.
+ */
+export function restBack(run) {
+  if (!run?.restUntil) return run
+  const owner = Object.entries(run.sets || {}).find(([, v]) => v?.at === run.restFrom)?.[0]
+  return { ...run, restUntil: 0, restFrom: 0, restOf: 0, restPause: null, cursor: owner || run.cursor }
+}
+
+/**
+ * A finished run, reopened (#75). Start reopens a finished workout, and the
+ * first thing written in it takes the end off, so it is running again. A write
+ * that sets a NEW end (finishing, again) keeps it.
+ */
+export const reopened = (next, before) =>
+  (next?.endedAt && next.endedAt === before?.endedAt ? { ...next, endedAt: null } : next)

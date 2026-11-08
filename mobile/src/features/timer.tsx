@@ -53,7 +53,7 @@ const {
 } = timer as any
 
 /** Each kind of segment's colour, the web's `.it.k-*`. */
-const KIND_COLOR: Record<string, string> = {
+export const KIND_COLOR: Record<string, string> = {
   countin: colors.vizWarn,
   work: colors.accent,
   rest: colors.load3,
@@ -496,6 +496,123 @@ export function exerciseAfter(program: any, from: number) {
   return null
 }
 
+/* ------------------------------------------------- one workout chrome (#75) */
+
+/*
+ * Every screen a workout is done on (the runner, its rest and timed sets,
+ * workout mode, this timer and a circuit) wears the same three things, so a
+ * thumb learns them once (app/src/timer.jsx):
+ *
+ *   - ONE HEADER (`WorkHead`): the exit at the top left, always an X, as far
+ *     from the thumb as the screen allows; the name and where you are; the sound.
+ *   - ONE LEAVE DIALOG (`LeaveDialog`): Keep going is the primary, because the
+ *     tap that opened it is more often a mis-tap than a decision. What ends the
+ *     workout sits under it, and is the primary only when nothing is left to do.
+ *   - ONE CONTROL ROW (`ControlRow`), at the bottom: Back · −10 · Pause · +10 ·
+ *     Skip, in that order on every clock. A control a clock has no use for is
+ *     shown disabled rather than removed, so nothing slides under the thumb.
+ */
+export function WorkHead({ title, sub = null, who = null, muted = false, onMute, onExit, exitLabel = 'Leave the workout' }: {
+  title: React.ReactNode
+  sub?: React.ReactNode
+  who?: { name: string; tone?: number } | null
+  muted?: boolean
+  onMute: (v: boolean) => void
+  onExit: () => void
+  exitLabel?: string
+}) {
+  return (
+    <>
+      <SideRule who={who} />
+      <View style={st.wkHead}>
+        <IconBtn icon="X" size={20} label={exitLabel} onPress={() => { impact(); onExit() }} />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <SideWho who={who} />
+          <T size={font.title} weight={600} numberOfLines={1}>{title}</T>
+          {sub != null ? (
+            typeof sub === 'string'
+              ? <T size={font.small} dim tabular numberOfLines={1}>{sub}</T>
+              : <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[1] }}>{sub}</View>
+          ) : null}
+        </View>
+        <IconBtn icon={muted ? 'VolumeX' : 'Volume2'} size={20} color={muted ? colors.inkFaint : colors.inkDim}
+          label={muted ? 'Turn sound on' : 'Turn sound off'} onPress={() => onMute(!muted)} />
+      </View>
+    </>
+  )
+}
+
+export type LeaveAction = { label: string; kind: 'primary' | 'secondary' | 'quiet' | 'bad'; onClick: () => void }
+
+/**
+ * The leave dialog: one column of full-width buttons, the same on every
+ * screen, drawn on the screen over the scrim (the clock keeps running behind
+ * it). Keep going is the primary unless an action is (Finish workout, once
+ * every set is marked); a primary action goes above it, the rest below.
+ */
+export function LeaveDialog({ title, body = null, actions = [], onKeep, keepLabel = 'Keep going' }: {
+  title: string
+  body?: string | null
+  actions?: LeaveAction[]
+  onKeep: () => void
+  keepLabel?: string
+}) {
+  const first = actions.filter(a => a.kind === 'primary')
+  const rest = actions.filter(a => a.kind !== 'primary')
+  return (
+    <View style={st.scrim} accessibilityViewIsModal accessibilityLabel={title}>
+      <View style={st.dialog}>
+        <T size={font.title} weight={600} style={{ marginBottom: space[2] }}>{title}</T>
+        {body ? <Sub>{body}</Sub> : null}
+        <View style={st.dialogActs}>
+          {first.map(a => <Btn key={a.label} title={a.label} onPress={a.onClick} style={st.dialogBtn} />)}
+          <Btn title={keepLabel} kind={first.length ? 'ghost' : 'primary'} onPress={onKeep} style={st.dialogBtn} />
+          {rest.map(a => <Btn key={a.label} title={a.label} kind={a.kind} onPress={a.onClick} style={st.dialogBtn} />)}
+        </View>
+      </View>
+    </View>
+  )
+}
+
+export const setsWord = (n: number) => `${n} ${n === 1 ? 'set' : 'sets'}`
+
+/**
+ * What leaving a planned workout offers. With sets still to do, finishing is a
+ * quiet "Finish with N sets left" that asks again (`onAskFinish`); with none
+ * left, Finish workout is the primary.
+ */
+export function leaveActions({ left = 0, onLeave, onFinish, onAskFinish }: {
+  left?: number; onLeave: () => void; onFinish: () => void; onAskFinish: () => void
+}): LeaveAction[] {
+  return [
+    ...(left === 0 ? [{ label: 'Finish workout', kind: 'primary' as const, onClick: onFinish }] : []),
+    { label: 'Leave it open', kind: 'secondary' as const, onClick: onLeave },
+    ...(left > 0 ? [{ label: `Finish with ${setsWord(left)} left`, kind: 'quiet' as const, onClick: onAskFinish }] : []),
+  ]
+}
+
+/** Back · −10 · Pause · +10 · Skip. A missing handler is a disabled button in its place. */
+export function ControlRow({ paused = false, onBack = null, onLess = null, onPause = null, onMore = null, onSkip = null, skipLabel = 'Skip' }: {
+  paused?: boolean
+  onBack?: (() => void) | null
+  onLess?: (() => void) | null
+  onPause?: (() => void) | null
+  onMore?: (() => void) | null
+  onSkip?: (() => void) | null
+  skipLabel?: string
+}) {
+  const go = (fn: (() => void) | null, feel = tap) => () => { if (fn) { feel(); fn() } }
+  return (
+    <View style={st.ctl}>
+      <CtlBtn icon="SkipBack" label="Back" disabled={!onBack} onPress={go(onBack)} />
+      <CtlBtn icon="Minus" label="10s" a11y="10 seconds less" disabled={!onLess} onPress={go(onLess)} />
+      <CtlBtn icon={paused ? 'Play' : 'Pause'} label={paused ? 'Resume' : 'Pause'} primary disabled={!onPause} onPress={go(onPause, impact)} />
+      <CtlBtn icon="Plus" label="10s" a11y="10 seconds more" disabled={!onMore} onPress={go(onMore)} />
+      <CtlBtn icon="SkipForward" label="Skip" a11y={skipLabel} disabled={!onSkip} onPress={go(onSkip)} />
+    </View>
+  )
+}
+
 /**
  * The run screen. A CIRCUIT (issue #68) puts the exercise to do NOW on the face,
  * its name big over the clock, with what it works and its gist under it and ⓘ
@@ -623,36 +740,13 @@ export function TimerRun({ title, name, config, initialRun, onRun, onAgain = nul
 
   return (
     <View style={{ flex: 1, backgroundColor: mix(k, 13, colors.bg) }}>
-      <SideRule who={who} />
-      <View style={st.head}>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <SideWho who={who} />
-          <T size={font.title} weight={600} numberOfLines={1}>{name}{title ? ` · ${title}` : ''}</T>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[1] }}>
-            <Icon name="Timer" size={12} color={colors.inkDim} />
-            <T size={font.small} dim tabular>{clock(v.elapsed)}</T>
-          </View>
-        </View>
-        <IconBtn icon={muted ? 'VolumeX' : 'Volume2'} size={20} onPress={() => setMuted(!muted)}
-          label={muted ? 'Turn cues on' : 'Turn cues off'} />
-        <IconBtn icon="X" size={20} label={circuit ? 'Stop the circuit' : 'Stop the timer'} onPress={active ? onStop : onClose} />
-      </View>
+      <WorkHead title={`${name}${title ? ` · ${title}` : ''}`} who={who} muted={muted} onMute={setMuted}
+        sub={<><Icon name="Timer" size={12} color={colors.inkDim} /><T size={font.small} dim tabular>{clock(v.elapsed)}</T></>}
+        onExit={active ? onStop : onClose} exitLabel={circuit ? 'Stop the circuit' : 'Stop the timer'} />
 
       {switcher}
 
-      {confirming && active ? (
-        // The visual system's confirm: a screen, not a system dialog. The clock keeps running behind it.
-        <View style={[st.body, st.finish, { paddingBottom: space[5] + insets.bottom }]}>
-          <Icon name="TriangleAlert" size={28} color={colors.vizCrit} />
-          <T size={font.title} weight={600}>{circuit ? 'Stop the circuit?' : 'Stop the timer?'}</T>
-          <Sub style={{ textAlign: 'center' }}>{circuit ? 'What you have done so far is logged.' : 'This run ends here. Your presets are kept.'}</Sub>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2], alignSelf: 'stretch', marginTop: space[4] }}>
-            <Btn title="Keep going" kind="ghost" flex onPress={onKeep} />
-            {onLeave ? <Btn title="Leave it open" kind="secondary" flex onPress={onLeave} /> : null}
-            <Btn title="Stop" kind="bad" flex onPress={stop} />
-          </View>
-        </View>
-      ) : v.finished ? (
+      {v.finished ? (
         <View style={[st.body, st.finish, { paddingBottom: space[5] + insets.bottom }]}>
           <Icon name="CircleCheck" size={56} color={k} />
           <T size={font.heading} weight={600} color={k}>Done</T>
@@ -702,15 +796,24 @@ export function TimerRun({ title, name, config, initialRun, onRun, onAgain = nul
             </View>
           ) : null}
 
-          <View style={st.ctl}>
-            <CtlBtn icon="SkipBack" label="Back" onPress={() => { tap(); act(back) }} />
-            <CtlBtn icon="Minus" label="10s" a11y="10 seconds less" disabled={open} onPress={() => { tap(); act(bump, -10) }} />
-            <CtlBtn icon={v.paused ? 'Play' : 'Pause'} label={v.paused ? 'Resume' : 'Pause'} primary onPress={() => { impact(); act(togglePause) }} />
-            <CtlBtn icon="Plus" label="10s" a11y="10 seconds more" disabled={open} onPress={() => { tap(); act(bump, 10) }} />
-            <CtlBtn icon="SkipForward" label="Skip" onPress={() => { tap(); act(skip) }} />
-          </View>
+          <ControlRow paused={v.paused}
+            onBack={() => act(back)}
+            onLess={open ? null : () => act(bump, -10)}
+            onPause={() => act(togglePause)}
+            onMore={open ? null : () => act(bump, 10)}
+            onSkip={() => act(skip)} />
         </View>
       )}
+      {/* The stop confirm is the one leave dialog, over the live screen: the clock keeps running behind it. */}
+      {confirming && active ? (
+        <LeaveDialog title={circuit ? 'Stop the circuit?' : 'Stop the timer?'}
+          body={circuit ? 'What you have done so far is logged.' : 'This run ends here. Your presets are kept.'}
+          onKeep={onKeep}
+          actions={[
+            ...(onLeave ? [{ label: 'Leave it open', kind: 'secondary' as const, onClick: onLeave }] : []),
+            { label: 'Stop', kind: 'bad' as const, onClick: () => { warn(); stop() } },
+          ]} />
+      ) : null}
       {about ? <ExerciseSheet field={liftField} exercise={about.key} name={about.name} onClose={() => setAbout(null)} /> : null}
     </View>
   )
@@ -746,7 +849,7 @@ function CtlBtn({ icon, label, a11y, onPress, primary, disabled }: {
 }) {
   return (
     <Press onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={a11y || label}
-      style={[st.ctlBtn, primary && st.ctlPrimary]}>
+      style={[st.ctlBtn, primary && st.ctlPrimary, disabled && { opacity: 0.35 }]}>
       <Icon name={icon} size={primary ? 20 : 18} color={primary ? colors.ink : colors.inkDim} />
       <T size={font.caption} weight={primary ? 600 : 400} color={primary ? colors.ink : colors.inkDim}>{label}</T>
     </Press>
@@ -791,4 +894,21 @@ const st = StyleSheet.create({
   // Pause is the control you reach for: the secondary button's raised surface, not the accent.
   ctlPrimary: { maxWidth: 110, backgroundColor: colors.panel3 },
   finish: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space[3] },
+  // Every workout screen's header (#75): the X at the left, so the inset is the button's own.
+  wkHead: {
+    flexDirection: 'row', alignItems: 'center', gap: space[1],
+    paddingHorizontal: space[2], paddingVertical: space[2],
+    borderBottomWidth: 1, borderBottomColor: colors.line,
+  },
+  // The leave dialog (#75): a box over the scrim, one column of full-width buttons.
+  scrim: {
+    position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 10, backgroundColor: colors.scrim,
+    alignItems: 'center', justifyContent: 'center', padding: space[5],
+  },
+  dialog: {
+    width: '100%', maxWidth: 420, padding: space[5],
+    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.sheet,
+  },
+  dialogActs: { gap: space[2], marginTop: space[5] },
+  dialogBtn: { alignSelf: 'stretch', minHeight: 48 },
 })

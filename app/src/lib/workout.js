@@ -379,3 +379,37 @@ export function elapsedMinutes(startedAt, endedAt = Date.now()) {
   if (!Number.isFinite(start)) return null
   return Math.max(0, Math.round((endedAt - start) / 60000))
 }
+
+/** How long a phase runs, at its start: what `enter` is given for it. */
+export function phaseSeconds({ phase, index }, steps) {
+  const s = steps[index]
+  const t = s?.timing || {}
+  if (phase === 'countin') return COUNT_IN
+  if (phase === 'work') return t.work || 0
+  if (phase === 'represt') return t.repRest || 0
+  if (phase === 'setrest') {
+    const prev = steps[index - 1]
+    if (!prev) return 0
+    return prev.exIndex === s?.exIndex ? (prev.timing.setRest || 0) : (prev.timing.nextRest || 0)
+  }
+  return 0
+}
+
+/**
+ * Back (#75), as on the interval timer: a few seconds into a phase it goes to
+ * the one before; any later it starts this one again. Before the first set's
+ * work there is nothing to go back to, and a set's count-in or the rest before
+ * it goes back to the start of the set before, never to its review: Back moves
+ * a clock, it does not reopen what was written down.
+ */
+export const BACK_GRACE = 3
+export function backPhase({ phase, rep, index, into = 0 }, steps) {
+  const again = { phase, rep, index, seconds: phaseSeconds({ phase, index }, steps) }
+  if (into > BACK_GRACE) return again
+  const t = steps[index]?.timing || {}
+  if (phase === 'work' && rep > 1) return { phase: 'represt', rep: rep - 1, index, seconds: t.repRest || 0 }
+  if (phase === 'represt') return { phase: 'work', rep, index, seconds: t.work || 0 }
+  if (phase === 'work' && t.work) return startOf(index, steps)
+  if (index > 0) return startOf(index - 1, steps)
+  return again
+}

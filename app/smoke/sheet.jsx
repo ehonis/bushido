@@ -753,9 +753,14 @@ export default [
     if (!/class="btn"[^>]*>.*Start the workout/.test(today)) throw new Error('a done-by-default session lost its Start')
     const undone = text(foot(sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false, undone: true } })))
     if (!/Mark done/.test(undone) || /Mark undone/.test(undone)) throw new Error('a session marked undone does not offer "Mark done"')
+    // A run finished today is reopened by Start (#75: one mis-tap on Finish
+    // used to end the workout for good); on an earlier day, once done, nothing
+    // is left to start and Close is the primary.
     const finished = foot(sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: true, run: { startedAt: 1, endedAt: 2 } } }))
-    if (/Start the workout/.test(finished)) throw new Error('a finished run offers Start again')
-    if (!/<button type="button" class="btn">Close<\/button>/.test(finished)) throw new Error('Close is not the primary once nothing is left to start')
+    if (!/Start the workout/.test(finished)) throw new Error('a run finished today cannot be reopened')
+    const past = foot(sheet({ ...PLANNED_ENTRY, date: '2026-01-05', data: { ...PLANNED_ENTRY.data, done: true, run: { startedAt: 1, endedAt: 2 } } }))
+    if (/Start the workout/.test(past)) throw new Error('an earlier day\'s finished, done workout offers Start')
+    if (!/<button type="button" class="btn">Close<\/button>/.test(past)) throw new Error('Close is not the primary once nothing is left to start')
     const later = foot(sheet({ ...PLANNED_ENTRY, date: '2999-01-01', data: { ...PLANNED_ENTRY.data, done: false } }, true))
     if (/Mark (un)?done/.test(later)) throw new Error('a session on a later day offers a done control')
     if (!/>Close</.test(later)) throw new Error('a later day has no way to close its sheet')
