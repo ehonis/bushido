@@ -40,32 +40,22 @@
  * mid-session costs nothing, which is the entire point of the first decision.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
 import { NumInput } from './numinput.jsx'
 import { useModalLayer } from './modal.jsx'
 import { CUES, primeAudio, resumeAudio, acquireWakeLock, releaseWakeLock } from './lib/cues.js'
 import { lastLift, liftFieldOf } from './lib/lifts.js'
-import {
-  prescriptionSteps, runProgress, firstOpen, runElapsed,
-  markSet, unmarkSet, skipSet, unskipSet, endRest, goToSet, finishRun,
-  emptyRun, setDraft, carryForward, runOutputs, isLogged, isSkipped, setLine, itemLine,
-  setFieldsFor, addSetLike, patchRunItem, measureOfItem,
-  blockTimer, circuitOnly, circuitTiming, endCircuit, circuitToOpen, nextCircuit,
-} from './lib/prescription.js'
-import {
-  compile, startRun, circuitDone, view as timerView, describe, totalSeconds, settle, back, bump, skip as skipSegment,
-  togglePause, moved, cueFor, holdConfig, isTimedSet, holdOn, startHold, heldSeconds,
-  restClock, restPausedAt, toggleRest, bumpRest, restBack, reopened,
-} from './lib/timer.js'
+import { isLogged, isSkipped, setLine, itemLine, setFieldsFor, measureOfItem, blockTimer, circuitOnly, circuitTiming } from './lib/prescription.js'
+import { compile, startRun, view as timerView, describe, totalSeconds, back, bump, skip as skipSegment, togglePause, isTimedSet } from './lib/timer.js'
+import { useRunner, circuitTick } from './lib/runflow.js'
 import { clock } from './lib/workout.js'
 import { Stepper, boxFor, stepBox, TimeInput, weightSwitch, SwapWords, ExerciseSheet } from './exercises.jsx'
 import { ExerciseBody, musclesOf, muscleWords } from './lib/bodymap.jsx'
 import { usePlan } from './lib/planctx.jsx'
 import { TimerRun, WorkHead, LeaveDialog, leaveActions, ControlRow, setsWord } from './timer.jsx'
 import { timingWords } from './circuit.jsx'
-import { andWords, togetherSaid, togetherItems } from './lib/trainer.js'
-import { planShown, withStoredWords } from './lib/shared.js'
+import { andWords, togetherSaid } from './lib/trainer.js'
 
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).padStart(2, '0')}`
 
@@ -97,80 +87,14 @@ const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).padStart(2
  * is written to every side when it ends (`write`, which says who it missed).
  */
 export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onFinish = null, who = null, switcher = null, shown = true, together = null }) {
-  // As this log's person sees it: never the owner's notes on a copy (lib/shared.js `planShown`, #96).
-  const pres = planShown(entry)
-  const steps = useMemo(() => prescriptionSteps(pres), [pres])
   const liftField = liftFieldOf(usePlan())
-  const run = entry?.data?.run || null
-
-  const [now, setNow] = useState(() => Date.now())
-  const [cursor, setCursor] = useState(() => run?.cursor || firstOpen(run, steps))
-  const [draft, setDraft_] = useState(null)
-  const [listOpen, setListOpen] = useState(false)
-  const [muted, setMuted] = useState(false)
-  // The leave dialog: null, 'ask' (Keep going / Leave it open / Finish…), or
-  // 'finish' (finishing with sets still to do asks again).
-  const [leaving, setLeaving] = useState(null)
-  const [skipping, setSkipping] = useState(false) // a whole circuit's Skip asks first
   const lock = useRef(null)
-  const rangAt = useRef(0)
+  // The state and every tap's write are lib/runflow.js, shared with the phone;
+  // this file is the screens, and the web's sounds.
+  const r = useRunner({ entry, onRun, onExit, onFinish, shown, together, liftField, feedback: webFeedback })
+  const { pres, steps, run, step, progress, rest, restPaused, elapsed, done, hold, holdProgram, holdNow, muted, circuitBlock } = r
 
   useModalLayer()
-
-  /*
-   * A circuit block (issue #68) runs on the interval timer's screen. A plan
-   * that is nothing but circuits goes straight to it, so an ab circuit is open,
-   * Start, and it runs; in a plan with other work the circuit is a step that
-   * says what it is and starts when asked, and so does a shared workout's side
-   * that is not on screen: each person's clock starts on their own Start
-   * (`circuitToOpen`). One whose timer is on the entry
-   * (left open, or the page reloaded) comes back running.
-   */
-  // A circuit that can be done together waits on its start screen, where that is chosen.
-  const [circuitId, setCircuitId] = useState(() => circuitToOpen(pres, run, { shown: shown && !together?.offer }))
-  // Each circuit done together on this screen: its result, and what each other
-  // side said (null while asking). Try again asks again (lib/trainer.js).
-  const [shared, setShared] = useState([])
-  const shareResult = async (result) => {
-    const same = (x) => x.result.key === result.key && x.result.block.id === result.block.id
-    setShared(list => [...list.filter(x => !same(x)), { result, said: null }])
-    let said
-    try { said = await together.write(result) } catch { said = null }
-    setShared(list => list.map(x => (same(x) ? { result, said: said || [] } : x)))
-  }
-  // Straight on from one circuit to the next in a plan of circuits, said in its count-in.
-  const [chained, setChained] = useState(false)
-  const circuitBlock = circuitId ? (pres?.blocks || []).find(b => b.id === circuitId && b.circuit) || null : null
-
-  const step = steps.find(s => s.setId === cursor) || steps[0] || null
-  const progress = runProgress(run, steps)
-  // The rest stands still while paused (lib/timer.js `restClock`).
-  const rest = restClock(run, now)
-  const restPaused = restPausedAt(run) != null
-  const elapsed = runElapsed(run, now)
-  const done = progress.left === 0 && progress.total > 0
-
-  /*
-   * A timed set's clock (#75): a plank or a 90-second interval is started with
-   * "Start 0:30", counts down on the timer's face and marks itself, logging the
-   * seconds actually held. It is on the run (`run.hold`), so it survives the
-   * app closing like the rest clock does.
-   */
-  const hold = step ? holdOn(run, step.setId) : null
-  const holdProgram = useMemo(
-    () => (hold ? compile(holdConfig(hold.seconds, { name: step.item.name, key: step.item.exercise || null })) : null),
-    [hold?.seconds, step?.item?.name, step?.item?.exercise]) // eslint-disable-line react-hooks/exhaustive-deps
-  const holdNow = hold ? settle(holdProgram, hold.timer, now) : null
-
-  /* ------------------------------------------------------------ the clock */
-
-  // A repaint tick, nothing more. Every value on screen is derived by
-  // subtracting from Date.now(), so a throttled background tab cannot drift the
-  // session — it just repaints less often while nobody is looking.
-  useEffect(() => {
-    const iv = setInterval(() => setNow(Date.now()), 250)
-    return () => clearInterval(iv)
-  }, [])
 
   // The screen stays on while the user is in here, and the audio context is retaken
   // after the phone has been in a pocket — backgrounding suspends it and coming
@@ -180,7 +104,7 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
     acquireWakeLock().then(l => { if (live) lock.current = l; else releaseWakeLock(l) })
     const onVis = () => {
       if (document.visibilityState !== 'visible') return
-      setNow(Date.now())
+      r.tick()
       resumeAudio()
       acquireWakeLock().then(l => { lock.current = l })
     }
@@ -190,177 +114,18 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
       document.removeEventListener('visibilitychange', onVis)
       releaseWakeLock(lock.current)
     }
-  }, [])
-
-  /*
-   * The rest bell.
-   *
-   * Fires once, on the transition to zero, keyed by the deadline it belongs to —
-   * `rangAt` rather than a boolean, because a second rest of the same length must
-   * ring again and a re-render must not.
-   *
-   * It also asks the service worker to post a notification, which is best effort
-   * and honestly so: if iOS has frozen the tab there is no timer left to fire,
-   * and there is no reliable way to schedule a local notification from a page.
-   * The clock is still correct when the user comes back, which is the guarantee that
-   * actually matters.
-   */
-  useEffect(() => {
-    if (!run?.restUntil || rest > 0) return
-    if (rangAt.current === run.restUntil) return
-    rangAt.current = run.restUntil
-    if (!shown) return
-    if (!muted) CUES.work()
-    if (document.visibilityState !== 'visible') notifyRestOver(step)
-  }, [rest, run?.restUntil, muted, step, shown])
-
-  /* ------------------------------------------------------------- the draft */
-
-  // What is in the boxes for the set the user is on. Recomputed when the set changes,
-  // never while the user is typing in it.
-  useEffect(() => {
-    if (!step) { setDraft_(null); return }
-    const carried = isLogged(run, step.setId) ? null : carryForward(run, steps, step)
-    setDraft_(carried ? { ...setDraft(run, step), ...carried } : setDraft(run, step))
-  }, [cursor, step?.setId])
-
-  const patch = (p) => setDraft_(d => ({ ...(d || {}), ...p }))
-
-  /* ------------------------------------------------------------- the writes */
-
-  /*
-   * Every write goes through `reopened` (lib/timer.js): a workout finished and
-   * opened again from its sheet is running again from the first thing done in
-   * it, and only a write that finishes it sets an end.
-   */
-  const write = (nextRun, opts) => onRun(reopened(nextRun, run), opts)
-
-  /** Persist run state, and the outputs it implies where they changed. */
-  const commit = useCallback((nextRun, { outputs = false, done = undefined } = {}) => {
-    const r = reopened(nextRun, entry?.data?.run || null)
-    onRun(r, {
-      out: outputs ? runOutputs(pres, r, entry?.data?.out || {}) : null,
-      done,
-    })
-  }, [onRun, pres, entry])
-
-  const mark = () => {
-    if (!step) return
-    primeAudio()
-    if (!muted && shown) CUES.setDone()
-    const next = markSet(run || emptyRun(), step, draft || {}, { steps })
-    commit(next, { outputs: true })
-    setCursor(next.cursor)
-  }
-
-  const unmark = (setId) => {
-    const next = unmarkSet(run, setId)
-    commit(next, { outputs: true })
-    setCursor(setId)
-  }
-
-  const skip = () => {
-    if (!step) return
-    const next = skipSet(run || emptyRun(), step.setId, { steps })
-    commit(next)
-    setCursor(next.cursor)
-  }
-
-  /**
-   * One more set of the one the user is on, with the numbers in the boxes right now.
-   * The plan grows a set at the end of this item and nothing else moves: the
-   * cursor stays where it is (the user has not marked this set yet), the draft is
-   * untouched, and `out` is left off because no logged set changed. The clock is
-   * not started by it either — adding a set is not doing one.
-   */
-  const addAnother = () => {
-    if (!step) return
-    write(run, { plan: withStoredWords(entry, addSetLike(pres, step.itemId, { ...step.set, ...(draft || {}) })) })
-  }
-
-  // What this exercise's weight means (#58), on the plan, and on the log in the
-  // same write once a set of it is logged, so every set and the log say the same.
-  const patchThisItem = (p) => write(run, patchRunItem(pres, run, step.itemId, p, entry?.data?.out || {}, liftField))
-
-  const jump = (setId) => {
-    commit(goToSet(run || emptyRun(), setId))
-    setCursor(setId)
-    setListOpen(false)
-  }
-
-  /* ---------------------------------------------------- a timed set's clock */
-
-  const beginHold = () => {
-    if (!step) return
-    primeAudio()
-    const at = Date.now()
-    const seconds = Number(draft?.seconds) > 0 ? draft.seconds : step.set.seconds
-    commit(startHold(run || emptyRun(at), step.setId, seconds, at, { name: step.item.name, key: step.item.exercise || null }))
-    setNow(at)
-  }
-  const holdAct = (fn, ...args) => {
-    if (!hold) return
-    primeAudio()
-    const at = Date.now()
-    commit({ ...run, hold: { ...hold, timer: fn(holdProgram, settle(holdProgram, hold.timer, at), at, ...args) } })
-    setNow(at)
-  }
-  const stopHold = () => commit({ ...run, hold: null })
-
-  // Its cues, on each change of segment (the count-in ending, the hold ending).
-  const heard = useRef(null)
-  useEffect(() => {
-    if (!holdNow) { heard.current = null; return }
-    const was = heard.current
-    heard.current = holdNow
-    if (was && was.startedAt === holdNow.startedAt && moved(was, holdNow) && shown && !muted) {
-      const c = cueFor(holdProgram, holdNow)
-      if (c && c !== 'finished') CUES[c]?.()
-    }
-  })
-
-  // The end of a hold marks the set with what was held, once per clock; under
-  // DONE_AFTER (a mis-tap, a look) it marks nothing and the set is as it was.
-  const ended = useRef(null)
-  useEffect(() => {
-    if (!hold || holdNow?.finishedAt == null || ended.current === hold.timer.startedAt) return
-    ended.current = hold.timer.startedAt
-    const secs = heldSeconds(holdProgram, holdNow)
-    const base = { ...run, hold: null }
-    if (secs == null) { commit(base); return }
-    if (!muted && shown) CUES.setDone()
-    const next = markSet(base, step, { ...(draft || {}), seconds: secs }, { steps })
-    commit(next, { outputs: true })
-    setCursor(next.cursor)
-  }, [holdNow?.finishedAt]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const finish = () => {
-    setLeaving(null)
-    if (!muted && shown) CUES.finished()
-    // Done, the outputs and the end time in one write, for the same reason as
-    // above — `onSetDone` used to be a second call and would have taken the run
-    // with it.
-    commit(finishRun(run || emptyRun()), { outputs: true, done: true })
-    // With more than one side, finishing one hands over to the next (SidesWorkout).
-    ;(onFinish || onExit)()
-  }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- once per runner; `tick` only sets the clock
 
   if (circuitBlock) {
     const only = circuitOnly(pres)
     return (
       <CircuitRun key={circuitBlock.id} pres={pres} block={circuitBlock} run={run} only={only}
-        together={together} onShare={shareResult}
-        shared={shared} onRetry={() => shared.filter(x => x.said?.some(y => y.status === 'missed')).forEach(x => shareResult(x.result))}
-        intro={chained ? `Next: ${circuitBlock.name}` : null}
-        onNext={(id) => { setChained(true); setCircuitId(id) }}
+        together={together} onShare={r.shareResult} shared={r.shared} onRetry={r.retryShared}
+        intro={r.chained ? `Next: ${circuitBlock.name}` : null}
+        onNext={r.circuitNext}
         who={who} switcher={switcher} shown={shown}
-        onRun={(next, opts) => (next ? commit(next, opts) : onRun(null, {}))}
-        onBack={() => {
-          setCircuitId(null)
-          setChained(false)
-          if (only) (onFinish || onExit)()
-          else setCursor(c => firstOpen(entry?.data?.run, steps) || c)
-        }}
+        onRun={r.circuitWrite}
+        onBack={() => r.circuitBack(only)}
         onLeave={onExit} />
     )
   }
@@ -381,9 +146,9 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
 
   return (
     <div className="run" data-tone={who ? who.tone : undefined}>
-      <WorkHead title={pres.title} who={who} muted={muted} onMute={setMuted}
+      <WorkHead title={pres.title} who={who} muted={muted} onMute={r.setMuted}
         sub={`${progress.done} of ${progress.total} sets · ${mmss(elapsed)}`}
-        onExit={() => setLeaving('ask')} />
+        onExit={r.askLeave} />
 
       {switcher}
 
@@ -393,64 +158,73 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
 
       {rest > 0 ? (
         <RestScreen seconds={rest} of={run.restOf} next={step} paused={restPaused}
-          onBack={() => { const next = restBack(run); commit(next); setCursor(next.cursor) }}
-          onBump={(n) => commit(bumpRest(run, Date.now(), n))}
-          onPause={() => commit(toggleRest(run, Date.now()))}
-          onSkip={() => commit(endRest(run))} />
+          onBack={r.restGoBack} onBump={r.restBump} onPause={r.restPause} onSkip={r.restSkip} />
       ) : done ? (
         <FinishScreen progress={progress} elapsed={elapsed}
-          onFinish={finish} onReview={() => setListOpen(true)} />
+          onFinish={r.finish} onReview={r.openList} />
       ) : step?.block?.circuit ? (
         <CircuitStep block={step.block} together={together}
-          onStart={() => setCircuitId(step.blockId)}
-          onList={() => setListOpen(true)}
-          onSkip={() => setSkipping(true)} />
+          onStart={() => r.startCircuit(step.blockId)}
+          onList={r.openList}
+          onSkip={r.askSkipCircuit} />
       ) : hold && holdNow ? (
-        <HoldScreen step={step} program={holdProgram} timer={holdNow} now={now}
-          onFace={() => holdAct(togglePause)}
-          onBack={() => holdAct(back)} onBump={(n) => holdAct(bump, n)} onPause={() => holdAct(togglePause)}
-          onSkip={() => holdAct(skipSegment)} onStop={stopHold} />
+        <HoldScreen step={step} program={holdProgram} timer={holdNow} now={r.now}
+          onFace={() => r.holdAct(togglePause)}
+          onBack={() => r.holdAct(back)} onBump={(n) => r.holdAct(bump, n)} onPause={() => r.holdAct(togglePause)}
+          onSkip={() => r.holdAct(skipSegment)} onStop={r.stopHold} />
       ) : step ? (
         <SetScreen
-          step={step} steps={steps} run={run} draft={draft} entries={entries} entryId={entry?.id}
+          step={step} steps={steps} run={run} draft={r.draft} entries={entries} entryId={entry?.id}
           briefing={briefingFor(pres, step)}
-          onPatch={patch} onMark={mark} onSkip={skip} onUnmark={() => unmark(step.setId)} onAddSet={addAnother}
-          onStartHold={beginHold}
-          onPatchItem={patchThisItem}
-          onList={() => setListOpen(true)} />
+          onPatch={r.patch} onMark={r.mark} onSkip={r.skip} onUnmark={() => r.unmark(step.setId)} onAddSet={r.addSet}
+          onStartHold={r.beginHold}
+          onPatchItem={r.patchItem}
+          onList={r.openList} />
       ) : null}
 
-      {listOpen && (
-        <SetList pres={pres} steps={steps} run={run} cursor={cursor} onJump={jump}
-          onUnmark={unmark} onUnskip={(id) => { commit(unskipSet(run, id)); setCursor(id) }}
-          onClose={() => setListOpen(false)} onFinish={progress.left === 0 ? finish : null} />
+      {r.listOpen && (
+        <SetList pres={pres} steps={steps} run={run} cursor={r.cursor} onJump={r.jump}
+          onUnmark={r.unmark} onUnskip={r.unskip}
+          onClose={r.closeList} onFinish={progress.left === 0 ? r.finish : null} />
       )}
 
-      {leaving === 'ask' && (
+      {r.leaving === 'ask' && (
         <LeaveDialog title="Leave the workout?"
           body="Every set you marked is saved, and the clock keeps running."
-          onKeep={() => setLeaving(null)}
-          actions={leaveActions({ left: progress.left, onLeave: onExit, onFinish: finish, onAskFinish: () => setLeaving('finish') })} />
+          onKeep={r.keepGoing}
+          actions={leaveActions({ left: progress.left, onLeave: onExit, onFinish: r.finish, onAskFinish: r.askFinish })} />
       )}
-      {leaving === 'finish' && (
+      {r.leaving === 'finish' && (
         <LeaveDialog title={`Finish with ${setsWord(progress.left)} left?`}
           body="They stay unmarked. Start on the workout's sheet opens it again."
-          onKeep={() => setLeaving(null)}
-          actions={[{ label: 'Finish anyway', kind: 'secondary', onClick: finish }]} />
+          onKeep={r.keepGoing}
+          actions={[{ label: 'Finish anyway', kind: 'secondary', onClick: r.finish }]} />
       )}
-      {skipping && step?.block?.circuit && (
+      {r.skipping && step?.block?.circuit && (
         <LeaveDialog title={`Skip ${step.block.name}?`}
           body="None of the circuit is logged. All sets puts it back."
-          keepLabel="Keep it" onKeep={() => setSkipping(false)}
-          actions={[{ label: 'Skip the circuit', kind: 'secondary', onClick: () => {
-            setSkipping(false)
-            const next = endCircuit(run, pres, step.blockId, [], {})
-            commit(next)
-            setCursor(next.cursor)
-          } }]} />
+          keepLabel="Keep it" onKeep={r.keepCircuit}
+          actions={[{ label: 'Skip the circuit', kind: 'secondary', onClick: r.skipCircuit }]} />
       )}
     </div>
   )
+}
+
+/**
+ * The web's sounds for the runner's taps (lib/runflow.js `feedback`). A tap that
+ * starts something primes the audio context (iOS opens it only on a gesture); a
+ * set marked, a hold ended and a finish sound unless muted or off screen; the
+ * rest bell also asks for a notification while the page is hidden.
+ */
+function webFeedback(event, { muted, shown, cue, step }) {
+  if (event === 'mark' || event === 'holdStart' || event === 'holdAct') primeAudio()
+  if ((event === 'mark' || event === 'holdEnd') && !muted && shown) CUES.setDone()
+  if (event === 'finish' && !muted && shown) CUES.finished()
+  if (event === 'cue') CUES[cue]?.()
+  if (event === 'restOver') {
+    if (!muted) CUES.work()
+    if (document.visibilityState !== 'visible') notifyRestOver(step)
+  }
 }
 
 /* --------------------------------------------------------------- circuits */
@@ -485,46 +259,19 @@ function CircuitRun({
   const runRef = useRef(run)
   runRef.current = run
 
-  const save = (timer) => {
-    const base = runRef.current || emptyRun(timer.startedAt)
-    onRun({ ...base, startedAt: base.startedAt || timer.startedAt,
-      circuit: { block: block.id, timer, ...(withThem ? { together: true, with: withIds } : {}) } }, {})
+  // Every change of the clock, and what follows it, is lib/runflow.js `circuitTick`.
+  const onTimer = (timer) => {
+    const t = circuitTick({ run: runRef.current, pres, block, program, timer, only, together: withThem, withIds })
+    onRun(...t.write)
+    if (t.back) { onBack(); return }
+    // Done together: the same result on every other side, each through its own writer.
+    if (t.share && onShare) onShare(t.share)
+    // A plan of circuits runs the next one straight after, not back to the day.
+    if (t.next) { onNext(t.next); return }
+    if (t.logged) setLogged(t.logged)
   }
   // Starting is a write: the entry says it is running from the first second.
-  useEffect(() => { if (!live) save(initial) }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const onTimer = (timer) => {
-    if (timer.finishedAt == null) { save(timer); return }
-    const done = circuitDone(program, timer)
-    const base = runRef.current
-    if (!done.some(d => d.length)) {
-      const rest = { ...(base || {}), circuit: null }
-      const untouched = !Object.keys(rest.sets || {}).length && !(rest.skipped || []).length
-      onRun(untouched ? null : rest, {})
-      onBack()
-      return
-    }
-    const at = timer.finishedAt
-    const seconds = timerView(program, timer, at).elapsed
-    // Keyed by the clock's start, so writing this result again changes nothing.
-    const key = timer.startedAt
-    const next = endCircuit(base, pres, block.id, done, { at, seconds, key })
-    const all = runProgress(next, prescriptionSteps(pres)).left === 0
-    const then = only && !all ? nextCircuit(pres, next) : null
-    if (only && all) onRun(finishRun(next, { at }), { outputs: true, done: true })
-    else onRun(next, { outputs: true })
-    // Done together: the same result on every other side, each through its own writer.
-    if (withThem && onShare) {
-      onShare({
-        block: { uid: block.uid || null, id: block.id, name: block.name },
-        items: togetherItems(block),
-        done, at, seconds, key, ...(withIds ? { with: withIds } : {}),
-      })
-    }
-    // A plan of circuits runs the next one straight after, not back to the day.
-    if (then) { onNext(then.id); return }
-    setLogged(only && all ? 'Logged' : 'Logged on this workout')
-  }
+  useEffect(() => { if (!live) onTimer(initial) }, []) // eslint-disable-line react-hooks/exhaustive-deps -- once, as the circuit opens
 
   /*
    * Done together, the words come from what each side SAID (rule 5): who it is

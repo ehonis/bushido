@@ -20,6 +20,7 @@ import { T } from '../ui/Text'
 import { Btn, Card, Chip, IconBtn, Input, Press, SectionHeader } from '../ui/kit'
 import { FullScreen } from '../ui/Sheet'
 import { useKeyboardShown } from '../ui/KeyboardBar'
+import { showFoot as footAllowed } from '../ui/sheetPolicy'
 import { PrescriptionEditor } from './editor'
 import { NumInput } from './numinput'
 import { impact, success, tap, warn } from '../ui/haptics'
@@ -66,7 +67,7 @@ export function StepPage({ children, foot = null, after = null, scrollRef = null
 }) {
   const insets = useSafeAreaInsets()
   const typing = useKeyboardShown()
-  const showFoot = Boolean(foot) && !typing
+  const showFoot = footAllowed({ footer: foot, typing })
   return (
     <View style={{ flex: 1 }}>
       <ScrollView
