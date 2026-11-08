@@ -18,7 +18,8 @@ import { NumInput } from './numinput'
 import { SetLog, GradeSelect, RangeSlider, totalSets, totalReps } from './setlog'
 import { LiftLog } from './liftlog'
 import { ActivityPicker } from './activitypicker'
-import { liftsLine, liftFieldIn } from '../lib/lifts.js'
+import { liftsLine, liftsDone, liftFieldIn } from '../lib/lifts.js'
+import { priorSessions } from '../lib/history.js'
 import { asksItsOwnDuration, minutesFor, minutesSourceOf } from '../lib/minutes.js'
 import { visibleOutputs, pruneHidden, derivedValue, filledBy } from '../lib/outputs.js'
 import { gateResolver, activityOf, activityLabel } from '../lib/activities.js'
@@ -30,30 +31,11 @@ import { StravaActivities } from './strava'
 
 /* --------------------------------------------------------------- notes --- */
 
-/**
- * Every previous time you did THIS session, newest first. The point of writing
- * "grip kept opening on the last circuit" is being shown it again before the
- * next one, so this is what the repeat lookup reads.
+/*
+ * Which earlier entries are this workout (by card, or for a planned or
+ * free-form workout by what it is) lives in lib/history.js, the web's own (#74).
  */
-export function priorSessions(entries: any[], session: any, excludeId?: any) {
-  const ids = priorIdsOf(session)
-  if (!ids.length) return []
-  return (entries || [])
-    .filter((e) => e.kind === 'daily' && !e.deleted && ids.includes(e.data?.optId) && e.id !== excludeId)
-    .sort((a, b) => String(b.date).localeCompare(String(a.date)))
-}
-
-/**
- * Which optIds count as "this session", for history: a card's own id plus the
- * ids it has ANSWERED TO — `aka` (a rename) and `priorIds` (a card this one was
- * split out of). Max hangs and repeaters were one card (`hard-home`) until
- * 2026-08-10, so without `priorIds` the history truncated exactly where it is
- * meant to be useful. Content, not code: the ids live on the card in plan.json.
- */
-export function priorIdsOf(session: any): string[] {
-  if (!session?.id) return []
-  return [session.id, ...(session.aka || []), ...(session.priorIds || [])]
-}
+export { priorSessions, priorIdsOf } from '../lib/history.js'
 
 const dayLabel = (iso: string) => {
   const days = Math.round((Date.now() - new Date(`${iso}T12:00:00`).getTime()) / 86400000)
@@ -64,12 +46,14 @@ const dayLabel = (iso: string) => {
 }
 
 /** "3 sets, 21 reps · 5.10+" — what the session itself was, off what was logged. */
-function priorWork(out: any, field: any = null) {
+function priorWork(entry: any, field: any = null) {
+  // What was lifted (`liftsDone`): on a planned workout done on the sheet, the plan's sets (D11).
+  const out = entry?.data?.out || {}
   const bits: string[] = []
   const sets = totalSets(out)
   const reps = totalReps(out)
   if (sets) bits.push(`${sets} set${sets === 1 ? '' : 's'}${reps ? `, ${reps} reps` : ''}`)
-  const lifting = (liftsLine as any)(out, field)
+  const lifting = (liftsLine as any)({ lifts: (liftsDone as any)(entry) }, field)
   if (lifting) bits.push(lifting)
   if (Number(out?.distance) > 0) bits.push(`${out.distance} mi`)
   if (Number(out?.minutesSpent) > 0) bits.push(`${out.minutesSpent} min`)
@@ -87,8 +71,8 @@ function priorWork(out: any, field: any = null) {
 export const priorTitle = (n: number, whose: string | null = null) =>
   n === 1 ? `Last time ${whose || 'you'} did this` : `The last ${n} times ${whose || 'you'} did this`
 
-export function PriorNote({ entries, session, excludeId, all = false, style, whose = null }: any) {
-  const prior = priorSessions(entries, session, excludeId)
+export function PriorNote({ entries, session, excludeId, entry = null, all = false, style, whose = null }: any) {
+  const prior: any[] = (priorSessions as any)(entries, session, excludeId, entry)
   if (!prior.length) return null
   const shown = all ? prior.slice(0, 5) : prior.slice(0, 1)
 
@@ -105,7 +89,7 @@ export function PriorNote({ entries, session, excludeId, all = false, style, who
       </View>
       {shown.map((e, i) => {
         const o = e.data?.out
-        const work = priorWork(o, liftFieldIn(session))
+        const work = priorWork(e, liftFieldIn(session))
         return (
           <View key={e.id} style={i > 0 ? st.priorNext : null}>
             <T size={font.caption} faint tabular style={{ marginBottom: space[1] }}>
@@ -558,7 +542,7 @@ export function SessionLog({
               value={out.improve}
               onCommit={(v) => set('improve', v.trim() || undefined)}
             />
-            <PriorNote entries={entries} session={session} excludeId={entry?.id} all whose={whose} style={{ marginBottom: 0 }} />
+            <PriorNote entries={entries} session={session} excludeId={entry?.id} entry={entry} all whose={whose} style={{ marginBottom: 0 }} />
           </View>
         </View>
     </View>

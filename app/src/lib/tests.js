@@ -34,7 +34,23 @@
  *     later corrects that day's result instead of adding a second one.
  */
 
+import { numOrNull } from './numtext.js'
+
 const round2 = (n) => Math.round(n * 100) / 100
+
+/**
+ * A logged value as a measurement, or null when nothing was measured.
+ *
+ * `Number(null)`, `Number('')` and `Number(false)` are all 0, so a box left
+ * blank used to land on the chart as a measured zero (#76): a peak-force
+ * session with neither hand typed wrote left 0, right 0, average 0. Blank, a
+ * space, a boolean and anything that is not a number are all "not measured".
+ */
+export function measured(v) {
+  if (typeof v === 'boolean') return null
+  if (typeof v === 'string' && !v.trim()) return null
+  return numOrNull(v)
+}
 
 /** The id a session-written test result lives under. Stable, so edits overwrite. */
 export const testEntryId = (date, testId) => `test-${date}-${testId}`
@@ -47,10 +63,7 @@ export const testEntryId = (date, testId) => `test-${date}-${testId}`
  * nobody typed is worse — it would land on a strength chart as a measurement.
  */
 export function deriveValue(spec, out) {
-  const num = (k) => {
-    const v = Number(out?.[k])
-    return Number.isFinite(v) ? v : null
-  }
+  const num = (k) => measured(out?.[k])
 
   if (Array.isArray(spec)) {
     if (!spec.length) return null
@@ -95,8 +108,8 @@ export function testEntryFor({ plan, session, date, out }) {
 
   let got = 0
   for (const key of metrics) {
-    const v = Number(out?.[key])
-    if (!Number.isFinite(v)) continue
+    const v = measured(out?.[key])
+    if (v == null) continue
     data[key] = v
     got++
   }
@@ -112,4 +125,26 @@ export function testEntryFor({ plan, session, date, out }) {
   if (!got) return null
 
   return { id: testEntryId(date, test.id), kind: 'test', date, data }
+}
+
+/**
+ * A result typed into the Testing page's own form, or null when there is
+ * nothing to save.
+ *
+ * The same rule as a session's: only the test's declared metrics, only values
+ * that were measured, and nothing at all when no box holds a number. Before
+ * #76 an empty form saved `{ testId }` alone, which was the NEWEST
+ * critical-force result and so hid a valid ceiling behind a test with no CF.
+ */
+export function testResultFrom(test, vals, date) {
+  if (!test?.id || !date) return null
+  const data = { testId: test.id }
+  let got = 0
+  for (const m of test.metrics || []) {
+    const v = measured(vals?.[m.key])
+    if (v == null) continue
+    data[m.key] = v
+    got++
+  }
+  return got ? { kind: 'test', date, data } : null
 }

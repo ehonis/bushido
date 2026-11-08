@@ -135,6 +135,28 @@ check('targets the plan arrived with are not typed: an untouched copy still foll
   eq(itemNamed(carry(untouched, shapeOf(before), edit(before, bs => { bs[0].items[0].sets.pop(); return bs })), 'Squat').sets.length, 1)
 })
 
+check('a carry that changes something fills in what kind of workout it is on a side that names none (#74)', () => {
+  const before = alex()
+  const after = { ...edit(before, bs => { bs[0].items.push({ uid: 'u-new', kind: 'lift', name: 'Lunge', exercise: 'lunge', sets: [{ reps: 8, weight: 30 }] }); return bs }),
+    out: { activity: 'lift', category: 'lift', rpe: 8 } }
+  const bare = { ...sam(), out: {} }
+  const theirs = carry(bare, shapeOf(before), after)
+  eq(theirs.out, { activity: 'lift', category: 'lift' }, 'the kind did not arrive, or a number came with it')
+  const chose = { ...sam(), out: { activity: 'calisthenics' } }
+  eq(carry(chose, shapeOf(before), after).out, { activity: 'calisthenics' }, 'a kind their side chose was overwritten')
+  const same = { ...before, out: { activity: 'lift', category: 'lift' } }
+  ok(carry(bare, shapeOf(before), same) === bare, 'a carry with no change of structure wrote the kind on its own')
+})
+
+check('a set the other side added to an interval copies its shape, not a typed mark', () => {
+  const plan = { blocks: [{ uid: 'B', name: 'Run', items: [{ uid: 'I', kind: 'interval', name: 'Repeat', unit: 'mi', sets: [{ distance: 1, typed: true, note: 'x' }] }] }] }
+  const before = { plan }
+  const after = { plan: { blocks: [{ ...plan.blocks[0], items: [{ ...plan.blocks[0].items[0], sets: [{ distance: 1 }, { distance: 1 }] }] }] } }
+  const got = carry({ plan }, shapeOf(before), after).plan.blocks[0].items[0].sets
+  eq(got.length, 2)
+  eq(['typed' in got[1], got[1].note, got[1].distance], [false, '', 1], 'the copied interval set reads as typed into')
+})
+
 check('kept sets never make the other side\'s next add an extra set (wantSets)', () => {
   // The owner's typed row stays at 3 while Sam goes 3 -> 1; Sam then adds one (1 -> 2).
   const owner = typedAll({ ...alex(), run: undefined, plan: planOf([{ uid: 'B1', name: 'Main', items: [

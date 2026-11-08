@@ -179,6 +179,36 @@ const ASK = { picked: [{ key: 'legs', label: 'Legs', prompt: 'a leg day', catego
     eq(app, [null, 'side', 'one', null, 'one'])
   })
 
+  await step('weight-mode memory reads a done plan too, on both sides, and not one still untouched today (D11, #74)', async () => {
+    const { rememberedWeightMode } = await import('../app/src/lib/lifts.js')
+    const TODAY = '2026-11-08'
+    const item = (exercise, implement, weightMode, sets = [{ id: 's0', reps: 10, weight: 90 }]) => ({ kind: 'lift', exercise, implement, ...(weightMode ? { weightMode } : {}), sets })
+    const planned = (id, date, items, data = {}) => ({ id, kind: 'daily', date, updatedAt: `${date}T20:00:00.000Z`,
+      data: { optId: 'planned', done: true, out: { activity: 'lift' }, plan: { blocks: [{ items }] }, ...data } })
+    const log = [
+      { id: 'old', kind: 'daily', date: '2026-09-09', updatedAt: 'a', data: { out: { lifts: [{ uid: 'r', key: 'row', implement: 'barbell', sets: [{ reps: 10, weight: 45 }] }] } } },
+      planned('p1', '2026-11-07', [item('row', 'barbell', 'side'), item('curl', 'dumbbell', 'one', [{ id: 's0', reps: null, weight: null }])]),
+      planned('p2', TODAY, [item('press', 'kettlebell', 'one')], { done: false }),
+      planned('p3', '2026-11-06', [item('press', 'kettlebell', null)]),
+    ]
+    const server = rememberedModes(Object.fromEntries(log.map(e => [e.id, e])), TODAY)
+    const pairs = [['row', 'barbell'], ['curl', 'dumbbell'], ['press', 'kettlebell']]
+    const app = pairs.map(([k, i]) => rememberedWeightMode(null, log, k, i, null, TODAY))
+    eq(pairs.map(([k, i]) => server.get(`${k}|${i}`) ?? null), app, 'the server and the app remember differently')
+    eq(app, ['side', null, null], 'a done plan\'s mode was not remembered, or a set with no number or an untouched plan was')
+
+    // Review of #84: a hand-logged extra lift does not hide the plan; today, only typed sets count.
+    const log2 = [
+      planned('q1', '2026-11-07', [item('row', 'barbell', 'side')], { out: { lifts: [{ uid: 'shrug-1', key: 'shrug', implement: 'dumbbell', weightMode: 'one', sets: [{ reps: 15, weight: 30 }] }] } }),
+      planned('q2', TODAY, [item('row', 'barbell', null, [{ id: 's0', reps: 8, weight: 95, typed: true }]), item('curl', 'dumbbell', 'one')], { done: false }),
+    ]
+    const server2 = rememberedModes(Object.fromEntries(log2.map(e => [e.id, e])), TODAY)
+    const pairs2 = [['row', 'barbell'], ['shrug', 'dumbbell'], ['curl', 'dumbbell']]
+    const app2 = pairs2.map(([k, i]) => rememberedWeightMode(null, log2, k, i, null, TODAY))
+    eq(pairs2.map(([k, i]) => server2.get(`${k}|${i}`) ?? null), app2, 'the server and the app remember differently')
+    eq(app2, [null, 'one', null], 'today\'s typed row did not win, the extra lift was lost, or an untyped target today was remembered')
+  })
+
   await step('a failed revision keeps the plan, takes the message off the thread, and retries it', async () => {
     const dir = tmp(); const s = createDrafts(); const p = fakePlanner()
     const d = s.create(dir, ASK, p.fn)

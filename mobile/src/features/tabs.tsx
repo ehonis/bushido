@@ -13,12 +13,12 @@ import { Icon } from '../lib/icons'
 import { LoadCalendar } from '../lib/viz'
 import { restStats } from '../lib/stats.js'
 import { totalSets } from './setlog'
-import { liftsLine, liftFieldIn } from '../lib/lifts.js'
+import { liftedLine, liftFieldIn } from '../lib/lifts.js'
 import { pushToast } from '../lib/toast'
 import { localIso, fromIso, isoShift, dayWords } from '../lib/dates.js'
 import { metaText } from './metaline'
 import { isDone, extraEntryId, doneWhenPlaced, markDone } from '../lib/store.js'
-import { testEntryFor, testEntryId, testFor } from '../lib/tests.js'
+import { sessionOps } from '../lib/sessionops.js'
 import { WorkoutMode } from './workout'
 import { WorkoutRunner } from './runner'
 import { PlanWhy } from './planner'
@@ -28,7 +28,7 @@ import { prescriptionLine, prescriptionSteps, runProgress } from '../lib/prescri
 import { hasWorkout } from '../lib/workout.js'
 import { minutesFor, loggedMinutes, resolveMinutes } from '../lib/minutes.js'
 import { levelFor } from '../lib/level.js'
-import { nameFor, titleFor, withCasualName } from '../lib/naming.js'
+import { nameFor, titleFor } from '../lib/naming.js'
 import { disciplineFor } from '../lib/activities.js'
 import { UnloggedWorkouts } from './unlogged'
 import { WhoopReadiness, WhoopSleep } from './whoop'
@@ -210,93 +210,18 @@ export function TodayTab({
     return id
   }
 
-  // The entry and everything it wrote — including the test result, or the chart
-  // would keep a point for a session that is no longer in the log.
-  const dropEntry = (entry: any) => {
-    deleteEntry?.(entry.id)
-    const opt = optFor(menu, entry.data?.optId)
-    const test = (testFor as any)(plan, opt)
-    if (test && entry.date) deleteEntry?.(testEntryId(entry.date, test.id))
-  }
-
   /*
-   * Taking a session off the day is simply removing it, with an Undo. The
-   * confirm asks first; the toast is the way back from a wrong answer: Undo
-   * writes the entry (and its test result) back as they were.
+   * Saving, removing, "just miles", done, the runner's write and the plan's:
+   * the same operations the Log's sheet uses (lib/sessionops.js, #76), so a
+   * workout is written one way whichever screen it was opened from. `undoIcon`
+   * null: ToastHost's only glyph is Retry's arrow forward, wrong for a step back.
    */
-  const removeSession = (entry: any) => {
-    const opt = optFor(menu, entry.data?.optId)
-    const test = (testFor as any)(plan, opt)
-    const result = test && entry.date
-      ? entries.find(e => e.id === testEntryId(entry.date, test.id) && !e.deleted) : null
-    dropEntry(entry)
-    const live = ({ deleted, ...rest }: any) => rest
-    const name = opt ? _titleFor(opt, entry.data?.out, entry.data?.plan) : entry.data?.name
-    pushToast(name ? `Removed ${name}` : 'Removed', 'info', {
-      duration: 6000,
-      // `icon: null`: ToastHost's only glyph is Retry's arrow forward, wrong for a
-      // step back, so Undo is the word alone until the host draws `action.icon`.
-      action: { label: 'Undo', icon: null, onClick: () => {
-        upsertEntry(live(entry))
-        if (result) upsertEntry(live(result))
-      } },
-    })
-  }
+  const ops: any = (sessionOps as any)({ plan, entries, upsertEntry, deleteEntry, toast: pushToast, undoIcon: null })
+  const { removeSession, setDone, setTraining, saveOutputs, saveRun, savePlan } = ops
 
   // The entry a quick-log row on the empty day just placed, opened like the +'s.
   const [placed, setPlaced] = useState<string | null>(null)
 
-  const setDone = (entry: any, done: boolean) => upsertEntry(markDone(entry, done))
-
-  /*
-   * "Just miles", from the day's own sheet. Same write as the Log feed's:
-   * `training: false` plus the name it gives itself, which is only ever a BLANK
-   * name filled and only ever its own taken back. See lib/naming.js.
-   */
-  const setTraining = (entry: any, opt: any) => (v: boolean) => {
-    const casual = v === false
-    const out = (withCasualName as any)(entry.data?.out || {}, { plan, opt, on: casual })
-    upsertEntry({ ...entry, data: {
-      ...entry.data, out,
-      name: _titleFor(opt, out, entry.data?.plan),
-      training: casual ? false : undefined,
-    } })
-  }
-
-  // Outputs attach to their own entry. Sessions that declare `levelFrom` rewrite
-  // the day's load level from what you logged.
-  const saveOutputs = (entry: any, out: any) => {
-    const opt = optFor(menu, entry.data?.optId)
-    // `applyOut` (lib/trainer.js), shared with someone else's side of a workout:
-    // the level, the name (a PLANNED session is named by its plan, so "Legs" does
-    // not become "Lift" on the first slider touch) and `resolveMinutes`.
-    upsertEntry(applyOut(entry, opt, out))
-    // A session that IS a test writes its result too, so the Testing tab's series
-    // comes from the session you actually did. See lib/tests.js.
-    const result = (testEntryFor as any)({ plan, session: opt, date: entry.date, out })
-    if (result) upsertEntry(result)
-  }
-
-  /*
-   * Where the user is in a running workout — and, in the SAME write, what that
-   * changed about the log.
-   *
-   * One writer, and it has to be one. The first version had two, each spreading
-   * the same stale `entry`, so the second write landed on top of the first and
-   * every marked set re-rendered as set one of sixteen with the clock at zero.
-   *
-   * `out` is null on a rest-clock nudge, which changes the run and nothing else.
-   */
-  const saveRun = (entry: any, run: any, opts: { out?: any; done?: boolean; plan?: any } = {}) => {
-    // The runner adding a set to the plan goes through HERE and not `savePlan`:
-    // one tap, one writer. `applyRun` (lib/trainer.js) is the same write someone
-    // else's side of the runner makes.
-    upsertEntry(applyRun(entry, optFor(menu, entry.data?.optId), run, opts))
-  }
-
-  /** Editing the prescription itself — from the sheet, after it has landed. */
-  // `applyPlan` (lib/trainer.js): a weight mode switched on the plan reaches its logged row (#58).
-  const savePlan = (entry: any, pres: any) => upsertEntry(applyPlan(entry, optFor(menu, entry.data?.optId), pres))
 
   return (
     <>
@@ -578,13 +503,13 @@ function DaySessions({
     const me = currentMe()
     if (isRunning(entry)) return metaText([runLine(entry), (withLine as any)(entry, me.people)])
     const bits: (string | null)[] = []
-    if (!isDone(entry)) bits.push(viewIso > localIso() ? 'Planned' : 'Not done')
+    if (!isDone(entry)) bits.push(entry.data?.undone === true ? 'Not done' : 'Planned')
     if (opt.role === 'rest') bits.push(...(restStats as any)(entry, opt))
     else {
       const mins = (loggedMinutes as any)(entry, opt)
       const sets = totalSets(out)
       const work = Number(out.distance) > 0 ? `${out.distance} mi`
-        : (liftsLine as any)(out, liftFieldIn(opt)) || (sets ? `${sets} set${sets === 1 ? '' : 's'}` : null)
+        : (liftedLine as any)(entry, liftFieldIn(opt)) || (sets ? `${sets} set${sets === 1 ? '' : 's'}` : null)
       // A planned session nothing has been logged on yet says what it holds.
       if (mins === null && !work && entry.data?.plan) bits.push(prescriptionLine(entry.data.plan))
       else bits.push(mins !== null ? `${mins} min` : null, work)

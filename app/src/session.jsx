@@ -17,7 +17,7 @@
 import { useState } from 'react'
 import { Icon } from './lib/icons.jsx'
 import { MovesList, hasMoves } from './howto.jsx'
-import { resolveCeiling, CF_CORRECTION_KG } from './lib/force.js'
+import { ceilingState, CF_CORRECTION_KG } from './lib/force.js'
 import { blockTimers } from './lib/workout.js'
 
 /** Latest usable max, expressed as TOTAL load on the fingers (bodyweight + added). */
@@ -41,7 +41,21 @@ export function resolveMax(entries) {
 }
 
 /** "hold 11.2 kg on the gauge" — the dose, resolved, with its offset applied. */
-function CeilingLine({ spec, ceiling }) {
+function CeilingLine({ spec, ceiling, tooLow = null }) {
+  // A CF at or under the correction is a measurement, not a missing test: say
+  // why it gives no number rather than asking for a test that was run (#76).
+  if (!ceiling && tooLow) {
+    return (
+      <div className="load load-unknown">
+        <Icon name="Info" size={14} />
+        <span>
+          <strong>No ceiling from your last test</strong> — critical force on {tooLow.date} was{' '}
+          {Math.round(tooLow.cf * 10) / 10} kg, at or under the {CF_CORRECTION_KG} kg correction. Retest
+          before you set the gauge from it.
+        </span>
+      </div>
+    )
+  }
   if (!ceiling) {
     return (
       <div className="load load-unknown">
@@ -221,14 +235,14 @@ function chipLabel(section) {
   return tail.length > 18 ? head : `${head} · ${tail}`
 }
 
-export function SectionBody({ section, max, ceiling }) {
+export function SectionBody({ section, max, ceiling, tooLow = null }) {
   return (
     <div className={`sect ${section.tone || ''}`}>
       <h4 className="sect-title">
         <Icon name={section.icon} size={14} /> {section.title}
       </h4>
       {section.loadPct != null && <LoadLine pct={section.loadPct} max={max} />}
-      {section.loadCeiling && <CeilingLine spec={section.loadCeiling} ceiling={ceiling} />}
+      {section.loadCeiling && <CeilingLine spec={section.loadCeiling} ceiling={ceiling} tooLow={tooLow} />}
       {section.kind === 'moves' ? (
         <MovesList session={section.session} />
       ) : section.kind === 'steps' ? (
@@ -276,7 +290,7 @@ export function SessionView({ session, entries, variant = 'compact', showEvidenc
   const sections = buildSections(session)
   const [active, setActive] = useState(sections[0]?.key || null)
   const max = resolveMax(entries)
-  const ceiling = resolveCeiling(entries)
+  const { ceiling, tooLow } = ceilingState(entries)
   const pr = session?.protocol
 
   if (!pr) return <p className="sub" style={{ margin: 0 }}>{session?.dose}</p>
@@ -303,7 +317,7 @@ export function SessionView({ session, entries, variant = 'compact', showEvidenc
         </div>
       )}
 
-      {current && <SectionBody section={current} max={max} ceiling={ceiling} />}
+      {current && <SectionBody section={current} max={max} ceiling={ceiling} tooLow={tooLow} />}
 
       {variant === 'full' && sections.length > 1 && (
         <div className="sect-step">

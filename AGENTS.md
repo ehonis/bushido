@@ -105,9 +105,11 @@ reasons behind the design, and the things that have been removed on purpose.
 | Quick log | `app/src/quicklog.jsx`, `app/src/lib/quicklog.js` | `<QuickLog plan entries upsertEntry date onPlaced />`: up to three recent activities (then the catalog's pins), one tap each; under Log a workout in the + menu, Recent in Log a workout, and Today's empty day. Places through `placeEntries`, so the id and done-by-default are Log a workout's own. |
 | Unlogged workouts | `app/src/lib/unlogged.js`, `app/src/unlogged.jsx` | What WHOOP/Strava saw that the log lacks; `pairUp`, `mergeTargets`, `outWith()`. |
 | Session sheet / edit panel | `app/src/sessionlog.jsx` | `SessionLog`, `SessionDetails`, `DetailsSheet`, `NameField`. |
+| Writing a logged workout | `app/src/lib/sessionops.js` | `sessionOps({ plan, entries, upsertEntry, deleteEntry, toast })`: save (`applyOut` + the test result), remove (+ result, Undo), "just miles", done, run, plan. Today and the Log both write through it, on both platforms (#76); a sheet never builds its own entry write. |
 | The session sheet | `app/src/sheet.jsx` | `SessionSheet` (header, body, footer) and `runnable`; Today (`tabs.jsx`) opens it. The row meta line both use is `app/src/metaline.jsx`. Twin: `mobile/src/features/sheet.tsx`. |
 | Prescription editor | `app/src/editor.jsx` | `PrescriptionEditor`, its blocks and items, `PieceAdder`, `BlockQuota`: the one editor Plan a workout and the sheet share. Twin: `mobile/src/features/editor.tsx`. |
 | Day switcher | `app/src/tabs.jsx` (`DaySwitcher`; `dayWords`, `isoShift` in `lib/dates.js`) | ‹ day › in words; Today's title and the rest day's date (§10.9). The phone's is `mobile/src/ui/DayStepper.tsx`. |
+| Session history | `app/src/lib/history.js` | `priorSessions`: which earlier entries are THIS workout ("The last 5 times you did this"). A card by its ids (`aka`, `priorIds`); a planned workout by its title or mostly the same exercises; a free-form one by its activity (#74). |
 | Toasts | `app/src/toast.jsx`, `app/src/lib/toast.js` | Mobile's API (`pushToast`, `pushError`) on the web: a removal's Undo, a failed save's Retry. |
 | Log feed | `app/src/log.jsx` | Newest first; the open sheet is keyed by ID. |
 | Progress | `app/src/lib/scope.js`, `app/src/lib/metrics.js`, `app/src/progress.jsx` | Charts declare when they apply. |
@@ -150,7 +152,7 @@ node app/starter.build.mjs    # regenerate content/starter.json and examples/pla
   test, the palette check, the per-area suites (`test:fingers`, `test:streak`, `test:gear`,
   `test:progress`, `test:workout`, `test:tests` (test-result sessions), `test:lifts`,
   `test:presc`, `test:naming`, `test:md`, `test:starter`, `test:signout`, `test:whoami`,
-  `test:shared`, `test:trainer`, …), `test:libsync` (every file in `mobile/src/lib` is its web
+  `test:shared`, `test:trainer`, `test:history`, …), `test:libsync` (every file in `mobile/src/lib` is its web
   original, less the native edits in `app/libsync.native.diff`), `test:cycles` (no import
   cycle in either app) and the smoke suite. A new `test:*` script must be added to the
   runner's list, which refuses to run otherwise. Tests read fixtures from `test/fixtures/`,
@@ -307,8 +309,10 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
   `peopleRoute` in `server.js`): the owner adds someone to one workout from the sheet
   ("With …") without acting as them. Their copy is an ordinary entry in THEIR log (same
   derivable id unless they logged something of their own there, then an `extraEntryId`
-  extra), `done: false` (done from its day on by §4, never their own tick, which is what
-  `hasOwnMarks` reads), carrying the workout's shared facts (`SHARED_OUT_KEYS`) and the
+  extra), `done: false` (done by §4 once they do something on it or its day has passed,
+  never their own tick, which is what `hasOwnMarks` reads, along with any set they typed
+  into), carrying the workout's shared facts (`SHARED_OUT_KEYS`: what kind of workout it
+  is, `activity` and `category`, since #74, then its name, time and distance) and the
   owner's EXERCISES, never the owner's numbers: reps, weights, effort, feel, notes, gear and
   WHOOP/Strava show only as placeholders on their side. The owner's entry names them in
   `data.sharedWith: [{ id, entryId, sync }]`; the copy carries `data.sharedFrom: { id, name }`,
@@ -319,7 +323,9 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     EITHER side reach the other. Numbers never cross: reps, weights, times, the run
     (`data.run`), `out`, `done`/`undone`/`doneAt` (§4) and WHOOP/Strava stay in the log
     they were written in; the sync only ever writes `plan`, `out.lifts`, the run's set keys
-    and `syncBase` on the receiving entry. A set
+    and `syncBase` on the receiving entry, and with a carry that changes something, the
+    workout's kind (`out.activity`/`out.category`) on a side that names neither
+    (`withKind`; a copy from before they were shared facts). A set
     or exercise that arrives is blank (an interval keeps its own last set's shape); the
     implement is each person's own. A removal never takes an exercise (or a set) the other
     side has logged on (next bullet). **Whether a hold is counted in seconds or reps is each person's
@@ -337,7 +343,9 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     `loggedOf(…, typed)` in `server/sharedsync.js`). A target the plan arrived with is not
     typed: keeping a plan from the planner clears the mark (`dropEmptyBlocks`), and a share
     never copies it (`theirSet` in `lib/shared.js`), so an untouched set still follows a
-    removal. A model revision on the entry keeps the mark on every set it left as it was
+    removal. Only a change marks a set: a patch to the number it already had does not, and
+    a set ADDED as a copy of the last (`addSet`, `addSetLike`, a share's extra sets, the
+    sync's interval sets) carries its numbers but not the mark (#74). A model revision on the entry keeps the mark on every set it left as it was
     (`keepTyped`, through `reviseWeightModes`). Two carve-outs: inside a circuit (one there or one the exercise moved into) an
     exercise has one set, its timing, whatever was typed; and a device's OWN write keeps the
     narrower rule (marked in its run), so an exercise the same person removed on another
@@ -425,7 +433,7 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     log too, and WHOOP readiness is left out. Nothing is written until the tap (§0.4). Keeping it writes into
     THEIR log through `/api/people/:id/entry`: their day is read first and `placeEntries`
     mints the ids their own + would have, one entry per part (`plannedEntriesFor`), each
-    `done: false` (done from its day on, §4) with `data.plannedBy: { id, name }` stamped by the server. The server
+    `done: false` (done on its day once touched, then from the next day on, §4) with `data.plannedBy: { id, name }` stamped by the server. The server
     accepts only `daily-…` entries carrying `sharedFrom` or `plannedBy`, and refuses any
     live entry without one of them. (Planning someone's WEEK went with the quotas; a
     `quota-<monday>` entry is refused with a 400.)
@@ -578,34 +586,46 @@ override, and its absence must render exactly like the app before it existed.
   `-2`, `-3`… (`extraEntryId` in `lib/store.js` is the only thing that mints one, and only
   for a new workout on a day that already has one). Two offline devices doing the same act compute the same
   id, so the merge has something to agree about.
-- **Done once its day arrives, unless marked undone** (since 2026-10-25, docs/DESIGN.md D2).
-  An entry created for today or an earlier day is written `done: true` (`doneWhenPlaced`);
-  one for a later day is written `done: false` and `isDone()` reads it as done from its
-  day on. That is a READ rule: nothing wakes at midnight and nothing is rewritten. The
-  sheet's **Mark undone** writes `done: false` plus `undone: true` (`markDone`, the only
+- **Done once something is done on it or its day has passed, unless marked undone**
+  (docs/DESIGN.md D2 since 2026-10-25; the owner's D10 since #74). A workout LOGGED on
+  today or an earlier day is written `done: true` (`doneWhenPlaced`). A PLAN kept for
+  today (`placeEntries` with `data.plan`: Plan a workout, the timer's "Put it on today", a
+  plan for someone else) and anything put on a later day is written `done: false`, and
+  `isDone()` reads that as not done while its day is to come; ON its day, done once it is
+  `touched` (a number logged on it or typed into its plan's sets, `loggedOn`; its run
+  started; Mark done's `doneAt`); from the next day on, done, touched or not. Planning is
+  not training: a plan put on today counts for nothing (streak, habit, Progress, "last
+  time") until its first set. A plan put on an earlier day is logging after the fact and
+  is written done. That is a READ rule: nothing wakes at midnight and nothing is
+  rewritten. The sheet's **Mark undone** writes `done: false` plus `undone: true` (`markDone`, the only
   writer of `undone`), which no date ever flips back; **Mark done** writes `done: true` and
   drops the marker. `done: true` beats everything; an absent `done` means true (older
-  entries predate the flag). A `done: false` with no marker on a day that has arrived is
+  entries predate the flag). A `done: false` with no marker on a day that has passed is
   done, and that includes every entry stored before the rule: a session once planned and
-  never ticked now counts. Use `isDone()` — never entry existence, never the raw flag —
+  never ticked now counts. A shared copy (always `done: false`) follows the same rule on
+  its own side. Use `isDone()` — never entry existence, never the raw flag —
   for streaks, load, hard-day counts, charts, habit sync and notifications. It has three
-  copies, kept word for word by `app/done.test.js`: `lib/store.js`, `server/notify-facts.js`
+  copies, kept word for word with the helpers it reads (`touched`, `loggedOn`) by
+  `app/done.test.js`: `lib/store.js`, `server/notify-facts.js`
   (the server's; it takes the configured timezone's today) and `mobile/src/lib/store.js`.
   - **Transitions are about writes, not dates.** The "logged" push fires once, when a
-    write first makes an entry `announceable` (`completedDailyEntries`): marked done AND
-    its run ended, a done tap (`doneAt`, stamped by `markDone`), something logged in `out`,
-    or an earlier day's date. So picking a session for today counts for the habit at once
-    but is announced when the first set or effort is logged; a workout logged after the
-    fact is announced as it lands; a planned session's day arriving is never announced.
-    The habit record for a day leaves out sessions still to come and picks them up on the
-    next write after their day arrives, because every sync re-sends every day's record whole.
+    write first makes an entry `announceable` (`completedDailyEntries`): `isDone` AND its
+    run ended, a done tap (`doneAt`, stamped by `markDone`), something logged on it
+    (`loggedOn`: in `out`, or a set typed into its plan), or written done about an earlier
+    day. So picking a session for today counts for the habit at once but is announced when
+    the first set or effort is logged; a plan kept for today counts and is announced with
+    its first set (its run starting counts for the habit, not yet for the push); a workout
+    logged after the fact is announced as it lands; a planned session's day passing is
+    never announced. The habit record for a day leaves out sessions not done yet and picks
+    them up on the next write after they are, because every sync re-sends every day's
+    record whole.
   - **An old client's untick is kept as one.** Before this rule, unticking wrote a bare
     `done: false`, which now reads as done. New code never does that, so the server's merge
     (`keepUntick` in `server.js`) adds `undone: true` when a bare `done: false` replaces an
     entry stored as done, and keeps a marker the stored copy already has. An entry already
     stored as `done: false` without one (a plan, a legacy entry) is never touched.
-  - **"Done" no longer means "finished running".** Today's session is done before it
-    starts, so "Start" asks `canStart()` (on today and later always, a finished run
+  - **"Done" no longer means "finished running".** A session logged for today is done
+    before it starts (and a plan is, once touched), so "Start" asks `canStart()` (on today and later always, a finished run
     included, which Start reopens (#75); on an earlier day, only once undone) and the
     sides runner hands over by what was finished on screen.
 - **Nothing rewrites history to suit a component.** Old shapes are read as they are
@@ -800,6 +820,19 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   substring > group, every word must match). A new exercise has one blank set; adding a
   set copies the previous one. `weightLabel` per implement says what the number means;
   `liftVolume` does not double dumbbells.
+- **Planned lifts are the log** (the owner's D11, #74). Most planned lifting is done on the
+  sheet, in the plan's own boxes, never through the runner that writes `out.lifts`. So
+  every reader of lifting (`lastLift`, `rememberedWeightMode` and its server twin
+  `rememberedModes`, the row line `liftedLine`, the session history, the Progress lift
+  charts and exercise filter) reads `liftsDone(entry)` in `lib/lifts.js`: the logged rows,
+  plus, on a planned entry that `isDone` and is dated on or before today, each plan lift
+  item that no logged row with a number stands for (by uid, else by exercise), as a row
+  in the runner's shape (holds as seconds, a circuit item once a round). So a run left
+  after one exercise, or one lift added by hand, covers only what it logged. On the plan's
+  own day only the sets typed into count (a plan done by one set is not every target
+  lifted); from the next day on, every set with a number (done as written). Read, never
+  written. A row names its exercise by `key` (`liftKeyOf` also reads an older row's
+  `exercise`). A control that says "did this set as planned" must write `typed`.
 - **What a lift's weight means is switched on its label** (#58). The words under the
   weight box (lift log, planner editor, runner, web and phone) are a button when the
   implement has more than one meaning: dumbbell and kettlebell "per hand" / "1 DB"
@@ -815,11 +848,11 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   row's implement does not offer is no mode: the row reads as its implement's default.
   - **The rule, written down after two review rounds in which every heuristic
     opened a new case** (also above `rememberedWeightMode`):
-    - Memory is READ one way only: from LOGGED rows (`out.lifts`) with a number on
-      them, on entries done (not marked undone) and dated on or before today; the
-      newest decides, a row in the default included. Plan items are never choices.
-      A planned exercise that was done reaches memory through its logged row, which
-      the runner and the sheet keep in step (`runOutputs`, `followWeightModes`).
+    - Memory is READ one way only: from what was LIFTED (`liftsDone`, §6.4 "Planned
+      lifts are the log") with a number on it, on entries done (not marked undone) and
+      dated on or before today; the newest decides, a row in the default included. A
+      plan still to be done is never a choice; one done is, because its boxes are where
+      its sets were done.
     - Memory is APPLIED once, when an exercise is created, never again: a new row in
       the lift log (`addLift`, or picking its implement), a new exercise in the
       editor (`appendLift`), each lift of a model's FIRST draft (`server/drafts.js`,
@@ -886,6 +919,8 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   entry; everything subtracts, nothing counts down. That is how it survives the app
   closing or switching devices, and why `prescription.js` takes `now`.
 - **`data.plan` is what was asked for; `out` is what happened.** Never the same field.
+  The one reading across them is `liftsDone` (§6.4): a done plan with no logged numbers
+  was done as written, so its sets are read as what happened. Nothing is copied into `out`.
 - **The interval timer is a clock, not a log** (`lib/timer.js`, `timer.jsx`, D8 in
   `docs/DESIGN.md`). A config compiles to a flat list of segments; a run is instants
   (`at`, `pausedAt`, …) and `settle(program, run, now)` steps over every segment that

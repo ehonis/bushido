@@ -6,7 +6,8 @@
  * someone lands in THEIR log, through `/api/people/:id/entry` (server.js
  * `peopleRoute`), as an ordinary entry carrying `data.plannedBy: { id, name }`,
  * stamped by the server. It arrives `done: false`, which `isDone` reads as done
- * from its day on (§4) without it ever looking like their own tick; it takes the
+ * once they do something on it or its day has passed (§4), without it ever
+ * looking like their own tick; it takes the
  * same derivable id the person's own "+" would have given it, and from then on
  * is theirs to edit, log or delete like anything else.
  *
@@ -173,10 +174,11 @@ export function placeEntries({ menu = [], onDay = [], items = [], date, today = 
         optId: opt.id,
         name: nameFor(opt, out),
         minutes: opt.minutes, level: opt.level ?? 1,
-        // Done on today or an earlier day; planned on a later one, and done
-        // from its day on (`isDone`). A rest day is done whenever it is put
+        // A workout logged on today or an earlier day is done; one on a later
+        // day, or a plan on today, is not until something is done on it or its
+        // day has passed (`isDone`, D10). A rest day is done whenever it is put
         // down, because choosing it is the whole action.
-        done: opt.role === 'rest' || doneWhenPlaced(date, today),
+        done: opt.role === 'rest' || doneWhenPlaced(date, today, { plan: Boolean(data.plan) }),
         slot: hasMain ? 'extra' : 'main',
         ...data,
         out,
@@ -212,7 +214,7 @@ export const plannedByOf = (owner) => ({ id: String(owner?.id || 'owner'), name:
  * (`parts` is `splitPrescription(pres)`), the same shape App.jsx's `keepPlan`
  * writes into the owner's own, plus `plannedBy`. Written `done: false` (the
  * server would make it so anyway, and `true` would read as their own tick in
- * `hasOwnMarks`); `isDone` reads it as done from its day on.
+ * `hasOwnMarks`); `isDone` reads it as done once touched or its day has passed.
  */
 export function plannedEntriesFor({ parts = [], theirDay = [], menu = [], date, owner, key = null }) {
   // With a `key` (one keep, #59), each part says which part of which keep it is, so a

@@ -349,5 +349,45 @@ check('the week axis covers the window even where nothing was logged', () => {
   eq(bars.map(b => b.y), [10, 0, 0, 10])
 })
 
+/* ===================================================== planned lifting (#74) === */
+
+// The shapes the app writes: a logged row names its exercise by `key`; a planned
+// workout done on the sheet keeps its sets on the plan, its `out` empty.
+const keyed = (date, key, sets) =>
+  did(date, 'log-workout', { activity: 'lift', rpe: 6, lifts: [{ uid: `${key}-1`, key, name: key, sets }] })
+const plannedLift = (date, key, sets, out = { activity: 'lift', category: 'lift' }) => did(date, 'planned', out, {
+  plan: { title: 'Push', category: 'lift', blocks: [{ id: 'b0', name: 'Push', category: 'lift', items: [{
+    id: 'b0i0', kind: 'lift', name: key, exercise: key, implement: 'barbell',
+    sets: sets.map((x, i) => ({ id: `b0i0s${i}`, reps: null, weight: null, seconds: null, ...x })) }] }] },
+})
+const LIFTING = [
+  keyed('2026-09-04', 'bench-press', [{ reps: '8', weight: '135' }]),
+  plannedLift('2026-09-08', 'bench-press', [{ reps: 8, weight: 145 }, { reps: 8, weight: 150 }]),
+  plannedLift('2026-09-12', 'bench-press', [{ reps: 5, weight: 160 }]),
+]
+const lres = (scope, entries = LIFTING) => resolveScope({ plan, entries, scope: { ...ALL, ...scope }, today: TODAY })
+
+check('a logged row names its exercise by key, and the exercise filter and its charts find it', () => {
+  const r = lres({ exercise: 'bench-press' }, [LIFTING[0], keyed('2026-09-11', 'bench-press', [{ reps: '6', weight: '150' }])])
+  eq(r.entries.length, 2, 'rows written by the lift log were invisible to the filter')
+  const m = metricsFor(plan, r).flatMap(g => g.metrics).find(x => x.key === 'topLoad')
+  eq(m.points.map(p => p.y), [135, 150])
+})
+
+check('a planned workout done on the sheet is lifting: the filter, the top set and the volume see its sets', () => {
+  const r = lres({ exercise: 'bench-press' })
+  eq(r.entries.length, 3)
+  ok(scopeOptions({ plan, entries: LIFTING, today: TODAY }).exercises.some(e => e.value === 'bench-press'), 'not offered as an exercise')
+  const ms = metricsFor(plan, r).flatMap(g => g.metrics)
+  eq(ms.find(x => x.key === 'topLoad').points.map(p => p.y), [135, 150, 160])
+  eq(ms.find(x => x.key === 'exVolume').points.map(p => p.y), [8 * 135, 8 * 145 + 8 * 150, 5 * 160])
+})
+
+check('a shared copy with nothing in its out still files under its plan’s kind', () => {
+  // Copies shared before #74 carried no activity; their plan says what they were.
+  const copy = plannedLift('2026-09-10', 'bench-press', [{ reps: 8 }], {})
+  eq(lres({ category: 'lift' }, [copy]).entries.length, 1, 'a copy with an empty out was not Lift')
+})
+
 console.log(failed ? `\n${failed} progress test(s) failed` : '\nall progress tests pass')
 process.exit(failed ? 1 : 0)

@@ -3,9 +3,10 @@
  * unchanged and in their old relative order. A case is [name, element | null, assert?].
  */
 import { renderToString } from 'react-dom/server'
-import { TestingTab, WhyTab } from '../src/testing.jsx'
+import { TestingTab, WhyTab, TestRunner } from '../src/testing.jsx'
 import { ScreenCard, describeScreen } from '../src/screeninfo.jsx'
-import { GearSection } from '../src/gear.jsx'
+import { GearSection, GearForm } from '../src/gear.jsx'
+import { gearUsage } from '../src/lib/gear.js'
 import { ProfileMenu, ProfilePanel, PeopleCard, homePages } from '../src/profile.jsx'
 import { PrefsProvider } from '../src/lib/prefs.jsx'
 import { SessionLog } from '../src/sessionlog.jsx'
@@ -50,6 +51,35 @@ export default [
     upsertEntry={noop} deleteEntry={noop} />,
     (html) => {
       if (!/200/.test(text(html))) throw new Error('the hours on a retired rope are why you retired it')
+    }],
+  /* #76: the form's "already on it" box is in the unit it is labelled in. It
+     showed the stored MINUTES under "Hours already on it", so 2 hours reopened
+     as 120 and saving made it 120 hours. */
+  ['GearForm(time gear reopens in hours, not minutes)', <GearForm plan={plan}
+    row={gearUsage({ plan, entries: [{ id: 'g-shoe', kind: 'gear', data: { name: 'Review shoes', kind: 'climbing-shoes', priorMinutes: 120 } }] })[0]}
+    onSave={noop} onCancel={noop} onDelete={noop} />,
+    (html) => {
+      if (!/Hours already on it/.test(text(html))) throw new Error('a climbing shoe is counted in hours')
+      if (!/value="2"/.test(html)) throw new Error('2 hours should reopen as 2')
+      if (/value="120"/.test(html)) throw new Error('the stored minutes are in the hours box')
+    }],
+  ['GearForm(a weight shows its reps, never its minutes)', <GearForm plan={plan}
+    row={gearUsage({ plan, entries: [{ id: 'g-w', kind: 'gear', data: { name: 'Plates', kind: 'weights', priorReps: 300, priorMinutes: 40 } }] })[0]}
+    onSave={noop} onCancel={noop} onDelete={noop} />,
+    (html) => {
+      if (!/Reps already on it/.test(text(html)) || !/value="300"/.test(html)) throw new Error('300 reps should show as 300')
+    }],
+  /* #76: Strava's gear is read here, not edited. Its Save wrote a NEW local item
+     under the bike's name, a second row for the same bike. Absent at the old
+     place (Save, Cancel), present at the new one (Done). */
+  ['GearForm(Strava gear has Done, not Save)', <GearForm plan={plan}
+    row={gearUsage({ plan, entries: [], strava: STRAVA_CACHE }).find(r => r.source === 'strava')}
+    onSave={noop} onCancel={noop} onDelete={null} />,
+    (html) => {
+      const t = text(html)
+      if (!/From Strava/.test(t)) throw new Error('say where it comes from')
+      if (!/>Done</.test(html)) throw new Error('Done closes a synced form')
+      if (/>Save</.test(html) || />Cancel</.test(html)) throw new Error('a synced item has nothing to save')
     }],
   ['ProfileMenu(with a picture)', <StravaProvider initial={{ cache: STRAVA_CACHE, status: 'ok' }}>
     <ProfileMenu plan={plan} entries={[]} upsertEntry={noop} deleteEntry={noop} status="synced" />
@@ -147,6 +177,35 @@ export default [
   // Critical force: the ceiling readout, the charts, and the resolved dose on
   // the session it drives, from the calibration-day fixture above.
   ['TestingTab(critical force)', <TestingTab plan={plan} entries={cfEntries} upsertEntry={noop} />],
+  /* #76: an empty result cannot be saved, and the button says why. */
+  ['TestRunner(an empty result cannot be saved)', <TestRunner test={plan.tests.find(t => t.id === 'critical-force')}
+    onSave={noop} onDone={noop} />,
+    (html) => {
+      if (!/<button[^>]*disabled=""[^>]*>Save result<\/button>/.test(html)) throw new Error('Save result should be disabled with nothing typed')
+      if (!/Type at least one result to save it/.test(text(html))) throw new Error('say what Save is waiting for')
+      if (/type="number"/.test(html)) throw new Error('result boxes are text boxes that own their text (NumInput)')
+    }],
+  /* #76: the newest result being empty never hides the last usable ceiling,
+     and a result without a metric is no point on its chart. */
+  ['TestingTab(an empty newer CF result does not hide the ceiling)', <TestingTab plan={plan} upsertEntry={noop}
+    entries={[
+      { id: 'cf-ok', kind: 'test', date: '2026-08-08', updatedAt: 'z', data: { testId: 'critical-force', cfKg: 18.2 } },
+      { id: 'cf-empty', kind: 'test', date: '2026-09-01', updatedAt: 'z', data: { testId: 'critical-force' } },
+    ]} />,
+    (html) => {
+      const t = text(html)
+      if (!/Your ceiling/.test(t)) throw new Error('the ceiling vanished behind an empty result')
+      if (!/12\.2/.test(t)) throw new Error('the ceiling is CF 18.2 − 6')
+      if (!/2026-09-01 result has no critical force/.test(t)) throw new Error('say which result is being used, and why')
+    }],
+  ['TestingTab(a CF under the correction gives no ceiling, and says so)', <TestingTab plan={plan} upsertEntry={noop}
+    entries={[{ id: 'cf-low', kind: 'test', date: '2026-09-01', updatedAt: 'z', data: { testId: 'critical-force', cfKg: 5 } }]} />,
+    (html) => {
+      const t = text(html)
+      if (/Your ceiling/.test(t)) throw new Error('no ceiling from a CF of 5')
+      if (/kg ceiling|unilateral target/.test(t)) throw new Error('a ceiling number was drawn (it was −1 kg)')
+      if (!/gives no ceiling/.test(t)) throw new Error('say why there is none')
+    }],
   ['TestingTab(CF, no max logged)', <TestingTab plan={plan} upsertEntry={noop}
     entries={[{ id: 'cf1', kind: 'test', date: '2026-08-08', updatedAt: 'z',
       data: { testId: 'critical-force', cfKg: 18.2 } }]} />],

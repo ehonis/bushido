@@ -35,13 +35,13 @@ import { optFor } from './menu.js'
 import { categoryOf, disciplineOf } from './category.js'
 import { mondayOf, weekDays, shiftWeek } from './dates.js'
 import { loggedActivity } from './activities.js'
-import { liftsIn } from './lifts.js'
+import { liftsDone, liftKeyOf } from './lifts.js'
 
 export const EMPTY_SCOPE = { category: null, session: null, exercise: null, weeks: 8 }
 
-/** Which lift exercises this entry recorded. */
+/** Which lift exercises this entry recorded: logged, or done on its plan (`liftsDone`, D11). */
 function exercisesIn(entry) {
-  return liftsIn(entry?.data?.out || {}).map(l => l.exercise).filter(Boolean)
+  return liftsDone(entry).map(liftKeyOf).filter(Boolean)
 }
 
 /**

@@ -353,6 +353,19 @@ test('a hand-built plan for several people goes in without loads', () => {
   assert.equal(loaded.blocks[0].items[0].sets[0].weight, 100, 'the editor\'s plan was changed in place')
 })
 
+test('a plan kept for today is written not done; a workout logged today is done (D10, #74)', () => {
+  const pres = normalizePrescription({ title: 'Pull', blocks: [{ name: 'Pull', category: 'lift', items: [{ kind: 'lift', name: 'Row', sets: [{ reps: 10, weight: 90 }] }] }] })
+  const items = plannedItems(splitPrescription(pres))
+  const [kept] = placeEntries({ menu, date: '2026-10-08', today: '2026-10-08', items })
+  assert.equal(kept.data.done, false, 'a plan kept for today was done before anything was done on it')
+  const [ahead] = placeEntries({ menu, date: '2026-10-09', today: '2026-10-08', items })
+  assert.equal(ahead.data.done, false)
+  const [after] = placeEntries({ menu, date: '2026-10-01', today: '2026-10-08', items })
+  assert.equal(after.data.done, true, 'a plan put on an earlier day is logging after the fact')
+  const [logged] = placeEntries({ menu, date: '2026-10-08', today: '2026-10-08', items: [{ optId: 'log-workout', data: { out: { activity: 'run' } } }] })
+  assert.equal(logged.data.done, true, 'a workout logged today was not done at once')
+})
+
 let failed = 0
 for (const [name, fn] of tests) {
   try { await fn(); console.log('  PASS ', name) } catch (e) { failed++; console.log('  FAIL ', name, '\n        ', e.message) }

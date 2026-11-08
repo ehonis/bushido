@@ -34,7 +34,9 @@ import { loggedMinutes } from '../lib/minutes.js'
 import { fromIso, localIso } from '../lib/dates.js'
 import { categoryOf, disciplineOf } from '../lib/category.js'
 import { loggedActivity } from '../lib/activities.js'
-import { titleFor, withCasualName } from '../lib/naming.js'
+import { titleFor } from '../lib/naming.js'
+import { sessionOps } from '../lib/sessionops.js'
+import { pushToast } from '../lib/toast'
 import { withLine } from '../lib/shared.js'
 import { plannedLine } from '../lib/trainer.js'
 import { currentMe } from '../lib/whoami.js'
@@ -106,6 +108,8 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }: any) 
   const [editing, setEditing] = useState(false)
 
   const menu = plan?.dailyMenu || []
+  // Today's operations (lib/sessionops.js). `undoIcon` null: the host draws Retry's arrow only.
+  const ops: any = (sessionOps as any)({ plan, entries, upsertEntry, deleteEntry, toast: pushToast, undoIcon: null })
 
   /*
    * Workouts only, newest first. A logged REST day is kept — "I deliberately did
@@ -194,7 +198,7 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }: any) 
                 {i > 0 ? <Divider /> : null}
                 <LogRow w={w} cat={catName(w.category)}
                   onOpen={() => { if (w.opt) setOpenId(w.entry.id) }}
-                  onRemove={deleteEntry ? () => deleteEntry(w.entry.id) : null} />
+                  onRemove={deleteEntry ? () => ops.removeSession(w.entry) : null} />
               </React.Fragment>
             ))}
           </View>
@@ -202,25 +206,16 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }: any) 
       ))}
 
       {open?.opt && (() => {
-        /* `name` travels with the out, because `out.title` is where a rename lives
-           and `data.name` is the denormalised copy the habit note and the server
-           read. Recomputing it here makes a rename show up on the row behind. */
-        const save = (out: any) => upsertEntry({ ...open.entry, data: {
-          ...open.entry.data, out, name: (titleFor as any)(open.opt, out, open.entry.data?.plan) } })
+        /* Today's write paths, not a copy of them (lib/sessionops.js, #76): the
+           name, the load level, the minutes and the test result a test session
+           writes all follow the out, and a removal takes the result with it and
+           offers Undo. Before, this sheet spread the out and renamed, so a MVC-7
+           corrected here left its test result on the old number. */
+        const save = (out: any) => ops.saveOutputs(open.entry, out)
         /* Only where the question makes sense: a commute is a ride, not a set of
            max hangs. Driven by the discipline rather than by a list. */
         const onTraining = ['bike', 'run', 'swim', 'other'].includes(open.discipline)
-          ? (v: any) => {
-              const casual = v === false
-              // A ride marked as just miles is named as a commute.
-              // Fills a blank name and takes back only its own.
-              const out = (withCasualName as any)(open.entry.data?.out || {},
-                { plan, opt: open.opt, on: casual })
-              upsertEntry({ ...open.entry, data: {
-                ...open.entry.data, out,
-                name: (titleFor as any)(open.opt, out, open.entry.data?.plan),
-                training: casual ? false : undefined } })
-            }
+          ? ops.setTraining(open.entry, open.opt)
           : null
         return (
           <Modal title={open.name} sub={dayLabel(open.entry.date, today)} icon={open.icon}
@@ -231,7 +226,7 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }: any) 
              * confirmation screen every other delete in the app uses.
              */
             onRename={() => setEditing(true)}
-            onDelete={() => { deleteEntry?.(open.entry.id); setOpenId(null) }}
+            onDelete={() => { setOpenId(null); setEditing(false); ops.removeSession(open.entry) }}
             deleteLabel={DELETE_LABEL}
             deleteBody={DELETE_BODY}>
             <SessionLog session={open.opt} entry={open.entry} entries={entries} bare

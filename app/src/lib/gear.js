@@ -110,6 +110,62 @@ function kindFromStrava(plan, g) {
   return hit?.key || (g.kind === 'bike' ? 'bike' : 'shoes')
 }
 
+/**
+ * What the form's "already on it" box shows, in the unit its kind is counted in.
+ *
+ * Time is STORED in minutes (`priorMinutes`, the unit every logged workout adds)
+ * and TYPED in hours. Until #76 the form put the stored minutes straight into
+ * the hours box, so a rope added with 2 hours reopened showing 120, and saving
+ * it untouched made it 120 hours: every reopen multiplied it by sixty. This and
+ * `priorFieldsFor` are the one conversion each way, and
+ * `priorFieldsFor(metric, priorValueFor(item, metric))` gives back the item's
+ * own prior for every metric (app/gear.test.js).
+ *
+ * Only the field the kind is counted in is read: a weight's prior is its reps,
+ * never a time or a distance it happened to carry.
+ */
+export function priorValueFor(item, metric) {
+  if (metric === 'miles') return num(item?.priorMiles) || null
+  if (metric === 'reps') return num(item?.priorReps) || null
+  const minutes = num(item?.priorMinutes)
+  if (!minutes) return null
+  // Hundredths of an hour; a prior too small for that is shown, not shown as 0.
+  return Math.round((minutes / 60) * 100) / 100 || Number((minutes / 60).toPrecision(2))
+}
+
+/**
+ * The stored prior fields for what the box holds, as `priorValueFor`'s inverse.
+ *
+ * Fields of the OTHER metrics are kept as the item had them (a weight counted in
+ * reps keeps any minutes it carried), so saving the form changes only what the
+ * form shows. Blank or zero leaves the shown metric's prior out: nothing on it yet.
+ *
+ * A box left as it was shown keeps the stored number EXACTLY. The hours shown
+ * are rounded, so converting them back would move 79.8 minutes to 80 and drop a
+ * prior under a fifth of a minute (shown blank) altogether; only a box the user
+ * changed is converted.
+ */
+export function priorFieldsFor(metric, value, item = null) {
+  const key = metric === 'miles' ? 'priorMiles' : metric === 'reps' ? 'priorReps' : 'priorMinutes'
+  const out = {}
+  for (const k of ['priorMiles', 'priorMinutes', 'priorReps']) {
+    if (k !== key && num(item?.[k])) out[k] = num(item[k])
+  }
+  const shown = item ? priorValueFor(item, metric) : null
+  if (item && (num(value) || null) === shown) {
+    if (num(item[key])) out[key] = num(item[key])
+    return out
+  }
+  const n = num(value)
+  if (n) {
+    out[key] = key !== 'priorMinutes' ? n
+      // Hours typed; minutes stored, whole minutes so an odometer never drifts
+      // by a fraction of a second on every save.
+      : Math.round(n * 60)
+  }
+  return out
+}
+
 export const buildGearEntry = (id, data) => ({ id, kind: GEAR_KIND, data })
 export const newGearId = () =>
   `gear-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`

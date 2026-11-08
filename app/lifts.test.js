@@ -25,6 +25,7 @@ import {
   liftsIn, liftSets, liftReps, liftVolume, liftSummary, liftsLine, lastLift, LIFT_FIELD,
   weightModesFor, weightModeOf, weightLabelOf, weightPatch, nextWeightMode, rememberedWeightMode,
   weightModeWords, liftFieldIn, weightBoxOf, liftMeasure, measureFor, muscleName, blankSet, canSwitchMeasure,
+  liftsDone, planLifts, liftedLine,
 } from './src/lib/lifts.js'
 import { isRepeatable, extraEntryId } from './src/lib/store.js'
 import { gateResolver, catalogOf as activityCatalog } from './src/lib/activities.js'
@@ -825,6 +826,127 @@ check('a hold remembers its weight mode like any lift, from a row with seconds o
   const row = { uid: 'w-1', key: 'wall-sit', name: 'Wall sit', implement: 'dumbbell', weightMode: 'one', weightLabel: 'lb · one dumbbell', sets: [{ seconds: '60', weight: '' }] }
   const entries = [{ id: 'a', kind: 'daily', date: '2026-10-01', updatedAt: '1', data: { done: true, out: { lifts: [row] } } }]
   eq(rememberedWeightMode(merged, entries, 'wall-sit', 'dumbbell', null, '2026-10-26'), 'one')
+})
+
+/*
+ * D11 (#74): numbers on a planned workout ARE the log. The seed's shape: a plan
+ * done on the sheet, its sets in the plan's own boxes, `out` with only the kind
+ * on it, no run. Every lift reader goes through `liftsDone`.
+ */
+const D11_TODAY = '2026-11-08'
+const pullPlan = (sets = [{ reps: 10, weight: 90 }, { reps: 10, weight: 90 }, { reps: 10, weight: 90 }], extra = {}) => ({
+  v: 1, title: 'Pull', category: 'lift', activity: 'lift',
+  blocks: [{ id: 'b0', name: 'Pull', category: 'lift', items: [{
+    id: 'b0i0', uid: 'u-row', kind: 'lift', name: 'Bent-over row', exercise: 'bent-over-row', group: 'Back',
+    implement: 'ez-bar', implementLabel: 'EZ bar', weightLabel: 'lb on the bar', ...extra,
+    sets: sets.map((x, i) => ({ id: `b0i0s${i}`, reps: null, weight: null, seconds: null, distance: null, restSec: null, unit: null, note: '', ...x })),
+  }] }],
+})
+const plannedOn = (date, data = {}) => ({ id: `daily-${date}`, kind: 'daily', date, updatedAt: `${date}T20:00:00Z`,
+  data: { optId: 'planned', name: 'Pull', done: true, plan: pullPlan(), out: { activity: 'lift', category: 'lift' }, ...data } })
+const freeRow = { id: 'daily-2026-09-09-other-training', kind: 'daily', date: '2026-09-09', updatedAt: 'a', data: { optId: 'log-workout', done: true,
+  out: { lifts: [{ uid: 'bent-over-row-1', key: 'bent-over-row', name: 'Bent-over row', implement: 'dumbbell', implementLabel: 'Dumbbell',
+    sets: [{ reps: 10, weight: 45 }, { reps: 10, weight: 45 }, { reps: 10, weight: 45 }] }] } } }
+
+check('D11: a done plan with an empty out is what was lifted, in the runner’s row shape', () => {
+  const rows = liftsDone(plannedOn('2026-11-07'), D11_TODAY)
+  eq(rows, [{ uid: 'u-row', key: 'bent-over-row', name: 'Bent-over row', group: 'Back', implement: 'ez-bar', implementLabel: 'EZ bar',
+    sets: [{ reps: 10, weight: 90 }, { reps: 10, weight: 90 }, { reps: 10, weight: 90 }] }])
+  eq(liftsIn(plannedOn('2026-11-07').data.out), [], 'liftsDone read something into out')
+})
+
+check('D11: "last time" is the plan done yesterday, not the free-form log two months back', () => {
+  const log = [freeRow, plannedOn('2026-10-20', { plan: pullPlan([{ reps: 10, weight: 85 }]) }), plannedOn('2026-11-07')]
+  eq(lastLift(log, 'bent-over-row', 'daily-2026-11-08', liftField, null, D11_TODAY),
+    { date: '2026-11-07', implement: 'EZ bar', summary: '3 × 10 @ 90 lb' })
+})
+
+check('D11: a plan not done is not a log: still to come, untouched today (D10), or marked undone', () => {
+  const later = plannedOn('2026-11-09', { done: false })
+  const today = plannedOn(D11_TODAY, { done: false })
+  const undone = plannedOn('2026-11-07', { done: false, undone: true })
+  for (const [why, e] of [['a later day', later], ['today, untouched', today], ['marked undone', undone]]) {
+    eq(liftsDone(e, D11_TODAY), [], why)
+    eq(lastLift([freeRow, e], 'bent-over-row', null, liftField, null, D11_TODAY)?.date, '2026-09-09', why)
+  }
+  // Typed into today: done, and so lifted.
+  const typed = plannedOn(D11_TODAY, { done: false, plan: pullPlan([{ reps: 8, weight: 95, typed: true }]) })
+  eq(lastLift([freeRow, typed], 'bent-over-row', null, liftField, null, D11_TODAY), { date: D11_TODAY, implement: 'EZ bar', summary: '1 × 8 @ 95 lb' })
+})
+
+check('D11: a run’s own row stands for its item; a blank logged row hides nothing', () => {
+  const ran = plannedOn('2026-11-07', { out: { lifts: [{ uid: 'b0i0', key: 'bent-over-row', name: 'Bent-over row', implement: 'ez-bar', sets: [{ reps: 6, weight: 100 }] }] } })
+  eq(liftsDone(ran, D11_TODAY).map(r => r.sets), [[{ reps: 6, weight: 100 }]], 'the item counted twice, or the run lost')
+  const blank = plannedOn('2026-11-07', { out: { lifts: [{ uid: 'x', key: 'face-pull', name: 'Face pull', implement: '', sets: [{ reps: '', weight: '' }] }] } })
+  eq(liftsDone(blank, D11_TODAY)[0].sets.length, 3, 'a blank row hid the plan')
+})
+
+// Review of #84: a logged row covers only what it logged.
+const threeEx = () => {
+  const p = pullPlan()
+  const row = p.blocks[0].items[0]
+  p.blocks[0].items = [row,
+    { ...row, id: 'b0i1', uid: 'u-curl', name: 'Dumbbell curl', exercise: 'dumbbell-curl', implement: 'dumbbell', implementLabel: 'Dumbbell', sets: row.sets.map((x, i) => ({ ...x, id: `b0i1s${i}`, weight: 25 })) },
+    { ...row, id: 'b0i2', uid: 'u-pull', name: 'Pull-up', exercise: 'pull-up', implement: 'bodyweight', implementLabel: 'Bodyweight', sets: row.sets.map((x, i) => ({ ...x, id: `b0i2s${i}`, weight: 0 })) }]
+  return p
+}
+
+check('D11: one extra lift logged by hand on a planned workout: both it and the plan are lifted', () => {
+  const extra = { uid: 'face-pull-1', key: 'face-pull', name: 'Face pull', implement: 'cable', sets: [{ reps: '15', weight: '30' }] }
+  const e = plannedOn('2026-11-07', { out: { activity: 'lift', category: 'lift', lifts: [extra] } })
+  eq(liftsDone(e, D11_TODAY).map(r => r.key), ['bent-over-row', 'face-pull'])
+  eq(liftedLine(e, liftField, D11_TODAY), '2 exercises · 4 sets · 3,150 lb')
+  eq(lastLift([freeRow, e], 'bent-over-row', 'daily-2026-11-08', liftField, null, D11_TODAY)?.summary, '3 × 10 @ 90 lb', 'the hand-logged lift hid the plan')
+})
+
+check('D11: a run that logged 1 of 3 exercises: that one from the run, the other two from the plan', () => {
+  const run = { uid: 'b0i1', key: 'dumbbell-curl', name: 'Dumbbell curl', implement: 'dumbbell', sets: [{ reps: 12, weight: 30 }] }
+  const e = plannedOn('2026-11-07', { plan: threeEx(), out: { activity: 'lift', lifts: [run] } })
+  const rows = liftsDone(e, D11_TODAY)
+  eq(rows.map(r => r.key), ['bent-over-row', 'dumbbell-curl', 'pull-up'])
+  eq(rows[1].sets, [{ reps: 12, weight: 30 }], 'the run’s numbers were not the ones read')
+  // A row without a uid stands for its item by exercise.
+  const { uid: _u, ...noUid } = run
+  eq(liftsDone({ ...e, data: { ...e.data, out: { lifts: [noUid] } } }, D11_TODAY).map(r => r.sets.length), [3, 1, 3])
+})
+
+check('D11: on its own day a plan counts only the sets typed into; from the next day, as written', () => {
+  const p = threeEx()
+  p.blocks[0].items[0].sets[0] = { ...p.blocks[0].items[0].sets[0], reps: 8, weight: 95, typed: true }
+  const e = plannedOn(D11_TODAY, { done: false, plan: p })
+  eq(liftsDone(e, D11_TODAY).map(r => [r.key, r.sets]), [['bent-over-row', [{ reps: 8, weight: 95 }]]], 'untouched targets counted as lifted today')
+  eq(lastLift([e], 'dumbbell-curl', null, liftField, null, D11_TODAY), null, 'an untouched target is a last time today')
+  eq(liftsDone(e, '2026-11-09').map(r => r.sets.length), [3, 3, 3], 'the day after, the plan is not read as written')
+})
+
+check('D11: sets with no number are left out; a hold reads as seconds; a circuit once a round', () => {
+  eq(planLifts(pullPlan([{ reps: 10, weight: 90 }, {}])).flatMap(r => r.sets).length, 1, 'a blank set counted')
+  eq(planLifts(pullPlan([{}])), [], 'an exercise with nothing on it counted')
+  const plank = { blocks: [{ items: [{ kind: 'lift', exercise: 'plank', name: 'Plank', sets: [{ seconds: 45 }, { seconds: 45 }] }] }] }
+  eq(planLifts(plank)[0].sets, [{ seconds: 45, weight: '' }, { seconds: 45, weight: '' }])
+  const circuit = { blocks: [{ circuit: { work: 40, rest: 20, rounds: 3 }, items: [
+    { kind: 'lift', exercise: 'crunch', name: 'Crunch', sets: [{ reps: 15 }] },
+    { kind: 'lift', exercise: 'plank', name: 'Plank', sets: [{}] },
+  ] }] }
+  eq(planLifts(circuit).map(r => r.sets), [
+    [{ reps: 15, weight: '' }, { reps: 15, weight: '' }, { reps: 15, weight: '' }],
+    [{ seconds: 40, weight: '' }, { seconds: 40, weight: '' }, { seconds: 40, weight: '' }],
+  ])
+  eq(planLifts({ blocks: [{ items: [{ kind: 'interval', name: 'Row', sets: [{ distance: 500 }] }] }] }), [], 'an interval is not a lift')
+})
+
+check('D11: weight memory reads a done plan, the newest deciding', () => {
+  const field = { ...liftField, implements: [...(liftField.implements || []), { value: 'ez-bar', label: 'EZ bar' }] }
+  const old = { ...freeRow, data: { ...freeRow.data, out: { lifts: [{ ...freeRow.data.out.lifts[0], implement: 'ez-bar' }] } } }
+  const side = plannedOn('2026-11-07', { plan: pullPlan(undefined, { weightMode: 'side', weightLabel: 'lb per side' }) })
+  eq(rememberedWeightMode(field, [old, side], 'bent-over-row', 'ez-bar', null, D11_TODAY), 'side')
+  eq(rememberedWeightMode(field, [old, plannedOn(D11_TODAY, { done: false, plan: pullPlan(undefined, { weightMode: 'side' }) })], 'bent-over-row', 'ez-bar', null, D11_TODAY),
+    null, 'an untouched plan for today was read as a choice')
+})
+
+check('D11: the row line counts a done plan’s lifting', () => {
+  eq(liftedLine(plannedOn('2026-11-07'), liftField, D11_TODAY), '1 exercise · 3 sets · 2,700 lb')
+  eq(liftedLine(plannedOn(D11_TODAY, { done: false }), liftField, D11_TODAY), '', 'an untouched plan said what was lifted')
 })
 
 console.log(failed ? `\n${failed} lift/output test(s) failed` : '\nall lift and output tests pass')

@@ -1507,7 +1507,7 @@ function proxySettingsRefusal(mode, req, p) {
  *     week, their `quota-<monday>`, went with the quotas on 2026-10-25.)
  *   - A new daily entry is `done: false` whatever the request said, so it never
  *     looks like their own tick (`hasOwnMarks` in lib/shared.js). `isDone` still
- *     reads it as done from its day on, like any planned session (AGENTS.md §4).
+ *     reads it as done once touched or its day has passed, like any plan (AGENTS.md §4).
  */
 /*
  * SYNC (server/sharedsync.js). A shared workout with sync on is one structure

@@ -14,7 +14,7 @@ import { liftFieldOf } from '../src/lib/lifts.js'
 import { SectionBody } from '../src/session.jsx'
 import { HowSheet, MovesList, HowRow } from '../src/howto.jsx'
 import { FIGURES, hasFigure } from '../src/lib/figures.jsx'
-import { resolveCeiling } from '../src/lib/force.js'
+import { resolveCeiling, ceilingState } from '../src/lib/force.js'
 import { hasWorkout } from '../src/lib/workout.js'
 import { TimerHost, openTimer, closeTimer, timerRequestFor } from '../src/timer.jsx'
 import { BUILT_INS } from '../src/lib/timer.js'
@@ -637,6 +637,18 @@ export default [
       if (!/run the 4-min all-out test/i.test(html)) throw new Error('no prompt to test')
       if (/\d+(\.\d+)? kg on the gauge/.test(text(html))) throw new Error('invented a number with no test')
     }],
+  /* #76: a CF at or under the 6 kg correction is a measurement, so the dose
+     says why there is no number instead of asking for a test that was run. */
+  ['SectionBody(a CF under the correction says why there is no ceiling)',
+    <SectionBody section={uniWork} max={null} ceiling={null}
+      {...ceilingState([{ id: 'low', kind: 'test', date: '2026-09-01', updatedAt: 'z',
+        data: { testId: 'critical-force', cfKg: 5 } }])} />,
+    html => {
+      const t = text(html)
+      if (/run the 4-min all-out test/i.test(t)) throw new Error('asked for a test that was run')
+      if (!/No ceiling from your last test/.test(t) || !/5 kg, at or under the 6 kg correction/.test(t)) throw new Error('say why: CF 5 kg is under the correction')
+      if (/kg on the gauge/.test(t)) throw new Error('invented a number')
+    }],
   ['SectionBody(CFmin binds)',
     <SectionBody section={uniWork} max={null}
       ceiling={resolveCeiling([{ id: 'x', kind: 'test', date: '2026-08-08', updatedAt: 'z',
@@ -727,7 +739,16 @@ export default [
           onClose={noop} />
       </PlanProvider>))
     if (/Start the workout/.test(t)) throw new Error('a lift session is offering a clock again')
-    if (!/Mark undone/.test(t)) throw new Error('with no runner, the sheet has to say it is done and offer to undo it')
+    // Kept for today and untouched, it is not done yet (D10, #74): the sheet offers to mark it done.
+    if (!/Mark done/.test(t) || /Mark undone/.test(t)) throw new Error('an untouched plan for today does not offer "Mark done"')
+    const typed = { ...pres, blocks: pres.blocks.map(b => ({ ...b, items: b.items.map(it => ({ ...it, sets: it.sets.map((x, i) => (i ? x : { ...x, typed: true })) })) })) }
+    const done = text(renderToString(
+      <PlanProvider plan={plan}>
+        <SessionSheet opt={PLANNED_CARD} entry={{ ...entry, data: { ...entry.data, plan: typed } }} tone="rec" entries={rich} isFuture={false}
+          onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={noop}
+          onClose={noop} />
+      </PlanProvider>))
+    if (!/Mark undone/.test(done)) throw new Error('with no runner, a set typed in has to make it done and offer to undo it')
     // And no rest box anywhere in the editor.
     if (/rest sec/.test(t)) throw new Error('lifting grew a rest interval back')
   }],
@@ -746,8 +767,12 @@ export default [
           onClose={noop} />
       </PlanProvider>)
     const foot = (html) => (html.match(/<footer class="modal-foot">([\s\S]*?)<\/footer>/) || [])[1] || ''
-    const today = foot(sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false } }))
-    if (!/class="btn quiet"[^>]*>Mark undone</.test(today)) throw new Error('a session planned for today has no quiet "Mark undone"')
+    // A plan for today is done once something is done on it (D10, #74): untouched, a quiet "Mark done".
+    const kept = foot(sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false } }))
+    if (!/class="btn quiet"[^>]*>Mark done</.test(kept) || /Mark undone/.test(kept)) throw new Error('an untouched plan for today has no quiet "Mark done"')
+    if (!/class="btn"[^>]*>.*Start the workout/.test(kept)) throw new Error('an untouched plan for today lost its Start')
+    const today = foot(sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false, out: { ...(PLANNED_ENTRY.data.out || {}), rpe: 6 } } }))
+    if (!/class="btn quiet"[^>]*>Mark undone</.test(today)) throw new Error('a session done today has no quiet "Mark undone"')
     if (/Done · Mark undone|tap to undo|Mark as done/.test(text(today))) throw new Error('an old done toggle is back')
     // This one has a clock to run, so Start is the primary rather than Close.
     if (!/class="btn"[^>]*>.*Start the workout/.test(today)) throw new Error('a done-by-default session lost its Start')

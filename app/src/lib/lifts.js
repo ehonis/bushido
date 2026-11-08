@@ -32,6 +32,7 @@
  */
 
 import { localIso } from './dates.js'
+import { isDone } from './store.js'
 
 export const LIFT_FIELD = 'lifts'
 
@@ -291,13 +292,12 @@ export function nextWeightMode(field, row) {
  * THE RULE, the result of two rounds of review in which every heuristic opened
  * a new case:
  *
- *   - Memory is READ one way only: from logged rows (`out.lifts`) with a number
- *     on them, on entries that are done (not marked undone) and dated on or
- *     before `today`. The newest decides; a row with no mode was logged in the
- *     default, and going back to the default is a choice too. Plan items are not
- *     choices. A planned exercise that was done reaches memory anyway, because
- *     the runner and the sheet keep its logged row in step (prescription.js
- *     `runOutputs`, `followWeightModes`).
+ *   - Memory is READ one way only: from what was lifted (`liftsDone`: logged
+ *     rows, or a done plan's lift items, D11) with a number on them, on entries
+ *     that are done (not marked undone) and dated on or before `today`. The
+ *     newest decides; a row with no mode was lifted in the default, and going
+ *     back to the default is a choice too. A plan still to be done is not a
+ *     choice; one done is, because its boxes are where the sets were done.
  *   - Memory is APPLIED once, when an exercise is created, and never again: a new
  *     row in the lift log (`addLift`, or picking its implement), a new exercise in
  *     the editor (`appendLift`), each lift of a model's FIRST draft
@@ -317,7 +317,7 @@ export function rememberedWeightMode(field, entries = [], key, implement, exclud
   for (const e of entries) {
     if (e?.deleted || e?.kind !== 'daily' || e.id === excludeId || !(String(e.date || '') <= today)) continue
     if (e.data?.done === false && e.data?.undone === true) continue
-    const row = liftsIn(e.data?.out).find(l => l?.key === key && l.implement === implement
+    const row = liftsDone(e, today).find(l => l?.key === key && l.implement === implement
       && (l.sets || []).some(r => num(r?.reps) !== null || num(r?.seconds) !== null || num(r?.weight) !== null))
     if (!row) continue
     const at = `${e.date || ''}|${e.updatedAt || ''}`
@@ -469,6 +469,121 @@ function aboutScore(t, words) {
 export function liftsIn(out) {
   return Array.isArray(out?.[LIFT_FIELD]) ? out[LIFT_FIELD] : []
 }
+
+/**
+ * What was LIFTED on an entry (D11, #74): the one reader every lift history
+ * goes through ("last time", the session history, weight memory, volume, the
+ * Progress lift charts).
+ *
+ * Its logged rows (`out.lifts`), and on a planned workout that is done
+ * (`isDone`) and dated on or before `today`, each of the plan's lift items that
+ * no logged row stands for, as the row it stands for. Most planned lifting is
+ * done on the sheet, set by set in the plan's own boxes, never through the
+ * runner that writes `out.lifts`, so for those the plan IS the log; a run left
+ * after one exercise, or one extra lift logged by hand, covers only what it
+ * logged. A logged row stands for an item by its uid (the runner writes the
+ * item's id; a sync may carry its uid), else, on a row without one, by exercise.
+ *
+ * Which of an item's sets count: from the next day on, every set with a number
+ * (done as written: the only honest reading of a plan from before sets said
+ * they were typed, and how §4 reads a planned day that has passed). On its own
+ * day, only the sets typed into (`typed`, prescription.js `patchSet`): a plan
+ * done today by one set is not every target lifted yet (D10). Read, never
+ * written: nothing stored changes.
+ */
+export function liftsDone(entry, today = localIso()) {
+  const logged = liftsIn(entry?.data?.out)
+  const plan = entry?.data?.plan
+  if (!Array.isArray(plan?.blocks)) return logged
+  if (!(String(entry.date || '') <= today) || !isDone(entry, today)) return logged
+  const typedOnly = entry.date === today
+  const used = new Set()
+  const rows = []
+  for (const b of plan.blocks) {
+    for (const it of Array.isArray(b?.items) ? b.items : []) {
+      if (it?.kind !== 'lift') continue
+      // Only a row with a number stands for an item: a blank one hides nothing.
+      const by = logged.find(l => !used.has(l) && (l?.sets || []).some(numbered) && standsFor(l, it))
+      if (by) { used.add(by); rows.push(by); continue }
+      const row = itemRow(b, it, typedOnly)
+      if (row) rows.push(row)
+    }
+  }
+  return [...rows, ...logged.filter(l => !used.has(l))]
+}
+
+const hasUid = (l) => l?.uid !== undefined && l?.uid !== null && l?.uid !== ''
+/** Does this logged row stand for that plan item? Its uid, else (no uid) its exercise. */
+const standsFor = (l, it) => (hasUid(l)
+  ? l.uid === it.id || (Boolean(it.uid) && l.uid === it.uid)
+  : Boolean(l?.key) && l.key === it.exercise)
+
+const blankOr = (v) => (v === null || v === undefined ? '' : v)
+const numbered = (s) => num(s?.reps) !== null || num(s?.seconds) !== null || num(s?.weight) !== null
+
+/*
+ * A plan item as it is READ (prescription.js `measureOfItem`, repeated here
+ * because prescription.js imports this file): what its sets carry, then its word.
+ */
+function heldItem(it) {
+  const sets = Array.isArray(it?.sets) ? it.sets : []
+  const has = (f) => sets.some(s => s?.[f] !== null && s?.[f] !== undefined)
+  if (has('seconds') && !has('reps')) return true
+  if (has('reps') && !has('seconds')) return false
+  return it?.measure === 'time'
+}
+
+/**
+ * A plan's lift items as logged rows, in the shape the runner writes them
+ * (prescription.js `runOutputs`): `{ seconds, weight }` sets for a hold,
+ * `{ reps, weight }` otherwise, the weight's mode and label carried. Only sets
+ * with a number on them. A circuit's item is its one timing set once a round
+ * (reps, its own seconds, or the circuit's work).
+ */
+export function planLifts(plan) {
+  const rows = []
+  for (const b of Array.isArray(plan?.blocks) ? plan.blocks : []) {
+    for (const it of Array.isArray(b?.items) ? b.items : []) {
+      const row = it?.kind === 'lift' ? itemRow(b, it) : null
+      if (row) rows.push(row)
+    }
+  }
+  return rows
+}
+
+/** One plan item as a lifted row, or null when nothing on it counts. `typedOnly`: only sets typed into. */
+function itemRow(b, it, typedOnly = false) {
+  const held = heldItem(it)
+  let sets
+  if (b.circuit) {
+    const s = it.sets?.[0] || {}
+    const reps = num(s.reps)
+    const seconds = num(s.seconds) > 0 && !(reps > 1) ? num(s.seconds) : null
+    const one = typedOnly && s.typed !== true ? null
+      : seconds !== null ? { seconds, weight: blankOr(s.weight) }
+        : reps > 0 ? { reps, weight: blankOr(s.weight) }
+          : num(b.circuit.work) > 0 ? { seconds: num(b.circuit.work), weight: blankOr(s.weight) } : null
+    sets = one ? Array.from({ length: Math.max(1, num(b.circuit.rounds) || 1) }, () => ({ ...one })) : []
+  } else {
+    sets = (Array.isArray(it.sets) ? it.sets : []).filter(x => numbered(x) && (!typedOnly || x.typed === true)).map(x => (held
+      ? { seconds: blankOr(x.seconds), weight: blankOr(x.weight) }
+      : { reps: blankOr(x.reps), weight: blankOr(x.weight) }))
+  }
+  if (!sets.length) return null
+  return {
+    uid: it.uid || it.id || null,
+    key: it.exercise || null,
+    name: it.name || '',
+    group: it.group || null,
+    implement: it.implement || '',
+    implementLabel: it.implementLabel || null,
+    ...(it.weightMode ? { weightMode: it.weightMode, weightLabel: it.weightLabel || null } : {}),
+    sets,
+  }
+}
+
+/** Which exercise a logged row is: `key`, or `exercise` on rows from before keys. */
+export const liftKeyOf = (row) => row?.key || row?.exercise || null
 
 /**
  * A fresh uid for an exercise that may legitimately appear twice.
@@ -698,21 +813,25 @@ export function liftsLine(out, field = null) {
   ].filter(Boolean).join(' · ')
 }
 
+/** `liftsLine` for what was lifted on an entry (`liftsDone`): its logged rows or its done plan. */
+export const liftedLine = (entry, field = null, today = localIso()) => liftsLine({ [LIFT_FIELD]: liftsDone(entry, today) }, field)
+
 /**
  * The last time the user did this exercise, whatever session it was logged on.
  *
  * The lifting equivalent of `PriorNote`, and there for the same reason: what you
  * pressed last time is the number you are trying to beat, and looking it up in
  * the history tab mid-set is not something that happens. Newest first, the entry
- * being edited excluded. `measure` keeps a hold's last time to holds: sixty
+ * being edited excluded. What was lifted is `liftsDone`: a done plan's sets count
+ * as much as a logged row (D11). `measure` keeps a hold's last time to holds: sixty
  * reps of an old Plank is not a number to beat in seconds.
  */
-export function lastLift(entries = [], key, excludeId = null, field = null, measure = null) {
+export function lastLift(entries = [], key, excludeId = null, field = null, measure = null, today = localIso()) {
   const hits = []
   for (const e of entries) {
     if (e?.deleted || e?.kind !== 'daily' || e.id === excludeId) continue
-    for (const l of liftsIn(e.data?.out)) {
-      if (l?.key !== key) continue
+    for (const l of liftsDone(e, today)) {
+      if (liftKeyOf(l) !== key) continue
       if (measure && liftMeasure(l, field) !== measure) continue
       const summary = liftSummary(l, field)
       if (summary) hits.push({ date: e.date, implement: l.implementLabel || l.implement || null, summary })

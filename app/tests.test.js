@@ -7,7 +7,7 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { deriveValue, testEntryFor, testEntryId, testFor } from './src/lib/tests.js'
+import { deriveValue, testEntryFor, testEntryId, testFor, measured, testResultFrom } from './src/lib/tests.js'
 
 const plan = JSON.parse(readFileSync(new URL('../test/fixtures/plan.json', import.meta.url), 'utf8'))
 const opt = (id) => plan.dailyMenu.find(m => m.id === id)
@@ -103,6 +103,47 @@ check('every writesTest in the plan points at a test that exists', () => {
     const shared = (m.outputs || []).some(o => metrics.has(o.key))
     ok(shared, `${m.id} declares writesTest but logs none of ${test.id}'s metrics`)
   }
+})
+
+/* ---------------------------------------------- missing is missing (#76) */
+
+check('a blank box is not a measured zero', () => {
+  // Number(null) and Number('') are 0: before #76 this wrote left 0, right 0, avg 0.
+  eq(testEntryFor({ plan, session: opt('mvc-test'), date: '2026-08-10', out: { leftKg: null, rightKg: '' } }), null,
+    'nothing typed writes no result')
+  eq(testEntryFor({ plan, session: opt('mvc-test'), date: '2026-08-10', out: { leftKg: '  ', rightKg: false } }), null,
+    'a space or a boolean is not a number either')
+  const one = testEntryFor({ plan, session: opt('mvc-test'), date: '2026-08-10', out: { leftKg: 50, rightKg: null } })
+  eq(one.data.leftKg, 50)
+  eq('rightKg' in one.data, false, 'the blank hand stays absent')
+  eq('avgKg' in one.data, false, 'and no average of one hand')
+  const zero = testEntryFor({ plan, session: opt('mvc-test'), date: '2026-08-10', out: { leftKg: 0, rightKg: 0 } })
+  eq(zero.data.leftKg, 0, 'a typed zero is still an answer')
+})
+
+check('a ratio of a blank is no ratio', () => {
+  const spec = { sum: ['addedLb', 'bodyweightLb'], pctOf: 'bodyweightLb' }
+  eq(deriveValue(spec, { addedLb: null, bodyweightLb: 150 }), null, 'a blank added weight is not +0 lb')
+  eq(deriveValue(spec, { addedLb: '', bodyweightLb: 150 }), null)
+  eq(deriveValue(['leftKg', 'rightKg'], { leftKg: 50, rightKg: '' }), null)
+  eq(measured('12.5'), 12.5)
+  eq(measured(''), null)
+  eq(measured(null), null)
+  eq(measured(true), null)
+})
+
+check('an empty result from the Testing page cannot be saved', () => {
+  const cf = plan.tests.find(t => t.id === 'critical-force')
+  eq(testResultFrom(cf, {}, '2026-08-08'), null, 'no boxes')
+  eq(testResultFrom(cf, { cfKg: '', cfMinKg: null }, '2026-08-08'), null, 'blank boxes')
+  eq(testResultFrom(cf, { cfKg: 18.2 }, ''), null, 'no date')
+  const r = testResultFrom(cf, { cfKg: 18.2, cfMinKg: '', bogus: 4 }, '2026-08-08')
+  eq(r.kind, 'test')
+  eq(r.date, '2026-08-08')
+  eq(r.data.testId, 'critical-force')
+  eq(r.data.cfKg, 18.2)
+  eq('cfMinKg' in r.data, false, 'a blank metric is left out, not zero')
+  eq('bogus' in r.data, false, 'only declared metrics')
 })
 
 console.log(failed ? `\n${failed} test(s) failed` : '\nall test-result tests pass')

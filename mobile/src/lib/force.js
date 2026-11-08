@@ -26,40 +26,72 @@ export const CF_PCT_MVC_SD = 6.2
 /** Test-retest CV of the 4-min all-out protocol — McClean 2023, ICC 0.848. */
 export const CF_NOISE_PCT = 21
 
+/** A positive number, or null: blank, zero, text and `Number(null)` are not a force. */
+const positive = (v) => {
+  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
 /**
- * The sub-threshold ceiling, in kilograms, from the most recent critical-force
- * test. The rule is the plan's own and deliberately conservative: CFmin, or
- * CF minus the correction above, whichever is LOWER.
+ * The ceiling, and why there is none when there is none.
  *
- * Returns null rather than guessing when nothing has been tested — a made-up
- * ceiling is worse than no ceiling, because it looks authoritative.
+ * `ceiling` is the sub-threshold ceiling from the most recent critical-force
+ * test that MEASURED a critical force. The rule is the plan's own and
+ * deliberately conservative: CFmin, or CF minus the correction above,
+ * whichever is LOWER.
+ *
+ * Two things can stand in its way, and both are said rather than hidden (#76):
+ *
+ *   - `incomplete`: a newer critical-force result with no CF on it (a form
+ *     saved half-filled, or before #76 an empty one). It never hides the last
+ *     usable ceiling, because a result with no CF says nothing about the load;
+ *     its date is returned so the page can say which result is being used.
+ *   - `tooLow`: the newest measured CF is at or under the correction, so the
+ *     rule gives zero or less. That is a real measurement and it supersedes any
+ *     older one, so there is NO ceiling, rather than an older, higher one or a
+ *     negative number of kilograms.
  */
-export function resolveCeiling(entries = []) {
-  const test = [...entries]
-    .filter(e => !e.deleted && e.kind === 'test' && e.data?.testId === 'critical-force')
+export function ceilingState(entries = []) {
+  const tests = [...entries]
+    .filter(e => e && !e.deleted && e.kind === 'test' && e.data?.testId === 'critical-force')
     .sort((a, b) => String(a.date).localeCompare(String(b.date)))
-    .at(-1)
-  if (!test) return null
+  const test = tests.filter(e => positive(e.data.cfKg) != null).at(-1) || null
+  const later = tests.filter(e => positive(e.data.cfKg) == null && (!test || String(e.date) > String(test.date)))
+  const incomplete = later.length ? later.at(-1).date : null
+  if (!test) return { ceiling: null, incomplete, tooLow: null }
 
-  const cf = Number(test.data.cfKg)
-  if (!Number.isFinite(cf) || cf <= 0) return null
-
-  const rawMin = Number(test.data.cfMinKg)
-  const cfMin = Number.isFinite(rawMin) && rawMin > 0 ? rawMin : null
+  const cf = positive(test.data.cfKg)
+  const cfMin = positive(test.data.cfMinKg)
   const corrected = cf - CF_CORRECTION_KG
-  const mvc = Number(test.data.mvcKg)
+  const ceiling = cfMin != null ? Math.min(cfMin, corrected) : corrected
+  if (!(ceiling > 0)) return { ceiling: null, incomplete, tooLow: { cf, date: test.date } }
 
   return {
-    cf,
-    cfMin,
-    corrected,
-    ceiling: cfMin != null ? Math.min(cfMin, corrected) : corrected,
-    // Which rule binds. If CFmin is the lower one that says something different
-    // about the test than the flat correction being lower, so it is worth showing.
-    bound: cfMin != null && cfMin < corrected ? 'cfmin' : 'corrected',
-    mvc: Number.isFinite(mvc) && mvc > 0 ? mvc : null,
-    date: test.date,
+    ceiling: {
+      cf,
+      cfMin,
+      corrected,
+      ceiling,
+      // Which rule binds. If CFmin is the lower one that says something different
+      // about the test than the flat correction being lower, so it is worth showing.
+      bound: cfMin != null && cfMin < corrected ? 'cfmin' : 'corrected',
+      mvc: positive(test.data.mvcKg),
+      date: test.date,
+    },
+    incomplete,
+    tooLow: null,
   }
+}
+
+/**
+ * The sub-threshold ceiling in kilograms (`ceilingState(...).ceiling`).
+ *
+ * Returns null rather than guessing when nothing usable has been tested — a
+ * made-up ceiling is worse than no ceiling, because it looks authoritative.
+ */
+export function resolveCeiling(entries = []) {
+  return ceilingState(entries).ceiling
 }
 
 /** CF as a percentage of the max it was measured against, or null. */

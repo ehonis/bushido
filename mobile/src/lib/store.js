@@ -273,27 +273,57 @@ export function useStore() {
   }
 }
 
+/*
+ * What says nothing about whether it happened: the shape a card is created in.
+ * Part of the done rule below, so identical in the three copies too.
+ */
+const SHAPE_KEYS = new Set(['activity', 'category', 'title', 'titleFrom'])
+const filled = (v) => (Array.isArray(v) ? v.some(filled)
+  : v && typeof v === 'object' ? Object.values(v).some(filled)
+    : v !== null && v !== undefined && v !== '')
+const counted = (s) => ['reps', 'seconds', 'weight', 'distance'].some(f => s?.[f] !== null && s?.[f] !== undefined && s?.[f] !== '')
+
 /**
- * Did you do it? A workout is done once its day has arrived, unless you said it
- * was not (docs/DESIGN.md D2, AGENTS.md §4).
+ * Has anything been LOGGED on it: an effort, a note, a measurement attached, a
+ * number on a logged lift's set, or a number someone typed into a planned set
+ * (`typed`, prescription.js `patchSet`). A lift row with blank sets is an
+ * exercise picked or copied in, not one done; a plan's targets are not typed.
+ */
+export const loggedOn = (data) =>
+  Object.entries(data?.out || {}).some(([k, v]) => !SHAPE_KEYS.has(k) &&
+    (k === 'lifts' ? Array.isArray(v) && v.some(l => (l?.sets || []).some(counted)) : filled(v))) ||
+  (data?.plan?.blocks || []).some(b => (b?.items || []).some(it => (it?.sets || []).some(s => s?.typed === true && counted(s))))
+
+/**
+ * Has someone DONE something on it (D10): logged on it, started its run, or
+ * tapped "Mark done" (`doneAt`, which `markDone` writes with `done: true`).
+ */
+export const touched = (data) => Boolean(data?.doneAt || data?.run?.startedAt || loggedOn(data))
+
+/**
+ * Did you do it? (docs/DESIGN.md D2, the owner's D10 in #74, AGENTS.md §4.)
  *
  * The stored flag and the answer are two different things:
  *   - `done` absent or true: done. Absent is every entry written before the flag
  *     existed, all of them by pressing "log this". True wins over everything,
- *     including a marker an older client left behind.
+ *     including a marker an older client left behind. Logging a workout on
+ *     today or an earlier day writes it (`doneWhenPlaced`).
  *   - `done: false` with `undone: true`: NOT done, whatever the date. Only the
  *     "Mark undone" tap writes that pair (`markDone`), and only "Mark done" takes
  *     it off again. The day arriving never does.
- *   - `done: false` alone: planned. Not done while its day is still to come,
- *     done from that day on. A READ rule, so nothing has to wake at midnight to
- *     flip it and two devices agree without having synced. It also reads every
- *     entry stored with `done: false` before this rule existed, unchanged: a
- *     session put on a past day and never ticked counts as done now, and a
- *     skipped one is one "Mark undone" away. Old entries are never rewritten.
+ *   - `done: false` alone: planned. Not done while its day is still to come. ON
+ *     its day, done once something has been done on it (`touched`: a number
+ *     logged or typed, its run started, "Mark done"), so a plan put on today is
+ *     not a workout yet (D10). From the next day on, done, touched or not (D2):
+ *     a plan whose day has passed was done unless someone said it was not. A
+ *     READ rule, so nothing has to wake at midnight to flip it and two devices
+ *     agree without having synced. It reads every entry stored before either
+ *     rule unchanged; old entries are never rewritten.
  *
  * `today` is a YYYY-MM-DD; anything else (the index `.filter(isDone)` would pass)
- * means the local today. Identical in server/notify-facts.js and
- * mobile/src/lib/store.js; app/done.test.js holds the three to the same text.
+ * means the local today. The helpers above and this are identical in
+ * app/src/lib/store.js, server/notify-facts.js and mobile/src/lib/store.js;
+ * app/done.test.js holds the three to the same text.
  */
 export const isDone = (entry, today) => {
   if (!entry || entry.deleted) return false
@@ -301,15 +331,19 @@ export const isDone = (entry, today) => {
   if (data.done !== false) return true
   if (data.undone === true) return false
   const day = typeof today === 'string' ? today : localIso()
-  return typeof entry.date === 'string' && entry.date <= day
+  if (typeof entry.date !== 'string' || entry.date > day) return false
+  return entry.date < day || touched(data)
 }
 
 /**
- * The `done` a NEW entry is written with: true on today or an earlier day (it
- * is in the log, so it happened), false on a day still to come, which `isDone`
- * reads as done once that day arrives.
+ * The `done` a NEW entry is written with. A workout LOGGED on today or an
+ * earlier day: true (it is in the log, so it happened). One on a day still to
+ * come, or a PLAN (`plan`: a kept prescription) on today: false, which
+ * `isDone` reads as done once something is done on it or its day has passed
+ * (D10). A plan put on an earlier day is logging after the fact, so true.
  */
-export const doneWhenPlaced = (date, today = localIso()) => !(typeof date === 'string' && date > today)
+export const doneWhenPlaced = (date, today = localIso(), { plan = false } = {}) =>
+  !(typeof date === 'string' && (plan ? date >= today : date > today))
 
 /**
  * The "Mark done" / "Mark undone" tap, and the only writer of `undone`. Undone

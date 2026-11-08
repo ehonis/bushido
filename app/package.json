@@ -32,11 +32,13 @@
     "test:trainer": "node trainer.test.js",
     "test:drafts": "node drafts.test.js",
     "test:done": "node done.test.js",
+    "test:history": "node history.test.js",
     "test:fingers": "node fingers.test.js",
     "test:tests": "node tests.test.js",
     "test:handoff": "node handoff.test.js",
     "test:libsync": "node libsync.test.js",
-    "test:cycles": "node cycles.test.js"
+    "test:cycles": "node cycles.test.js",
+    "test:sessionops": "node sessionops.test.js"
   },
   "dependencies": {
     "lucide-react": "^1.28.0",
