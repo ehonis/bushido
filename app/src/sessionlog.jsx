@@ -13,7 +13,8 @@ import { SetLog, GradeSelect, totalSets, totalReps } from './setlog.jsx'
 import { LiftLog } from './liftlog.jsx'
 import { ActivityPicker } from './activitypicker.jsx'
 import { activityOf, activityLabel } from './lib/activities.js'
-import { liftsLine, liftFieldIn } from './lib/lifts.js'
+import { liftsLine, liftsDone, liftFieldIn } from './lib/lifts.js'
+import { priorSessions } from './lib/history.js'
 import { asksItsOwnDuration, minutesFor, minutesSourceOf } from './lib/minutes.js'
 import { visibleOutputs, pruneHidden, derivedValue, filledBy } from './lib/outputs.js'
 import { gateResolver } from './lib/activities.js'
@@ -25,39 +26,12 @@ import { StravaActivities } from './strava.jsx'
 
 /* --------------------------------------------------------------- notes --- */
 
-/**
- * Every previous time you did THIS session and wrote something down, newest
- * first. The point of writing "grip kept opening on the last circuit" is being
- * shown it again before the next one, so this is what the repeat lookup reads.
+/*
+ * Which earlier entries are this workout (by card, or for a planned or
+ * free-form workout by what it is) lives in lib/history.js, shared with the
+ * phone (#74).
  */
-export function priorSessions(entries, session, excludeId) {
-  const ids = priorIdsOf(session)
-  if (!ids.length) return []
-  return (entries || [])
-    .filter(e => e.kind === 'daily' && !e.deleted && ids.includes(e.data?.optId) && e.id !== excludeId)
-    .sort((a, b) => String(b.date).localeCompare(String(a.date)))
-}
-
-/**
- * Which optIds count as "this session", for history.
- *
- * A card's own id, plus the ids it has ANSWERED TO — `aka` (a rename) and
- * `priorIds` (a card this one was split out of).
- *
- * Opening repeaters did not show the last repeaters workout, because max hangs
- * AND repeaters were one card (`hard-home`) until 2026-08-10, so every repeaters session before
- * that date is stored under an id this lookup had never heard of. The charts have
- * always read both (`loadSeries(['max-hangs', 'hard-home'])`); this did not, so
- * the one place the history is meant to be useful — while you are standing there
- * about to do it again — was the one place it was truncated.
- *
- * Content, not code: the ids live on the card in plan.json, the same way the
- * rename does, because which card a card used to be is a fact about the program.
- */
-export function priorIdsOf(session) {
-  if (!session?.id) return []
-  return [session.id, ...(session.aka || []), ...(session.priorIds || [])]
-}
+export { priorSessions, priorIdsOf } from './lib/history.js'
 
 const dayLabel = (iso) => {
   const days = Math.round((Date.now() - new Date(`${iso}T12:00:00`)) / 86400000)
@@ -67,13 +41,18 @@ const dayLabel = (iso) => {
   return iso
 }
 
-/** "3 sets, 21 reps · 5.10+" — what the session itself was, off what was logged. */
-function priorWork(out, field = null) {
+/**
+ * "3 sets, 21 reps · 5.10+" — what the session itself was, off what was logged.
+ * Its lifting is what was lifted (`liftsDone`): on a planned workout done on the
+ * sheet, the plan's sets (D11).
+ */
+function priorWork(entry, field = null) {
+  const out = entry?.data?.out || {}
   const bits = []
   const sets = totalSets(out)
   const reps = totalReps(out)
   if (sets) bits.push(`${sets} set${sets === 1 ? '' : 's'}${reps ? `, ${reps} reps` : ''}`)
-  const lifting = liftsLine(out, field)
+  const lifting = liftsLine({ lifts: liftsDone(entry) }, field)
   if (lifting) bits.push(lifting)
   if (Number(out?.distance) > 0) bits.push(`${out.distance} mi`)
   if (Number(out?.minutesSpent) > 0) bits.push(`${out.minutesSpent} min`)
@@ -95,8 +74,8 @@ function priorWork(out, field = null) {
 export const priorTitle = (n, whose = null) =>
   n === 1 ? `Last time ${whose || 'you'} did this` : `The last ${n} times ${whose || 'you'} did this`
 
-export function PriorNote({ entries, session, excludeId, all = false, whose = null }) {
-  const prior = priorSessions(entries, session, excludeId)
+export function PriorNote({ entries, session, excludeId, entry = null, all = false, whose = null }) {
+  const prior = priorSessions(entries, session, excludeId, entry)
   if (!prior.length) return null
   const shown = all ? prior.slice(0, 5) : prior.slice(0, 1)
 
@@ -110,7 +89,7 @@ export function PriorNote({ entries, session, excludeId, all = false, whose = nu
           : priorTitle(1, whose)}
       </div>
       {shown.map(e => {
-        const work = priorWork(e.data?.out, liftFieldIn(session))
+        const work = priorWork(e, liftFieldIn(session))
         return (
           <div key={e.id} className="prior-item">
             <div className="prior-when">
@@ -675,7 +654,7 @@ export function SessionLog({
               value={out.improve}
               onCommit={v => set('improve', v.trim() || undefined)}
             />
-            <PriorNote entries={entries} session={session} excludeId={entry?.id} all whose={whose} />
+            <PriorNote entries={entries} session={session} excludeId={entry?.id} entry={entry} all whose={whose} />
           </div>
         </div>
     </div>

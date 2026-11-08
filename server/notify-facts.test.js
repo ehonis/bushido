@@ -90,7 +90,8 @@ const completed = (incoming, before) => completedDailyEntries(incoming, before, 
 // Logged: done, with an effort on it. (Done with nothing on it is a session put on
 // today, which is not news yet; see the cases further down.)
 const logged = (id, at, done = true) => [id, { id, kind: 'daily', date: TODAY, updatedAt: at, data: { name: id, done, out: { rpe: 6 } } }]
-const planned = (id, at) => logged(id, at, false)
+// Planned: nothing done on it yet (an effort on it would be doing it, D10).
+const planned = (id, at) => [id, { id, kind: 'daily', date: TODAY, updatedAt: at, data: { name: id, done: false } }]
 const before = { entries: Object.fromEntries([logged('a', '2026-09-15T10:00:00Z'), planned('b', '2026-09-15T11:00:00Z')]) }
 
 check('a full-log re-send announces nothing', () => {
@@ -167,8 +168,19 @@ check('a planned session\'s day arriving announces nothing, on any re-send', () 
   // device re-sends it with a newer stamp as it catches up. Still nothing.
   const stored = { entries: { p: ahead('2026-09-14T20:00:00Z') } }
   eq(completed({ entries: { p: ahead('2026-09-15T07:00:00Z') } }, stored).length, 0)
-  eq(completed({ entries: { p: ahead('2026-09-15T08:00:00Z', { out: { rpe: 6 } }) } }, stored).length, 0,
-    'logging an effort on it is an edit, not a completion')
+})
+
+check('a plan on its day: logging an effort or typing a set on it is doing it, once (D10)', () => {
+  const stored = { entries: { p: ahead('2026-09-14T20:00:00Z') } }
+  const effort = ahead('2026-09-15T08:00:00Z', { out: { rpe: 6 } })
+  eq(completed({ entries: { p: effort } }, stored).map(e => e.id), ['p'], 'an effort')
+  eq(completed({ entries: { p: { ...effort, updatedAt: '2026-09-15T09:00:00Z' } } }, { entries: { p: effort } }).length, 0, 'and not again')
+  const plan = { blocks: [{ items: [{ kind: 'lift', sets: [{ id: 's', reps: 10, weight: 90, typed: true }] }] }] }
+  eq(completed({ entries: { p: ahead('2026-09-15T08:00:00Z', { plan }) } }, stored).map(e => e.id), ['p'], 'a typed set')
+  eq(completed({ entries: { p: ahead('2026-09-15T08:00:00Z', { run: { startedAt: 1 } }) } }, stored).length, 0,
+    'starting its run is not news yet')
+  ok(workoutLoggedFact({ entry: effort, now: NOW }), 'the fact is written for a plan done on its day')
+  eq(workoutLoggedFact({ entry: ahead('2026-09-15T08:00:00Z', { out: { rpe: 6 }, undone: true }), now: NOW }), null, 'marked undone')
 })
 
 check('finishing a planned session on its day is announced exactly once', () => {
@@ -292,12 +304,18 @@ check('old recordings fall out of the window rather than nagging forever', () =>
 })
 
 check('a planned session on a day that has arrived is not chased as unlogged', () => {
+  const yesterday = '2026-09-14'
   const facts = unloggedFacts({
-    state: stateWith([ahead('2026-09-14T20:00:00Z')]),
-    strava: { activities: [{ date: TODAY, name: 'Evening Ride' }] },
+    state: stateWith([{ ...ahead('2026-09-13T20:00:00Z'), date: yesterday }]),
+    strava: { activities: [{ date: yesterday, name: 'Evening Ride' }] },
     now: NOW,
   })
-  eq(facts.length, 0)
+  eq(facts.length, 0, 'a plan whose day has passed is done')
+  // On its own day a plan counts once something is done on it (D10); until then the ride is unlogged.
+  eq(unloggedFacts({ state: stateWith([ahead('2026-09-14T20:00:00Z')]), strava: { activities: [{ date: TODAY, name: 'Evening Ride' }] }, now: NOW }).length, 1,
+    'an untouched plan for today does not log the ride')
+  eq(unloggedFacts({ state: stateWith([ahead('2026-09-14T20:00:00Z', { out: { rpe: 6 } })]), strava: { activities: [{ date: TODAY, name: 'Evening Ride' }] }, now: NOW }).length, 0,
+    'one with an effort on it does')
   const skipped = unloggedFacts({
     state: stateWith([ahead('2026-09-15T12:00:00Z', { undone: true })]),
     strava: { activities: [{ date: TODAY, name: 'Evening Ride' }] },

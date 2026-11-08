@@ -466,6 +466,37 @@ test('openedCopy: a sheet reopened mid-save opens on the save, never an older re
 })
 
 let failed = 0
+/* ------------------------------------------------------------ #74 */
+
+const planCard = { id: 'planned' }
+const pullPres = { title: 'Pull', category: 'lift', activity: 'lift', blocks: [{ id: 'b0', uid: 'B0', name: 'Pull', category: 'lift', items: [
+  { id: 'b0i0', uid: 'I0', kind: 'lift', name: 'Row', exercise: 'bent-over-row', sets: [{ id: 'b0i0s0', reps: 10, weight: 90 }, { id: 'b0i0s1', reps: 10, weight: 90 }] }] }] }
+const pull = { id: 'daily-2026-11-07', kind: 'daily', date: '2026-11-07', updatedAt: 'z',
+  data: { optId: 'planned', slot: 'main', name: 'Pull', level: 2, done: true, plan: pullPres, out: { activity: 'lift', category: 'lift' } } }
+
+test('a shared planned workout carries what KIND of workout it is, so their log files it (#74)', () => {
+  const copy = sharedCopy(pull, { session: planCard, owner: PEOPLE[0] })
+  assert.deepEqual(copy.data.out, { activity: 'lift', category: 'lift' }, 'their copy files under nothing')
+  assert.equal(hasOwnMarks(copy, planCard), false, 'the kind of workout counted as their own mark')
+})
+
+test('a number they typed into their plan is their own mark; a target is not', () => {
+  const copy = sharedCopy(pull, { session: planCard, owner: PEOPLE[0] })
+  assert.equal(hasOwnMarks(copy, planCard), false)
+  const typed = { ...copy, data: { ...copy.data, plan: patchSet(copy.data.plan, 'b0i0', 'b0i0s0', { weight: 40 }) } }
+  assert.equal(hasOwnMarks(typed, planCard), true, 'taking them off would tombstone what they typed')
+})
+
+test('copying the owner\'s extra sets copies their own last set\'s numbers, not its typed mark', () => {
+  const copy = sharedCopy({ ...pull, data: { ...pull.data, plan: { ...pullPres, blocks: [{ ...pullPres.blocks[0], items: [{ ...pullPres.blocks[0].items[0], sets: [pullPres.blocks[0].items[0].sets[0]] }] }] } } },
+    { session: planCard, owner: PEOPLE[0] })
+  const theirs = { ...copy, data: { ...copy.data, plan: patchSet(copy.data.plan, 'b0i0', 'b0i0s0', { reps: 8, weight: 40 }) } }
+  const more = copyExercises(theirs, pull).data.plan.blocks[0].items[0].sets
+  assert.equal(more.length, 2)
+  assert.equal(more[0].typed, true, 'their own set lost its mark')
+  assert.deepEqual([more[1].reps, more[1].weight, 'typed' in more[1]], [8, 40, false], 'the copied set reads as typed into')
+})
+
 for (const [name, fn] of tests) {
   try { await fn(); console.log(`  ok    ${name}`) } catch (err) { failed++; console.log(`  FAIL  ${name}\n        ${err.message}`) }
 }

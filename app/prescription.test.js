@@ -16,7 +16,7 @@ import {
   emptyRun, markSet, unmarkSet, skipSet, unskipSet, nudgeRest, endRest, finishRun,
   restLeft, runElapsed, runProgress, firstOpen, isLogged, isSkipped,
   setDraft, carryForward, runOutputs, remapRun,
-  patchSet, addSet, addSetLike, removeSet, removeItem, appendLift, reindex, setFieldsFor,
+  patchSet, addSet, addSetLike, removeSet, setCircuit, removeItem, appendLift, reindex, setFieldsFor,
   splitPrescription, moveItem, isLiftOnly,
   blankPrescription, appendPiece, dropEmptyBlocks, patchItem, reviseWeightModes, followWeightModes, patchRunItem,
   measureOfItem,
@@ -945,6 +945,31 @@ t('held for time, the write rule: a model\'s { reps: 1, seconds: 45 } is a hold 
   assert.equal(said.measure, undefined, 'reps-only sets resolve as reps, whatever the item said')
   assert.equal(switched.measure, 'reps', 'a hold counted in reps lost that, so the catalog would switch it back')
   assert.deepEqual(setFieldsFor(switched, switched.sets[0]), ['reps', 'weight'])
+})
+
+/* ------------------------------------------------- typed and runnable (#74) */
+
+t('typed means typed into: a copied set is not, a patch that changes nothing is not', () => {
+  const typed = patchSet(legs, 'b1i0', 'b1i0s2', { weight: 160 })
+  assert.equal(typed.blocks[1].items[0].sets[2].typed, true, 'typing a number marks the set')
+  const more = addSet(typed, 'b1i0')
+  assert.equal(more.blocks[1].items[0].sets[3].weight, 160, 'the copy keeps the numbers')
+  assert.equal('typed' in more.blocks[1].items[0].sets[3], false, 'the copy says it was typed into')
+  assert.equal('typed' in addSetLike(typed, 'b1i0', { reps: 4, weight: 165 }).blocks[1].items[0].sets[3], false, 'the runner\u2019s copy says it was typed into')
+  const same = legs.blocks[1].items[0].sets[0]
+  assert.equal('typed' in patchSet(legs, 'b1i0', 'b1i0s0', { weight: same.weight }).blocks[1].items[0].sets[0], false, 'a patch to the same number')
+})
+
+t('an uncategorised circuit beside a categorised lift block makes the plan runnable', () => {
+  // What the planner prompt asks for: the main lifts in a Lift block, the core finisher a circuit with no category.
+  const pres = setCircuit(normalizePrescription({
+    title: 'Legs + core', blocks: [
+      { name: 'Main', category: 'lift', items: [{ kind: 'lift', exercise: 'back-squat', sets: [{ reps: 5, weight: 185 }] }] },
+      { name: 'Core', items: [{ kind: 'lift', exercise: 'crunch', sets: [{ reps: 15 }] }] },
+    ],
+  }, { liftField }), 'b1', true)
+  assert.ok(pres.blocks[1].circuit && !pres.blocks[1].category, 'the fixture is not the shape it says')
+  assert.equal(isLiftOnly(pres), false, 'its circuit can never run on its clock')
 })
 
 console.log(`prescription: ${pass} checks passed`)

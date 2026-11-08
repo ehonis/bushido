@@ -53,10 +53,16 @@ const state = {
   ]),
 }
 
-console.log('done once the day arrives, unless marked undone')
+console.log('done once the day has passed or something is done on it, unless marked undone')
 eq('planned for a later day => count 0 before it', habitBodyForDay('2026-08-05', state, '2026-08-04').count, 0)
 eq('...and an empty note, so Totem drops the day', habitBodyForDay('2026-08-05', state, '2026-08-04').note, '')
-eq('the same two on their day => count 2, nothing rewritten', habitBodyForDay('2026-08-05', state, '2026-08-05').count, 2)
+eq('the same two on their day, nothing done on them => count 0 (D10)', habitBodyForDay('2026-08-05', state, '2026-08-05').count, 0)
+{
+  // On their day a plan counts once something is done on it; the write that does it re-sends the day.
+  const touched = JSON.parse(JSON.stringify(state))
+  touched.entries['daily-2026-08-05'].data.out = { rpe: 6 }
+  eq('...one of them with an effort logged => count 1', habitBodyForDay('2026-08-05', touched, '2026-08-05').count, 1)
+}
 eq('and every day after', habitBodyForDay('2026-08-05', state, '2026-09-01').count, 2)
 eq('marked undone => count 0, however late', habitBodyForDay('2026-08-04', state, '2026-09-01').count, 0)
 eq('...and no note for it', habitBodyForDay('2026-08-04', state, '2026-09-01').note, '')

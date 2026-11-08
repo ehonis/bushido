@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs'
 import {
   gearItems, gearUsage, gearOn, headlineFor, metricOf, kindOf, gearKinds,
   kindsForWorkout, defaultGearFor, gearChoicesFor, buildGearEntry, newGearId,
+  priorValueFor, priorFieldsFor,
 } from './src/lib/gear.js'
 import {
   athleteOf, profileFacts, buildProfileEntry, factValue, PROFILE_GROUPS,
@@ -274,6 +275,71 @@ check('every profile field is renderable', () => {
       ok(['number', 'text'].includes(f.type), `${f.key}: unknown type ${f.type}`)
     }
   }
+})
+
+/* --------------------------------------- the form's "already on it" (#76) */
+
+/*
+ * What the edit form does, without the form: open (priorValueFor on the row
+ * gearUsage gives it), save untouched (priorFieldsFor), and read it back.
+ */
+const reopenAndSave = (entry) => {
+  const row = gearUsage({ plan, entries: [entry] }).find(r => r.id === entry.id)
+  const shown = priorValueFor(row, row.metric)
+  const { priorMiles, priorMinutes, priorReps, ...rest } = entry.data
+  const saved = buildGearEntry(entry.id, { ...rest, ...priorFieldsFor(row.metric, shown, row) })
+  return { shown, saved, row: gearUsage({ plan, entries: [saved] })[0] }
+}
+
+check('time gear reopens in hours, not minutes', () => {
+  // Added with 2 hours: stored as 120 minutes.
+  const added = buildGearEntry('g-shoes', { name: 'Shoes', kind: 'climbing-shoes', ...priorFieldsFor('time', 2) })
+  eq(added.data.priorMinutes, 120)
+  const { shown, saved, row } = reopenAndSave(added)
+  eq(shown, 2, 'the box says 2, in the hours it is labelled in (it said 120)')
+  eq(saved.data.priorMinutes, 120, 'saving untouched keeps 120 minutes (it wrote 7200)')
+  eq(headlineFor(row), { value: 2, unit: 'hr' })
+})
+
+check('add, reopen, save is stable for every gear unit', () => {
+  const cases = [
+    ['bike', 'miles', 1234.5, 'priorMiles', 1234.5],
+    ['rope', 'time', 1.5, 'priorMinutes', 90],
+    ['board', 'time', 1.67, 'priorMinutes', 100],
+    ['weights', 'reps', 300, 'priorReps', 300],
+  ]
+  for (const [kind, metric, typed, key, stored] of cases) {
+    eq(metricOf(plan, kind), metric, `${kind} is counted in ${metric}`)
+    let entry = buildGearEntry(`g-${kind}`, { name: kind, kind, ...priorFieldsFor(metric, typed) })
+    eq(entry.data[key], stored, `${kind}: what is stored`)
+    for (let i = 0; i < 3; i++) entry = reopenAndSave(entry).saved
+    eq(entry.data[key], stored, `${kind}: three reopen-and-saves later`)
+  }
+})
+
+check('the form changes only the prior it shows', () => {
+  // A weight counted in reps keeps the minutes it carried; blank clears only reps.
+  const row = { priorReps: 300, priorMinutes: 40 }
+  eq(priorValueFor(row, 'reps'), 300, 'a weight shows its reps, never its minutes')
+  eq(priorFieldsFor('reps', 320, row), { priorMinutes: 40, priorReps: 320 })
+  eq(priorFieldsFor('reps', null, row), { priorMinutes: 40 }, 'blank: nothing on it yet')
+  eq(priorFieldsFor('time', 0), {}, 'zero is nothing on it')
+  eq(priorValueFor({}, 'time'), null, 'nothing stored shows an empty box')
+})
+
+check('a Save with the box untouched keeps the stored prior exactly', () => {
+  // The box shows rounded hours; converting them back moved 79.8 minutes to 80
+  // and dropped a prior too small to show in hundredths of an hour.
+  for (const minutes of [79.8, 0.2, 100, 12000]) {
+    const entry = buildGearEntry('g-r', { name: 'Rope', kind: 'rope', priorMinutes: minutes })
+    const { shown, saved } = reopenAndSave(entry)
+    ok(shown > 0, `${minutes} min shows as something, not an empty box (${shown})`)
+    eq(saved.data.priorMinutes, minutes, `${minutes} min, saved untouched`)
+  }
+  // Only an edited box is converted.
+  const row = { priorMinutes: 79.8 }
+  eq(priorFieldsFor('time', 1.5, row), { priorMinutes: 90 }, 'edited to 1.5 h')
+  eq(priorFieldsFor('time', null, row), {}, 'cleared: nothing on it')
 })
 
 console.log(failed ? `\n${failed} gear/profile test(s) failed` : '\nall gear and profile tests pass')

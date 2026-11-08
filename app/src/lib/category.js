@@ -24,7 +24,7 @@ import { loggedActivity, disciplineFor } from './activities.js'
  * being edited for everyone.
  */
 export function categoryOf(entry, menu = []) {
-  const out = entry?.data?.out || {}
+  const out = filedOut(entry)
   if (out.category) return out.category
   const opt = optFor(menu, entry?.data?.optId)
   if (!opt) return null
@@ -35,5 +35,23 @@ export function categoryOf(entry, menu = []) {
 /** The sport family an entry belongs to (bike, run, bouldering…), or null. */
 export function disciplineOf(entry, menu = []) {
   const opt = optFor(menu, entry?.data?.optId)
-  return opt ? disciplineFor(opt, entry?.data?.out || {}) : null
+  return opt ? disciplineFor(opt, filedOut(entry)) : null
+}
+
+/**
+ * The `out` an entry is FILED by: its own, and on a planned workout that names
+ * neither an activity nor a category, the plan's (its own, else its first
+ * block's that names one). A kept plan writes both into `out`; a copy shared
+ * before #74 did not (lib/shared.js `SHARED_OUT_KEYS` lacked them), so the other
+ * person's log filed every workout done together under nothing. Read, never
+ * written: the copies stay as they are and file correctly (AGENTS.md §4).
+ */
+function filedOut(entry) {
+  const out = entry?.data?.out || {}
+  const plan = entry?.data?.plan
+  if (out.category || out.activity || !plan || typeof plan !== 'object') return out
+  const named = (Array.isArray(plan.blocks) ? plan.blocks : []).find(b => b?.category || b?.activity) || {}
+  const category = plan.category || named.category || null
+  const activity = plan.activity || named.activity || null
+  return { ...out, ...(category ? { category } : {}), ...(activity ? { activity } : {}) }
 }

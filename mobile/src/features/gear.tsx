@@ -25,8 +25,10 @@ import { success } from '../ui/haptics'
 import { Icon } from '../lib/icons'
 import { localIso } from '../lib/dates.js'
 import { DayStepper } from '../ui/DayStepper'
+import { NumInput } from './numinput'
 import {
-  gearUsage, gearKinds, kindOf, headlineFor, buildGearEntry, newGearId,
+  gearUsage, gearKinds, kindOf, metricOf, headlineFor, buildGearEntry, newGearId,
+  priorValueFor, priorFieldsFor,
 } from '../lib/gear.js'
 
 const fmt = (n: number) => (n >= 100 ? Math.round(n).toLocaleString() : Math.round(n * 10) / 10)
@@ -123,10 +125,11 @@ function GearRow({ row, kind, first, onOpen }: any) {
 /**
  * Add or edit.
  *
- * Strava-synced gear can be edited here only in the ways the app owns — whether it
- * is the default, and what it had done before. Its NAME and its odometer stay
- * Strava's, because two places to rename one bike is how they stop being the same
- * bike.
+ * Strava-synced gear is read here, not edited. Its name, odometer, default and
+ * retirement are Strava's, because two places to rename one bike is how they
+ * stop being the same bike, and nothing in the log holds an edit to it: Save on
+ * a synced bike used to write a NEW local item under the bike's name, a second
+ * row for the same bike (#76). So its form has one button, Done.
  */
 function GearForm({ plan, row, onSave, onCancel, onDelete }: any) {
   const synced = row?.source === 'strava'
@@ -135,23 +138,19 @@ function GearForm({ plan, row, onSave, onCancel, onDelete }: any) {
   const [acquired, setAcquired] = useState(row?.acquired || '')
   const [primary, setPrimary] = useState(Boolean(row?.primary))
   const [retired, setRetired] = useState(Boolean(row?.retired))
-  const [prior, setPrior] = useState(
-    String(row?.priorMiles || row?.priorMinutes || row?.priorReps || ''))
+  // In the unit the box is labelled in: hours for time, never the stored minutes
+  // (lib/gear.js `priorValueFor`, #76).
+  const [prior, setPrior] = useState<any>(() => (priorValueFor as any)(row, metricOf(plan, row?.kind || 'climbing-shoes')))
   const [notes, setNotes] = useState(row?.notes || '')
 
-  const metric = kindOf(plan, kind)?.metric || 'time'
+  const metric = metricOf(plan, kind)
   const priorLabel = metric === 'miles' ? 'Miles already on it'
     : metric === 'reps' ? 'Reps already on it' : 'Hours already on it'
 
   const submit = () => {
-    if (!synced && !name.trim()) return
-    const n = Number(prior)
-    const priorFields: any = {}
-    if (Number.isFinite(n) && n > 0) {
-      if (metric === 'miles') priorFields.priorMiles = n
-      else if (metric === 'reps') priorFields.priorReps = n
-      else priorFields.priorMinutes = n * 60
-    }
+    if (synced) return onCancel()
+    if (!name.trim()) return
+    const priorFields = (priorFieldsFor as any)(metric, prior, row)
     onSave(row?.id && row.source === 'local' ? row.id : newGearId(), {
       name: synced ? row.name : name.trim(),
       kind, primary, retired,
@@ -176,13 +175,13 @@ function GearForm({ plan, row, onSave, onCancel, onDelete }: any) {
       deleteBody="Workouts logged with it keep their history."
       footer={(
         <>
-          <Btn kind="ghost" title="Cancel" flex onPress={onCancel} />
-          <Btn title={row ? 'Save' : 'Add it'} flex onPress={submit} disabled={!synced && !name.trim()} />
+          {synced ? null : <Btn kind="ghost" title="Cancel" flex onPress={onCancel} />}
+          <Btn title={synced ? 'Done' : row ? 'Save' : 'Add it'} flex onPress={submit} disabled={!synced && !name.trim()} />
         </>
       )}
     >
       {synced && (
-        <T size={font.small} dim style={{ marginBottom: space[3] }}>From Strava, which keeps its name and odometer.</T>
+        <T size={font.small} dim style={{ marginBottom: space[3] }}>From Strava, which keeps its name, odometer and default.</T>
       )}
 
       {!synced && (
@@ -199,7 +198,9 @@ function GearForm({ plan, row, onSave, onCancel, onDelete }: any) {
       </Field>
 
       <Field label="Since" style={st.field}>
-        {acquired ? (
+        {synced ? (
+          <T size={font.input} faint>{acquired || 'No date'}</T>
+        ) : acquired ? (
           <View style={{ gap: 6 }}>
             <DayStepper value={acquired} max={localIso()} onChange={setAcquired} />
             <Press haptic onPress={() => setAcquired('')} style={{ alignSelf: 'flex-start', paddingVertical: 4 }}>
@@ -215,22 +216,22 @@ function GearForm({ plan, row, onSave, onCancel, onDelete }: any) {
       </Field>
 
       <Field label={priorLabel} style={st.field}>
-        <Input value={prior} onChangeText={setPrior} placeholder="0" keyboardType="decimal-pad" />
+        <NumInput value={prior ?? ''} onChange={setPrior} placeholder="0" editable={!synced} />
       </Field>
       <View style={st.toggle}>
         <T size={font.body} style={{ flex: 1 }}>{`Default for ${kindOf(plan, kind)?.name?.toLowerCase() || 'this kind'}`}</T>
-        <Toggle value={primary} onChange={setPrimary} />
+        <Toggle value={primary} onChange={setPrimary} disabled={synced} />
       </View>
       <View style={st.toggle}>
         <View style={{ flex: 1 }}>
           <T size={font.body}>Retired</T>
           <T size={font.small} dim>Keeps its history, stops being offered</T>
         </View>
-        <Toggle value={retired} onChange={setRetired} />
+        <Toggle value={retired} onChange={setRetired} disabled={synced} />
       </View>
 
       <Field label="Notes" style={[st.field, { marginTop: space[2] }]}>
-        <Input value={notes} onChangeText={setNotes} />
+        <Input value={notes} onChangeText={setNotes} editable={!synced} />
       </Field>
     </Modal>
   )

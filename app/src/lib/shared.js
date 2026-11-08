@@ -31,8 +31,14 @@ import { extraEntryId } from './store.js'
 import { blankSet, liftMeasure } from './lifts.js'
 import { reindex, remapRun } from './prescription.js'
 
-/** Facts of the workout itself, as opposed to how it went for one person. */
+/**
+ * Facts of the workout itself, as opposed to how it went for one person. What
+ * KIND of workout it was (`activity`, `category`) is one of them: without it
+ * the other person's copy of a planned or free-form workout filed under nothing
+ * and asked them what sport it was (#74).
+ */
 export const SHARED_OUT_KEYS = Object.freeze([
+  'activity', 'category',
   'title', 'titleFrom', 'duration', 'minutesSpent', 'distance', 'poolDistance', 'elevation', 'incline', 'route',
 ])
 
@@ -91,6 +97,8 @@ export function hasOwnMarks(entry, session = null) {
   if (!entry || entry.deleted) return false
   if (entry.data?.done === true) return true
   if (entry.data?.run?.startedAt) return true
+  // A number they typed into their plan's sets is their log too (D11).
+  if (planTyped(entry.data?.plan)) return true
   const keys = new Set(SHARED_OUT_KEYS)
   if (session?.nameFrom) keys.add(session.nameFrom)
   for (const [k, v] of Object.entries(entry.data?.out || {})) {
@@ -106,6 +114,10 @@ export function hasOwnMarks(entry, session = null) {
 /* ------------------------------------------------ the owner's exercises, copied */
 
 const blank = (v) => v === undefined || v === null || v === ''
+
+/** Have they typed a number into any of their plan's sets (`typed`, prescription.js `patchSet`)? */
+const planTyped = (plan) => (plan?.blocks || []).some(b => (b?.items || []).some(it => (it?.sets || [])
+  .some(s => s?.typed === true && (!blank(s.reps) || !blank(s.seconds) || !blank(s.weight)))))
 
 /** Have they put a number on any of these logged lifts? */
 export const liftsMarked = (lifts) => Array.isArray(lifts)
@@ -129,6 +141,9 @@ function keyed(pres) {
  * the weight still offers the switch, from the implement.
  */
 const noMode = ({ weightMode: _m, weightLabel: _l, ...rest }) => rest
+
+/** A copy of their own last set: its numbers as a start, but not typed until they type into it. */
+const untypedCopy = ({ typed: _t, ...s }) => ({ ...s, note: '' })
 
 /** One of the owner's sets on their side: the target, not the owner's weight, and nothing they typed. */
 const theirSet = ({ typed: _t, ...s }) => ({ ...s, weight: null })
@@ -165,7 +180,7 @@ function copyPlan(theirs, mine) {
     } else if ((item.sets || []).length > (t.sets || []).length) {
       // More sets of the owner's: copies of their own last set, as adding a set does.
       const sets = [...(t.sets || [])]
-      while (sets.length < item.sets.length) sets.push(sets.length ? { ...sets.at(-1), note: '' } : theirSet(item.sets[sets.length]))
+      while (sets.length < item.sets.length) sets.push(sets.length ? untypedCopy(sets.at(-1)) : theirSet(item.sets[sets.length]))
       const b = blocks.find(x => x.items.includes(t))
       b.items = b.items.map(x => (x === t ? { ...t, sets } : x))
       changed = true
@@ -242,7 +257,8 @@ export function copyIdFor(ownerEntry, theirDay = []) {
 
 /**
  * The other person's copy of the owner's entry. `done: false`, which `isDone` reads
- * as done from its day on (AGENTS.md §4) without it counting as their own mark;
+ * as done once they do something on it or its day has passed (AGENTS.md §4),
+ * without it counting as their own mark;
  * the session, the shared facts and the owner's exercises without the owner's
  * weights; none of the owner's numbers, effort or notes.
  */

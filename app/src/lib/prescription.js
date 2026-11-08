@@ -1116,18 +1116,31 @@ const mapItem = (pres, itemId, fn) => reindex({
  * A number typed into one set. The set says so (`typed: true`): on a shared
  * workout a change from the other side never takes a set someone filled in
  * (server/sharedsync.js `typedOn`), and only the marker tells a number typed on
- * the sheet from a target the plan arrived with. A plan being built is all
- * targets, so `dropEmptyBlocks` clears the marker as it is kept.
+ * the sheet from a target the plan arrived with. Only a CHANGE marks it: a
+ * patch that leaves the number as it was is not typing. A plan being built is
+ * all targets, so `dropEmptyBlocks` clears the marker as it is kept.
  */
 export const patchSet = (pres, itemId, setId, patch) =>
   mapItem(pres, itemId, it => ({
     ...it,
-    sets: it.sets.map(s => (s.id === setId ? { ...s, ...patch, ...(SET_FIELDS.some(f => f in patch) ? { typed: true } : {}) } : s)),
+    sets: it.sets.map(s => (s.id === setId
+      ? { ...s, ...patch, ...(SET_FIELDS.some(f => f in patch && patch[f] !== s[f]) ? { typed: true } : {}) }
+      : s)),
   }))
 
-/** Another set of the same thing, copying the last one — same rule `addLiftSet` follows. */
+/**
+ * Another set of the same thing, copying the last one — same rule `addLiftSet`
+ * follows. Its numbers, not its `typed`: a set is typed when someone types into
+ * it (`patchSet`), and a copy nobody touched must not read as one filled in
+ * (on a shared workout it would outlast a removal from the other side).
+ */
 export const addSet = (pres, itemId) =>
-  mapItem(pres, itemId, it => ({ ...it, sets: [...it.sets, { ...it.sets.at(-1) }] }))
+  mapItem(pres, itemId, it => ({ ...it, sets: [...it.sets, untypedSet(it.sets.at(-1))] }))
+
+const untypedSet = (s) => {
+  const { typed: _t, ...rest } = s || {}
+  return rest
+}
 
 /**
  * One more set of this, from the RUNNER, copying what the user just did rather than
@@ -1143,7 +1156,7 @@ export const addSet = (pres, itemId) =>
  */
 export const addSetLike = (pres, itemId, like = null) =>
   mapItem(pres, itemId, it => {
-    const row = { ...(it.sets.at(-1) || {}) }
+    const row = untypedSet(it.sets.at(-1))
     for (const f of SET_FIELDS) {
       const n = num(like?.[f])
       if (n !== null) row[f] = n
@@ -1212,6 +1225,10 @@ export function moveItem(pres, itemId, dir) {
 export function isLiftOnly(pres) {
   const blocks = (pres?.blocks || []).filter(b => (b.items || []).length)
   if (!blocks.length) return false
+  // A circuit runs on a clock whatever is in it (issue #68), and wherever it is:
+  // an uncategorised circuit beside a categorised block is the planner's usual
+  // accessory finisher, and it still has to be startable (#74).
+  if (blocks.some(b => b.circuit)) return false
   /*
    * Judged on the blocks that are WORKOUTS.
    *
@@ -1225,8 +1242,6 @@ export function isLiftOnly(pres) {
    * tell apart from the work.
    */
   const counted = blocks.some(b => b.category) ? blocks.filter(b => b.category) : blocks
-  // A circuit runs on a clock whatever is in it (issue #68).
-  if (counted.some(b => b.circuit)) return false
   const items = counted.flatMap(b => b.items)
   return items.length > 0 && items.every(it => it.kind === 'lift')
 }

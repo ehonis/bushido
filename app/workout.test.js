@@ -18,7 +18,7 @@ import {
   elapsedMinutes, startOf, advancePhase, afterSet, COUNT_IN, LEAD_IN, blockTimers, loggedSeconds,
   backPhase, phaseSeconds,
 } from './src/lib/workout.js'
-import { resolveCeiling, cfPctOfMax, cfBand } from './src/lib/force.js'
+import { resolveCeiling, ceilingState, cfPctOfMax, cfBand } from './src/lib/force.js'
 import {
   GRADES, GRADE_FIELD, gradeIndex, gradeLabel, rungLabel, isGrade, hardestGrade,
   hasGrades, repCount, fitGrades, gradesIn,
@@ -1932,6 +1932,29 @@ check('workout mode\'s Back: a few seconds in goes to the phase before, later re
   const second = backPhase({ phase: 'countin', rep: 1, index: 1, into: 1 }, steps)
   eq(second.index, 0); eq(second.phase, 'countin', 'from the next set\'s count-in, to the start of the set before')
   eq(phaseSeconds({ phase: 'setrest', index: 1 }, steps), steps[0].timing.setRest || 0, 'a rest between sets restarts at its own length')
+})
+
+check('an empty newer test never hides a valid ceiling (#76)', () => {
+  const old = cfTest({ cfKg: 18.2 }, '2026-08-08')
+  const empty = cfTest({}, '2026-09-01')
+  eq(resolveCeiling([old, empty]).ceiling, 12.2, 'the last usable result still sets the gauge')
+  eq(resolveCeiling([old, empty]).date, '2026-08-08')
+  eq(ceilingState([old, empty]).incomplete, '2026-09-01', 'and the page can say a newer one has no CF')
+  eq(ceilingState([old]).incomplete, null)
+  // Number(null) is 0, Number('') is 0: still no CF.
+  eq(resolveCeiling([old, cfTest({ cfKg: null, cfMinKg: '' }, '2026-09-02')]).date, '2026-08-08')
+  eq(ceilingState([empty]).ceiling, null, 'an empty test alone is no ceiling')
+  eq(ceilingState([empty]).incomplete, '2026-09-01')
+})
+
+check('a CF at or under the correction gives no ceiling, never a negative one (#76)', () => {
+  const low = cfTest({ cfKg: 5 }, '2026-09-01')
+  eq(resolveCeiling([low]), null, 'no negative kilograms')
+  eq(ceilingState([low]).tooLow.cf, 5, 'said, with the number')
+  eq(resolveCeiling([cfTest({ cfKg: 6 })]), null, 'zero is not a ceiling either')
+  // A real measurement supersedes an older one: the older, higher ceiling is NOT used.
+  eq(resolveCeiling([cfTest({ cfKg: 18.2 }, '2026-08-08'), low]), null)
+  eq(resolveCeiling([cfTest({ cfKg: 18.2, cfMinKg: 3 })]).ceiling, 3, 'a small positive ceiling is still one')
 })
 
 console.log(failed ? `\n${failed} test(s) failed` : '\nall workout tests pass')

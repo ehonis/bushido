@@ -42,17 +42,21 @@ check('nothing logged at all is zero, and the header renders nothing', () => {
   eq(streakDays([], '2026-09-15'), 0)
 })
 
-check('DONE BY DEFAULT: a session planned for today counts today', () => {
-  // `done: false` with no undo is a plan, done once its day arrives (AGENTS.md §4).
-  eq(streakDays([day('2026-09-15', { done: false }), day('2026-09-14'), day('2026-09-13')],
+check('a plan for today counts today once something is done on it (D10)', () => {
+  // `done: false` with no undo is a plan: on its day, done once touched (AGENTS.md §4).
+  eq(streakDays([day('2026-09-15', { done: false, out: { rpe: 6 } }), day('2026-09-14'), day('2026-09-13')],
     '2026-09-15'), 3)
+  // Untouched it is not a workout yet; today is the grace day, so the chain behind it stands.
+  eq(streakDays([day('2026-09-15', { done: false }), day('2026-09-14'), day('2026-09-13')],
+    '2026-09-15'), 2)
 })
 
 check('DONE BY DEFAULT: a session planned for tomorrow is not part of the streak yet', () => {
   const tomorrow = day('2026-09-16', { done: false })
   eq(streakDays([tomorrow, day('2026-09-15')], '2026-09-15'), 1)
   eq([...trainedDates([tomorrow], '2026-09-15')], [], 'not done the day before')
-  eq([...trainedDates([tomorrow], '2026-09-16')], ['2026-09-16'], 'done on the day, with nothing written')
+  eq([...trainedDates([tomorrow], '2026-09-16')], [], 'not on its day either, with nothing done on it (D10)')
+  eq([...trainedDates([tomorrow], '2026-09-17')], ['2026-09-16'], 'done from the day after, with nothing written')
 })
 
 check('DONE BY DEFAULT: an old entry stored done: false on a past day counts', () => {

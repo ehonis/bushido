@@ -10,11 +10,12 @@ import { Fold } from '../ui/Fold'
 import { success } from '../ui/haptics'
 import { Icon, VERDICT_ICONS } from '../lib/icons'
 import { LineChart, SERIES } from '../lib/viz'
-import { resolveCeiling, cfPctOfMax, cfBand, CF_CORRECTION_KG, CF_PCT_MVC_MEAN, CF_PCT_MVC_SD, CF_NOISE_PCT } from '../lib/force.js'
+import { ceilingState, cfPctOfMax, cfBand, CF_CORRECTION_KG, CF_PCT_MVC_MEAN, CF_PCT_MVC_SD, CF_NOISE_PCT } from '../lib/force.js'
 import { Blurb } from './blurb'
 import { DayStepper } from '../ui/DayStepper'
 import { NumInput } from './numinput'
 import { localIso } from '../lib/dates.js'
+import { measured, testResultFrom } from '../lib/tests.js'
 
 // The same one-liner as tabs.tsx's: the local day, not UTC's.
 const todayIso = () => localIso()
@@ -50,9 +51,10 @@ export function TestingTab({ plan, entries = [], upsertEntry }: { plan: any; ent
             <T size={font.small} dim style={{ marginBottom: space[3] }}>{t.why}</T>
 
             {t.metrics.map((m: any, mi: number) => {
+              // A result without this metric is no point, never a zero.
               const pts = results
-                .filter(r => Number.isFinite(Number(r.data?.[m.key])))
-                .map(r => ({ x: r.date, y: Number(r.data[m.key]) }))
+                .filter(r => !r.deleted && (measured as any)(r.data?.[m.key]) != null)
+                .map(r => ({ x: r.date, y: (measured as any)(r.data[m.key]) }))
               return pts.length ? (
                 <LineChart key={m.key} points={pts} label={m.label} unit={m.unit || ''}
                   color={SERIES[mi % SERIES.length]} goal={m.goal} />
@@ -90,8 +92,16 @@ function Def({ dt, children }: { dt: string; children: React.ReactNode }) {
  * wrong intensity for weeks.
  */
 function CeilingReadout({ entries }: { entries: any[] }) {
-  const c: any = (resolveCeiling as any)(entries)
-  if (!c) return null
+  const { ceiling: c, incomplete, tooLow }: any = (ceilingState as any)(entries)
+  /* No ceiling is said, never drawn as a number (lib/force.js). */
+  if (!c) {
+    if (!tooLow) return null
+    return (
+      <T size={font.small} dim style={{ marginTop: space[3] }}>
+        {`Critical force on ${tooLow.date} was ${Math.round(tooLow.cf * 10) / 10} kg, at or under the ${CF_CORRECTION_KG} kg correction, so this rule gives no ceiling. Retest before you set the gauge from it.`}
+      </T>
+    )
+  }
 
   const round = (n: number) => Math.round(n * 10) / 10
   const pct = (cfPctOfMax as any)(c)
@@ -104,6 +114,10 @@ function CeilingReadout({ entries }: { entries: any[] }) {
         <T size={font.body} weight={600} style={{ flex: 1 }}>Your ceiling</T>
         <T size={font.caption} dim>{`tested ${c.date}`}</T>
       </View>
+      {/* A newer result with no critical force on it does not hide this one. */}
+      {incomplete ? (
+        <T size={font.small} dim style={{ marginBottom: space[3] }}>{`The ${incomplete} result has no critical force, so this is from ${c.date}.`}</T>
+      ) : null}
 
       <View style={{ flexDirection: 'row', gap: space[6], flexWrap: 'wrap', marginBottom: space[4] }}>
         <View style={{ gap: 2 }}>
@@ -152,10 +166,13 @@ function TestRunner({ test, onSave, onDone }: { test: any; onSave: (e: any) => v
   const [vals, setVals] = useState<Record<string, any>>({})
   const [date, setDate] = useState(todayIso)
 
+  /* What Save would write: nothing until a box holds a number (lib/tests.js).
+     An empty result used to save, and as the newest one it hid the ceiling. */
+  const result = (testResultFrom as any)(test, vals, date)
+
   const save = () => {
-    const data: any = { testId: test.id }
-    for (const m of test.metrics) if (vals[m.key] !== '' && vals[m.key] != null) data[m.key] = Number(vals[m.key])
-    onSave({ kind: 'test', date, data })
+    if (!result) return
+    onSave(result)
     success()
     onDone()
   }
@@ -200,8 +217,9 @@ function TestRunner({ test, onSave, onDone }: { test: any; onSave: (e: any) => v
         ))}
         <View style={{ flexDirection: 'row', gap: space[2], justifyContent: 'flex-end' }}>
           <Btn kind="ghost" title="Cancel" onPress={onDone} />
-          <Btn title="Save result" onPress={save} />
+          <Btn title="Save result" onPress={save} disabled={!result} />
         </View>
+        {!result ? <T size={font.small} dim style={{ marginTop: space[2], textAlign: 'right' }}>Type at least one result to save it.</T> : null}
       </RunnerSec>
 
       {test.interpretation && (

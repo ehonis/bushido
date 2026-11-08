@@ -42,13 +42,13 @@ function daysBetween(a, b) {
 }
 
 /**
- * Sessions done on a day (`isDone`). Asked about a day that has arrived, so that
- * day stands in for today: a planned session on it counts, one marked undone
- * does not.
+ * Sessions done on a day (`isDone`, asked on `today`): on a day that has passed
+ * a planned session counts and one marked undone does not; on today a plan
+ * counts once something has been done on it (D10).
  */
-export function doneEntriesFor(state, date) {
+export function doneEntriesFor(state, date, today = date) {
   return Object.values(state?.entries || {})
-    .filter((e) => e && e.kind === 'daily' && e.date === date && isDone(e, date))
+    .filter((e) => e && e.kind === 'daily' && e.date === date && isDone(e, today))
 }
 
 /* --------------------------------------------------------- workout logged */
@@ -64,28 +64,57 @@ function localIso(d = new Date()) {
   return `${y}-${m}-${day}`
 }
 
+/*
+ * What says nothing about whether it happened: the shape a card is created in.
+ * Part of the done rule below, so identical in the three copies too.
+ */
+const SHAPE_KEYS = new Set(['activity', 'category', 'title', 'titleFrom'])
+const filled = (v) => (Array.isArray(v) ? v.some(filled)
+  : v && typeof v === 'object' ? Object.values(v).some(filled)
+    : v !== null && v !== undefined && v !== '')
+const counted = (s) => ['reps', 'seconds', 'weight', 'distance'].some(f => s?.[f] !== null && s?.[f] !== undefined && s?.[f] !== '')
+
 /**
- * Did you do it? A workout is done once its day has arrived, unless you said it
- * was not (docs/DESIGN.md D2, AGENTS.md §4).
+ * Has anything been LOGGED on it: an effort, a note, a measurement attached, a
+ * number on a logged lift's set, or a number someone typed into a planned set
+ * (`typed`, prescription.js `patchSet`). A lift row with blank sets is an
+ * exercise picked or copied in, not one done; a plan's targets are not typed.
+ */
+export const loggedOn = (data) =>
+  Object.entries(data?.out || {}).some(([k, v]) => !SHAPE_KEYS.has(k) &&
+    (k === 'lifts' ? Array.isArray(v) && v.some(l => (l?.sets || []).some(counted)) : filled(v))) ||
+  (data?.plan?.blocks || []).some(b => (b?.items || []).some(it => (it?.sets || []).some(s => s?.typed === true && counted(s))))
+
+/**
+ * Has someone DONE something on it (D10): logged on it, started its run, or
+ * tapped "Mark done" (`doneAt`, which `markDone` writes with `done: true`).
+ */
+export const touched = (data) => Boolean(data?.doneAt || data?.run?.startedAt || loggedOn(data))
+
+/**
+ * Did you do it? (docs/DESIGN.md D2, the owner's D10 in #74, AGENTS.md §4.)
  *
  * The stored flag and the answer are two different things:
  *   - `done` absent or true: done. Absent is every entry written before the flag
  *     existed, all of them by pressing "log this". True wins over everything,
- *     including a marker an older client left behind.
+ *     including a marker an older client left behind. Logging a workout on
+ *     today or an earlier day writes it (`doneWhenPlaced`).
  *   - `done: false` with `undone: true`: NOT done, whatever the date. Only the
  *     "Mark undone" tap writes that pair (`markDone`), and only "Mark done" takes
  *     it off again. The day arriving never does.
- *   - `done: false` alone: planned. Not done while its day is still to come,
- *     done from that day on. A READ rule, so nothing has to wake at midnight to
- *     flip it and two devices agree without having synced. It also reads every
- *     entry stored with `done: false` before this rule existed, unchanged: a
- *     session put on a past day and never ticked counts as done now, and a
- *     skipped one is one "Mark undone" away. Old entries are never rewritten.
+ *   - `done: false` alone: planned. Not done while its day is still to come. ON
+ *     its day, done once something has been done on it (`touched`: a number
+ *     logged or typed, its run started, "Mark done"), so a plan put on today is
+ *     not a workout yet (D10). From the next day on, done, touched or not (D2):
+ *     a plan whose day has passed was done unless someone said it was not. A
+ *     READ rule, so nothing has to wake at midnight to flip it and two devices
+ *     agree without having synced. It reads every entry stored before either
+ *     rule unchanged; old entries are never rewritten.
  *
  * `today` is a YYYY-MM-DD; anything else (the index `.filter(isDone)` would pass)
- * means the local today. Identical in app/src/lib/store.js and
- * mobile/src/lib/store.js; app/done.test.js holds the three to the same text.
- * The server always passes the configured timezone's today (server.js `todayKey`).
+ * means the local today. The helpers above and this are identical in
+ * app/src/lib/store.js, server/notify-facts.js and mobile/src/lib/store.js;
+ * app/done.test.js holds the three to the same text.
  */
 export const isDone = (entry, today) => {
   if (!entry || entry.deleted) return false
@@ -93,38 +122,31 @@ export const isDone = (entry, today) => {
   if (data.done !== false) return true
   if (data.undone === true) return false
   const day = typeof today === 'string' ? today : localIso()
-  return typeof entry.date === 'string' && entry.date <= day
+  if (typeof entry.date !== 'string' || entry.date > day) return false
+  return entry.date < day || touched(data)
 }
 
 /**
  * Did a WRITE say done? The stored flag, read the way it always was (absent is
- * done), and deliberately not `isDone`: a planned session's day arriving is not
- * something the user did, so it is never news. See `completedDailyEntries`.
+ * done). Only for an earlier day's entry: logging after the fact is the whole
+ * act, while a planned session's day passing is not something anyone did.
  */
 const markedDone = (entry) => !!entry && entry.data?.done !== false
 
-/* What says nothing about whether it happened: the shape a card is created in. */
-const SHAPE_KEYS = new Set(['activity', 'category', 'title', 'titleFrom'])
-const filled = (v) => (Array.isArray(v) ? v.some(filled)
-  : v && typeof v === 'object' ? Object.values(v).some(filled)
-    : v !== null && v !== undefined && v !== '')
-
-/** Has anything been logged on it: an effort, a set, a note, a measurement attached. */
-const hasLogged = (out) => Object.entries(out || {}).some(([k, v]) => !SHAPE_KEYS.has(k) && filled(v))
-
 /**
- * Is there something to announce? Marked done AND one of: its run has ended,
- * someone tapped done (`doneAt`, stamped by `markDone` in the app), something
- * has been logged on it, or it is about an earlier day (logging after the fact
- * is the whole act). A session picked for today lands done (AGENTS.md §4) with
- * nothing on it, and that is not yet news.
+ * Is there something to announce? Done (`isDone`) AND one of: its run has
+ * ended, someone tapped done (`doneAt`, stamped by `markDone` in the app),
+ * something has been logged on it (`loggedOn`: an effort, a number on a set,
+ * a planned set typed into), or it was WRITTEN done about an earlier day.
+ * Picking a session for today, keeping a plan for today, starting its run, or
+ * a plan's day passing are not yet news.
  *
  * `today` is the same for both sides of a comparison, so a day turning over
  * cannot make an old entry look new.
  */
-const announceable = (entry, today) => markedDone(entry) && Boolean(
-  entry.data?.run?.endedAt || entry.data?.doneAt || hasLogged(entry.data?.out) ||
-  (typeof entry.date === 'string' && entry.date < today))
+const announceable = (entry, today) => isDone(entry, today) && Boolean(
+  entry.data?.run?.endedAt || entry.data?.doneAt || loggedOn(entry.data) ||
+  (markedDone(entry) && typeof entry.date === 'string' && entry.date < today))
 
 /**
  * The daily entries a write actually COMPLETED — the only ones worth announcing.
@@ -151,10 +173,11 @@ const announceable = (entry, today) => markedDone(entry) && Boolean(
  * `announceable`.** An entry that already was in `before` can never be announced
  * again, however many times it is edited, re-synced or corrected afterwards.
  *
- * Why `announceable` and not `isDone` (2026-10-25, docs/DESIGN.md D2). A session
- * is done from the moment it lands on today, before any training: picking it is
- * not news, so the push waits for the first set logged, the run finishing or a
- * "Mark done" tap. One planned for a later day reads as done from its day on
+ * Why `announceable` and not `isDone` (docs/DESIGN.md D2; D10, #74). A session
+ * picked for today is done from the moment it lands, before any training, and a
+ * plan kept for today is done once its run starts: neither is news, so the push
+ * waits for the first set logged (on the log or typed into the plan), the run
+ * finishing or a "Mark done" tap. A plan reads as done once its day has passed
  * WITHOUT a write; that is never announced either, because nobody did anything at
  * midnight. Logging a workout on an earlier day is announced as it lands (within
  * `LOGGED_WINDOW_DAYS`). "Mark undone" then "Mark done" is a real second completion.
@@ -187,7 +210,8 @@ export function completedDailyEntries(incoming, before = {}, today = localIso())
  */
 export function workoutLoggedFact({ entry, now = Date.now() }) {
   if (!entry || entry.kind !== 'daily' || entry.deleted) return null
-  if (entry.data?.done === false) return null
+  // Not done by anyone's hand: marked undone, or a plan nothing has been logged on.
+  if (entry.data?.done === false && (entry.data?.undone === true || !touched(entry.data))) return null
   // Resting is the one thing that is not a session. `workout.logged` is pinned
   // and overrides quiet hours, so there is no way for them to mute being
   // congratulated for a day off \u2014 the restraint has to live here.
@@ -278,7 +302,7 @@ export function unloggedFacts({ state = null, whoop = null, strava = null, now =
 
   // A day with any logged session counts as handled: the user logs the session, not
   // each device's record of it, and the merge of the two happens in the app.
-  const missing = recorded.filter((x) => doneEntriesFor(state, x.date).length === 0)
+  const missing = recorded.filter((x) => doneEntriesFor(state, x.date, today).length === 0)
   if (!missing.length) return []
 
   const days = [...new Set(missing.map((m) => m.date))].sort()

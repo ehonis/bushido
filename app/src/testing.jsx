@@ -7,9 +7,11 @@
 import { useState } from 'react'
 import { LineChart, SERIES } from './lib/viz.jsx'
 import { Icon, VERDICT_ICONS } from './lib/icons.jsx'
-import { resolveCeiling, cfPctOfMax, cfBand, CF_CORRECTION_KG, CF_PCT_MVC_MEAN, CF_PCT_MVC_SD, CF_NOISE_PCT } from './lib/force.js'
+import { ceilingState, cfPctOfMax, cfBand, CF_CORRECTION_KG, CF_PCT_MVC_MEAN, CF_PCT_MVC_SD, CF_NOISE_PCT } from './lib/force.js'
 import { Blurb } from './blurb.jsx'
 import { localIso } from './lib/dates.js'
+import { measured, testResultFrom } from './lib/tests.js'
+import { NumInput } from './numinput.jsx'
 
 // The same one-liner as tabs.jsx's: the local day, not UTC's.
 const todayIso = () => localIso()
@@ -47,9 +49,10 @@ export function TestingTab({ plan, entries, upsertEntry }) {
             <p className="sub">{t.why}</p>
 
             {t.metrics.map((m, mi) => {
+              // A result without this metric is no point, never a zero.
               const pts = results
-                .filter(r => Number.isFinite(Number(r.data?.[m.key])))
-                .map(r => ({ x: r.date, y: Number(r.data[m.key]) }))
+                .filter(r => !r.deleted && measured(r.data?.[m.key]) != null)
+                .map(r => ({ x: r.date, y: measured(r.data[m.key]) }))
               return pts.length ? (
                 <LineChart key={m.key} points={pts} label={m.label} unit={m.unit || ''}
                   color={SERIES[mi % SERIES.length]} goal={m.goal} />
@@ -77,8 +80,17 @@ export function TestingTab({ plan, entries, upsertEntry }) {
  * time, which is how a session ends up trained at the wrong intensity for weeks.
  */
 function CeilingReadout({ entries }) {
-  const c = resolveCeiling(entries)
-  if (!c) return null
+  const { ceiling: c, incomplete, tooLow } = ceilingState(entries)
+  /* No ceiling is said, never drawn as a number (lib/force.js). */
+  if (!c) {
+    if (!tooLow) return null
+    return (
+      <p className="sub ceiling-note">
+        Critical force on {tooLow.date} was {Math.round(tooLow.cf * 10) / 10} kg, at or under
+        the {CF_CORRECTION_KG} kg correction, so this rule gives no ceiling. Retest before you set the gauge from it.
+      </p>
+    )
+  }
 
   const round = (n) => Math.round(n * 10) / 10
   const pct = cfPctOfMax(c)
@@ -91,6 +103,10 @@ function CeilingReadout({ entries }) {
         <span>Your ceiling</span>
         <span className="ceiling-date">tested {c.date}</span>
       </div>
+      {/* A newer result with no critical force on it does not hide this one. */}
+      {incomplete && (
+        <p className="sub ceiling-note">The {incomplete} result has no critical force, so this is from {c.date}.</p>
+      )}
 
       <div className="ceiling-nums">
         <div className="ceiling-big">
@@ -133,14 +149,16 @@ function CeilingReadout({ entries }) {
   )
 }
 
-function TestRunner({ test, onSave, onDone }) {
+export function TestRunner({ test, onSave, onDone }) {
   const [vals, setVals] = useState({})
   const [date, setDate] = useState(todayIso)
+  /* What Save would write: nothing until a box holds a number (lib/tests.js).
+     An empty result used to save, and as the newest one it hid the ceiling. */
+  const result = testResultFrom(test, vals, date)
 
   const save = () => {
-    const data = { testId: test.id }
-    for (const m of test.metrics) if (vals[m.key] !== '' && vals[m.key] != null) data[m.key] = Number(vals[m.key])
-    onSave({ kind: 'test', date, data })
+    if (!result) return
+    onSave(result)
     onDone()
   }
 
@@ -174,14 +192,15 @@ function TestRunner({ test, onSave, onDone }) {
         {test.metrics.map(m => (
           <label className="field" key={m.key}>
             {m.label} {m.unit ? `(${m.unit})` : ''}
-            <input type="text" inputMode="decimal" value={vals[m.key] ?? ''}
-              onChange={e => setVals(v => ({ ...v, [m.key]: e.target.value }))} placeholder={m.hint || ''} />
+            <NumInput value={vals[m.key] ?? ''} blank=""
+              onChange={v => setVals(prev => ({ ...prev, [m.key]: v }))} placeholder={m.hint || ''} />
           </label>
         ))}
         <div className="prof-actions">
           <button className="btn ghost" onClick={onDone}>Cancel</button>
-          <button className="btn" onClick={save}>Save result</button>
+          <button className="btn" onClick={save} disabled={!result}>Save result</button>
         </div>
+        {!result && <p className="sub test-need">Type at least one result to save it.</p>}
       </div>
 
       {test.interpretation && (

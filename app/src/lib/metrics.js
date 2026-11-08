@@ -27,7 +27,7 @@ import { mondayOf } from './dates.js'
 import { minutesFor } from './minutes.js'
 import { isHardEntry } from './fingers.js'
 import { gradeIndex, rungLabel, vRungLabel, hardestGrade, hardestClimbed } from './grades.js'
-import { liftsIn } from './lifts.js'
+import { liftsDone, liftKeyOf } from './lifts.js'
 import { weeksIn } from './scope.js'
 
 const num = (v) => {
@@ -195,8 +195,8 @@ export const METRICS = [
     applies: (r) => Boolean(r.exercise),
     series: (r) => perSession(r, e => {
       let top = null
-      for (const lift of liftsIn(e.data?.out || {})) {
-        if (lift.exercise !== r.exercise) continue
+      for (const lift of liftsDone(e)) {
+        if (liftKeyOf(lift) !== r.exercise) continue
         for (const s of (lift.sets || [])) {
           const w = pos(s.weight)
           if (w !== null && (top === null || w > top)) top = w
@@ -214,8 +214,8 @@ export const METRICS = [
     applies: (r) => Boolean(r.exercise),
     series: (r) => perSession(r, e => {
       let v = 0
-      for (const lift of liftsIn(e.data?.out || {})) {
-        if (lift.exercise !== r.exercise) continue
+      for (const lift of liftsDone(e)) {
+        if (liftKeyOf(lift) !== r.exercise) continue
         for (const s of (lift.sets || [])) v += (pos(s.weight) || 0) * (pos(s.reps) || 0)
       }
       return v > 0 ? v : null
@@ -229,8 +229,8 @@ export const METRICS = [
     applies: (r) => Boolean(r.exercise),
     series: (r) => perSession(r, e => {
       let n = 0
-      for (const lift of liftsIn(e.data?.out || {})) {
-        if (lift.exercise !== r.exercise) continue
+      for (const lift of liftsDone(e)) {
+        if (liftKeyOf(lift) !== r.exercise) continue
         for (const s of (lift.sets || [])) n += pos(s.reps) || 0
       }
       return n > 0 ? n : null

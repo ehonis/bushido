@@ -32,6 +32,7 @@
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
+const { isDone } = require('./notify-facts.js')
 
 const MAX_DRAFTS = 8
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
@@ -365,22 +366,57 @@ function keptIdsIn(state) {
 
 /*
  * Weight-mode memory (#58) for a whole log, read when an answer lands: for each
- * exercise and implement, the mode of its newest LOGGED row (null for the
+ * exercise and implement, the mode of its newest LIFTED row (null for the
  * default). The rule is app/src/lib/lifts.js `rememberedWeightMode`, and
  * drafts.test.js holds the two to the same answers: rows with a number on them,
- * on entries done (not marked undone) and dated on or before `today`. `entries`
- * is the stored log, an object by id.
+ * on entries done (not marked undone) and dated on or before `today`, where
+ * what was lifted is `liftsDone` there (`liftedRows` here): the logged rows, or
+ * a done plan's lift items (D11, #74). `entries` is the stored log, an object by id.
  */
+const has = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v))
+const numbered = (r) => has(r?.reps) || has(r?.seconds) || has(r?.weight)
+
+/**
+ * app/src/lib/lifts.js `liftsDone`, as far as memory reads it (which exercise,
+ * implement, mode, and whether a set has a number): the logged rows, and on a
+ * done plan each lift item no logged row with a number stands for (by uid, else
+ * by exercise on a row without one). On the plan's own day only the sets typed
+ * into count; from the next day on, every set with a number.
+ */
+function liftedRows(e, today) {
+  const logged = Array.isArray(e.data?.out?.lifts) ? e.data.out.lifts : []
+  const plan = e.data?.plan
+  if (!Array.isArray(plan?.blocks)) return logged
+  if (!(String(e.date || '') <= today) || !isDone(e, today)) return logged
+  const typedOnly = e.date === today
+  const hasUid = (l) => l?.uid !== undefined && l?.uid !== null && l?.uid !== ''
+  const standsFor = (l, it) => (hasUid(l) ? l.uid === it.id || (Boolean(it.uid) && l.uid === it.uid) : Boolean(l?.key) && l.key === it.exercise)
+  const used = new Set()
+  const rows = []
+  for (const b of plan.blocks) {
+    for (const it of Array.isArray(b?.items) ? b.items : []) {
+      if (it?.kind !== 'lift') continue
+      const by = logged.find(l => !used.has(l) && (l?.sets || []).some(numbered) && standsFor(l, it))
+      if (by) { used.add(by); rows.push(by); continue }
+      const s0 = it.sets?.[0] || {}
+      const sets = b?.circuit
+        ? ((!typedOnly || s0.typed === true) && ((has(s0.seconds) && Number(s0.seconds) > 0) || (has(s0.reps) && Number(s0.reps) > 0) || Number(b.circuit.work) > 0) ? [{ reps: 1 }] : [])
+        : (Array.isArray(it.sets) ? it.sets : []).filter(x => numbered(x) && (!typedOnly || x?.typed === true))
+      if (sets.length) rows.push({ key: it.exercise || null, implement: it.implement || '', weightMode: it.weightMode || null, sets })
+    }
+  }
+  return [...rows, ...logged.filter(l => !used.has(l))]
+}
+
 function rememberedModes(entries, today) {
-  const has = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v))
   const best = new Map()
   for (const e of Object.values(entries || {})) {
     if (!e || e.deleted || e.kind !== 'daily' || !(String(e.date || '') <= today)) continue
     if (e.data?.done === false && e.data?.undone === true) continue
     const at = `${e.date || ''}|${e.updatedAt || ''}`
     const seen = new Set()
-    for (const l of Array.isArray(e.data?.out?.lifts) ? e.data.out.lifts : []) {
-      if (!l?.key || !l.implement || !(l.sets || []).some(r => has(r?.reps) || has(r?.seconds) || has(r?.weight))) continue
+    for (const l of liftedRows(e, today)) {
+      if (!l?.key || !l.implement || !(l.sets || []).some(numbered)) continue
       const k = `${l.key}|${l.implement}`
       if (seen.has(k)) continue
       seen.add(k)

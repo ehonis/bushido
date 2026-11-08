@@ -163,7 +163,8 @@ export default [
           sets: [{ id: 'b0i0s0', reps: 10, weight: 55 }] }] }] }
         const mine = { ...entry, data: { ...entry.data, optId: 'planned', plan: pres, out: {} } }
         const copy = sharedCopy(mine, { session: plannedOpt, owner: { id: 'owner', name: 'Alex' } })
-        const lifted = (date, weight) => ({ id: `daily-${date}`, kind: 'daily', date, data: { optId: 'planned', done: true,
+        // Earlier goes at the same planned workout (lib/history.js matches a plan by its title or exercises).
+        const lifted = (date, weight) => ({ id: `daily-${date}`, kind: 'daily', date, data: { optId: 'planned', done: true, plan: { title: 'Legs', blocks: [] },
           out: { lifts: [{ uid: `${ex.key}-1`, key: ex.key, name: ex.name, sets: [{ reps: '8', weight: String(weight) }] }] } } })
         const theirs = [lifted('2026-01-02', 40)]
         const yours = [lifted('2026-01-05', 100)]

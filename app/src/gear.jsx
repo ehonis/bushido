@@ -17,8 +17,10 @@
 import { useMemo, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
 import {
-  gearUsage, gearKinds, kindOf, headlineFor, buildGearEntry, newGearId,
+  gearUsage, gearKinds, kindOf, metricOf, headlineFor, buildGearEntry, newGearId,
+  priorValueFor, priorFieldsFor,
 } from './lib/gear.js'
+import { NumInput } from './numinput.jsx'
 
 const fmt = (n) => (n >= 100 ? Math.round(n).toLocaleString() : Math.round(n * 10) / 10)
 
@@ -115,36 +117,33 @@ function GearRow({ row, kind, onOpen }) {
 /**
  * Add or edit.
  *
- * Strava-synced gear can be edited here only in the ways the app owns — whether it
- * is the default, and what it had done before. Its NAME and its odometer stay
- * Strava's, because two places to rename one bike is how they stop being the same
- * bike.
+ * Strava-synced gear is read here, not edited. Its name, odometer, default and
+ * retirement are Strava's, because two places to rename one bike is how they
+ * stop being the same bike, and nothing in the log holds an edit to it: Save on
+ * a synced bike used to write a NEW local item under the bike's name, a second
+ * row for the same bike (#76). So its form has one button, Done.
  */
-function GearForm({ plan, row, onSave, onCancel, onDelete }) {
+export function GearForm({ plan, row, onSave, onCancel, onDelete }) {
   const synced = row?.source === 'strava'
   const [name, setName] = useState(row?.name || '')
   const [kind, setKind] = useState(row?.kind || 'climbing-shoes')
   const [acquired, setAcquired] = useState(row?.acquired || '')
   const [primary, setPrimary] = useState(Boolean(row?.primary))
   const [retired, setRetired] = useState(Boolean(row?.retired))
-  const [prior, setPrior] = useState(
-    String(row?.priorMiles || row?.priorMinutes || row?.priorReps || ''))
+  // In the unit the box is labelled in: hours for time, never the stored minutes
+  // (lib/gear.js `priorValueFor`, #76).
+  const [prior, setPrior] = useState(() => priorValueFor(row, metricOf(plan, row?.kind || 'climbing-shoes')))
   const [notes, setNotes] = useState(row?.notes || '')
   const [confirming, setConfirming] = useState(false)
 
-  const metric = kindOf(plan, kind)?.metric || 'time'
+  const metric = metricOf(plan, kind)
   const priorLabel = metric === 'miles' ? 'Miles already on it'
     : metric === 'reps' ? 'Reps already on it' : 'Hours already on it'
 
   const submit = () => {
-    if (!synced && !name.trim()) return
-    const n = Number(prior)
-    const priorFields = {}
-    if (Number.isFinite(n) && n > 0) {
-      if (metric === 'miles') priorFields.priorMiles = n
-      else if (metric === 'reps') priorFields.priorReps = n
-      else priorFields.priorMinutes = n * 60
-    }
+    if (synced) return onCancel()
+    if (!name.trim()) return
+    const priorFields = priorFieldsFor(metric, prior, row)
     onSave(row?.id && row.source === 'local' ? row.id : newGearId(), {
       name: synced ? row.name : name.trim(),
       kind, primary, retired,
@@ -172,7 +171,7 @@ function GearForm({ plan, row, onSave, onCancel, onDelete }) {
   return (
     <div className="prof-sec gear-form">
       <h2>{row ? row.name : 'Add gear'}</h2>
-      {synced && <p className="sub">From Strava, which keeps its name and odometer.</p>}
+      {synced && <p className="sub">From Strava, which keeps its name, odometer and default.</p>}
 
       {!synced && (
         <label className="field">
@@ -191,12 +190,11 @@ function GearForm({ plan, row, onSave, onCancel, onDelete }) {
       <div className="row">
         <label className="field">
           Since
-          <input type="date" value={acquired} onChange={e => setAcquired(e.target.value)} />
+          <input type="date" value={acquired} onChange={e => setAcquired(e.target.value)} disabled={synced} />
         </label>
         <label className="field">
           {priorLabel}
-          <input type="text" inputMode="decimal" value={prior}
-            onChange={e => setPrior(e.target.value)} placeholder="0" />
+          <NumInput value={prior ?? ''} onChange={setPrior} placeholder="0" disabled={synced} />
         </label>
       </div>
 
@@ -205,26 +203,26 @@ function GearForm({ plan, row, onSave, onCancel, onDelete }) {
           <span className="list-row-main">
             <span className="list-row-title">Default for {kindOf(plan, kind)?.name?.toLowerCase() || 'this kind'}</span>
           </span>
-          <input type="checkbox" role="switch" className="switch" checked={primary} onChange={e => setPrimary(e.target.checked)} />
+          <input type="checkbox" role="switch" className="switch" checked={primary} onChange={e => setPrimary(e.target.checked)} disabled={synced} />
         </label>
         <label className="list-row prof-check">
           <span className="list-row-main">
             <span className="list-row-title">Retired</span>
             <span className="list-row-meta">Keeps its history, stops being offered</span>
           </span>
-          <input type="checkbox" role="switch" className="switch" checked={retired} onChange={e => setRetired(e.target.checked)} />
+          <input type="checkbox" role="switch" className="switch" checked={retired} onChange={e => setRetired(e.target.checked)} disabled={synced} />
         </label>
       </div>
 
       <label className="field">
         Notes
-        <input value={notes} onChange={e => setNotes(e.target.value)} />
+        <input value={notes} onChange={e => setNotes(e.target.value)} disabled={synced} />
       </label>
 
       <div className="prof-actions">
         {onDelete && <button className="btn quiet prof-remove" onClick={() => setConfirming(true)}>Remove</button>}
-        <button className="btn ghost" onClick={onCancel}>Cancel</button>
-        <button className="btn" onClick={submit}>{row ? 'Save' : 'Add it'}</button>
+        {!synced && <button className="btn ghost" onClick={onCancel}>Cancel</button>}
+        <button className="btn" onClick={submit}>{synced ? 'Done' : row ? 'Save' : 'Add it'}</button>
       </div>
     </div>
   )

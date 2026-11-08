@@ -230,7 +230,10 @@ const blankPlanSet = (unit = null) => ({ reps: null, weight: null, seconds: null
 /** A set added from the other side: blank on a lift, a copy of this side's own last set on an interval. */
 function newPlanSet(item, sets) {
   const last = sets.at(-1)
-  if (item.kind !== 'lift' && last) return { ...last, note: '' }
+  if (item.kind !== 'lift' && last) {
+    const { typed: _t, ...shape } = last
+    return { ...shape, note: '' }
+  }
   return blankPlanSet(last?.unit ?? item.unit ?? null)
 }
 
@@ -487,9 +490,26 @@ function applyLifts(target, base, next, src, protect) {
 /**
  * The receiving side: `target` (an entry's data) with the change the other
  * side made (structure `before` → its data `after`) applied. The same object
- * back when nothing changes.
+ * back when nothing changes. A carry that changes something also fills in
+ * what KIND of workout it is (`out.activity`, `out.category`) on a side that
+ * names neither (`withKind`): a copy shared before those were shared facts
+ * (lib/shared.js `SHARED_OUT_KEYS`, #74) files under nothing until it does.
+ * Never on its own write, and never over a kind that side chose.
  */
 function carry(target, before, after) {
+  const next = carryShape(target, before, after)
+  return next === target ? target : withKind(next, after)
+}
+
+const KIND_KEYS = ['activity', 'category']
+function withKind(data, from) {
+  const out = isObj(data?.out) ? data.out : {}
+  if (KIND_KEYS.some(k => !blank(out[k]))) return data
+  const kind = Object.fromEntries(KIND_KEYS.filter(k => typeof from?.out?.[k] === 'string' && from.out[k]).map(k => [k, from.out[k]]))
+  return Object.keys(kind).length ? { ...data, out: { ...out, ...kind } } : data
+}
+
+function carryShape(target, before, after) {
   const next = shapeOf(after)
   if (!isObj(target) || !next) return target
   if (next.plan) {
