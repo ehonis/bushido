@@ -72,28 +72,78 @@ export const EDIT_SETTLE_MS = 400
 /** A finger, not a mouse: where a footer under the box being typed in is a hazard. */
 const touchScreen = () => typeof window !== 'undefined' && Boolean(window.matchMedia?.('(pointer: coarse)').matches)
 
+/** Is a box being typed into right now, anywhere on the page? */
+const typingNow = () => {
+  const el = typeof document !== 'undefined' ? document.activeElement : null
+  return isTextEntry(el) && el.isConnected !== false
+}
+
+/**
+ * The footer policy's memory, as plain events (`useEditing` feeds it). A box
+ * taking focus hides the footer; it comes back `delay` after nothing is being
+ * typed into, checked again when the timer runs.
+ *
+ * NOT ONLY ON BLUR (C N1). A focused box that is REMOVED from the page fires no
+ * blur React hears: the exercise picker's search box goes the moment an exercise
+ * is picked, and on iOS the row tapped does not take focus, so the footer, with
+ * the only way to keep the plan, stayed hidden with nothing saying why.
+ * `changed()` is called whenever the page's content changes or focus leaves
+ * anything, and asks the page itself (`typing`) whether a box still has focus.
+ */
+export function editWatch({ typing = typingNow, set, delay = EDIT_SETTLE_MS, touch = touchScreen } = {}) {
+  let on = false
+  let timer = null
+  const settle = () => {
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      timer = null
+      if (on && !typing()) { on = false; set(false) }
+    }, delay)
+  }
+  return {
+    focus(el) {
+      if (!isTextEntry(el) || !touch()) return
+      clearTimeout(timer)
+      if (!on) { on = true; set(true) }
+    },
+    // Moving from one box straight to another never shows the footer in between.
+    blur(el, next) {
+      if (!on || !isTextEntry(el) || isTextEntry(next)) return
+      settle()
+    },
+    changed() { if (on && !typing()) settle() },
+    stop() { clearTimeout(timer) },
+  }
+}
+
 /**
  * Whether a box inside this layer has focus, for the footer policy above.
- * Spread `bind` on the layer's root: React's focus events bubble. Moving from
- * one box straight to another never shows the footer in between. Touch screens
- * only: with a mouse there is no keyboard rising under a thumb, and hiding the
- * footer would only cost a click ("Write it for me" after typing the ask).
+ * Spread `bind` on the layer's root: React's focus events bubble (through a
+ * portal too), and while editing the page is watched for a box removed under
+ * the focus (`editWatch`): the whole body, because a box in a popover over the
+ * layer (a block's name) is portalled out of it. Touch screens only: with a
+ * mouse there is no keyboard rising under a thumb, and hiding the footer would
+ * only cost a click ("Write it for me" after typing the ask).
  */
 export function useEditing() {
   const [editing, setEditing] = useState(false)
-  const timer = useRef(null)
-  useEffect(() => () => clearTimeout(timer.current), [])
+  const watch = useRef(null)
+  if (!watch.current) watch.current = editWatch({ set: setEditing })
+  useEffect(() => () => watch.current.stop(), [])
+  useEffect(() => {
+    if (!editing || typeof document === 'undefined') return undefined
+    const changed = () => watch.current.changed()
+    const mo = typeof MutationObserver !== 'undefined' && document.body ? new MutationObserver(changed) : null
+    mo?.observe(document.body, { childList: true, subtree: true })
+    // Focus leaving for somewhere React does not see (another window, a box in a
+    // portal closing): asked once the move has landed.
+    const out = () => setTimeout(changed, 0)
+    document.addEventListener('focusout', out, true)
+    return () => { mo?.disconnect(); document.removeEventListener('focusout', out, true) }
+  }, [editing])
   const bind = {
-    onFocus: (e) => {
-      if (!isTextEntry(e.target) || !touchScreen()) return
-      clearTimeout(timer.current)
-      setEditing(true)
-    },
-    onBlur: (e) => {
-      if (!isTextEntry(e.target) || isTextEntry(e.relatedTarget)) return
-      clearTimeout(timer.current)
-      timer.current = setTimeout(() => setEditing(false), EDIT_SETTLE_MS)
-    },
+    onFocus: (e) => watch.current.focus(e.target),
+    onBlur: (e) => watch.current.blur(e.target, e.relatedTarget),
   }
   return { editing, bind }
 }

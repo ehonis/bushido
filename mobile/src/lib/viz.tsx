@@ -23,7 +23,7 @@ import { T } from '../ui/Text'
 import { Empty, Press } from '../ui/kit'
 import { tap } from '../ui/haptics'
 import { localIso } from './dates.js'
-import { timeX, dateWords, needsYear } from './vizscale.js'
+import { timeX, dateWords, needsYear, deltaBase } from './vizscale.js'
 
 /** The categorical series, as real colours (the web names them var(--series-n)). */
 export const SERIES: string[] = [...THEME_SERIES]
@@ -211,7 +211,10 @@ export function LineChart({ points, label, help, unit = '', height = 190, color 
   const path = data.map((d, i) => `${i ? 'L' : 'M'}${xAt(i).toFixed(1)},${yAt(d.y).toFixed(1)}`).join('')
   const last = data[data.length - 1]
   const first = data[0]
-  const delta = data.length > 1 ? last.y - first.y : null
+  // Like with like (lib/vizscale.js `deltaBase`): the change is from the earliest
+  // point of the same kind as the newest, when the points say what they are of.
+  const since: any = deltaBase(data)
+  const delta = since ? last.y - since.y : null
 
   const nearest = (x: number) => {
     let best = 0, bd = Infinity
@@ -221,14 +224,14 @@ export function LineChart({ points, label, help, unit = '', height = 190, color 
 
   let deltaEl: React.ReactNode = null
   if (delta != null && delta !== 0) {
-    const real = !noisePct || Math.abs(delta) > (first.y * noisePct) / 100
+    const real = !noisePct || Math.abs(delta) > (since.y * noisePct) / 100
     const tone = real ? (delta > 0 ? st.up : st.down) : st.noise
     deltaEl = (
       <T size={font.label} weight={real ? 500 : 400} style={tone}>
         {delta > 0 ? '▲' : '▼'}{' '}
         {fmtY
-          ? `${fmt(first.y)} → ${fmt(last.y)} since ${day(first.x)}`
-          : `${Math.abs(Number(delta.toFixed(1)))}${unit} since ${day(first.x)}`}
+          ? `${fmt(since.y)} → ${fmt(last.y)} since ${day(since.x)}`
+          : `${Math.abs(Number(delta.toFixed(1)))}${unit} since ${day(since.x)}`}
         {noisePct && !real ? ' · inside noise' : ''}
       </T>
     )

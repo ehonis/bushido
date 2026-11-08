@@ -50,7 +50,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | `app/` | React 19 + Vite frontend. `app/src/` is the UI; `app/src/lib/` is the pure logic, tested without a DOM. |
 | `server/` | Plain Node `http`/`fs`/`crypto`, no npm dependencies. |
 | `mobile/` | The native iPhone app (Expo). The web's phone layout rebuilt in React Native, with `app/src/lib/` copied in at the same paths. Its own install and rules: read `mobile/AGENTS.md` before changing it, and port a web change there when it touches a screen the app has. |
-| `content/starter.json` | What a fresh install runs on: catalogs and the rest card, no programme. **Generated.** |
+| `content/starter.json` | What a fresh install runs on: catalogs, the rest card, and two plain climbing cards (Bouldering, Rock climbing, #97), no programme. **Generated.** |
 | `content/exercises.json` | The shared exercise library (#63, written by #64), merged into every plan's lift catalog as it is served (§5). Optional: an install without it runs on the plan alone. `test/fixtures/exercises.json` is a small one the suites use. |
 | `examples/plan.json` | A small, invented example plan (Settings → "Use the example plan"). **Generated.** |
 | `test/fixtures/plan.json` | A large synthetic climbing-and-triathlon programme used by the test suites (smoke render, every app suite, `starter.test.mjs`) and by `starter.build.mjs` / `muscles.build.mjs`. The canonical fixture, and the source both generated files are built from. |
@@ -890,6 +890,23 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   `MAX_CLIMBS`, 99, the bound the per-rep grade pickers share). Switching it off strips the
   list, and asks first when anything was said on it (`saidIn`). Per-rep grade pickers have
   the same bound (`repCount`), so a lap's grade and its record always pair up.
+- **Described climbs are the count** (#97). With the detail off a row counts its `reps`.
+  With it on, the list holds the count as blank records, which are the count standing in
+  (often the plan's prefill), never climbs: once ANY climb in a row is described (something
+  said on its record, or a doubled lap's grade picked), the described climbs are the row's
+  count; until one is, `reps` stands. `climbsCounted` in `lib/grades.js` is the one statement
+  of it, and every reader goes through it: `climbVolume` (Climbs per week, `climbLine`),
+  `lengthsIn`, `totalReps`, and the set logs' foot (`climbTotals`). The form says the rest
+  are "not described, so not counted". A read rule: nothing stored is rewritten, and a row
+  whose climbs are all described reads as it always did.
+- **One climbing line everywhere** (#97): Today's row, "Last time you did this" and the Log
+  all say `climbLine` ("5 routes · hardest 5.10"), never "1 set". A card's typed "hardest"
+  field is left out of the form while the session has graded climbs on its ladder
+  (`mootHardest`): every reader takes the climbs then, so it was a second, ignored answer.
+- **A climbing card being logged opens on its log** (#97): on a sheet for today or earlier,
+  a card whose log counts climbs (`climbLogLeads` in `session.jsx`) shows its dose, "last
+  time", the log, then the protocol and evidence in one fold ("About this session",
+  `SessionAbout`). A day still to come is planning and keeps the protocol open.
 - **Lifts are chosen at log time**, so they are `out.lifts` (one record per exercise with
   `implement` and `sets: [{ reps, weight }]`), not `out.sets`. Rows store their own
   `name`/`implementLabel` so retiring a catalog entry never blanks history. The exercise
@@ -1180,7 +1197,22 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   the page draws whichever apply and have data. Two points minimum for a line.
 - **Groups render in registry order, and Climbing is last.** The page leads with workouts
   and time for the period; hard finger days are a Climbing chart. Pinned in
-  `progress.test.js` (`climbing charts come after the general ones`).
+  `progress.test.js` (`climbing charts come after the general ones`). The one exception
+  (#97): with **Climbing picked** as the activity the Climbing group leads (`metricsFor`),
+  because the person asked about climbing. Inside the group the pyramids and hardest sent
+  come first, then climbs per week and hard finger days.
+- **Hardest sent is like with like** (#97): the best of each WEEK, at the day it was sent,
+  and each point carries the card it came from (`of`); the chart's change is measured
+  from the earliest point of the newest point's card (`deltaBase` in `lib/vizscale.js`).
+  Points with no `of` compare first to last. **Volume cards are not a hardest send**
+  (`volumeCard` in `metrics.js`): a card whose declared finger load (`sched.fingerLoad`,
+  else its category's) is `light`, `sub` or `none` (ARC, traverses, doubled lead laps,
+  the economy drill) is left out of both hardest lines, so an ARC day never reads as a
+  drop; its climbs still count in the pyramids and Climbs per week. Read off the
+  declaration, never a list of names; a card that declares neither is kept.
+- **Hard finger days have one rule**, `hardDates` in `lib/fingers.js`; Progress reads it.
+- **Gear hours are typed or measured time only** (`loggedMinutes`), never the card's
+  estimate that `data.minutes` carries when nothing was typed (#97).
 - Charts are titled in plain words ("Effort per week", not "training load"); the effort
   chart is still sRPE (RPE × minutes), which is why minutes are measured when possible.
 
@@ -1566,7 +1598,7 @@ What that means for the code that stays:
   from `settings.json` on the next save, as any removed setting always was.
 - **Climbing follows, it does not lead.** In Log a workout the sports catalog comes first
   and the Climbing folders after it; on Progress the headline is general and the Climbing
-  group is last. Both are ordered in code, because the owner's plan file is outside the
+  group is last (unless Climbing is the activity picked, #97). Both are ordered in code, because the owner's plan file is outside the
   repo and cannot be reordered from here. The one exception is a single **Climbing** row
   under Recent in Log a workout (#81): a door, the same as Recent being the person's own
   history, not climbing leading the catalog.

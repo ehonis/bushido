@@ -120,7 +120,9 @@ export default [
     (html) => {
       const t = text(html)
       if (!/90 min · 8 routes · hardest 5\.10\+/.test(t)) throw new Error(`the route row: ${[...t.matchAll(/list-row-meta">([^<]*)/g)].map(m => m[1])}`)
-      if (!/3 problems · hardest V4/.test(t)) throw new Error('the boulder row should name its hardest SEND, not the fall')
+      // Two problems described, the third left blank: two climbed (#97, F1).
+      if (!/2 problems · hardest V4/.test(t)) throw new Error('the boulder row should name its hardest SEND, not the fall, and count what was described')
+      if (/3 problems/.test(t)) throw new Error('an undescribed record counted as a problem')
     }],
   ['LogTab(one category, no filters)', <LogTab plan={plan} upsertEntry={noop} deleteEntry={noop} entries={[
     { id: 'o1', kind: 'daily', date: TODAY, updatedAt: 'z',

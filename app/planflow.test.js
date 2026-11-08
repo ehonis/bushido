@@ -296,6 +296,30 @@ test('a hand-built workout of pieces is filed from a block\'s sport, else from "
   assert.equal(c.nameOf('rowing'), 'Rowing')
 })
 
+test('"What is it?" is asked only where its answer is used (C N6)', () => {
+  const liftField = liftFieldOf(PLAN)
+  // The model's review: a Lift block and a Run block. It lands as two workouts,
+  // each filed by its block, so there is nothing to ask.
+  const review = blankPrescription({ title: 'Legs and a run', blocks: [
+    { name: 'Main lifts', category: 'lift' }, { name: 'Core' }, { name: 'Easy run', category: 'run' },
+  ] })
+  const filled = withItem(withItem(review), { ...squat, id: 'r', kind: 'interval', name: 'Easy run' }, 2)
+  assert.equal(needsFiling(filled, PLAN, liftField), false, 'a plan whose blocks are filed is asked what it is')
+  const oneBlock = withItem(blankPrescription({ title: 'Spin', blocks: [{ name: 'Spin', category: 'bike' }] }),
+    { ...squat, kind: 'interval', name: 'Spin' })
+  assert.equal(needsFiling(oneBlock, PLAN, liftField), false)
+  // Wherever it IS asked, every answer on offer files the workout as answered.
+  const spin = appendPiece(blankFor([]), 'Easy spin', { by: 'time' })
+  const offCatalog = { ...spin, blocks: [{ ...spin.blocks[0], activity: 'not-a-sport' }] }
+  const asked = [spin, offCatalog, appendPiece(blankFor([]), 'Hollow hold', { by: 'reps' })]
+  for (const pres of asked) {
+    assert.equal(needsFiling(pres, PLAN, liftField), true)
+    for (const a of fileChoices(PLAN).pinned) {
+      assert.equal(filedFor(pres, PLAN, liftField, a.key).activity, a.key, `answering ${a.key} did nothing`)
+    }
+  }
+})
+
 /* ------------------------------------------------------------- durations */
 
 test('a timed piece reads in minutes and starts at ten (C F10)', () => {

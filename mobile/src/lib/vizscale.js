@@ -45,3 +45,18 @@ export function needsYear(xs, thisYear = new Date().getFullYear()) {
   const years = new Set(xs.filter(x => ISO.test(String(x))).map(x => Number(String(x).slice(0, 4))))
   return years.size > 1 || (years.size === 1 && !years.has(thisYear))
 }
+
+/**
+ * The point a line's change is measured FROM ("▲ 5.10 → 5.11 since …"). The first
+ * point, unless the points say what they are of (`of`, the card a "hardest sent"
+ * came from, #97 F7): then the earliest point of the same thing as the newest, so
+ * an easy ARC day after a lead day is not drawn as a decline. Null when the newest
+ * point has nothing like it before it: no change is claimed at all.
+ */
+export function deltaBase(data) {
+  if (!data?.length || data.length < 2) return null
+  const last = data[data.length - 1]
+  if (last.of == null) return data[0]
+  const base = data.find(d => d.of === last.of)
+  return base && base !== last ? base : null
+}

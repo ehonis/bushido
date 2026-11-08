@@ -12,6 +12,7 @@ import { Blurb } from './blurb.jsx'
 import { localIso } from './lib/dates.js'
 import { measured, testResultFrom } from './lib/tests.js'
 import { NumInput } from './numinput.jsx'
+import { dateWords } from './lib/vizscale.js'
 
 /** The test series the ±CF_NOISE_PCT band belongs to: critical force and CFmin. */
 const CF_NOISED = new Set(['critical-force.cfKg', 'critical-force.cfMinKg'])
@@ -56,6 +57,9 @@ export function TestingTab({ plan, entries, upsertEntry }) {
               const pts = results
                 .filter(r => !r.deleted && measured(r.data?.[m.key]) != null)
                 .map(r => ({ x: r.date, y: measured(r.data[m.key]) }))
+              // One result is a number and a date, not "a dot with an axis"
+              // (#97, F9f): the line starts at the second.
+              if (pts.length === 1) return <OneResult key={m.key} metric={m} point={pts[0]} />
               return pts.length ? (
                 <LineChart key={m.key} points={pts} label={m.label} unit={m.unit || ''}
                   color={SERIES[mi % SERIES.length]} goal={m.goal}
@@ -156,9 +160,25 @@ function CeilingReadout({ entries }) {
   )
 }
 
-export function TestRunner({ test, onSave, onDone }) {
+/** A test's only result so far: "Peak force · 52 kg · Mon 19 Oct". */
+function OneResult({ metric, point }) {
+  return (
+    <div className="test-one">
+      <span className="test-one-label">{metric.label}</span>
+      <span className="test-one-value">{point.y}{metric.unit ? <span className="test-one-unit"> {metric.unit}</span> : null}</span>
+      <span className="test-one-date">{dateWords(point.x, { withYear: true })}</span>
+    </div>
+  )
+}
+
+export function TestRunner({ test, onSave, onDone, initialAsk = false }) {
   const [vals, setVals] = useState({})
   const [date, setDate] = useState(todayIso)
+  // Leaving with numbers typed ASKS (#97, F8): Cancel sat beside Save, one thumb
+  // from the last box, and dropped every result without a word.
+  const [asking, setAsking] = useState(initialAsk)
+  const typed = Object.values(vals).some(v => v !== '' && v != null)
+  const cancel = () => (typed ? setAsking(true) : onDone())
   /* What Save would write: nothing until a box holds a number (lib/tests.js).
      An empty result used to save, and as the newest one it hid the ceiling. */
   const result = testResultFrom(test, vals, date)
@@ -203,11 +223,20 @@ export function TestRunner({ test, onSave, onDone }) {
               onChange={v => setVals(prev => ({ ...prev, [m.key]: v }))} placeholder={m.hint || ''} />
           </label>
         ))}
-        <div className="prof-actions">
-          <button className="btn secondary" onClick={onDone}>Cancel</button>
-          <button className="btn" onClick={save} disabled={!result}>Save result</button>
-        </div>
+        {asking ? (
+          <div className="test-ask" role="alertdialog" aria-label="Discard these results">
+            <span>Discard the results you typed?</span>
+            <button type="button" className="btn secondary" onClick={() => setAsking(false)}>Keep them</button>
+            <button type="button" className="btn destructive" onClick={onDone}>Discard</button>
+          </div>
+        ) : (
+          <div className="prof-actions">
+            <button className="btn" onClick={save} disabled={!result}>Save result</button>
+          </div>
+        )}
         {!result && <p className="sub test-need">Type at least one result to save it.</p>}
+        {/* The way out is quiet and away from Save; with numbers in, it asks. */}
+        {!asking && <button type="button" className="btn quiet test-cancel" onClick={cancel}>Cancel</button>}
       </div>
 
       {test.interpretation && (

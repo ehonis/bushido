@@ -26,7 +26,7 @@ const APP_SUITES = [
   'test:handoff', 'palette', 'test:fingers', 'test:streak', 'test:gear', 'test:progress',
   'test:workout', 'test:circuit', 'test:tests', 'test:sessionops', 'test:lifts', 'test:presc', 'test:naming',
   'test:md', 'test:starter', 'test:exercises', 'test:signout', 'test:whoami', 'test:shared',
-  'test:trainer', 'test:drafts', 'test:planflow', 'test:done', 'test:history', 'test:libsync', 'test:cycles', 'smoke',
+  'test:trainer', 'test:drafts', 'test:planflow', 'test:editing', 'test:blockmenu', 'test:done', 'test:history', 'test:libsync', 'test:cycles', 'smoke',
 ]
 
 const scripts = JSON.parse(readFileSync(join(APP, 'package.json'), 'utf8')).scripts

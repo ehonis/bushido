@@ -18,11 +18,12 @@ import { NumInput } from './numinput.jsx'
 import { pushToast } from './lib/toast.js'
 import {
   GRADE_FIELD, hardestGrade, gradesIn, hasGrades, fitGrades, repCount,
-  VGRADES, CLIMB_FIELD, offersClimbs, climbsOn, blankClimb, fitClimbs, fallsIn, climbsIn,
-  stepClimbs, FELT_MIN, FELT_MAX, feltLabel, DOWN_OPTIONS, downLabel, downsIn, lengthsIn,
+  VGRADES, CLIMB_FIELD, offersClimbs, climbsOn, blankClimb, fitClimbs,
+  stepClimbs, FELT_MIN, FELT_MAX, feltLabel, DOWN_OPTIONS, downLabel, lengthsIn,
   routeLadder, routeSystem, setRouteSystem, ROUTE_SYSTEMS, labelOn, scaleOfExercise,
-  climbCount, detailOn, dropClimb, putClimb, climbSaid, saidIn, isClean,
+  climbCount, detailOn, dropClimb, putClimb, climbSaid, saidIn,
   outcomesFor, outcomeOf, outcomeLabel, withOutcome, MAX_CLIMBS,
+  climbsCounted, climbTotals, nearRungs,
 } from './lib/grades.js'
 
 const FIELD_META = {
@@ -209,6 +210,10 @@ export function ClimbLog({ count, values, spec, onChange, onMore, onDrop, what =
 
   const nextBlank = current >= 0 ? climbs.findIndex((c, k) => k > current && !climbSaid(c)) : -1
   const untold = current >= 0 ? climbs.filter((c, k) => k > current && !climbSaid(c)).length : 0
+  // Once one climb is described the described ones are the count (lib/grades.js
+  // `climbsCounted`, #97): the blanks after them are the plan's number standing
+  // in, and the line says they do not count rather than letting them pass for climbs.
+  const anySaid = climbs.some(climbSaid)
   const next = nextBlank >= 0
     ? { label: `Next ${what}`, go: () => setPicked(nextBlank) }
     : onMore ? { label: `Add ${what}`, go: () => { setPicked(count); onMore() } } : null
@@ -237,12 +242,15 @@ export function ClimbLog({ count, values, spec, onChange, onMore, onDrop, what =
             <LadderSelect ladder={ladder} fmt={fmt} value={c.grade} label={`${tag} grade`}
               onChange={v => at(i, { grade: v })} />
           )}
-          {/* The fast path: most of an evening is the same grade again. */}
-          {!hasGrade && !omitGrade && prev != null && (
-            <button type="button" className="out-chip climb-same" onClick={() => at(i, { grade: prev })}>
-              Same as last: {fmt(prev)}
+          {/* The fast path: most of an evening is the same grade again, or one
+              either side of it (#97, F9c: a pick used to start at the ladder's foot). */}
+          {!hasGrade && !omitGrade && prev != null && nearRungs(ladder, prev, fmt).map(r => (
+            <button key={r.step} type="button" className="out-chip climb-same"
+              aria-label={r.step === 0 ? undefined : `${tag}: ${r.step < 0 ? 'one easier' : 'one harder'}, ${r.label}`}
+              onClick={() => at(i, { grade: r.value })}>
+              {r.step === 0 ? `Same as last: ${r.label}` : r.label}
             </button>
-          )}
+          ))}
         </div>
         <div className="climb-outcomes" role="group" aria-label={`${tag}: how it went`}>
           {outcomesFor(scale).map(o => (
@@ -253,8 +261,9 @@ export function ClimbLog({ count, values, spec, onChange, onMore, onDrop, what =
             </button>
           ))}
         </div>
+        {/* Says it opens (#97, F9a: "Details" alone read as a label). */}
         <details className="climb-more">
-          <summary>Details</summary>
+          <summary><Icon name="ChevronDown" size={16} className="climb-more-chev" /> More details</summary>
           <div className="climb-row">
             {(spec?.styles?.length ?? 0) > 0 && (
               <select className="climb-style" aria-label={`${tag} style`}
@@ -326,7 +335,9 @@ export function ClimbLog({ count, values, spec, onChange, onMore, onDrop, what =
         )
       })}
       {untold > 0 && (
-        <p className="climb-untold">{untold} more {plural(what, untold)}, not described</p>
+        <p className="climb-untold">
+          {untold} more {plural(what, untold)}, not described{anySaid ? ', so not counted' : ''}
+        </p>
       )}
       {current < 0 && nextButton}
     </div>
@@ -363,6 +374,9 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null, initi
   const detailed = climbsOn(rows)
   const routes = scaleOfExercise(exercise) === 'yds'
   const [confirmOff, setConfirmOff] = useState(initialConfirm)
+  // Which set to take off: asked in the foot, never beside a number (#97, F9d:
+  // the web could only drop the last one; the phone's swipe takes any).
+  const [picking, setPicking] = useState(false)
 
   // An Undo runs after this render is gone: it must act on the rows as they are
   // THEN, and through the writer as it is then, or it would put back a stale copy
@@ -413,6 +427,7 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null, initi
   }
   const addSet = () => onRows([...rows, cloneRow(rows.at(-1) || {}, fields, rows.at(-1)?.reps)])
   const dropSet = (i) => {
+    setPicking(false)
     const gone = rows[i]
     onRows(rows.filter((_, j) => j !== i))
     undo(`Set ${i + 1} removed`, now => [...now.slice(0, i), gone, ...now.slice(i)])
@@ -426,14 +441,16 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null, initi
   const inTable = (r) => !(Array.isArray(r[CLIMB_FIELD]) && cols.every(f => f === 'reps'))
   const table = rows.some(inTable)
 
-  const total = rows.reduce((s, r) => s + (Number(r.reps) || 0), 0)
-  const falls = detailed ? fallsIn(rows) : 0
-  const sent = detailed ? climbsIn(rows).filter(c => climbSaid(c) && isClean(c)).length : 0
-  // Lengths of wall, which is the whole point of recording a down-climb: a lap
-  // climbed and reversed is two of them. Shown only when it differs from the rep
-  // count, so a session with no down-climbing in it reads exactly as it did.
-  const downs = detailed ? downsIn(rows) : 0
-  const lengths = detailed ? lengthsIn(rows) : 0
+  // What the rows COUNT (lib/grades.js `climbTotals`, shared with the phone):
+  // with the detail on, the described climbs once any is (#97). Lengths of wall
+  // are shown only when they differ from the count, so a session with no
+  // down-climbing in it reads exactly as it did.
+  const foot = climbTotals(rows)
+  const total = foot.count
+  const falls = detailed ? foot.falls : 0
+  const sent = detailed ? foot.sent : 0
+  const downs = detailed ? foot.downs : 0
+  const lengths = detailed ? foot.lengths : 0
   const noun = exercise.repName ? plural(exercise.repName, total) : 'reps'
 
   const climbList = (r, i) => (
@@ -487,7 +504,7 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null, initi
                             "12" over a 10 passes through "1", and each keystroke
                             refit the list, deleting climbs already filled in. */}
                         {f === 'reps' && Array.isArray(r[CLIMB_FIELD]) ? (
-                          <span className="exlog-count" aria-label={`set ${i + 1} ${colLabel(f)}`}>{climbCount(r.reps)}</span>
+                          <span className="exlog-count" aria-label={`set ${i + 1} ${colLabel(f)}`}>{climbsCounted(r)}</span>
                         ) : (
                           <NumInput
                             value={r[f] ?? ''} blank="" decimal={f === 'weight'}
@@ -554,12 +571,20 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null, initi
         </button>
         {/* Off the number row on purpose: a remove beside the box being typed
             in is a remove pressed by accident. The set comes back with Undo. */}
-        {rows.length > 1 && (
-          <button type="button" className="btn quiet exlog-drop" onClick={() => dropSet(rows.length - 1)}>
-            Remove last set
+        {rows.length > 1 && !picking && (
+          <button type="button" className="btn quiet exlog-drop" onClick={() => setPicking(true)}>
+            Remove a set
           </button>
         )}
       </div>
+      {picking && rows.length > 1 && (
+        <div className="exlog-pick" role="group" aria-label="Which set to remove">
+          {rows.map((_, i) => (
+            <button key={i} type="button" className="chip" onClick={() => dropSet(i)}>Set {i + 1}</button>
+          ))}
+          <button type="button" className="btn secondary" onClick={() => setPicking(false)}>Keep them</button>
+        </div>
+      )}
       <p className="exlog-total">
         {table ? `${rows.length} set${rows.length === 1 ? '' : 's'}${total ? ` · ${total} ${noun}` : ''}` : `${total} ${noun}`}
         {sent > 0 ? ` · ${sent} sent` : ''}
@@ -570,6 +595,14 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null, initi
     </div>
   )
 }
+
+/**
+ * Does the plan put a number in any of these boxes? Only then does the log say it
+ * was pre-filled (#97 review): a card with no defaults (the starter's climbing
+ * cards) opened on an empty box under a line saying it was filled in from the plan.
+ */
+export const prefilledBy = (spec) => (spec?.exercises || []).some(ex =>
+  (ex.fields || []).some(f => ex.defaults?.[f] !== undefined && ex.defaults[f] !== null && ex.defaults[f] !== ''))
 
 export function SetLog({ session, out, onSave, hints = null, initialConfirm = null }) {
   const spec = session?.logSpec
@@ -600,7 +633,9 @@ export function SetLog({ session, out, onSave, hints = null, initialConfirm = nu
           initialConfirm={initialConfirm === ex.key}
         />
       ))}
-      <p className="setlog-note">Pre-filled from the plan: change what didn't match, and add a set if you did more.</p>
+      {prefilledBy(spec) && (
+        <p className="setlog-note">Pre-filled from the plan: change what didn't match, and add a set if you did more.</p>
+      )}
     </div>
   )
 }
@@ -614,11 +649,14 @@ export function signedLoad(row, sign) {
   return sign === '-' ? -Math.abs(w) : Math.abs(w)
 }
 
-/** Total completed reps across every exercise in a logged session. */
+/**
+ * Total completed reps across every exercise in a logged session. A row with
+ * the per-climb detail on counts what it counts (`climbsCounted`, #97).
+ */
 export function totalReps(out) {
   return Object.values(out?.sets || {})
     .flat()
-    .reduce((s, r) => s + (Number(r?.reps) || 0), 0)
+    .reduce((s, r) => s + (Array.isArray(r?.[CLIMB_FIELD]) ? climbsCounted(r) : (Number(r?.reps) || 0)), 0)
 }
 
 /**

@@ -2,6 +2,7 @@
  * Run by app/smoke/index.jsx (`npm run smoke`); moved out of app/smoke.jsx in #73,
  * unchanged and in their old relative order. A case is [name, element | null, assert?].
  */
+import { readFileSync } from 'node:fs'
 import { ProgressView } from '../src/progress.jsx'
 import {
   plan, starter, entries, TODAY, back, rich, cfEntries, text, isoShift, LEGACY,
@@ -121,9 +122,22 @@ export default [
       const b = t.slice(t.indexOf('>Boulders by grade</h3>'))
       if (b.indexOf('>V5<') > b.indexOf('>V3<')) throw new Error('the pyramid is not hardest first')
       const names = metricsGroups(t)
-      // The plan's own declared charts ('This session') follow, as they always have.
+      // Climbing is PICKED here, so its charts lead the page (#97, F3), pyramids first.
+      if (names[0] !== 'Climbing') throw new Error(`climbing is picked and not first: ${names}`)
+      if (t.indexOf('>Boulders by grade</h3>') > t.indexOf('>Climbs per week</h3>')) throw new Error('volume leads the pyramids')
+    }],
+  // The other side of that move: on the whole page Climbing still comes last (§10.8).
+  ['ProgressView(climbing follows the general charts on the whole page)', <ProgressView plan={plan} entries={rich} />,
+    (html) => {
+      const names = metricsGroups(text(html))
+      if (!names.includes('Climbing')) throw new Error(`no Climbing group: ${names}`)
       if (names.filter(n => n !== 'This session').at(-1) !== 'Climbing') throw new Error(`climbing is not last: ${names}`)
     }],
+  // The filter chips are one sideways row, not a wrapped stack (#97, F3).
+  ['ProgressView(the activity chips are one row)', null, () => {
+    const css = readFileSync(new URL('../src/css/feed.css', import.meta.url), 'utf8')
+    if (!/\.progacts, \.progcats, \.logfilters \{\s*flex-wrap: nowrap; overflow-x: auto/.test(css)) throw new Error('the filter chips wrap into a stack again')
+  }],
   // F17: the body graph keeps to the period. Its two readings are in August; the
   // 8-week page (from the newest date's week back) holds none of them.
   ['ProgressView(bodyweight keeps to the period)', <ProgressView plan={plan} entries={[

@@ -258,8 +258,15 @@ check('the starter ships no personal content', () => {
   ok(!/Ethan/.test(s), 'the starter names the original user')
   ok(!('facility' in JSON.parse(s)), 'the starter describes a real gym')
   const ex = JSON.parse(fs.readFileSync(path.join(ROOT, 'examples', 'plan.json'), 'utf8'))
-  ok(ex.dailyMenu.filter(m => !['log-workout', 'planned', 'off'].includes(m.id)).every(m => m.id.startsWith('example-')),
+  // The starter's own cards (#97 added the two plain climbing ones), then the invented plan.
+  const own = JSON.parse(s).dailyMenu.map(m => m.id)
+  ok(['climb-bouldering', 'climb-routes'].every(id => own.includes(id)), 'the starter has no climbing cards')
+  ok(ex.dailyMenu.filter(m => !own.includes(m.id)).every(m => m.id.startsWith('example-')),
     'the example plan is not the invented one')
+  // Starter cards are generic: no trip, no weekday, no gym, nobody's grade.
+  for (const m of JSON.parse(s).dailyMenu) {
+    ok(!/\b(Monday|Tuesday|Wednesday|Thursday|Friday|trip|October|the Red)\b/.test(JSON.stringify(m)), `${m.id} carries someone's programme`)
+  }
   const plan = JSON.parse(s)
   ok(!('achievements' in plan), 'the starter seeds achievements')
   ok(plan.dailyMenu.some(m => m.id === 'log-workout'), 'the starter cannot log a workout')

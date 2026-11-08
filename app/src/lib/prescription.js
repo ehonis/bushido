@@ -994,26 +994,69 @@ function appendNamed(pres, name) {
 /**
  * Keep what the user has already done across an edit to the prescription.
  *
- * Ids are positional, so adding a set to block one renumbers everything after it.
- * Re-keying by (item name, set index) rather than by id is what stops that
- * renumbering from unticking half the session. An item the user deleted takes its
- * logged sets with it, which is correct — the user deleted it.
+ * Ids are positional, so adding a block, removing an exercise or moving one to
+ * another block renumbers the sets after it, and a run keyed by the old ids
+ * would put its done marks on whatever took their place (#95 review: Hard
+ * moved to Main, its mark landed on Easy). So each item is matched to itself
+ * (`sameItems`) and its sets follow it, set by set. An item the user deleted
+ * takes its logged sets with it, which is correct — the user deleted it.
  */
 export function remapRun(run, before, after) {
   if (!run?.sets) return run
-  const key = (s) => `${s.itemName}::${s.index}`
-  const old = new Map(prescriptionSteps(before).map(s => [s.setId, key(s)]))
-  const next = new Map(prescriptionSteps(after).map(s => [key(s), s.setId]))
-
+  const ids = new Map()
+  for (const [a, b] of sameItems(before, after)) {
+    a.sets.forEach((st, k) => { if (b.sets[k]) ids.set(st.id, b.sets[k].id) })
+  }
   const sets = {}
   for (const [id, value] of Object.entries(run.sets)) {
-    const id2 = next.get(old.get(id))
+    const id2 = ids.get(id)
     if (id2) sets[id2] = value
   }
-  const skipped = (run.skipped || [])
-    .map(id => next.get(old.get(id)))
-    .filter(Boolean)
-  return { ...run, sets, skipped, cursor: next.get(old.get(run.cursor)) || null }
+  const skipped = (run.skipped || []).map(id => ids.get(id)).filter(Boolean)
+  return { ...run, sets, skipped, cursor: ids.get(run.cursor) || null }
+}
+
+/**
+ * Which item of `after` each item of `before` is, as [before, after] pairs.
+ * By `uid` where both have one (a synced workout); then the longest run of
+ * names in the same order, which a move or a removal leaves intact and which
+ * keeps two "Hard" intervals apart (matching by name alone put both on the
+ * last one); then what moved out of that order (a swap) by name; then an item
+ * still in its own place under a new name (renamed, or its exercise swapped).
+ */
+function sameItems(before, after) {
+  const was = (before?.blocks || []).flatMap(b => b.items || [])
+  const now = (after?.blocks || []).flatMap(b => b.items || [])
+  const pairs = new Map()
+  const taken = new Set()
+  was.forEach((it, i) => {
+    if (!it.uid) return
+    const j = now.findIndex((x, k) => !taken.has(k) && x.uid === it.uid)
+    if (j >= 0) { pairs.set(i, j); taken.add(j) }
+  })
+  const a = was.map((_, i) => i).filter(i => !pairs.has(i))
+  const b = now.map((_, j) => j).filter(j => !taken.has(j))
+  // Longest common subsequence of names, over what the uids left.
+  const L = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0))
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      L[i][j] = was[a[i]].name === now[b[j]].name ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1])
+    }
+  }
+  for (let i = 0, j = 0; i < a.length && j < b.length;) {
+    if (was[a[i]].name === now[b[j]].name) { pairs.set(a[i], b[j]); taken.add(b[j]); i++; j++ }
+    else if (L[i + 1][j] >= L[i][j + 1]) i++
+    else j++
+  }
+  // What moved out of that order (a swap), by name; then a rename, by place.
+  for (const same of [(it, x) => x.name === it.name, (it, x) => x.id === it.id]) {
+    was.forEach((it, i) => {
+      if (pairs.has(i)) return
+      const j = now.findIndex((x, k) => !taken.has(k) && same(it, x))
+      if (j >= 0) { pairs.set(i, j); taken.add(j) }
+    })
+  }
+  return [...pairs].map(([i, j]) => [was[i], now[j]])
 }
 
 /* ------------------------------------------------------------- the split */
@@ -1249,10 +1292,10 @@ export const removeItem = (pres, itemId) => mapItem(pres, itemId, () => null)
  * muscle groups and moves it with arrow buttons — this is a web app, not a
  * native one, so there is no dragging.
  *
- * WITHIN a block only. The blocks are the seams the session splits on (see
- * `splitPrescription`), so dragging a lift into the warm-up would silently move
- * it to a different entry and a different quota — a reorder should change the
- * order and nothing else.
+ * Up and down stay WITHIN a block. The blocks are the seams the session splits
+ * on (see `splitPrescription`), so dragging a lift into the warm-up would
+ * silently move it to a different entry — a reorder should change the order and
+ * nothing else. Another block is its own, named choice (`{ block }`, below).
  *
  * Ids are positional and `reindex` re-mints them, so a move renumbers every set
  * after it — which is why it hands back the moved item's NEW id along with the
@@ -1263,6 +1306,7 @@ export const removeItem = (pres, itemId) => mapItem(pres, itemId, () => null)
  * answers, so the caller never has to special-case the first and last rows.
  */
 export function moveItem(pres, itemId, dir) {
+  if (dir && typeof dir === 'object') return moveItemTo(pres, itemId, dir.block)
   const step = dir === 'up' ? -1 : 1
   let landed = itemId
   const blocks = (pres?.blocks || []).map((b, bi) => {
@@ -1276,6 +1320,33 @@ export function moveItem(pres, itemId, dir) {
     return { ...b, items }
   })
   return { pres: reindex({ ...pres, blocks }), itemId: landed }
+}
+
+/**
+ * `moveItem(pres, id, { block })`: to the END of another block (#95, C N12),
+ * where moving Face pull from Accessory to Main was a remove and an add, its
+ * numbers lost. The exercise goes whole, its uid with it, so a synced copy
+ * sees the same exercise in its new place. Into a circuit it keeps its first
+ * set, as `setCircuit` does to a whole block: rounds are the circuit's. The
+ * block it leaves follows the editor's one rule for an empty block
+ * (`blockSurvives`): gone unless it has a note or was picked. Same block, or
+ * no such block or exercise: unchanged.
+ */
+function moveItemTo(pres, itemId, blockId) {
+  const blocks = pres?.blocks || []
+  const from = blocks.findIndex(b => b.items.some(it => it.id === itemId))
+  const to = blocks.findIndex(b => b.id === blockId)
+  if (from < 0 || to < 0 || from === to) return { pres, itemId }
+  const item = blocks[from].items.find(it => it.id === itemId)
+  const moved = blocks[to].circuit ? { ...item, sets: item.sets.slice(0, 1) } : item
+  const next = blocks.map((b, bi) => {
+    if (bi === from) return { ...b, items: b.items.filter(it => it.id !== itemId) }
+    if (bi === to) return { ...b, items: [...b.items, moved] }
+    return b
+  })
+  const kept = next.filter((b, bi) => bi === to || blockSurvives(b))
+  const at = kept.indexOf(next[to])
+  return { pres: reindex({ ...pres, blocks: kept }), itemId: `b${at}i${next[to].items.length - 1}` }
 }
 
 /**

@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
-import { SessionView } from './session.jsx'
+import { SessionView, SessionAbout, climbLogLeads } from './session.jsx'
 import { Modal } from './modal.jsx'
 import { SessionLog, PriorNote, DetailsSheet } from './sessionlog.jsx'
 import { liftFieldOf } from './lib/lifts.js'
@@ -345,12 +345,16 @@ export function SessionSheet({
         <>
           <p className="rec-dose">{opt.dose}</p>
           <PriorNote entries={entries} session={opt} excludeId={entry?.id} />
-          <SessionView key={opt.id} session={opt} entries={entries} />
+          {/* A climbing card being logged: the log, then the protocol folded (session.jsx, #97 F5). */}
+          {!isFuture && planned && !opt.logFirst && climbLogLeads(opt) ? (<>
+            <SessionLog session={opt} entry={entry} entries={entries} onSave={save} />
+            <SessionAbout session={opt} entries={entries} />
+          </>) : <SessionView key={opt.id} session={opt} entries={entries} />}
         </>
       )}
 
       {/* Declared by the card. See `logFirst` in plan.json and SessionLog. */}
-      {!isFuture && planned && !opt.logFirst && (
+      {!isFuture && planned && !opt.logFirst && (pres || !climbLogLeads(opt)) && (
         <SessionLog session={opt} entry={entry} entries={entries} onSave={save} />
       )}
 

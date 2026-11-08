@@ -19,6 +19,7 @@ import { Icon } from './lib/icons.jsx'
 import { MovesList, hasMoves } from './howto.jsx'
 import { ceilingState, CF_CORRECTION_KG } from './lib/force.js'
 import { blockTimers } from './lib/workout.js'
+import { countsClimbs } from './lib/grades.js'
 
 /** Latest usable max, expressed as TOTAL load on the fingers (bodyweight + added). */
 export function resolveMax(entries) {
@@ -332,5 +333,32 @@ export function SessionView({ session, entries, variant = 'compact', showEvidenc
         </div>
       )}
     </div>
+  )
+}
+
+/* ------------------------------------------------- a climbing card, doing */
+
+/*
+ * A CLIMBING CARD BEING LOGGED OPENS ON ITS LOG (#97, F5). The sheet put the
+ * protocol, the evidence chip, its tabs and "The moves" above the set log, and the
+ * per-climb log started about 1,070px down: a card you are standing in the gym
+ * with read as an essay. Lifts got a doing mode in #79; this is the climbing one.
+ * Order on a day being logged: the dose (one line, still what the session is),
+ * "last time", the log, then the protocol and its evidence in ONE fold. On a day
+ * still to come it is planning, and the protocol stays open as before.
+ *
+ * Which cards: those whose log counts climbs (routes, problems, laps), read off
+ * the plan's own declarations (`countsClimbs`), so it holds for any plan file.
+ */
+export const climbLogLeads = (opt) => (opt?.logSpec?.exercises || []).some(ex => countsClimbs(ex))
+
+/** The protocol and evidence of a card, folded under the log. */
+export function SessionAbout({ session, entries }) {
+  if (!session?.protocol) return null
+  return (
+    <details className="sess-about">
+      <summary><Icon name="ChevronDown" size={16} className="sess-about-chev" /> About this session</summary>
+      <SessionView key={session.id} session={session} entries={entries} />
+    </details>
   )
 }

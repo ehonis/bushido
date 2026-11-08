@@ -21,7 +21,7 @@
  * sheet's bin uses), and tapping opens the session as a page sheet.
  */
 import React, { useMemo, useRef, useState } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { ScrollView, StyleSheet, View } from 'react-native'
 import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable'
 import { colors, font, radius, space } from '../theme'
 import { T } from '../ui/Text'
@@ -210,24 +210,24 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }: any) 
 
   return (
     <>
-      {/* "All" and the kinds of thing actually logged, wrapping rather than
-          running off the edge. No counts: a number in a chip read as part of its name. */}
+      {/* "All" and the kinds of thing actually logged, one row that scrolls
+          sideways (#97). No counts: a number in a chip read as part of its name. */}
       {acts.length > 1 && (
-        <View style={st.filters}>
+        <ChipRow style={st.filters}>
           <Chip small label="All" on={!narrowed} onPress={everything} />
           {acts.map((a) => (
             <Chip key={a.key} small label={a.name} on={filter.activity === a.key} onPress={() => pickActivity(a.key)} />
           ))}
-        </View>
+        </ChipRow>
       )}
       {/* Inside it, the plan's categories (Fun, Fingers, Endurance…). */}
       {cats.length > 1 && (
-        <View style={st.filters}>
+        <ChipRow style={st.filters}>
           {cats.map((c: any) => (
             <Chip key={c.key} small label={c.name} on={filter.category === c.key}
               onPress={() => setFilter((f) => ({ ...f, category: f.category === c.key ? null : c.key }))} />
           ))}
-        </View>
+        </ChipRow>
       )}
       {/* Under Climbing, one whole grade: the sessions that touched it, sent or not. */}
       {bands.length > 0 && (
@@ -356,8 +356,24 @@ function LogRow({ w, cat, onOpen, onRemove }: {
   )
 }
 
+/*
+ * One row of filter chips that scrolls sideways (#97, F3): two wrapped rows of
+ * chips put the first chart (and the first workout) a screen down on a phone.
+ * Bled to the screen's edges so the cut-off chip says there is more.
+ */
+function ChipRow({ children, style }: { children: React.ReactNode; style?: any }) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[st.chipRow, style]}
+      contentContainerStyle={st.chipRowIn} keyboardShouldPersistTaps="handled">
+      {children}
+    </ScrollView>
+  )
+}
+
 const st = StyleSheet.create({
-  filters: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2], marginBottom: space[2] },
+  chipRow: { marginHorizontal: -space.gutter, flexGrow: 0 },
+  chipRowIn: { gap: space[2], paddingHorizontal: space.gutter },
+  filters: { marginBottom: space[2] },
   gradeCard: {
     backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.card,
     paddingHorizontal: space[4], marginBottom: space[3],

@@ -186,6 +186,30 @@ export default [
       if (!/Type at least one result to save it/.test(text(html))) throw new Error('say what Save is waiting for')
       if (/type="number"/.test(html)) throw new Error('result boxes are text boxes that own their text (NumInput)')
     }],
+  /* #97 F8: Cancel is quiet, not beside Save, and leaving with numbers typed asks. */
+  ['TestRunner(Cancel is quiet and away from Save)', <TestRunner test={plan.tests.find(t => t.id === 'critical-force')}
+    onSave={noop} onDone={noop} />,
+    (html) => {
+      if (/class="prof-actions"[^>]*>(?:(?!<\/div>).)*Cancel/s.test(html)) throw new Error('Cancel sits beside Save again')
+      if (!/class="btn quiet test-cancel"[^>]*>Cancel</.test(html)) throw new Error('no quiet way out of the test')
+    }],
+  ['TestRunner(leaving with results typed asks first)', <TestRunner test={plan.tests.find(t => t.id === 'critical-force')}
+    onSave={noop} onDone={noop} initialAsk />,
+    (html) => {
+      const t = text(html)
+      if (!/Discard the results you typed\?/.test(t)) throw new Error('the question is missing')
+      if (!/>Keep them</.test(t) || !/class="btn destructive"[^>]*>Discard</.test(html)) throw new Error('both answers must be offered')
+      if (/test-cancel/.test(html)) throw new Error('Cancel stays while its question is open')
+    }],
+  /* #97 F9f: one result is a number and a date; the chart starts at two. */
+  ['TestingTab(one result is a number, not a one-dot chart)', <TestingTab plan={plan} upsertEntry={noop}
+    entries={[{ id: 'cf-one', kind: 'test', date: '2026-08-08', updatedAt: 'z', data: { testId: 'critical-force', cfKg: 18.2 } }]} />,
+    (html) => {
+      const card = html.slice(html.indexOf('Critical force'))
+      if (!/class="test-one"/.test(card) || !/18\.2/.test(text(card)) || !/2026/.test(text(card))) throw new Error('the one result is not said with its date')
+    }],
+  ['TestingTab(two results draw the line)', <TestingTab plan={plan} entries={cfEntries} upsertEntry={noop} />,
+    (html) => { if (!/class="viz"/.test(html)) throw new Error('two results drew no chart') }],
   /* #76: the newest result being empty never hides the last usable ceiling,
      and a result without a metric is no point on its chart. */
   ['TestingTab(an empty newer CF result does not hide the ceiling)', <TestingTab plan={plan} upsertEntry={noop}

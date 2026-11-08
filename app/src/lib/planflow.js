@@ -140,9 +140,16 @@ export function filedFor(pres, plan, liftField, chosen = null) {
   return f && (f.category || f.activity) ? { ...pres, category: f.category || null, activity: f.activity || null } : pres
 }
 
-/** Nothing on it says what it is: the keep step asks, once, in one row (`fileChoices`). */
+/**
+ * Nothing on it says what it is: the keep step asks, once, in one row
+ * (`fileChoices`). Asked exactly where `filedFor` would use the answer: a
+ * category on the plan or on any block files it already (a model's Lift block
+ * beside its Run block), and a question whose answer is thrown away is a dead
+ * control (C N6).
+ */
 export function needsFiling(pres, plan, liftField) {
   if (!hasWork(pres)) return false
+  if (pres.category || (pres.blocks || []).some(b => b.category)) return false
   const f = filedFor(pres, plan, liftField)
   return !f.category && !f.activity
 }

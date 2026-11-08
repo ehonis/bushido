@@ -20,6 +20,7 @@ import { LiftLog } from './liftlog'
 import { ActivityPicker } from './activitypicker'
 import { liftsLine, liftsDone, liftFieldIn } from '../lib/lifts.js'
 import { priorSessions } from '../lib/history.js'
+import { climbLine, mootHardest } from '../lib/grades.js'
 import { asksItsOwnDuration, minutesFor, minutesSourceOf } from '../lib/minutes.js'
 import { visibleOutputs, pruneHidden, derivedValue, filledBy } from '../lib/outputs.js'
 import { gateResolver, activityOf, activityLabel } from '../lib/activities.js'
@@ -50,11 +51,15 @@ const dayLabel = (iso: string) => dayWords(iso)
 export const NOTE_HINTS = { notes: 'Anything worth remembering', improve: 'One thing to change' }
 
 /** "3 sets, 21 reps · 5.10+" — what the session itself was, off what was logged. */
-function priorWork(entry: any, field: any = null) {
+function priorWork(entry: any, field: any = null, session: any = null) {
   // What was lifted (`liftsDone`): on a planned workout done on the sheet, the plan's sets (D11).
   const out = entry?.data?.out || {}
   const bits: string[] = []
-  const sets = totalSets(out)
+  // A climbing session answers "what did I climb last time" first, in the line
+  // every list uses (lib/grades.js `climbLine`, #97 F2), not "1 set, 5 reps".
+  const climbed = session ? (climbLine as any)(session, out) : ''
+  if (climbed) bits.push(climbed)
+  const sets = climbed ? 0 : totalSets(out)
   const reps = totalReps(out)
   if (sets) bits.push(`${sets} set${sets === 1 ? '' : 's'}${reps ? `, ${reps} reps` : ''}`)
   const lifting = (liftsLine as any)({ lifts: (liftsDone as any)(entry) }, field)
@@ -93,7 +98,7 @@ export function PriorNote({ entries, session, excludeId, entry = null, all = fal
       </View>
       {shown.map((e, i) => {
         const o = e.data?.out
-        const work = priorWork(e, liftFieldIn(session))
+        const work = priorWork(e, liftFieldIn(session), session)
         return (
           <View key={e.id} style={i > 0 ? st.priorNext : null}>
             <T size={font.caption} faint tabular style={{ marginBottom: space[1] }}>
@@ -485,6 +490,8 @@ export function SessionLog({
   const planHolds = Boolean(entry?.data?.plan?.blocks?.length)
   const fields: any[] = ((visibleOutputs as any)(session, out, derive) as any[])
     .filter((f: any) => !(f.type === 'lifts' && planHolds && !(Array.isArray(out[f.key]) && out[f.key].length)))
+    // A typed "hardest" under a list of graded climbs is moot (lib/grades.js, #97 F9b).
+    .filter((f: any) => !(mootHardest as any)(session, out, f))
 
   // Pruned on the way in, so what is stored and what is on screen can never
   // disagree — correcting a run to a lift takes its distance with it.
@@ -543,7 +550,7 @@ export function SessionLog({
             return (
               <View key={f.key} style={{ gap: space[1] }}>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap' }}>
-                  <T size={font.label} dim>{`${f.label}${f.unit ? ` (${f.unit})` : ''}`}</T>
+                  <T size={font.label} dim>{`${f.label}${f.unit && !f.label.includes(`(${f.unit})`) ? ` (${f.unit})` : ''}`}</T>
                   {source ? <T size={font.caption} dim style={{ marginLeft: space[2] }}>{`from ${source}`}</T> : null}
                 </View>
                 <NumInput

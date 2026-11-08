@@ -32,6 +32,8 @@
     "test:trainer": "node trainer.test.js",
     "test:drafts": "node drafts.test.js",
     "test:planflow": "esbuild planflow.test.js --bundle --platform=node --format=esm --jsx=automatic --packages=external --outfile=.planflowtest.mjs --log-level=error && node .planflowtest.mjs",
+    "test:editing": "esbuild editing.test.js --bundle --platform=node --format=esm --jsx=automatic --packages=external --outfile=.editingtest.mjs --log-level=error && node .editingtest.mjs && esbuild editing.dom.test.jsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --outfile=.editingdomtest.mjs --log-level=error && node .editingdomtest.mjs",
+    "test:blockmenu": "esbuild blockmenu.dom.test.jsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --outfile=.blockmenudomtest.mjs --log-level=error && node .blockmenudomtest.mjs",
     "test:done": "node done.test.js",
     "test:history": "node history.test.js",
     "test:fingers": "node fingers.test.js",
@@ -49,6 +51,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.0",
+    "happy-dom": "^15.11.7",
     "vite": "^7.1.5"
   }
 }

@@ -16,10 +16,10 @@ import {
   EMPTY_SCOPE, resolveScope, scopeOptions, describeScope, weeksIn, activityScopeOf, ACTIVITY_SCOPES,
 } from './src/lib/scope.js'
 import {
-  metricsFor, totalsFor, METRICS, declaredMetrics, pyramidOf, bodyweightSeries,
+  metricsFor, totalsFor, METRICS, declaredMetrics, pyramidOf, bodyweightSeries, volumeCard,
 } from './src/lib/metrics.js'
 import { climbLine } from './src/lib/grades.js'
-import { timeX } from './src/lib/vizscale.js'
+import { timeX, deltaBase } from './src/lib/vizscale.js'
 
 const plan = JSON.parse(readFileSync(new URL('../test/fixtures/plan.json', import.meta.url), 'utf8'))
 
@@ -416,9 +416,10 @@ check('F5: hard workouts on two dates are two', () => {
 check('F6: the doubled lead laps\' per-lap grades are routes on the chart', () => {
   const laps = (date, grades) => did(date, 'lead-laps', { rpe: 6, sets: { doubles: [{ reps: grades.length, grades }] } })
   const r = at([laps('2026-09-02', [10.1, 10.2]), laps('2026-09-09', [10.2, 10.3])])
-  const m = metric(r, 'hardestRoute')
-  ok(m, 'no hardest-route chart from lead laps')
-  eq(m.points.map(p => m.fmtY(p.y)), ['5.10', '5.10+'])
+  // They are routes, in the route pyramid. Lead laps are volume by declaration
+  // (fingerLoad light), so they are not a hardest send (#97 review): see below.
+  eq(pyramidOf(r, plan, 'yds'), [{ band: 10, label: '5.10', sent: 4, tried: 4 }])
+  eq(metric(r, 'hardestRoute'), undefined, 'lead laps drew a hardest-sent line')
 })
 
 check('F6: an old integer route grade is not a boulder, and off-ladder is not plotted', () => {
@@ -585,6 +586,68 @@ check('a grade band narrows to the sessions that touched it', () => {
 check('a climbing row reads as its climbs: "8 routes · hardest 5.10+"', () => {
   const opt = plan.dailyMenu.find(m => m.id === 'fun-sport')
   eq(climbLine(opt, { sets: { routes: [{ reps: 8 }] }, hardestYds: 10.3 }), '8 routes · hardest 5.10+')
+})
+
+check('#97 F1: Climbs per week counts the climbs described, never the prefilled count', () => {
+  // The regrade's week: 10 prefilled with 3 described, then 5 prefilled with 2: 5, not 15.
+  const blank = { grade: '', fell: false, felt: '', style: '' }
+  const night = (n, said) => Array.from({ length: n }, (_, i) => (i < said.length ? { ...blank, ...said[i] } : blank))
+  const r = at([
+    did('2026-09-02', 'fun-boulder', { sets: { problems: [{ reps: 10, climbs: night(10, [{ grade: 3, outcome: 'send' }, { grade: 4, outcome: 'fell' }, { grade: 4, outcome: 'fell' }]) }] } }),
+    did('2026-09-03', 'fun-sport', { sets: { routes: [{ reps: 5, climbs: night(5, [{ grade: 10.2, outcome: 'send' }, { grade: 9.2 }]) }] } }),
+  ])
+  eq(metric(r, 'climbs').points.find(p => p.x === '2026-08-31').y, 5)
+})
+
+check('#97 F3: with Climbing picked, the Climbing charts lead; on the whole page they follow', () => {
+  const entries = [...LOG, did('2026-09-03', 'fun-boulder', { hardest: 4, sets: { problems: [{ reps: 6 }] } })]
+  const picked = metricsFor(plan, at(entries, { activity: 'climbing' })).map(g => g.name)
+  eq(picked[0], 'Climbing', `groups: ${picked}`)
+  const whole = metricsFor(plan, at(entries)).map(g => g.name)
+  eq(whole.filter(n => n !== 'This session').at(-1), 'Climbing', 'the unfiltered page still ends on climbing')
+  // Inside the group, what was climbed by grade comes first.
+  const keys = metricsFor(plan, at(entries, { activity: 'climbing' }))[0].metrics.map(m => m.key)
+  ok(keys.indexOf('boulderPyramid') < keys.indexOf('climbs') && keys.indexOf('climbs') >= 0, `climbing order: ${keys}`)
+})
+
+check('#97 review: ARC and other volume days are not a hardest send, so never a decline', () => {
+  // The seed's Sep 14 and Sep 21: two ARC days, laps at 5.7 to 5.11−, then 5.7 to
+  // 5.10. Per session they drew "▼ 5.11− → 5.9 since Sep 14". (Dated two weeks earlier
+  // here, Aug 31 and Sep 7, so both fall before the suite's TODAY.)
+  const arc = (date, rows) => did(date, 'arc', { rpe: 5, sets: { bout: rows.map(grades => ({
+    reps: grades.length, seconds: null, climbs: grades.map(grade => ({ grade, outcome: 'send' })) })) } })
+  const sep14 = arc('2026-08-31', [[7.2, 8.2, 10.2, 10.1, 11.1, 7.2, 8.2, 10.2, 7.2], [9.2, 10.3, 7.2, 8.2, 7.2, 10.2, 7.2, 8.2]])
+  const sep21 = arc('2026-09-07', [[7.2, 8.2, 7.2, 8.2, 9.2, 7.2, 8.2, 7.2, 8.2, 7.2, 9.2, 10.2], [7.2, 8.2, 7.2, 8.2, 9.2, 7.2]])
+  const opt = (id) => plan.dailyMenu.find(m => m.id === id)
+  ok(volumeCard(opt('arc'), plan) && volumeCard(opt('lead-laps'), plan) && volumeCard(opt('economy'), plan), 'endurance cards are volume')
+  ok(!volumeCard(opt('fun-sport'), plan) && !volumeCard(opt('board'), plan), 'a limit or a free day is not')
+  ok(!volumeCard({ id: 'x', sched: {} }, plan), 'a card that declares nothing is kept')
+  const r = at([sep14, sep21])
+  eq(metric(r, 'hardestRoute'), undefined, 'two ARC days drew a hardest-sent line')
+  // Their climbs still count where volume belongs.
+  ok(pyramidOf(r, plan, 'yds').some(row => row.band === 11), 'the ARC 5.11- left the pyramid')
+  ok(metric(r, 'climbs').points.some(p => p.y === 17), 'the ARC laps left Climbs per week')
+  // With a free day beside them, the line is the free day alone.
+  const sport = (date, grade) => did(date, 'fun-sport', { sets: { routes: [{ reps: 1, climbs: [{ grade, outcome: 'send' }] }] } })
+  const mixed = metric(at([sep14, sport('2026-09-02', 10.2), sep21, sport('2026-09-09', 10.1)]), 'hardestRoute')
+  eq(mixed.points.map(p => `${p.x} ${mixed.fmtY(p.y)} ${p.of}`), ['2026-09-02 5.10 fun-sport', '2026-09-09 5.10− fun-sport'])
+})
+
+check('#97 F7: the hardest sent is the best of each week, its change measured within one card', () => {
+  const sport = (date, grade) => did(date, 'fun-sport', { sets: { routes: [{ reps: 1, climbs: [{ grade, outcome: 'send' }] }] } })
+  const crag = (date, grade) => did(date, 'crag-day', { sets: { burns: [{ reps: 1, climbs: [{ grade, outcome: 'send' }] }] } })
+  const m = metric(at([sport('2026-09-02', 11.1), crag('2026-09-09', 10.2)]), 'hardestRoute')
+  eq(m.points.map(p => p.of), ['fun-sport', 'crag-day'])
+  eq(deltaBase(m.points), null, 'no change is claimed between two different sessions')
+  // Two sessions in one week: one point, the harder, on the day it was sent.
+  const week = metric(at([sport('2026-09-01', 10.2), crag('2026-09-02', 9.2), sport('2026-09-09', 10.3)]), 'hardestRoute')
+  eq(week.points.map(p => `${p.x} ${week.fmtY(p.y)}`), ['2026-09-01 5.10', '2026-09-09 5.10+'])
+  // Like with like: the change is from the same card's earliest point.
+  const like = metric(at([sport('2026-09-01', 10.2), crag('2026-09-09', 9.2), sport('2026-09-15', 10.3)]), 'hardestRoute')
+  eq(deltaBase(like.points).x, '2026-09-01')
+  // Points that say nothing about what they are of compare first to last, as before.
+  eq(deltaBase([{ x: 'a', y: 1 }, { x: 'b', y: 2 }]).x, 'a')
+  eq(deltaBase([{ x: 'a', y: 1 }]), null, 'one point is no change')
 })
 
 console.log(failed ? `\n${failed} progress test(s) failed` : '\nall progress tests pass')

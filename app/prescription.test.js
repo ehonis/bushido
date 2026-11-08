@@ -357,6 +357,54 @@ t('reordering moves one exercise and says where it landed', () => {
   assert.equal(stuck.itemId, 'b0i0')
 })
 
+t('an exercise moves to another block whole: its sets, its uid, at the end (C N12)', () => {
+  const p = normalizePrescription({
+    title: 'x', blocks: [
+      { name: 'Main', category: 'lift', items: [{ kind: 'lift', exercise: 'back-squat', sets: [{ reps: 5, weight: 185 }] }] },
+      { name: 'Accessory', items: [
+        { kind: 'lift', exercise: 'bench-press', sets: [{ reps: 8, weight: 135 }, { reps: 8, weight: 135 }] },
+        { kind: 'lift', exercise: 'barbell-curl', sets: [{ reps: 10 }] },
+      ] },
+      { name: 'Core', circuit: { work: 40, rest: 20, rounds: 3, countIn: 10 }, items: [
+        { kind: 'lift', exercise: 'plank', sets: [{ seconds: 45 }] },
+      ] },
+    ],
+  }, { liftField })
+  const bench = { ...p.blocks[1].items[0], uid: 'u-bench' }
+  const withUid = { ...p, blocks: p.blocks.map((b, i) => (i === 1 ? { ...b, items: [bench, b.items[1]] } : b)) }
+  const names = (q, bi) => q.blocks[bi].items.map(i => i.name)
+
+  const r = moveItem(withUid, 'b1i0', { block: 'b0' })
+  assert.deepEqual(names(r.pres, 0), [names(p, 0)[0], bench.name], 'it did not land at the end of Main')
+  assert.deepEqual(names(r.pres, 1), [names(p, 1)[1]], 'it stayed in Accessory too')
+  assert.equal(r.itemId, 'b0i1', 'the answer does not name where it landed')
+  const landed = r.pres.blocks[0].items[1]
+  assert.equal(landed.uid, 'u-bench', 'the move lost the exercise\u2019s identity (a synced copy would see a new one)')
+  assert.deepEqual(landed.sets.map(st => [st.reps, st.weight]), [[8, 135], [8, 135]], 'its numbers did not come with it')
+
+  // Into a circuit: one set, its timing; the rounds are the circuit's.
+  const c = moveItem(withUid, 'b1i0', { block: 'b2' })
+  assert.equal(c.pres.blocks[2].items.at(-1).sets.length, 1)
+  assert.equal(c.itemId, 'b2i1')
+
+  // The block it leaves empty goes, as after a removal; the landing id follows.
+  const lone = moveItem(p, 'b0i0', { block: 'b1' })
+  assert.deepEqual(lone.pres.blocks.map(b => b.name), ['Accessory', 'Core'])
+  assert.equal(lone.itemId, 'b0i2')
+  // A note keeps it.
+  const noted = { ...p, blocks: p.blocks.map((b, i) => (i === 0 ? { ...b, note: 'Work up to a top set' } : b)) }
+  assert.equal(moveItem(noted, 'b0i0', { block: 'b1' }).pres.blocks.length, 3)
+
+  // Its own block, or a block or exercise that is not there: unchanged.
+  for (const [id, block] of [['b1i0', 'b1'], ['b1i0', 'b9'], ['b9i9', 'b0']]) {
+    const same = moveItem(p, id, { block })
+    assert.equal(same.pres, p)
+    assert.equal(same.itemId, id)
+  }
+  // Up and down still stop at the block's edge.
+  assert.deepEqual(names(moveItem(p, 'b1i1', 'down').pres, 1), names(p, 1))
+})
+
 t('once he has moved off the prescription the last set carries forward', () => {
   const steps = prescriptionSteps(legs)
   const run = markSet(emptyRun(T0), steps[1], { reps: 8, weight: 155 }, { at: T0, steps })

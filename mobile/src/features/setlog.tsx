@@ -11,7 +11,8 @@
  * per-exercise toggle rather than something you type.
  *
  * Native: the web's <select>s are system action sheets, a set row swipes left to
- * remove (the X stays, it is the visible affordance), and the range input is a
+ * remove (with Undo; there is no X in a row since #81, and the foot's "Remove a
+ * set" is the visible way, as on the web), and the range input is a
  * gesture-handler track.
  */
 import React, { useMemo, useRef, useState, useSyncExternalStore } from 'react'
@@ -29,11 +30,12 @@ import { NumInput } from './numinput'
 import { SwipeRemove } from './exercises'
 import {
   GRADE_FIELD, hardestGrade, gradesIn, hasGrades, fitGrades, repCount,
-  VGRADES, CLIMB_FIELD, offersClimbs, climbsOn, blankClimb, fitClimbs, fallsIn, climbsIn,
-  stepClimbs, FELT_MIN, FELT_MAX, feltLabel, DOWN_OPTIONS, downLabel, downsIn, lengthsIn,
+  VGRADES, CLIMB_FIELD, offersClimbs, climbsOn, blankClimb, fitClimbs,
+  stepClimbs, FELT_MIN, FELT_MAX, feltLabel, DOWN_OPTIONS, downLabel, lengthsIn,
   routeLadder, routeSystem, setRouteSystem, ROUTE_SYSTEMS, labelOn, scaleOfExercise,
-  climbCount, detailOn, dropClimb, putClimb, climbSaid, saidIn, isClean,
+  climbCount, detailOn, dropClimb, putClimb, climbSaid, saidIn,
   outcomesFor, outcomeOf, outcomeLabel, withOutcome, MAX_CLIMBS,
+  climbsCounted, climbTotals, nearRungs,
 } from '../lib/grades.js'
 
 const FIELD_META: Record<string, { label: string; width?: number; step?: number; kind?: string }> = {
@@ -279,6 +281,9 @@ export function ClimbLog({ count, values, spec, onChange, onMore, onDrop, what =
 
   const nextBlank = current >= 0 ? climbs.findIndex((c, k) => k > current && !climbSaid(c)) : -1
   const untold = current >= 0 ? climbs.filter((c, k) => k > current && !climbSaid(c)).length : 0
+  // Once one climb is described the described ones are the count (lib/grades.js
+  // `climbsCounted`, #97): the line says the blanks after them do not count.
+  const anySaid = climbs.some((c) => climbSaid(c))
   const next = nextBlank >= 0
     ? { label: `Next ${what}`, go: () => setPicked(nextBlank) }
     : onMore ? { label: `Add ${what}`, go: () => { setPicked(count); onMore() } } : null
@@ -302,10 +307,14 @@ export function ClimbLog({ count, values, spec, onChange, onMore, onDrop, what =
             <LadderSelect ladder={ladder} fmt={fmt} value={c.grade} label={`${tag} grade`}
               onChange={(v: any) => at(i, { grade: v })} />
           )}
-          {/* The fast path: most of an evening is the same grade again. */}
-          {!hasGrade && !omitGrade && prev != null ? (
-            <Chip out label={`Same as last: ${fmt(prev)}`} onPress={() => at(i, { grade: prev })} />
-          ) : null}
+          {/* The fast path: most of an evening is the same grade again, or one
+              either side of it (#97 F9c): a pick no longer starts a 31-item sheet at 5.5. */}
+          {!hasGrade && !omitGrade && prev != null
+            ? (nearRungs as any)(ladder, prev, fmt).map((r: any) => (
+              <Chip key={r.step} out label={r.step === 0 ? `Same as last: ${r.label}` : r.label}
+                onPress={() => at(i, { grade: r.value })} />
+            ))
+            : null}
         </View>
         <View style={st.outcomes} accessibilityLabel={`${tag}: how it went`}>
           {outcomesFor(scale).map((o: any) => (
@@ -313,7 +322,7 @@ export function ClimbLog({ count, values, spec, onChange, onMore, onDrop, what =
               onPress={() => write(i, withOutcome(c, said === o.value ? null : o.value))} />
           ))}
         </View>
-        <Fold summary="Details">
+        <Fold summary="More details">
           <View style={[st.climbRow, { paddingTop: space[2] }]}>
             {(spec?.styles?.length ?? 0) > 0 && (
               <SelectBox
@@ -382,7 +391,7 @@ export function ClimbLog({ count, values, spec, onChange, onMore, onDrop, what =
           </Press>
         )
       })}
-      {untold > 0 ? <T size={font.label} faint>{`${untold} more ${plural(what, untold)}, not described`}</T> : null}
+      {untold > 0 ? <T size={font.label} faint>{`${untold} more ${plural(what, untold)}, not described${anySaid ? ', so not counted' : ''}`}</T> : null}
       {current < 0 ? nextButton : null}
     </View>
   )
@@ -479,12 +488,15 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null }: any
   const inTable = (r: any) => !(Array.isArray(r[CLIMB_FIELD]) && cols.every((f) => f === 'reps'))
   const table = rows.some(inTable)
 
-  const total = rows.reduce((s: number, r: any) => s + (Number(r.reps) || 0), 0)
-  const falls = detailed ? fallsIn(rows) : 0
-  const sent = detailed ? climbsIn(rows).filter((c: any) => climbSaid(c) && isClean(c)).length : 0
-  // Lengths of wall: a lap climbed and reversed is two. Shown only when it differs.
-  const downs = detailed ? downsIn(rows) : 0
-  const lengths = detailed ? lengthsIn(rows) : 0
+  // What the rows COUNT (lib/grades.js `climbTotals`, the web's too): with the
+  // detail on, the described climbs once any is (#97). Lengths of wall: a lap
+  // climbed and reversed is two. Shown only when it differs.
+  const foot = (climbTotals as any)(rows)
+  const total = foot.count
+  const falls = detailed ? foot.falls : 0
+  const sent = detailed ? foot.sent : 0
+  const downs = detailed ? foot.downs : 0
+  const lengths = detailed ? foot.lengths : 0
   const noun = exercise.repName ? plural(exercise.repName, total) : 'reps'
 
   const climbList = (r: any, i: number) => (
@@ -535,7 +547,7 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null }: any
                     {/* While the detail is on, the climb list IS the count: shown, not typed. */}
                     {f === 'reps' && Array.isArray(r[CLIMB_FIELD]) ? (
                       <View style={[st.numBox, { width: TAP }]} accessibilityLabel={`set ${i + 1} ${colLabel(f)}`}>
-                        <T size={font.input} dim tabular align="center">{String(climbCount(r.reps))}</T>
+                        <T size={font.input} dim tabular align="center">{String(climbsCounted(r))}</T>
                       </View>
                     ) : (
                       <NumInput
@@ -572,7 +584,14 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null }: any
       <View style={st.foot}>
         <Btn kind="secondary" icon="Plus" title="Add set" onPress={addSet} />
         {/* Off the number row on purpose: the set comes back with Undo. */}
-        {rows.length > 1 ? <Btn kind="quiet" title="Remove last set" onPress={() => dropSet(rows.length - 1)} /> : null}
+        {/* Any set, picked from a system sheet (the web asks in its foot, #97 F9d);
+            the swipe on a row does the same. Every removal comes back with Undo. */}
+        {rows.length > 1 ? (
+          <Btn kind="quiet" title="Remove a set" onPress={() => showMenu(
+            rows.map((_: any, i: number) => ({ label: `Set ${i + 1}`, destructive: true, onPress: () => dropSet(i) })),
+            { title: 'Which set?' },
+          )} />
+        ) : null}
       </View>
       <T size={font.label} faint tabular>
         {(table ? `${rows.length} set${rows.length === 1 ? '' : 's'}${total ? ` · ${total} ${noun}` : ''}` : `${total} ${noun}`)
@@ -584,6 +603,14 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null }: any
     </View>
   )
 }
+
+/**
+ * Does the plan put a number in any of these boxes? Only then does the log say it
+ * was pre-filled (#97 review): a card with no defaults (the starter's climbing
+ * cards) opened on an empty box under a line saying it was filled in from the plan.
+ */
+export const prefilledBy = (spec: any) => (spec?.exercises || []).some((ex: any) =>
+  (ex.fields || []).some((f: string) => ex.defaults?.[f] !== undefined && ex.defaults[f] !== null && ex.defaults[f] !== ''))
 
 export function SetLog({ session, out, onSave, hints = null }: any) {
   const spec = session?.logSpec
@@ -612,7 +639,9 @@ export function SetLog({ session, out, onSave, hints = null }: any) {
           onSign={(s: string) => setSign(ex, s)}
         />
       ))}
-      <T size={font.caption} faint>Pre-filled from the plan: change what didn't match, and add a set if you did more.</T>
+      {prefilledBy(spec) ? (
+        <T size={font.caption} faint>Pre-filled from the plan: change what didn't match, and add a set if you did more.</T>
+      ) : null}
     </View>
   )
 }
@@ -626,11 +655,11 @@ export function signedLoad(row: any, sign: string) {
   return sign === '-' ? -Math.abs(w) : Math.abs(w)
 }
 
-/** Total completed reps across every exercise in a logged session. */
+/** Total completed reps across every exercise; a row with the detail on counts what it counts (#97). */
 export function totalReps(out: any): number {
   return (Object.values(out?.sets || {}) as any[])
     .flat()
-    .reduce((s: number, r: any) => s + (Number(r?.reps) || 0), 0)
+    .reduce((s: number, r: any) => s + (Array.isArray(r?.[CLIMB_FIELD]) ? climbsCounted(r) : (Number(r?.reps) || 0)), 0)
 }
 
 /**

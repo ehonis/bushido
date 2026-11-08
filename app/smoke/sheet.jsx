@@ -13,7 +13,7 @@ import { WorkoutRunner } from '../src/runner.jsx'
 import { climbingFolders } from '../src/lib/folders.js'
 import { normalizePrescription, emptyRun, setCircuit, tickSet } from '../src/lib/prescription.js'
 import { PlanProvider } from '../src/lib/planctx.jsx'
-import { SessionLog, NameField, SessionDetails, DetailsSheet, NOTE_HINTS } from '../src/sessionlog.jsx'
+import { SessionLog, NameField, SessionDetails, DetailsSheet, NOTE_HINTS, PriorNote } from '../src/sessionlog.jsx'
 import { SetLog, withoutClimb, withClimbBack } from '../src/setlog.jsx'
 import { ExerciseCard, implementPick } from '../src/exercises.jsx'
 import { liftFieldOf } from '../src/lib/lifts.js'
@@ -29,7 +29,7 @@ import { BUILT_INS } from '../src/lib/timer.js'
 import {
   plan, example, entries, noop, otherCard, priorLifts, TODAY, back, rich, noteHistory,
   cfEntries, text, augOnly, uniWork, LIFT_FIELD, SQUAT, PRESCRIPTION, PLANNED_CARD,
-  PLANNED_ENTRY, HELD_PLAN,
+  PLANNED_ENTRY, HELD_PLAN, noClimbing, starter,
 } from './fixtures.jsx'
 
 export default [
@@ -661,13 +661,19 @@ export default [
       for (const o of ['Flash', 'Sent', 'Fell']) if (!new RegExp(`>${o}<`).test(html)) throw new Error(`no ${o} outcome`)
       if (/>Onsight</.test(html)) throw new Error('onsight is a route word, not a boulder one')
       if (!/Same as last: V5/.test(t)) throw new Error('no one-tap repeat of the last grade')
+      // And one rung either side of it (#97, F9c), so a pick rarely starts at V0.
+      if (!/aria-label="problem 3: one easier, V4"/.test(html) || !/aria-label="problem 3: one harder, V6"/.test(html)) throw new Error('no one-tap rung either side of the last grade')
       // The rest of the evening is one line, and the next one is a tap beside the current.
-      if (!/2 more problems, not described/.test(t)) throw new Error('the undescribed problems are not one quiet line')
+      // They are the count standing in, and the line says so (#97, F1).
+      if (!/2 more problems, not described, so not counted/.test(t)) throw new Error('the undescribed problems are not one honest line')
       if (!/>Next problem</.test(t.replace(/<svg.*?<\/svg>\s*/g, '>'))) throw new Error('no Next problem beside the current one')
       // Style, felt, tries and Remove wait behind Details.
-      if (!/<details class="climb-more"><summary>Details<\/summary>/.test(html)) throw new Error('the optional detail is not folded')
+      if (!/<details class="climb-more"><summary>[\s\S]*?More details<\/summary>/.test(html)) throw new Error('the optional detail is not folded behind a control that says it opens')
+      if (/<summary>Details<\/summary>/.test(html)) throw new Error('the bare "Details" label is back (#97, F9a)')
       if (!/Remove problem/.test(t)) throw new Error('no way to remove a problem')
-      if (!/1 sent/.test(t) || !/fell on 1/.test(t) || !/5 problems/.test(t)) throw new Error('the footer must count problems, sends and falls')
+      // Two described of five listed: the foot counts the two (#97, F1).
+      if (!/1 sent/.test(t) || !/fell on 1/.test(t) || !/2 problems/.test(t)) throw new Error('the footer must count problems, sends and falls')
+      if (/5 problems/.test(t)) throw new Error('the prefilled count is read as problems climbed')
       // The count is the list now: no reps box, no stepper, no table.
       if (/aria-label="set 1 reps"/.test(html) || /one more problem/.test(html)) throw new Error('the count is typed or stepped beside the list')
       if (/exlog-table/.test(html)) throw new Error('a one-column table for a list of climbs')
@@ -708,6 +714,8 @@ export default [
     const html = renderToString(<SetLog session={plan.dailyMenu.find(m => m.id === 'fun-boulder')} onSave={noop}
       out={{ sets: { problems: [{ reps: 25, climbs: Array.from({ length: 25 }, () => ({ grade: '', fell: false, felt: '', style: '' })) }] } }} />)
     if (!/24 more problems, not described/.test(text(html)) || !/25 problems/.test(text(html))) throw new Error('a 25-problem evening was cut short')
+    // Nothing described yet: the count stands, and nothing says otherwise (#97).
+    if (/not counted/.test(text(html))) throw new Error('a count nobody has described into is called not counted')
   }],
   // Sets come off from the foot, with Undo, never from an X beside the number
   // being typed (#81, E F1: a 30px X removed a whole evening's routes).
@@ -715,7 +723,9 @@ export default [
     const opt = plan.dailyMenu.find(m => m.id === 'repeaters')
     const html = renderToString(<SetLog session={opt} out={{}} onSave={noop} />)
     if (/Remove set \d/.test(html) || /exlog-x/.test(html)) throw new Error('the per-row X is back')
-    if (!/Remove last set/.test(html)) throw new Error('no way to take a set off')
+    // Any set, chosen in the foot (#97, F9d), not only the last.
+    if (!/>Remove a set</.test(html)) throw new Error('no way to take a set off')
+    if (/Remove last set/.test(html)) throw new Error('only the last set can be removed')
     if (/type="number"/.test(html)) throw new Error('a controlled number input eats the trailing dot')
     if (/log each/i.test(html)) throw new Error('a hangboard set offers per-climb detail')
   }],
@@ -1082,9 +1092,17 @@ export default [
         onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop} />))
     if (t.includes('Interval timer')) throw new Error('a timer for resting')
   }],
-  ['example: no climbing folders', null, () => {
-    const keys = climbingFolders(example).map(f => f.key)
-    if (keys.join() !== 'plan') throw new Error(`the example is foldered as ${keys.join(', ')}`)
+  // A plan with no climbing cards has no climbing folders (the starter and the
+  // example carry two plain ones since #97, so the plan here is the example less them).
+  ['a plan with no climbing: no climbing folders', null, () => {
+    const keys = climbingFolders(noClimbing).map(f => f.key)
+    if (keys.join() !== 'plan') throw new Error(`a plan with no climbing is foldered as ${keys.join(', ')}`)
+  }],
+  // The starter's two climbing cards file under the two doors (#97, F4).
+  ['starter: its climbing cards are in Bouldering and Rock climbing', null, () => {
+    const folders = climbingFolders(starter)
+    const count = (key) => folders.find(f => f.key === key)?.count || 0
+    if (count('bouldering') !== 1 || count('rock-climbing') !== 1) throw new Error(`the starter is foldered as ${folders.map(f => `${f.key} ${f.count}`).join(', ')}`)
   }],
   /*
    * Start on a circuit: a plan that is nothing but a circuit runs on the timer's
@@ -1233,5 +1251,68 @@ export default [
     // A free-form lift (no plan) still asks.
     const free = renderToString(<SessionLog session={otherCard} entry={{ id: 'f', kind: 'daily', date: TODAY, data: { optId: 'log-workout', out: { activity: 'lift' } } }} entries={[]} onSave={noop} />)
     if (!/What did you lift\?/.test(free)) throw new Error('a free-form lift lost its lift list')
+  }],
+  // "Last time you did this" on a climbing card answers what was climbed, and an
+  // old date is in words (#97, F2): it said "2026-10-19" and nothing else.
+  ['PriorNote(a climbing night reads as what was climbed)', <PriorNote session={plan.dailyMenu.find(m => m.id === 'fun-sport')}
+    excludeId="now" entries={[{ id: 'daily-2026-08-19', kind: 'daily', date: '2026-08-19', updatedAt: 'z',
+      data: { optId: 'fun-sport', level: 2, done: true, out: { sets: { routes: [{ reps: 2, climbs: [
+        { grade: 10.2, outcome: 'send' }, { grade: 11.2, outcome: 'fell' }] }] } } } }]} />,
+    (html) => {
+      const t = text(html)
+      if (!/2 routes · hardest 5\.10/.test(t)) throw new Error(`last time reads: ${t.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')}`)
+      if (/\d sets?, \d+ reps/.test(t)) throw new Error('last time counts sets and reps on a climbing card')
+      if (/2026-08-19/.test(t)) throw new Error('an old date is printed as ISO')
+    }],
+  // The typed "hardest" field under a list of graded climbs is a second answer
+  // nothing reads; it goes while climbs are graded, and its unit is said once (#97, F9b).
+  ['SessionLog(the typed hardest is moot under graded climbs)', null, () => {
+    const card = plan.dailyMenu.find(m => m.id === 'fun-boulder')
+    const at = (out) => text(renderToString(<SessionLog session={card} onSave={noop} entries={[]} bare
+      entry={{ id: 'b', kind: 'daily', date: TODAY, updatedAt: 'z', data: { optId: 'fun-boulder', level: 2, out } }} />))
+    const count = at({ sets: { problems: [{ reps: 6 }] } })
+    if (!/Hardest thing you climbed \(V\)/.test(count)) throw new Error('a count-only night lost its hardest field')
+    if (/\(V\) \(V\)/.test(count)) throw new Error('the unit is printed twice')
+    const graded = at({ hardest: 6, sets: { problems: [{ reps: 2, climbs: [{ grade: 4, outcome: 'send' }, { grade: 5, outcome: 'fell' }] }] } })
+    if (/Hardest thing you climbed/.test(graded)) throw new Error('the typed hardest sits under the graded climbs')
+  }],
+  // A climbing card being logged opens on its log; the protocol and evidence are
+  // one fold under it (#97, F5). Before, the log began about 1,070px down.
+  ['Sheet(a climbing card opens on its log, protocol folded)', <SessionSheet opt={plan.dailyMenu.find(m => m.id === 'fun-boulder')}
+    entry={{ id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { optId: 'fun-boulder', level: 2, out: {} } }}
+    entries={[]} isFuture={false} onLog={noop} onSave={noop} onClose={noop} />,
+    (html) => {
+      const log = html.indexOf('class="setlog"')
+      const about = html.indexOf('class="sess-about"')
+      if (log < 0) throw new Error('no set log on the sheet')
+      if (about < 0 || about < log) throw new Error('the protocol is not folded under the log')
+      const firstProtocol = Math.min(...['class="sess ', 'class="ev-note"', 'class="sect-nav"'].map(k => html.indexOf(k)).filter(i => i >= 0))
+      if (firstProtocol < about) throw new Error('protocol prose sits above the log, outside its fold')
+      if (!/rec-dose/.test(html.slice(0, log))) throw new Error('the dose line left the top of the card')
+    }],
+  // The other side: a climbing card on a day still to come is planning, protocol open.
+  ['Sheet(a climbing card on a later day keeps its protocol open)', <SessionSheet opt={plan.dailyMenu.find(m => m.id === 'fun-boulder')}
+    entry={null} entries={[]} isFuture onLog={noop} onSave={noop} onClose={noop} />,
+    (html) => {
+      if (/sess-about/.test(html)) throw new Error('a future day folds the protocol it is being planned from')
+      if (!/class="sess /.test(html)) throw new Error('no protocol on a future day')
+    }],
+  // A card that counts no climbs keeps its order: protocol, then the log.
+  ['Sheet(a hangboard card keeps protocol then log)', <SessionSheet opt={plan.dailyMenu.find(m => m.id === 'repeaters')}
+    entry={{ id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z', data: { optId: 'repeaters', level: 3, out: {} } }}
+    entries={[]} isFuture={false} onLog={noop} onSave={noop} onClose={noop} />,
+    (html) => {
+      if (/sess-about/.test(html)) throw new Error('a hangboard card folded its protocol')
+      if (html.indexOf('class="sess ') > html.indexOf('class="setlog"')) throw new Error('the hangboard log moved above its protocol')
+    }],
+  // "Pre-filled from the plan" only where the plan filled something in (#97 review):
+  // the starter's Bouldering card has no default count and opens on an empty box.
+  ['SetLog(the pre-filled note only when the plan pre-fills)', null, () => {
+    const note = /Pre-filled from the plan/
+    const bare = renderToString(<SetLog session={starter.dailyMenu.find(m => m.id === 'climb-bouldering')} out={{}} onSave={noop} />)
+    if (note.test(bare)) throw new Error('an empty box is said to be pre-filled')
+    const filled = renderToString(<SetLog session={plan.dailyMenu.find(m => m.id === 'fun-boulder')} out={{}} onSave={noop} />)
+    if (!note.test(filled)) throw new Error('a pre-filled count no longer says where it came from')
   }],
 ]

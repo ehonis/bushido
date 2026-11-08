@@ -19,6 +19,7 @@ import { Icon } from '../lib/icons'
 import { MovesList, hasMoves } from './howto'
 import { ceilingState, CF_CORRECTION_KG } from '../lib/force.js'
 import { blockTimers } from '../lib/workout.js'
+import { countsClimbs } from '../lib/grades.js'
 
 /** Latest usable max, expressed as TOTAL load on the fingers (bodyweight + added). */
 export function resolveMax(entries: any[]) {
@@ -429,3 +430,22 @@ const st = StyleSheet.create({
   },
   grade: { borderWidth: 1, borderRadius: radius.mark, paddingHorizontal: space[2], paddingVertical: 2 },
 })
+
+/* ------------------------------------------------- a climbing card, doing */
+
+/*
+ * A CLIMBING CARD BEING LOGGED OPENS ON ITS LOG (#97, F5), as on the web
+ * (session.jsx): the dose, "last time", the log, then the protocol and its
+ * evidence in one fold. On a day still to come the protocol stays open.
+ */
+export const climbLogLeads = (opt: any) => (opt?.logSpec?.exercises || []).some((ex: any) => (countsClimbs as any)(ex))
+
+/** The protocol and evidence of a card, folded under the log. */
+export function SessionAbout({ session, entries }: { session: any; entries: any[] }) {
+  if (!session?.protocol) return null
+  return (
+    <Fold summary="About this session">
+      <SessionView key={session.id} session={session} entries={entries} />
+    </Fold>
+  )
+}

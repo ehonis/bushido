@@ -304,6 +304,32 @@ export default [
       // Already on today: no way "back to today" to offer.
       if (/class="btn quiet">Today</.test(html)) throw new Error('a "Today" button while on today')
     }],
+  /*
+   * START ALWAYS STARTS (#95, C N5). The planner's Start workout hands Today an
+   * entry id; Today showing another day looked for it only there, and nothing
+   * opened. Today goes to the entry's own day first. Pinned both ways: the day
+   * an opened workout is on, and no move when nothing is being opened.
+   */
+  ['TodayTab(a workout opened from the planner is shown on its own day)', null, () => {
+    const tomorrow = isoShift(TODAY, 1)
+    const planned = { ...PLANNED_ENTRY, id: `daily-${tomorrow}`, date: tomorrow }
+    const opened = renderToString(<TodayTab plan={plan} entries={[planned]} upsertEntry={noop} deleteEntry={noop}
+      openEntryId={planned.id} onOpened={noop} />)
+    if (!/<h2>Tomorrow<\/h2>/.test(opened)) throw new Error('Today stayed on another day, so the workout never opened')
+    if (!text(opened).includes(PRESCRIPTION.title)) throw new Error('the opened workout is not on the day shown')
+    const idle = renderToString(<TodayTab plan={plan} entries={[planned]} upsertEntry={noop} deleteEntry={noop} />)
+    if (!/<h2>Today<\/h2>/.test(idle)) throw new Error('Today moved to another day with nothing being opened')
+    const unknown = renderToString(<TodayTab plan={plan} entries={[planned]} upsertEntry={noop} deleteEntry={noop}
+      openEntryId="daily-nowhere" onOpened={noop} />)
+    if (!/<h2>Today<\/h2>/.test(unknown)) throw new Error('an id that is no entry moved the day')
+    // Only one thing drives Today's day at a time: while a workout is being opened,
+    // a day asked for ("See it on Mon", #101) is handed back, not applied (both platforms).
+    for (const f of ['src/tabs.jsx', '../mobile/src/features/tabs.tsx']) {
+      const src = readFileSync(new URL(`../${f}`, import.meta.url), 'utf8')
+      if (!/if \(showDay\?\.date && opening\) \{ onDayShown\?\.\(\); return \}/.test(src)) throw new Error(`${f}: an asked-for day and an opening both drive Today`)
+      if (!/if \(opening && followed !== opening\.id\)/.test(src)) throw new Error(`${f}: an opening is followed more than once`)
+    }
+  }],
   ['DaySwitcher(another day says which, offers the way back, and stops at max)', null, () => {
     const t = TODAY
     const y = isoShift(t, -1)
@@ -476,7 +502,20 @@ export default [
       if (!t.includes('Head cold, stayed in bed')) throw new Error('the note is not on the row')
     }],
   // A FRESH INSTALL. content/starter.json is the first thing a stranger's
-  // install renders: no climbing cards, the catalogs only.
+  // install renders: the catalogs, the rest card and two plain climbing cards (#97).
   ['starter: TodayTab', <TodayTab plan={starter} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
   ['example: TodayTab', <TodayTab plan={example} entries={[]} upsertEntry={noop} deleteEntry={noop} />],
+  // A climbing night's row says what was climbed, in the Log's own line (#97, F2):
+  // it read "1 set", the set log's container.
+  ['TodayTab(a climbing row says what was climbed, not "1 set")', <TodayTab plan={plan} upsertEntry={noop} deleteEntry={noop} entries={[
+    { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { optId: 'fun-sport', level: 2, done: true, out: { minutesSpent: 40, sets: { routes: [{ reps: 5, climbs: [
+        { grade: 10.2, outcome: 'send' }, { grade: 9.2, outcome: 'send' }, { grade: 10.3, outcome: 'fell' },
+        { grade: 9.2, outcome: 'flash' }, { grade: 8.2, outcome: 'send' }] }] } } } },
+  ]} />,
+    (html) => {
+      const t = text(html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
+      if (!/40 min · 5 routes · hardest 5\.10/.test(t)) throw new Error(`the climbing row: ${t.slice(t.indexOf('Sport climbing'), t.indexOf('Sport climbing') + 120)}`)
+      if (/1 set\b/.test(t)) throw new Error('the row counts the set log, not the climbs')
+    }],
 ]

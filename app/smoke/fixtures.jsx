@@ -16,6 +16,8 @@ export const plan = JSON.parse(readFileSync(new URL('../../test/fixtures/plan.js
 export const starter = JSON.parse(readFileSync(new URL('../../content/starter.json', import.meta.url), 'utf8'))
 /* The invented example plan, as Settings → "Use the example plan" imports it. */
 export const example = JSON.parse(readFileSync(new URL('../../examples/plan.json', import.meta.url), 'utf8'))
+/* A plan with no climbing cards: the example, less the starter's two (#97). */
+export const noClimbing = { ...example, dailyMenu: example.dailyMenu.filter(m => m.discipline !== 'climbing') }
 
 /*
  * An invented Strava cache: one bike, one pair of shoes, an athlete with a
