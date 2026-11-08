@@ -221,10 +221,10 @@ test('a draft reopens for the people it was for, and an old one with a single `f
 
 test('the words for who it is for agree with each other', () => {
   assert.equal(namesOf([SAM, ROBIN, { name: 'Kim' }]), 'Sam, Robin and Kim')
-  assert.equal(forWords(FOR_ME).keep, 'Put it on today')
+  assert.equal(forWords(FOR_ME).keep, 'Add to Today')
   assert.equal(forWords(FOR_ME).line, null)
   assert.equal(forWords({ me: false, others: [SAM] }).line, 'Planning for Sam · it goes in Sam’s log')
-  assert.equal(forWords({ me: true, others: [SAM] }).keep, 'Put it on today with Sam')
+  assert.equal(forWords({ me: true, others: [SAM] }).keep, 'Add to Today with Sam')
   assert.equal(forWords({ me: true, others: [SAM] }).line, 'You and Sam · one shared workout')
   assert.equal(forWords({ me: false, others: [SAM, ROBIN] }).title, 'On Sam and Robin’s days')
 })

@@ -22,8 +22,9 @@ import progress from './progress.jsx'
 import profile from './profile.jsx'
 import people from './people.jsx'
 import misc from './misc.jsx'
+import system from './system.jsx'
 
-const AREAS = { today, sheet, editor, planner, runner, workout, timer, log, progress, profile, people, misc }
+const AREAS = { today, sheet, editor, planner, runner, workout, timer, log, progress, profile, people, misc, system }
 
 /* An element may be a spread of several cases, so the count is taken after it. */
 const cases = Object.values(AREAS).flat()

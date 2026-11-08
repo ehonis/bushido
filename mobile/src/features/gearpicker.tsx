@@ -50,8 +50,8 @@ export function GearPicker({ session, out, entries = [], onChange }: any) {
   return (
     <View style={{ gap: space[2] }}>
       <View style={st.label}>
-        <T size={font.small} dim>On what</T>
-        {picked.length === 0 && <T size={font.small} faint>optional</T>}
+        <T size={font.label} dim>On what</T>
+        {picked.length === 0 && <T size={font.label} faint>optional</T>}
       </View>
       <View style={st.chips}>
         {choices.map((g) => (

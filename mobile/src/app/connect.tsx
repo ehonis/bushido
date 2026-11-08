@@ -143,7 +143,7 @@ export default function Connect() {
 
         {!step2 ? (
           <>
-            <T size={font.heading} weight={600} style={st.title}>Connect to Bushido</T>
+            <T size={font.screen} weight={600} style={st.title}>Connect to Bushido</T>
             <Sub style={st.lead}>The machine running Bushido. A Tailscale IP or name works.</Sub>
             <Card>
               <Field label="Server address">
@@ -162,14 +162,14 @@ export default function Connect() {
                 {`An IP or Tailscale name uses port ${DEFAULT_PORT}; a domain uses https.`}
               </T>
               {stage ? <Sub style={st.msg}>{stage}</Sub> : null}
-              {error ? <T color={colors.bad} size={font.small} style={st.msg}>{error}</T> : null}
+              {error ? <T color={colors.bad} size={font.label} style={st.msg}>{error}</T> : null}
               <Btn title="Continue" loading={busy} disabled={!address.trim()} onPress={findServer} style={st.go} />
             </Card>
           </>
         ) : (
           <>
-            <T size={font.heading} weight={600} style={st.title}>Sign in</T>
-            <T size={font.small} dim style={st.lead} numberOfLines={1}>{server!.baseUrl.replace(/^https?:\/\//, '')}</T>
+            <T size={font.screen} weight={600} style={st.title}>Sign in</T>
+            <T size={font.label} dim style={st.lead} numberOfLines={1}>{server!.baseUrl.replace(/^https?:\/\//, '')}</T>
             <Card>
               {useToken ? (
                 <Field label="API token">
@@ -212,7 +212,7 @@ export default function Connect() {
                   </Field>
                 </View>
               )}
-              {error ? <T color={colors.bad} size={font.small} style={st.msg}>{error}</T> : null}
+              {error ? <T color={colors.bad} size={font.label} style={st.msg}>{error}</T> : null}
               <Btn title="Sign in" loading={busy} disabled={!canSignIn} onPress={signIn} style={st.go} />
             </Card>
             <View style={st.links}>
@@ -231,11 +231,11 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 const st = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.bg },
-  scroll: { flexGrow: 1, justifyContent: 'center', padding: space[5], maxWidth: 440, width: '100%', alignSelf: 'center' },
+  scroll: { flexGrow: 1, justifyContent: 'center', padding: space[6], maxWidth: 440, width: '100%', alignSelf: 'center' },
   mark: { flexDirection: 'row', alignItems: 'center', gap: space[2], marginBottom: space[6] },
   title: { marginBottom: space[1] },
   lead: { marginBottom: space[4] },
-  help: { marginTop: 6 },
+  help: { marginTop: space[2] },
   msg: { marginTop: space[3] },
   go: { marginTop: space[4] },
   links: { flexDirection: 'row', justifyContent: 'space-between', marginTop: space[2] },

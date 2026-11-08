@@ -75,8 +75,8 @@ export function ShareChip({ entry, on = [], people = [], onOpen }: {
       accessibilityLabel={on.length ? `Who is on this workout: ${title}${sync ? `, ${sync}` : ''}` : 'Add someone to this workout'}
       style={[st.shareChip, { flexShrink: 1 }]}>
       <Icon name={on.length ? 'Users' : 'UserPlus'} size={16} color={colors.inkFaint} />
-      <T size={font.small} weight={500} color={on.length ? colors.ink : colors.inkDim} numberOfLines={1} style={{ flexShrink: 1 }}>
-        {title}{sync ? <T size={font.small} dim>{` · ${sync}`}</T> : null}
+      <T size={font.label} weight={500} color={on.length ? colors.ink : colors.inkDim} numberOfLines={1} style={{ flexShrink: 1 }}>
+        {title}{sync ? <T size={font.label} dim>{` · ${sync}`}</T> : null}
       </T>
       <Icon name="ChevronRight" size={14} color={colors.inkFaint} />
     </Press>
@@ -120,7 +120,7 @@ export function SharePanel({ entry, on = [], people = [], busy = null, error = n
               </View>
               <SyncToggle person={p} on={synced} onChange={(v) => onSync(p, v)} />
               {!synced && onCopy && hasExercises(entry) ? (
-                <Btn kind="ghost" icon="Copy" title={`Copy my exercises to ${p.name}`} disabled={Boolean(busy)} onPress={() => onCopy(p)} />
+                <Btn kind="secondary" icon="Copy" title={`Copy my exercises to ${p.name}`} disabled={Boolean(busy)} onPress={() => onCopy(p)} />
               ) : null}
               <Btn kind="quiet" icon="UserMinus" title={`Take ${p.name} off this workout`} disabled={Boolean(busy)} onPress={() => onRemove(p)} />
             </View>
@@ -134,14 +134,14 @@ export function SharePanel({ entry, on = [], people = [], busy = null, error = n
                 <Icon name="UserPlus" size={20} color={colors.inkDim} />
                 <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                   <T size={font.body} weight={500}>{`Add ${p.name}`}</T>
-                  <T size={font.small} dim>{`It goes in ${p.name}’s log; ${p.name} logs their own numbers`}</T>
+                  <T size={font.label} dim>{`It goes in ${p.name}’s log; ${p.name} logs their own numbers`}</T>
                 </View>
               </Press>
             ))}
           </View>
         ) : null}
-        {busy ? <T size={font.small} dim>{busy}</T> : null}
-        {error ? <T size={font.small} color={colors.bad}>{error}</T> : null}
+        {busy ? <T size={font.label} dim>{busy}</T> : null}
+        {error ? <T size={font.label} color={colors.bad}>{error}</T> : null}
       </ScrollView>
     </Popover>
   )
@@ -263,7 +263,7 @@ export function Avatar({ name, tone = 0, size = 28, outline = false }: { name: s
   return (
     <View style={[st.avatar, { width: size, height: size, borderRadius: size / 2 },
       outline ? { borderWidth: 1.5, borderColor: c } : { backgroundColor: c }]}>
-      <T size={size <= 22 ? font.caption : font.small} weight={700} color={outline ? c : colors.bg} lineHeight={size - 4}>
+      <T size={size <= 22 ? font.caption : font.label} weight={700} color={outline ? c : colors.bg} lineHeight={size - 4}>
         {(String(name || '?').trim().charAt(0) || '?').toUpperCase()}
       </T>
     </View>
@@ -286,7 +286,7 @@ export function PersonChip({ person, tone = 1, on = false, onPress, tall = false
       style={[kit.chip, st.personChip, tall && { minHeight: TAP, paddingRight: space[4] },
         on && { backgroundColor: toneSoft(tone), borderColor: toneLine(tone) }]}>
       <Avatar name={person.name} tone={tone} size={22} outline={!on} />
-      <T size={font.small} color={on ? colors.ink : colors.inkDim} numberOfLines={1} style={{ flexShrink: 1 }}>{person.name}</T>
+      <T size={font.label} color={on ? colors.ink : colors.inkDim} numberOfLines={1} style={{ flexShrink: 1 }}>{person.name}</T>
     </Press>
   )
 }
@@ -306,7 +306,7 @@ export function PersonSegmented({ people, side, onSide, label, status = {}, done
   style?: any
 }) {
   return (
-    <View style={[kit.segWrap, { flexDirection: 'row', gap: 4, marginBottom: 0 }, style]} accessibilityRole="tablist" accessibilityLabel={label}>
+    <View style={[kit.segWrap, { flexDirection: 'row', gap: space[1], marginBottom: 0 }, style]} accessibilityRole="tablist" accessibilityLabel={label}>
       {people.map((p) => {
         const sel = (p.id || null) === (side || null)
         const tone = p.tone ?? 1
@@ -344,7 +344,7 @@ export function PersonSwitch({ on = [], side = null, onSide, done = null }: {
   const who = [{ id: null as string | null, name: 'You', tone: 0 }, ...on.map((p) => ({ id: p.id as string | null, name: p.name, tone: p.tone ?? 1 }))]
   const current = who.find((p) => (p.id || null) === (side || null)) || who[0]
   return (
-    <View style={{ marginTop: 10 }}>
+    <View style={{ marginTop: space[2] }}>
       <PersonSegmented people={who} side={side || null} onSide={onSide} label="Whose log this is" done={done} />
       <View style={[st.rule, { backgroundColor: toneColor(current.tone) }]} />
     </View>
@@ -357,7 +357,7 @@ export function SyncToggle({ person, on, onChange }: { person: Person; on: boole
     <View style={st.sync}>
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         <T size={font.body} weight={600}>Keep exercises in step</T>
-        <T size={font.small} dim>
+        <T size={font.label} dim>
           {on ? `Exercises and sets added or removed on your side or ${person.name}’s show on both. Numbers stay each person’s own.`
             : 'Off: changes stay on the side you make them.'}
         </T>
@@ -539,7 +539,7 @@ export function TogetherPending({ entry, session = null }: { entry: any; session
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2], marginBottom: space[3] }} accessibilityRole="alert">
       <Icon name="TriangleAlert" size={12} color={colors.inkDim} />
-      <T size={font.small} style={{ flex: 1 }}>The circuit is not on {andWords([...new Set(left.map((p: any) => p.name))])}’s log yet</T>
+      <T size={font.label} style={{ flex: 1 }}>The circuit is not on {andWords([...new Set(left.map((p: any) => p.name))])}’s log yet</T>
       <Btn kind="quiet" small title="Try again" disabled={busy} onPress={() => { void retry() }} />
     </View>
   )
@@ -565,12 +565,12 @@ export function TheirSide({
 }) {
   if (loading) return <Spinner label={`Opening ${person.name}’s log…`} />
   if (!copy || copy.deleted) {
-    return <T size={font.small} dim>{error || `This workout is not in ${person.name}'s log any more.`}</T>
+    return <T size={font.label} dim>{error || `This workout is not in ${person.name}'s log any more.`}</T>
   }
   return (
-    <View style={{ gap: 4 }}>
-      <T size={font.small} dim>{`Everything here goes in ${person.name}’s log. Your numbers show in grey.`}</T>
-      {error ? <T size={font.small} color={colors.bad}>{error}</T> : null}
+    <View style={{ gap: space[1] }}>
+      <T size={font.label} dim>{`Everything here goes in ${person.name}’s log. Your numbers show in grey.`}</T>
+      {error ? <T size={font.label} color={colors.bad}>{error}</T> : null}
       {plan}
       <SessionLog session={session} entry={copy} entries={entries} onSave={onSave}
         hints={ownerOut || null} measured={false} defaultOpen whose={person.name} />
@@ -579,10 +579,10 @@ export function TheirSide({
 }
 
 const st = StyleSheet.create({
-  personChip: { paddingLeft: 5 },
+  personChip: { paddingLeft: space[1] },
   // "with Sam · in sync ›": the done chip's shape (sheetparts.tsx), quiet.
   shareChip: {
-    flexDirection: 'row', alignItems: 'center', gap: space[1] + 2, minHeight: 32, paddingLeft: space[3], paddingRight: space[2],
+    flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: 32, paddingLeft: space[3], paddingRight: space[2],
     borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel2,
   },
   panelHead: {
@@ -594,7 +594,7 @@ const st = StyleSheet.create({
   panelDivider: { paddingTop: space[4], borderTopWidth: 1, borderTopColor: colors.line },
   note: { flexDirection: 'row', alignItems: 'center', gap: space[1], marginBottom: space[3] },
   avatar: { alignItems: 'center', justifyContent: 'center' },
-  rule: { height: 2, marginTop: space[2], borderRadius: 1 },
+  rule: { height: 2, marginTop: space[2], borderRadius: radius.mark },
   sync: {
     flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: TAP, padding: space[3],
     borderRadius: radius.card, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel2,

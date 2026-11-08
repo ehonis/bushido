@@ -117,18 +117,21 @@ export function namesOf(list = []) {
  * The words the planner's screens use for who it is for, so the button, the
  * line under the title and the last screen cannot disagree. `day` is when it
  * lands, as a sentence says it: "today" (the default), "tomorrow", "Sat, Oct 24";
- * the last screen's title names it too ("On tomorrow").
+ * the last screen's title names it too ("On tomorrow"). The button is the one
+ * name the app has for committing a plan (#82): "Add to Today", "Add to Sat,
+ * Oct 24", the day capitalised as the tab and the day switcher say it.
  */
 export function forWords(who, day = 'today') {
   const others = who?.others || []
   const names = namesOf(others)
   const today = day === 'today'
+  const Day = day.charAt(0).toUpperCase() + day.slice(1)
   if (!others.length) {
-    return { keep: `Put it on ${day}`, where: `on ${day}`, title: `On ${day}`, from: 'your log', line: null, after: 'Nothing has started.' }
+    return { keep: `Add to ${Day}`, where: `on ${day}`, title: `On ${day}`, from: 'your log', line: null, after: 'Nothing has started.' }
   }
   if (who.me) {
     return {
-      keep: `Put it on ${day} with ${names}`, where: `on ${day}, with ${names}`, title: `On ${day}, with ${names}`,
+      keep: `Add to ${Day} with ${names}`, where: `on ${day}, with ${names}`, title: `On ${day}, with ${names}`,
       from: `your log and ${names}’s last week`,
       line: `You and ${names} · one shared workout`,
       after: 'Nothing has started. The exercises stay the same on every side; each of you logs your own numbers.',
@@ -137,13 +140,13 @@ export function forWords(who, day = 'today') {
   const when = today ? '' : `, ${day}`
   if (others.length === 1) {
     return {
-      keep: `Put it on ${names}’s day${when}`, where: `on ${names}’s day${when}`, title: `On ${names}’s day${when}`,
+      keep: `Add to ${names}’s day${when}`, where: `on ${names}’s day${when}`, title: `On ${names}’s day${when}`,
       from: `${names}’s log`, line: `Planning for ${names} · it goes in ${names}’s log`,
       after: `Nothing has started. ${names} can edit or log it.`,
     }
   }
   return {
-    keep: `Put it on ${names}’s days${when}`, where: `on ${names}’s days${when}`, title: `On ${names}’s days${when}`,
+    keep: `Add to ${names}’s days${when}`, where: `on ${names}’s days${when}`, title: `On ${names}’s days${when}`,
     from: `${names}’s last week`, line: `Planning for ${names} · a copy goes in each of their logs`,
     after: 'Nothing has started. Each of them can edit or log their own copy.',
   }

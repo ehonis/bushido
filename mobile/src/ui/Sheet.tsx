@@ -33,7 +33,7 @@ import React, { useCallback, useState } from 'react'
 import { Dimensions, KeyboardAvoidingView, Modal as RNModal, Platform, ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { colors, font, mix, radius, space } from '../theme'
+import { colors, font, mix, radius, space, TAP, height } from '../theme'
 import { Icon } from '../lib/icons'
 import { T } from './Text'
 import { Btn, IconBtn, Press } from './kit'
@@ -102,13 +102,13 @@ export function Modal({
   const body = confirming ? (
     <View style={st.confirm}>
       <Icon name="TriangleAlert" size={34} color={colors.vizCrit} />
-      <T size={17} weight={600} align="center" style={{ marginTop: 10, marginBottom: 6 }}>{`${deleteLabel}?`}</T>
-      <T size={13} dim align="center">
+      <T size={font.title} weight={600} align="center" style={{ marginTop: space[2], marginBottom: space[2] }}>{`${deleteLabel}?`}</T>
+      <T size={font.label} dim align="center">
         {deleteBody || 'It comes off the day and out of your training load. Anything you logged on it goes with it.'}
       </T>
-      <View style={{ flexDirection: 'row', gap: 10, marginTop: 20, alignSelf: 'stretch' }}>
-        <Btn kind="ghost" title="Keep it" flex onPress={() => setConfirming(false)} />
-        <Btn kind="bad" icon="Trash2" title="Remove" flex onPress={() => { setConfirming(false); onDelete?.() }} />
+      <View style={{ flexDirection: 'row', gap: space[2], marginTop: space[6], alignSelf: 'stretch' }}>
+        <Btn kind="secondary" title="Keep it" flex onPress={() => setConfirming(false)} />
+        <Btn kind="destructive" icon="Trash2" title="Remove" flex onPress={() => { setConfirming(false); onDelete?.() }} />
       </View>
     </View>
   ) : children
@@ -124,24 +124,35 @@ export function Modal({
       <SheetDirty.Provider value={markDirty}>
       <GestureHandlerRootView style={{ flex: 1 }} onLayout={(e) => setSheetTop(Math.max(0, Dimensions.get('window').height - e.nativeEvent.layout.height))}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={sheetTop} style={st.sheet}>
+        {/* THE HEADER (#82, from #91's review): one title row that never wraps its
+            line (the day and one count, ellipsized), with the bin, pencil and X on
+            it, and the state row (the done chip, who it is shared with) across the
+            full width under it. With the meta and the chip squeezed beside three
+            buttons, "Wed, Nov 4 · 3 exercises" broke and the header grew to 190pt.
+            The icon well is decoration: it gives way when the bin and pencil are
+            both there, so the day and the count fit at 390. */}
         <View onLayout={(e) => setHeadH(Math.round(e.nativeEvent.layout.height))}
           style={[st.head, tone && TONES[tone] ? { borderTopWidth: 3, borderTopColor: TONES[tone] } : null]}>
-          {icon ? <TitleIcon icon={icon} tone={tone} /> : null}
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <T size={font.title} weight={600} lineHeight={22} numberOfLines={2}>{title}</T>
-            {sub ? (typeof sub === 'string' ? <T size={font.small} dim style={{ marginTop: 2 }}>{sub}</T> : sub) : null}
-            {status && !confirming ? <View style={st.status}>{status}</View> : null}
+          <View style={st.headRow}>
+            {icon && !(onDelete && onRename) ? <TitleIcon icon={icon} tone={tone} /> : null}
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <T size={font.title} weight={600} numberOfLines={2}>{title}</T>
+              {sub ? (typeof sub === 'string'
+                ? <T size={font.label} dim numberOfLines={1} ellipsizeMode="tail" style={{ marginTop: 2 }}>{sub}</T>
+                : sub) : null}
+            </View>
+            {/* The bin first and the pencil between it and the X, so the destructive
+                one is never beside the exit (it asks first anyway). */}
+            {onDelete ? <IconBtn icon="Trash2" size={16} label={deleteLabel} onPress={() => { warn(); setConfirming(true) }} /> : null}
+            {onRename ? <IconBtn icon="Pencil" size={16} label="Edit this workout" onPress={onRename} /> : null}
+            <IconBtn icon="X" label="Close" onPress={onClose} />
           </View>
-          {/* The bin first and the pencil between it and the X, so the destructive
-              one is never beside the exit (it asks first anyway). */}
-          {onDelete ? <IconBtn icon="Trash2" size={16} label={deleteLabel} onPress={() => { warn(); setConfirming(true) }} /> : null}
-          {onRename ? <IconBtn icon="Pencil" size={16} label="Edit this workout" onPress={onRename} /> : null}
-          <IconBtn icon="X" label="Close" onPress={onClose} />
+          {status && !confirming ? <View style={st.status}>{status}</View> : null}
         </View>
         {scroll || confirming ? (
           <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={[{ padding: 16, paddingBottom: showFoot ? 16 : typing ? 24 : insets.bottom + 24 }, bodyStyle]}
+            contentContainerStyle={[{ padding: space[4], paddingBottom: showFoot ? 16 : typing ? 24 : insets.bottom + 24 }, bodyStyle]}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
           >
@@ -182,8 +193,8 @@ export function FullScreen({ title, sub, icon, tone, onBack, tabs, active, onTab
           <IconBtn icon="ChevronLeft" size={20} label="Back" onPress={onBack} />
           {icon ? <TitleIcon icon={icon} tone={tone} /> : null}
           <View style={{ flex: 1, minWidth: 0 }}>
-            <T size={font.title} weight={600} lineHeight={22} numberOfLines={2}>{title}</T>
-            {sub ? (typeof sub === 'string' ? <T size={font.small} dim style={{ marginTop: 2 }}>{sub}</T> : sub) : null}
+            <T size={font.title} weight={600} numberOfLines={2}>{title}</T>
+            {sub ? (typeof sub === 'string' ? <T size={font.label} dim style={{ marginTop: 2 }}>{sub}</T> : sub) : null}
           </View>
         </View>
         {tabs && tabs.length > 1 ? (
@@ -193,7 +204,7 @@ export function FullScreen({ title, sub, icon, tone, onBack, tabs, active, onTab
               return (
                 <Press key={t.key} haptic onPress={() => onTab?.(t.key)} style={[st.fsTab, on && st.fsTabOn]}>
                   <Icon name={t.icon} size={15} color={on ? colors.ink : colors.inkDim} />
-                  <T size={font.small} weight={500} color={on ? colors.ink : colors.inkDim}>{t.label}</T>
+                  <T size={font.label} weight={500} color={on ? colors.ink : colors.inkDim}>{t.label}</T>
                 </Press>
               )
             })}
@@ -202,7 +213,7 @@ export function FullScreen({ title, sub, icon, tone, onBack, tabs, active, onTab
         {scroll ? (
           <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={{ padding: 16, paddingBottom: 28 + insets.bottom }}
+            contentContainerStyle={{ padding: space[4], paddingBottom: space[8] + insets.bottom }}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
           >
@@ -237,25 +248,25 @@ export function Popover({ label, onClose, children, visible = true, onDismiss }:
 const st = StyleSheet.create({
   sheet: { flex: 1, backgroundColor: colors.panel },
   head: {
-    flexDirection: 'row', alignItems: 'center', gap: space[3],
     paddingLeft: space[4], paddingRight: space[2], paddingVertical: space[3], borderBottomWidth: 1, borderBottomColor: colors.line,
   },
+  headRow: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
   ico: { width: 40, height: 40, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center' },
   foot: {
     flexDirection: 'row', gap: space[2], paddingHorizontal: space[4], paddingTop: space[3],
     borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.panel,
   },
-  status: { flexDirection: 'row', marginTop: space[2] },
-  confirm: { paddingTop: 18, paddingHorizontal: 4, paddingBottom: 8, alignItems: 'center' },
+  status: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space[2], marginTop: space[2], paddingRight: space[2] },
+  confirm: { paddingTop: space[4], paddingHorizontal: space[1], paddingBottom: space[2], alignItems: 'center' },
   fs: { flex: 1, backgroundColor: colors.bg },
   fsHead: {
     flexDirection: 'row', alignItems: 'center', gap: space[3],
     paddingLeft: space[2], paddingRight: space[4], paddingVertical: space[2], borderBottomWidth: 1, borderBottomColor: colors.line,
   },
-  fsTabs: { flexDirection: 'row', gap: 4, paddingHorizontal: space[4], paddingVertical: space[2], borderBottomWidth: 1, borderBottomColor: colors.line },
+  fsTabs: { flexDirection: 'row', gap: space[1], paddingHorizontal: space[4], paddingVertical: space[2], borderBottomWidth: 1, borderBottomColor: colors.line },
   fsTab: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    borderWidth: 1, borderColor: 'transparent', borderRadius: radius.control, paddingHorizontal: 6, minHeight: 44,
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[2],
+    borderWidth: 1, borderColor: 'transparent', borderRadius: radius.control, paddingHorizontal: space[2], minHeight: TAP,
   },
   fsTabOn: { backgroundColor: colors.panel3, borderColor: colors.lineStrong },
 })

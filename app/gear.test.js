@@ -56,7 +56,7 @@ check('every gear kind declares how it wears out', () => {
   }
 })
 
-check('the metrics are the ones he named', () => {
+check('the metrics are the ones the owner named', () => {
   // Each gear kind is measured in its own unit: climbing gear in time spent,
   // weights in time or reps, bikes and shoes in miles.
   eq(metricOf(plan, 'bike'), 'miles')
@@ -75,7 +75,7 @@ check('the buying list is gone', () => {
 
 check('Strava gear arrives with its odometer', () => {
   const items = gearItems({ entries: [], strava, plan })
-  ok(items.length >= 2, `expected his bike and shoes, got ${items.length}`)
+  ok(items.length >= 2, `expected the bike and the shoes, got ${items.length}`)
   const bike = items.find(i => i.kind === 'bike')
   ok(bike, 'no bike came through')
   eq(bike.source, 'strava')
@@ -222,7 +222,7 @@ check('gear ids do not collide', () => {
 
 /* ================================================================ profile === */
 
-check('his name and picture come off Strava', () => {
+check('the name and picture come off Strava', () => {
   const a = athleteOf(strava)
   eq(a.name, 'Sam Rivera')
   ok(a.avatar && /^https:/.test(a.avatar), `no avatar: ${a.avatar}`)
@@ -240,7 +240,7 @@ check('initials stand in for a missing picture', () => {
   eq(athleteOf({ athlete: { name: 'Sam Rivera' } }).initials, 'SR')
 })
 
-check('a fact he set beats the one Strava offers', () => {
+check('a fact the person set beats the one Strava offers', () => {
   // Silently preferring Strava's value over a number the user typed this morning is
   // the same mistake as a pre-filled duration confirmed without being read.
   const field = PROFILE_GROUPS[0].fields.find(f => f.key === 'ftp')

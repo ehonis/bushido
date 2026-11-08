@@ -131,7 +131,7 @@ export function LiftLog({ field, out, entries = [], entryId = null, onSave, hint
   return (
     <div className="out-field liftlog">
       {!list.length && yours.length > 0 && (
-        <button type="button" className="btn ghost liftlog-yours" onClick={startFromYours}>
+        <button type="button" className="btn secondary liftlog-yours" onClick={startFromYours}>
           Same exercises as you ({yours.length}), numbers blank
         </button>
       )}

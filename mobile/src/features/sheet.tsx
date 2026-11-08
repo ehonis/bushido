@@ -78,10 +78,13 @@ export const planTalkWhere = ({ ai, doing }: { ai: boolean; doing: boolean }) =>
  * One session, opened from the day list. This is the ONLY place the full
  * protocol appears — the dashboard stays a list of names.
  */
+/** The day a card is put on, as the button says it: "Add to Today", "Add to Sat, Oct 24" (#82). */
+const dayTitle = (iso: string | null) => (iso ? dayWords(iso) : 'Today')
+
 export function SessionSheet({
   opt, entry, tone, entries, isFuture,
   onLog, onSave, onSavePlan = null, onRemove, onSetDone, onClose, onStartWorkout,
-  onTraining = null, onSaveEntry = null, me = currentMe(),
+  onTraining = null, onSaveEntry = null, me = currentMe(), day = null,
 }: {
   opt: any
   entry?: any
@@ -98,6 +101,8 @@ export function SessionSheet({
   onTraining?: ((v: boolean) => void) | null
   onSaveEntry?: ((entry: any) => void) | null
   me?: any
+  /** The day Today is showing, which a card with nothing on it yet is put on. */
+  day?: string | null
 }) {
   // Locks the sheet to the X button once you've touched the form.
   const [dirty, setDirty] = useState(false)
@@ -201,7 +206,7 @@ export function SessionSheet({
    */
   /* A run already under way, or finished and reopened by Start (#75), is carried
      on, not started: the runner opens where it was. */
-  const startWords = (e: any) => ((runOf as any)(e)?.startedAt ? 'Carry on' : pres ? 'Start the workout' : 'Start workout')
+  const startWords = (e: any) => ((runOf as any)(e)?.startedAt ? 'Carry on' : 'Start workout')
   const start = (side: string | null = null) => (
     <SheetStart label={startWords(side ? theirs.entry : entry)} onStart={() => { setDirty(true); onStartWorkout?.(opt, side) }} />
   )
@@ -218,7 +223,7 @@ export function SessionSheet({
     // A card opened with nothing on the day yet: putting it there IS the action.
     footer = (
       <View style={st.sheetFoot}>
-        <Btn flex title={opt.role === 'rest' ? 'Take a rest day' : 'Add to today'}
+        <Btn flex title={opt.role === 'rest' ? 'Take a rest day' : `Add to ${dayTitle(day)}`}
           onPress={() => { setDirty(true); onLog(opt) }} />
       </View>
     )
@@ -239,12 +244,22 @@ export function SessionSheet({
     ? (synced ? ['you'] : null)
     : (() => { const s = on.filter((p) => isSynced(entry, p.id)).map((p) => p.name); return s.length ? s : null })()
   /* Under the title: the done chip, then who is on it ("with Sam · in sync ›", #80). */
-  const statusRow = status || people.length > 0 ? (
+  /* Whose copy this sheet is filling in (only on a shared workout) sits in the
+     header too, so it stays put while the body scrolls (the web pins it with
+     position: sticky); with the chips it spans the sheet's width (#82). */
+  const chips = status || people.length > 0 ? (
     <View style={sheetPartStyles.status}>
       {status}
       <ShareChip entry={entry} on={on} people={people} onOpen={sharing.open} />
     </View>
   ) : null
+  const statusRow = on.length ? (
+    <View style={{ flex: 1, gap: space[2] }}>
+      <PersonSwitch on={on} side={sidePerson?.id || null} onSide={setSide}
+        done={isFuture ? null : { '': done, ...sidesDone }} />
+      {chips}
+    </View>
+  ) : chips
 
   return (
     <Modal
@@ -256,13 +271,8 @@ export function SessionSheet({
       title={String(_titleFor(opt, (shown || entry)?.data?.out, shownPres || pres) || opt.name)}
       /* Whose copy this sheet is filling in, in the header so it stays put while the body
          scrolls (the web pins it with position: sticky). Only on a shared workout. */
-      sub={on.length ? (
-        <View>
-          {subLine ? <T size={12} faint style={{ marginTop: 2 }}>{subLine}</T> : null}
-          <PersonSwitch on={on} side={sidePerson?.id || null} onSide={setSide}
-            done={isFuture ? null : { '': done, ...sidesDone }} />
-        </View>
-      ) : subLine || undefined}
+      /* The day and one count: one line beside the header's buttons, never wrapped (#82). */
+      sub={subLine || undefined}
       // The activity's own icon, as its row in the Log feed shows it (#55).
       icon={(loggedActivity as any)(opt, entry?.data?.out)?.icon || opt.icon}
       tone={tone}
@@ -273,7 +283,7 @@ export function SessionSheet({
          looking at, so it belongs where the session's title is. */
       onRename={planned && !isFuture && !sidePerson ? () => setRenaming(true) : null}
       onDelete={onRemove && entry && !sidePerson ? () => onRemove(entry) : null}
-      deleteLabel={entry?.date && entry.date !== localIso() ? 'Remove this workout' : 'Remove from today'}
+      deleteLabel="Remove workout"
       footer={footer}
     >
       {/* Who is on it and how, behind the chip under the title. Owner-only; see sharedwith.tsx. */}
@@ -288,9 +298,9 @@ export function SessionSheet({
       {!people.length && planned && <SharedNote entry={entry} people={me.people} />}
       {/* "planned by Alex": quiet, like who it was done with. The entry is theirs now. */}
       {planned && !sidePerson && plannedLine(entry, me) ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[1], marginBottom: space[2] }}>
           <Icon name="ClipboardCheck" size={12} color={colors.inkFaint} />
-          <T size={12} faint>{plannedLine(entry, me)}</T>
+          <T size={font.caption} faint>{plannedLine(entry, me)}</T>
         </View>
       ) : null}
 
@@ -333,11 +343,11 @@ export function SessionSheet({
             onChange={(next: any) => { setDirty(true); onSavePlan?.(latestEntry.current, next) }} syncedWith={syncedWith} compact
             doing={doing} asWritten={asWritten(entry)} />
           {pres.notes?.length > 0 && (
-            <View style={{ marginTop: 16, gap: 7 }}>
+            <View style={{ marginTop: space[4], gap: space[2] }}>
               {pres.notes.map((n: string, i: number) => (
-                <View key={i} style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start' }}>
-                  <Icon name="Info" size={13} color={colors.inkFaint} style={{ marginTop: 3 }} />
-                  <T size={12.5} faint style={{ flex: 1 }}>{n}</T>
+                <View key={i} style={{ flexDirection: 'row', gap: space[2], alignItems: 'flex-start' }}>
+                  <Icon name="Info" size={13} color={colors.inkFaint} style={{ marginTop: space[1] }} />
+                  <T size={font.caption} faint style={{ flex: 1 }}>{n}</T>
                 </View>
               ))}
             </View>
@@ -345,7 +355,7 @@ export function SessionSheet({
         </>
       ) : (
         <>
-          <T size={14} dim>{opt.dose}</T>
+          <T size={font.label} dim>{opt.dose}</T>
           <PriorNote entries={entries} session={opt} excludeId={entry?.id} />
           <SessionView key={opt.id} session={opt} entries={entries} />
         </>

@@ -6,7 +6,7 @@ import React, { useState } from 'react'
 import { RefreshControl, ScrollView, StyleSheet, View, type ScrollViewProps } from 'react-native'
 import { Image } from 'expo-image'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { colors, font, space } from '../theme'
+import { colors, font, space, height } from '../theme'
 import { T } from '../ui/Text'
 import { Icon } from '../lib/icons'
 import { streakDays } from '../lib/streak.js'
@@ -37,7 +37,7 @@ function HeaderStreak({ entries }: { entries: any[] }) {
   return (
     <View style={st.streak} accessibilityLabel={`${n} day${n === 1 ? '' : 's'} trained in a row`}>
       <Icon name="Flame" size={15} color={colors.flame} />
-      <T size={font.body} weight={600} tabular lineHeight={18}>{String(n)}</T>
+      <T size={font.body} weight={600} tabular>{String(n)}</T>
     </View>
   )
 }
@@ -103,7 +103,7 @@ export function Screen({ children, scroll = true, fabs = true, contentStyle, scr
 const st = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   // .hdr: the mark, the name, the streak, the avatar; nothing else.
-  hdr: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: 56, paddingHorizontal: space.gutter, paddingVertical: space[2] },
+  hdr: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: height.row, paddingHorizontal: space.gutter, paddingVertical: space[2] },
   title: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space[2] },
   streak: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
 })

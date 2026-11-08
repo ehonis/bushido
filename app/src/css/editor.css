@@ -10,32 +10,32 @@
  */
 /* --------------------------------------------------- prescription editor */
 
-.presc-block { margin-bottom: 22px; }
+.presc-block { margin-bottom: var(--sp-6); }
 .presc-blockhead {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px;
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: var(--sp-1);
 }
 .presc-blockhead h3 {
   margin: 0; min-width: 0; font-size: var(--fs-body); font-weight: 600; color: var(--ink);
 }
 /* Count + reorder as one unit, so a long title wraps them onto the next line
    rather than being squeezed between them. */
-.presc-blockmeta { display: flex; align-items: center; gap: 10px; margin-left: auto; }
-.presc-blockn { font-size: var(--fs-small); color: var(--ink-dim); font-variant-numeric: tabular-nums; }
-.presc-blocknote { margin: 0 0 var(--sp-2); font-size: var(--fs-small); }
+.presc-blockmeta { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
+.presc-blockn { font-size: var(--fs-label); color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.presc-blocknote { margin: 0 0 var(--sp-2); font-size: var(--fs-label); }
 
 /* The whole section folds. Only the first exercise inside one opens with it. */
 .presc-blocktoggle {
-  display: flex; align-items: center; gap: 7px; flex: 1 1 auto; min-width: 0;
-  background: none; border: 0; padding: 0; min-height: 34px;
+  display: flex; align-items: center; gap: var(--sp-2); flex: 1 1 auto; min-width: 0;
+  background: none; border: 0; padding: 0; min-height: var(--tap);
   color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
 .presc-blocktoggle .alt-chev { flex: 0 0 auto; color: var(--ink-faint); }
-.presc-block.shut { margin-bottom: 10px; }
+.presc-block.shut { margin-bottom: var(--sp-2); }
 .presc-reorder {
-  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
-  min-height: 30px; padding: 0 10px; border-radius: 999px;
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--sp-1);
+  min-height: var(--tap); padding: 0 var(--sp-2); border-radius: var(--r-pill);
   background: transparent; border: 1px solid var(--line);
-  color: var(--ink-faint); font: inherit; font-size: var(--fs-small); cursor: pointer;
+  color: var(--ink-faint); font: inherit; font-size: var(--fs-label); cursor: pointer;
 }
 .presc-reorder:hover { color: var(--ink-dim); border-color: var(--ink-faint); }
 .presc-reorder.on { color: var(--accent); border-color: var(--accent); }
@@ -49,10 +49,10 @@
  * from under the thumb that pressed it, and without a mark on the row you have to
  * re-read the list to find out whether anything happened.
  */
-.reorder { display: grid; gap: 6px; }
+.reorder { display: grid; gap: var(--sp-2); }
 .reorder-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 6px 8px; border-radius: 10px;
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-2); border-radius: var(--r-control);
   background: var(--panel-2); border: 1px solid var(--line);
 }
 .reorder-name { flex: 1; min-width: 0; font-size: var(--fs-body); font-weight: 600; }
@@ -60,12 +60,12 @@
 .reorder-arrow {
   flex: 0 0 auto; width: var(--tap); height: var(--tap);
   display: grid; place-items: center;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-control);
   color: var(--ink-dim); cursor: pointer;
 }
 .reorder-arrow:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
 .reorder-arrow:disabled { opacity: 0.3; cursor: default; }
-.reorder-hint { margin: 2px 0 0; font-size: var(--fs-small); }
+.reorder-hint { margin: 2px 0 0; font-size: var(--fs-label); }
 .reorder-row.moved {
   animation: reorder-glow 900ms ease-out;
 }
@@ -87,12 +87,12 @@
  */
 .presc-item {
   background: var(--panel-2); border: 1px solid var(--line);
-  border-radius: 10px; padding: 10px 12px; margin-bottom: 8px;
+  border-radius: var(--r-control); padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-2);
 }
 
 .presc-itemhead {
-  display: flex; align-items: center; gap: 10px; width: 100%;
-  background: none; border: 0; padding: 0; min-height: 34px;
+  display: flex; align-items: center; gap: var(--sp-2); width: 100%;
+  background: none; border: 0; padding: 0; min-height: var(--tap);
   color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
 /*
@@ -107,39 +107,39 @@
 .presc-itemname { flex: 1 1 auto; min-width: 0; font-size: var(--fs-body); font-weight: 600; }
 .presc-itemline {
   display: block; margin-top: 2px; font-weight: 400;
-  font-size: var(--fs-small); color: var(--ink-faint); font-variant-numeric: tabular-nums;
+  font-size: var(--fs-label); color: var(--ink-faint); font-variant-numeric: tabular-nums;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .presc-itemhead { align-items: flex-start; }
 .presc-itemhead .alt-chev { flex: 0 0 auto; padding-top: 1px; }
-.presc-itemnote { margin: 4px 0 8px; font-size: var(--fs-small); }
+.presc-itemnote { margin: var(--sp-1) 0 var(--sp-2); font-size: var(--fs-label); }
 
 .presc-impl {
-  display: flex; flex-wrap: nowrap; gap: 6px; margin: 8px 0;
+  display: flex; flex-wrap: nowrap; gap: var(--sp-2); margin: var(--sp-2) 0;
   overflow-x: auto; scrollbar-width: none;
   /* Bleed to the card's edge so a half-visible chip says "there are more". */
-  padding-right: 12px; margin-right: -12px;
+  padding-right: var(--sp-3); margin-right: calc(-1 * var(--sp-3));
 }
 .presc-impl::-webkit-scrollbar { display: none; }
 .implchip { flex: 0 0 auto; }
 .implchip {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 0 var(--sp-3); min-height: 36px; border-radius: var(--r-pill);
+  display: inline-flex; align-items: center; gap: var(--sp-2);
+  padding: 0 var(--sp-3); min-height: var(--tap); border-radius: var(--r-pill);
   background: var(--panel-2); border: 1px solid var(--line);
-  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); cursor: pointer;
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-label); cursor: pointer;
 }
 .implchip.on { border-color: var(--accent-line); background: var(--accent-soft); color: var(--ink); }
 
 /* A set row is its number and its steppers, nothing else (#77): the steppers
    share the width so the number box is the big target, and wrap as a pair,
    lined up under the first, when they cannot both fit. No ✕ in the row. */
-.presc-sets { display: grid; gap: var(--sp-2); margin-top: 8px; }
-.presc-set { display: flex; align-items: center; gap: 6px; }
+.presc-sets { display: grid; gap: var(--sp-2); margin-top: var(--sp-2); }
+.presc-set { display: flex; align-items: center; gap: var(--sp-2); }
 .presc-setn {
   flex: 0 0 auto; width: 20px; text-align: center;
-  font-size: var(--fs-small); color: var(--ink-dim); font-variant-numeric: tabular-nums;
+  font-size: var(--fs-label); color: var(--ink-dim); font-variant-numeric: tabular-nums;
 }
-.presc-setfields { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.presc-setfields { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 /* The basis is the stepper's own size (two 44px buttons and a 48px box): an
    input's intrinsic width would otherwise push every pair onto two lines. */
 .presc-setfields > .stepper { flex: 1 1 calc(2 * var(--tap) + 50px); }
@@ -153,16 +153,16 @@
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.presc-editall { color: var(--ink-dim); padding-left: calc(20px + var(--sp-2)); }
+.presc-editall { color: var(--ink-dim); padding-left: calc(var(--sp-6) + var(--sp-2)); }
 .btn.quiet.presc-rm {
   flex: 0 0 auto; min-height: var(--tap); padding: 0 var(--sp-3);
-  border: 1px solid var(--line); color: var(--bad); font-size: var(--fs-small);
+  border: 1px solid var(--line); color: var(--bad); font-size: var(--fs-label);
 }
 
 /* Add on the left, Edit on the far right: they do opposite things. The far
    right is a selector that outranks `.presc-itemfoot .btn.quiet` below, which
    used to cancel `margin-left: auto` and left Remove touching Add a set. */
-.presc-itemfoot { display: flex; align-items: center; gap: var(--sp-4); margin-top: 10px; }
+.presc-itemfoot { display: flex; align-items: center; gap: var(--sp-4); margin-top: var(--sp-2); }
 .presc-itemfoot .btn.quiet { padding: 0 var(--sp-2); margin: 0 calc(-1 * var(--sp-2)); }
 .presc-itemfoot .btn.quiet.presc-itemedit { margin-left: auto; }
 /* The circuit editor's exercise Remove (circuit.jsx) keeps its far-right place. */
@@ -173,11 +173,11 @@
   display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
   width: 100%; min-height: var(--tap);
   background: transparent; border: 1px dashed var(--line-strong); border-radius: var(--r-control);
-  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); cursor: pointer;
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-label); cursor: pointer;
 }
 .presc-add:hover { color: var(--ink); border-style: solid; }
 /* Two dashed boxes in a row read as one box with a line through it. */
-.presc-add + .presc-add, .presc-add + .pieceadd { margin-top: 6px; }
+.presc-add + .presc-add, .presc-add + .pieceadd { margin-top: var(--sp-2); }
 
 /* One number you nudge (docs/DESIGN.md, Stepper): 44px − and +, the value
    between them with what it measures under it, on the tokens. Two fit beside a
@@ -200,7 +200,7 @@
   font: inherit; font-size: var(--fs-input); font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums;
 }
 .stepper-mid input:focus { outline: none; color: var(--accent); }
-.stepper-label { font-size: var(--fs-caption); color: var(--ink-dim); line-height: 1; }
+.stepper-label { font-size: var(--fs-label); color: var(--ink-dim); line-height: 1; }
 /* What a lift's weight means, switched on its own label (#58): the words are the
    button, raised so they read as one. At most 64px wide, wrapping onto a second
    line with the last word and the swap mark kept together, so reps, weight and
@@ -209,9 +209,9 @@
    a full 44px on one line. */
 .stepper-swap {
   position: relative; display: inline-block; max-width: 64px;
-  padding: 3px 5px; margin-top: 2px;
-  background: var(--panel-3); border: 1px solid var(--line-strong); border-radius: 9px;
-  color: var(--ink-dim); font: inherit; font-size: var(--fs-caption); line-height: 1.2;
+  padding: var(--sp-1) var(--sp-1); margin-top: 2px;
+  background: var(--panel-3); border: 1px solid var(--line-strong); border-radius: var(--r-control);
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-label); line-height: 1.2;
   text-align: center; cursor: pointer;
 }
 .stepper-swap-end { white-space: nowrap; }
@@ -220,30 +220,30 @@
 .stepper-swap:hover, .stepper-swap:active { color: var(--ink); }
 .bigstep .stepper-swap {
   max-width: none; min-height: var(--tap); padding: 0 var(--sp-4); border-radius: var(--r-pill);
-  font-size: var(--fs-small); white-space: nowrap;
+  font-size: var(--fs-label); white-space: nowrap;
 }
 .bigstep .stepper-swap::after { display: none; }
 
-.expick { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-.expick-head { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--line); }
+.expick { border: 1px solid var(--line); border-radius: var(--r-control); overflow: hidden; }
+.expick-head { display: flex; gap: var(--sp-2); padding: var(--sp-2); border-bottom: 1px solid var(--line); }
 .expick-head input { flex: 1; min-width: 0; }
 /* Browse without typing — the chips search for the group, so browsing and
    searching are one mechanism. They came across from the log's own picker when
    the two became one; the planner's version never had them. */
 .expick-groups {
-  display: flex; flex-wrap: wrap; gap: 6px;
-  padding: 8px; border-bottom: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; gap: var(--sp-2);
+  padding: var(--sp-2); border-bottom: 1px solid var(--line);
 }
-.expick-groups .implchip { font-size: var(--fs-small); min-height: 32px; }
+.expick-groups .implchip { font-size: var(--fs-label); min-height: var(--tap); }
 .expick-list { max-height: 260px; overflow-y: auto; }
 .expick-row {
-  display: flex; align-items: baseline; gap: 10px; width: 100%;
-  padding: 11px 12px; min-height: var(--tap);
+  display: flex; align-items: baseline; gap: var(--sp-2); width: 100%;
+  padding: var(--sp-3) var(--sp-3); min-height: var(--tap);
   background: transparent; border: 0; border-bottom: 1px solid var(--line);
   color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
 .expick-row:hover { background: var(--panel-2); }
-.expick-row .sub { margin-left: auto; font-size: var(--fs-small); }
+.expick-row .sub { margin-left: auto; font-size: var(--fs-label); }
 
 /* ------------------------------------------------- what a movement works */
 
@@ -266,44 +266,44 @@
 }
 /* What the weight means, when it is not the default (#58): under the name, so
    the summary beside it stays short. */
-.presc-mode { display: block; margin-top: 2px; font-size: var(--fs-caption); font-weight: 400; color: var(--ink-dim); }
+.presc-mode { display: block; margin-top: 2px; font-size: var(--fs-label); font-weight: 400; color: var(--ink-dim); }
 
 .run-body-map {
-  display: flex; align-items: center; justify-content: center; gap: 10px;
-  margin: 10px 0 2px;
+  display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
+  margin: var(--sp-2) 0 2px;
 }
-.run-muscles { font-size: var(--fs-small); color: var(--ink-faint); text-transform: lowercase; }
+.run-muscles { font-size: var(--fs-label); color: var(--ink-faint); text-transform: lowercase; }
 
 .exlog-head .bodymap, .liftpick-hit .bodymap, .expick-row .bodymap { margin-right: 2px; }
 .presc-prior {
-  display: flex; gap: 6px; align-items: baseline;
-  margin: 6px 0 2px; font-size: var(--fs-small); color: var(--ink-faint);
+  display: flex; gap: var(--sp-2); align-items: baseline;
+  margin: var(--sp-2) 0 2px; font-size: var(--fs-label); color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
 }
 .presc-prior strong { color: var(--ink-dim); font-weight: 600; }
 
 /* Which quota each BLOCK fills — a run and a lift in one trip count separately. */
-.blockquota { margin: 0 0 10px; }
+.blockquota { margin: 0 0 var(--sp-2); }
 .blockquota summary {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 0; font-size: var(--fs-small); color: var(--ink-faint); cursor: pointer;
+  display: inline-flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-1) 0; font-size: var(--fs-label); color: var(--ink-faint); cursor: pointer;
   list-style: none;
 }
 .blockquota summary::-webkit-details-marker { display: none; }
 .blockquota summary strong { color: var(--accent); font-weight: 600; }
 .blockquota summary:hover { color: var(--ink-dim); }
-.blockquota-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
-.blockquota-chips .implchip { display: inline-flex; align-items: center; gap: 6px; }
+.blockquota-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-2) 0 2px; }
+.blockquota-chips .implchip { display: inline-flex; align-items: center; gap: var(--sp-2); }
 .kept-parts {
-  list-style: none; margin: 16px auto 0; padding: 0; max-width: 24em;
-  display: grid; gap: 8px; text-align: left;
+  list-style: none; margin: var(--sp-4) auto 0; padding: 0; max-width: 24em;
+  display: grid; gap: var(--sp-2); text-align: left;
 }
 .kept-parts li {
-  display: grid; gap: 1px; padding: 9px 12px;
+  display: grid; gap: 1px; padding: var(--sp-2) var(--sp-3);
   background: var(--panel-2); border: 1px solid var(--line);
-  border-left: 3px solid var(--accent); border-radius: 9px;
+  border-left: 3px solid var(--accent); border-radius: var(--r-control);
 }
-.kept-parts .sub { font-size: var(--fs-small); color: var(--ink-faint); }
+.kept-parts .sub { font-size: var(--fs-label); color: var(--ink-faint); }
 
 /* ======================================================= the exercise sheet */
 
@@ -314,7 +314,7 @@
  */
 .presc-itemrow { display: flex; align-items: flex-start; gap: var(--sp-1); }
 .presc-itemrow .presc-itemhead { flex: 1; min-width: 0; }
-.presc-about { flex: none; margin: -5px -8px -5px 0; }
+.presc-about { flex: none; margin: calc(-1 * var(--sp-1)) calc(-1 * var(--sp-2)) calc(-1 * var(--sp-1)) 0; }
 
 .run-moveabout {
   display: inline-flex; align-items: center; gap: var(--sp-2); min-height: var(--tap);
@@ -336,7 +336,7 @@
 .exsheet-works { display: flex; align-items: center; gap: var(--sp-4); }
 .exsheet-facts {
   margin: 0; display: grid; grid-template-columns: auto 1fr; gap: var(--sp-1) var(--sp-3);
-  font-size: var(--fs-small); line-height: var(--lh-tight);
+  font-size: var(--fs-label); line-height: var(--lh-tight);
 }
 .exsheet-facts dt { color: var(--ink-dim); }
 .exsheet-facts dd { margin: 0; color: var(--ink); }
@@ -362,7 +362,7 @@
 .presc-tick {
   flex: 0 0 auto; width: var(--tap); height: var(--tap); display: grid; place-items: center;
   border-radius: var(--r-pill); border: 1px solid var(--line-strong); background: transparent;
-  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); font-variant-numeric: tabular-nums; cursor: pointer;
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-label); font-variant-numeric: tabular-nums; cursor: pointer;
 }
 .presc-tick.on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--ink); }
 .presc-tickn { line-height: 1; }
@@ -373,18 +373,18 @@
 .presc-itemdone { flex: 0 0 auto; color: var(--good); padding-top: 1px; }
 
 /* One line under a doing card's head: the implement switch, then last time. */
-.presc-doingmeta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); margin-top: 6px; }
+.presc-doingmeta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); margin-top: var(--sp-2); }
 .presc-doingmeta .presc-prior { margin: 0; flex: 1 1 12em; }
 .implswitch {
   display: inline-flex; align-items: center; gap: var(--sp-1); min-height: var(--tap); padding: 0 var(--sp-3);
-  margin: -6px 0; border-radius: var(--r-pill); border: 1px solid var(--line); background: transparent;
-  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); cursor: pointer;
+  margin: calc(-1 * var(--sp-2)) 0; border-radius: var(--r-pill); border: 1px solid var(--line); background: transparent;
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-label); cursor: pointer;
 }
 .implswitch.on { border-color: var(--accent-line); background: var(--accent-soft); color: var(--ink); }
 .implchip.ghost { border-style: dashed; }
 
 /* The head says one word of a block's settings; the rest are its ⋯. */
-.presc-blocktag { font-size: var(--fs-small); color: var(--ink-dim); }
+.presc-blocktag { font-size: var(--fs-label); color: var(--ink-dim); }
 .presc-blockmore { flex: 0 0 auto; }
 .presc-blockmore.on { color: var(--ink); background: var(--panel-3); }
 .blockmenu {
@@ -392,7 +392,7 @@
   border: 1px solid var(--line); border-radius: var(--r-card); background: var(--panel-2);
 }
 .blockmenu-list { margin: 0; }
-.blockmenu-label { display: block; font-size: var(--fs-small); color: var(--ink-dim); margin-bottom: var(--sp-2); }
+.blockmenu-label { display: block; font-size: var(--fs-label); color: var(--ink-dim); margin-bottom: var(--sp-2); }
 .blockmenu .blockquota { margin: 0; }
 .blockmenu .blockquota-chips { margin: 0; }
 .blockmenu .cx-switch { margin: 0; }

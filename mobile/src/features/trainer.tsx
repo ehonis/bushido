@@ -67,7 +67,7 @@ export function ForChoice({ people = [], who = FOR_ME, onChange }: {
   const on = (id: string | null) => (id ? who.others.some((p) => p.id === id) : who.me)
   return (
     <View style={st.forRow} accessibilityLabel="Who this is for">
-      <T size={font.small} dim style={{ marginRight: space[1] }}>For</T>
+      <T size={font.label} dim style={{ marginRight: space[1] }}>For</T>
       <PersonChip person={{ name: 'You' }} tone={0} on={on(null)} onPress={() => onChange(toggleFor(who, { id: null }, people))} tall />
       {people.map((p) => (
         <PersonChip key={p.id} person={p} tone={toneFor(people, p.id)} on={on(p.id)} onPress={() => onChange(toggleFor(who, p, people))} tall />
@@ -90,7 +90,7 @@ export function ForLine({ who = FOR_ME, people = [] }: { who?: Who; people?: Per
           </View>
         ))}
       </View>
-      <T size={font.small} dim style={{ flex: 1 }}>{line}</T>
+      <T size={font.label} dim style={{ flex: 1 }}>{line}</T>
     </View>
   )
 }
@@ -169,7 +169,7 @@ export function SideSwitch({ sides = [], side = null, onSide, status = {} }: {
   if (sides.length < 2) return null
   return (
     <PersonSegmented people={sides} side={side || null} onSide={onSide} status={status}
-      label="Whose side of the workout is showing" style={{ marginHorizontal: 10, marginTop: space[2] }} />
+      label="Whose side of the workout is showing" style={{ marginHorizontal: space[2], marginTop: space[2] }} />
   )
 }
 
@@ -329,7 +329,7 @@ function TheirSlot({ kind, person, session, shown, who, switcher, onExit, onFini
         {switcher}
         <View style={st.empty}>
           {copy.loading ? <Spinner label={`Opening ${person.name}’s log…`} />
-            : <T size={15} align="center">{copy.error || `This workout is not in ${person.name}’s log any more.`}</T>}
+            : <T size={font.body} align="center">{copy.error || `This workout is not in ${person.name}’s log any more.`}</T>}
           <Btn title="Back" onPress={onExit} />
         </View>
       </View>
@@ -348,7 +348,7 @@ function TheirSlot({ kind, person, session, shown, who, switcher, onExit, onFini
           onExit={onExit} onFinish={onFinish} who={who} switcher={switcher} shown={shown} embedded />
       )}
       {copy.error && shown ? (
-        <View style={st.err}><T size={13} color={colors.bad}>{copy.error}</T></View>
+        <View style={st.err}><T size={font.label} color={colors.bad}>{copy.error}</T></View>
       ) : null}
     </View>
   )
@@ -409,11 +409,11 @@ function PersonDayRow({ person, tone, date, plan, seen, first, onOpen }: {
               {rows.map((r) => (
                 <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: space[1] }}>
                   <Icon name={r.done ? 'CircleCheck' : 'Circle'} size={13} color={r.done ? toneColor(tone) : colors.inkFaint} />
-                  <T size={font.small} dim numberOfLines={1}>{r.name}</T>
+                  <T size={font.label} dim numberOfLines={1}>{r.name}</T>
                 </View>
               ))}
             </View>
-          ) : <T size={font.small} dim numberOfLines={1}>Nothing on it yet</T>
+          ) : <T size={font.label} dim numberOfLines={1}>Nothing on it yet</T>
         ) : null}
       </View>
       <Icon name="ChevronRight" size={16} color={colors.inkFaint} />
@@ -442,7 +442,7 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
 
   return (
     <FullScreen title={`${person.name}’s week`} sub={label} icon="Users" onBack={onClose}>
-      <View style={{ height: 3, backgroundColor: c, marginBottom: space[2], borderRadius: 2 }} />
+      <View style={{ height: 3, backgroundColor: c, marginBottom: space[2], borderRadius: radius.mark }} />
       <View style={st.daynav}>
         <IconBtn icon="ChevronLeft" size={20} label="Previous week" onPress={() => setMonday((m: string) => shiftWeek(m, -1))} />
         <T size={font.body} weight={600} style={{ flex: 1 }} align="center">
@@ -455,14 +455,14 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
         <Sub style={{ flex: 1 }}>{`Everything you change here goes in ${person.name}’s log.`}</Sub>
       </View>
       {log.loading ? <Spinner label={`Opening ${person.name}’s log…`} /> : null}
-      {log.error ? <T size={font.small} color={colors.bad}>{`Could not open ${person.name}’s log: ${log.error}`}</T> : null}
+      {log.error ? <T size={font.label} color={colors.bad}>{`Could not open ${person.name}’s log: ${log.error}`}</T> : null}
       {log.ready ? weekDays(monday).map((d: string, i: number) => {
         const rows = dayOf(log.entries, d).map((e: any) => dayRow(e, menu, me))
         return (
-          <View key={d} style={i ? { marginTop: space[5] } : null}>
+          <View key={d} style={i ? { marginTop: space[6] } : null}>
             <SectionHeader title={dayWords(d)} style={{ marginTop: 0 }}
               right={d === today ? (
-                <Sub><T size={font.small} weight={600} color={c}>Today</T>{rows.length ? '' : ' · Nothing'}</Sub>
+                <Sub><T size={font.label} weight={600} color={c}>Today</T>{rows.length ? '' : ' · Nothing'}</Sub>
               ) : rows.length ? undefined : 'Nothing'} />
             {rows.length ? (
               <Card style={[st.listCard, { marginBottom: 0 }]}>
@@ -471,7 +471,7 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
                     <Icon name={r.done ? 'CircleCheck' : 'Circle'} size={20} color={r.done ? colors.vizGood : colors.inkFaint} />
                     <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                       <T size={font.body} weight={500} numberOfLines={1}>{r.name}</T>
-                      <T size={font.small} dim numberOfLines={1}>{rowMeta(r)}</T>
+                      <T size={font.label} dim numberOfLines={1}>{rowMeta(r)}</T>
                     </View>
                     <Icon name="ChevronRight" size={16} color={colors.inkFaint} />
                   </Press>
@@ -537,12 +537,12 @@ export function PersonEntrySheet({ person, entryId, menu = [], entries = [], onC
       footer={start ? <SheetStart label={`Start for ${person.name}`} onStart={() => setRunning(true)} /> : null}>
       <View style={[st.forLine, { borderLeftColor: toneColor(tone) }]}>
         <Avatar name={person.name} tone={tone} size={22} />
-        <T size={font.small} dim style={{ flex: 1 }}>
-          <T size={font.small} weight={600}>{`${person.name}’s log`}</T>{by ? ` · ${by}` : ''}
+        <T size={font.label} dim style={{ flex: 1 }}>
+          <T size={font.label} weight={600}>{`${person.name}’s log`}</T>{by ? ` · ${by}` : ''}
         </T>
       </View>
       {copy.loading ? <Spinner label={`Opening ${person.name}’s log…`} /> : null}
-      {copy.error ? <T size={font.small} color={colors.bad}>{copy.error}</T> : null}
+      {copy.error ? <T size={font.label} color={colors.bad}>{copy.error}</T> : null}
       {e && !e.deleted ? (
         <>
           {pres ? (
@@ -597,7 +597,7 @@ export function AboutForm({ load, save, lead = null }: {
     } catch (err: any) { setStatus(err.message) }
   }
   return (
-    <View style={{ gap: 10 }}>
+    <View style={{ gap: space[2] }}>
       {lead ? <Sub>{lead}</Sub> : null}
       <Field label="Name">
         <Input value={doc.name} maxLength={80} autoCorrect={false}
@@ -608,7 +608,7 @@ export function AboutForm({ load, save, lead = null }: {
           placeholder="Goals, injuries, the equipment you have, anything a planner should know."
           onChangeText={(v) => { setDoc({ ...doc, notes: v }); setStatus(null) }} />
       </Field>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
         <Btn title="Save" onPress={submit} />
         {status ? <Sub>{status}</Sub> : null}
       </View>
@@ -636,7 +636,7 @@ const st = StyleSheet.create({
     borderRadius: radius.control, borderLeftWidth: 3, backgroundColor: colors.panel2,
   },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space[4], padding: space[6] },
-  err: { position: 'absolute', left: space[3], right: space[3], bottom: space[6], padding: 10, borderRadius: radius.card, backgroundColor: colors.panel2 },
+  err: { position: 'absolute', left: space[3], right: space[3], bottom: space[6], padding: space[2], borderRadius: radius.card, backgroundColor: colors.panel2 },
   listCard: { paddingVertical: space[1] },
   divider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   daynav: { flexDirection: 'row', alignItems: 'center', gap: space[2], marginBottom: space[2] },

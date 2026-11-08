@@ -13,7 +13,7 @@ import { BlurView } from 'expo-blur'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { BottomTabBarProps } from 'expo-router/tabs'
-import { alpha, colors, elevation, font, radius } from '../theme'
+import { alpha, colors, elevation, font, radius, space } from '../theme'
 import { T } from '../ui/Text'
 import { Press } from '../ui/kit'
 import { Icon, TAB_ICONS } from '../lib/icons'
@@ -78,7 +78,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
               }}
             >
               <Icon name={TAB_ICONS[id]} size={compact ? 20 : 17} color={on ? colors.accent : colors.inkDim} strokeWidth={on ? 2 : 1.75} />
-              <T size={compact ? font.caption : font.micro} weight={600} color={on ? colors.ink : colors.inkDim} lineHeight={14} numberOfLines={1}>{label}</T>
+              <T size={compact ? font.label : font.label} weight={600} color={on ? colors.ink : colors.inkDim} numberOfLines={1}>{label}</T>
             </Press>
           )
         })}
@@ -91,16 +91,16 @@ const st = StyleSheet.create({
   fade: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   dock: {
     position: 'absolute', height: DOCK_H,
-    flexDirection: 'row', alignItems: 'stretch', padding: 5, gap: 2,
+    flexDirection: 'row', alignItems: 'stretch', padding: space[1], gap: 2,
     borderRadius: radius.pill, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
   },
-  tab: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 3, borderRadius: radius.pill, paddingHorizontal: 2 },
+  tab: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: space[1], borderRadius: radius.pill, paddingHorizontal: 2 },
   // The selected tab is a lit pill as well as a colour, so it never relies on colour alone.
   tabOn: { backgroundColor: 'rgba(255,255,255,0.09)' },
-  fabs: { position: 'absolute', right: 18, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  fabsCompact: { position: 'absolute', flexDirection: 'column-reverse', alignItems: 'flex-end', gap: 10 },
+  fabs: { position: 'absolute', right: 18, flexDirection: 'row', alignItems: 'center', gap: space[2] },
+  fabsCompact: { position: 'absolute', flexDirection: 'column-reverse', alignItems: 'flex-end', gap: space[2] },
   plus: {
-    width: 56, height: 56, borderRadius: 28, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
+    width: 56, height: 56, borderRadius: radius.sheet, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
     ...elevation[2],
   },
 })

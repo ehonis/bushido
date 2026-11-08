@@ -33,7 +33,7 @@ export function DoneChip({ done, whose = null, onToggle }: { done: boolean; whos
       accessibilityHint={done ? 'Marks it undone' : 'Marks it done'}
       style={[st.chip, done && st.chipOn]}>
       <Icon name={done ? 'CircleCheck' : 'Circle'} size={16} color={done ? colors.accent : colors.inkFaint} />
-      <T size={font.small} weight={500} color={done ? colors.ink : colors.inkDim}>{said}</T>
+      <T size={font.label} weight={500} color={done ? colors.ink : colors.inkDim}>{said}</T>
     </Press>
   )
 }
@@ -90,7 +90,7 @@ const st = StyleSheet.create({
   sheetFoot: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space[2] },
   // The done chip: a state, so a chip (accent-soft once done), 32 tall with its hit area to 44.
   chip: {
-    flexDirection: 'row', alignItems: 'center', gap: space[1] + 2, minHeight: 32, paddingHorizontal: space[3],
+    flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: 32, paddingHorizontal: space[3],
     borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel2,
   },
   chipOn: { backgroundColor: colors.accentSoft, borderColor: colors.accentLine },

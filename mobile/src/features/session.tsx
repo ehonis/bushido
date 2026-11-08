@@ -11,7 +11,7 @@
  */
 import React, { useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
-import { colors, mix } from '../theme'
+import { colors, mix, font, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
 import { Btn, Press } from '../ui/kit'
 import { Fold } from '../ui/Fold'
@@ -45,7 +45,7 @@ function LoadUnknown({ children }: { children: React.ReactNode }) {
   return (
     <View style={[st.load, st.loadUnknown]}>
       <Icon name="Info" size={14} color={colors.inkDim} style={{ marginTop: 2 }} />
-      <T size={13} dim style={{ flex: 1 }}>{children}</T>
+      <T size={font.label} dim style={{ flex: 1 }}>{children}</T>
     </View>
   )
 }
@@ -57,7 +57,7 @@ function CeilingLine({ spec, ceiling, tooLow = null }: { spec: any; ceiling: any
   if (!ceiling && tooLow) {
     return (
       <LoadUnknown>
-        <T size={13} weight={600} color={colors.ink}>No ceiling from your last test</T>
+        <T size={font.label} weight={600} color={colors.ink}>No ceiling from your last test</T>
         {` — critical force on ${tooLow.date} was ${Math.round(tooLow.cf * 10) / 10} kg, at or under the ${CF_CORRECTION_KG} kg correction. Retest before you set the gauge from it.`}
       </LoadUnknown>
     )
@@ -65,7 +65,7 @@ function CeilingLine({ spec, ceiling, tooLow = null }: { spec: any; ceiling: any
   if (!ceiling) {
     return (
       <LoadUnknown>
-        <T size={13} weight={600} color={colors.ink}>Dosed against your critical force</T>
+        <T size={font.label} weight={600} color={colors.ink}>Dosed against your critical force</T>
         {' — run the 4-min all-out test on the Testing tab and this turns into an actual number in kilograms.'}
       </LoadUnknown>
     )
@@ -77,18 +77,18 @@ function CeilingLine({ spec, ceiling, tooLow = null }: { spec: any; ceiling: any
   return (
     <View style={st.load}>
       <View style={st.loadMain}>
-        <T size={12} faint tabular>target</T>
-        <T size={17} weight={600} tabular>{`${target} kg on the gauge`}</T>
-        {pct != null && <T size={12} faint tabular>{`${pct}% of that arm's max`}</T>}
+        <T size={font.caption} faint tabular>target</T>
+        <T size={font.title} weight={600} tabular>{`${target} kg on the gauge`}</T>
+        {pct != null && <T size={font.caption} faint tabular>{`${pct}% of that arm's max`}</T>}
       </View>
       <View style={st.loadHow}>
         <Icon name="Gauge" size={13} color={colors.inkDim} />
-        <T size={13} dim>
+        <T size={font.label} dim>
           {'Ceiling '}
-          <T size={13} weight={600} color={colors.accent} tabular>{`${Math.round(ceiling.ceiling * 10) / 10} kg`}</T>
+          <T size={font.label} weight={600} color={colors.accent} tabular>{`${Math.round(ceiling.ceiling * 10) / 10} kg`}</T>
           {offset ? ` ${offset < 0 ? '−' : '+'} ${Math.abs(offset)} kg` : ''}
         </T>
-        <T size={11} faint>
+        <T size={font.caption} faint>
           {ceiling.bound === 'cfmin'
             ? `CFmin from ${ceiling.date}`
             : `CF ${ceiling.cf} kg − ${CF_CORRECTION_KG}, tested ${ceiling.date}`}
@@ -104,34 +104,34 @@ function LoadLine({ pct, max }: { pct: number | null | undefined; max: any }) {
   if (!max) {
     return (
       <LoadUnknown>
-        <T size={13} weight={600} color={colors.ink}>{`${pct}% of max`}</T>
+        <T size={font.label} weight={600} color={colors.ink}>{`${pct}% of max`}</T>
         {' — log an MVC-7 result and this turns into actual pounds.'}
       </LoadUnknown>
     )
   }
   const target = Math.round((pct / 100) * max.total)
   const delta = Math.round(target - max.bodyweight)
-  const strong = (s: string) => <T size={13} weight={600} color={colors.accent} tabular>{s}</T>
+  const strong = (s: string) => <T size={font.label} weight={600} color={colors.accent} tabular>{s}</T>
   return (
     <View style={st.load}>
       <View style={st.loadMain}>
-        <T size={12} faint tabular>{`${pct}%`}</T>
-        <T size={17} weight={600} tabular>{`${target} lb total on the fingers`}</T>
+        <T size={font.caption} faint tabular>{`${pct}%`}</T>
+        <T size={font.title} weight={600} tabular>{`${target} lb total on the fingers`}</T>
       </View>
       <View style={st.loadHow}>
         {delta > 1 && <>
           <Icon name="Dumbbell" size={13} color={colors.inkDim} />
-          <T size={13} dim>{'Add '}{strong(`${delta} lb`)}{' to the harness'}</T>
+          <T size={font.label} dim>{'Add '}{strong(`${delta} lb`)}{' to the harness'}</T>
         </>}
         {delta < -1 && <>
           <Icon name="Waves" size={13} color={colors.inkDim} />
-          <T size={13} dim>{'Counterweight '}{strong(`${Math.abs(delta)} lb`)}{' off with the pulley'}</T>
+          <T size={font.label} dim>{'Counterweight '}{strong(`${Math.abs(delta)} lb`)}{' off with the pulley'}</T>
         </>}
         {Math.abs(delta) <= 1 && <>
           <Icon name="Check" size={13} color={colors.inkDim} />
-          <T size={13} dim>Bodyweight, no added load</T>
+          <T size={font.label} dim>Bodyweight, no added load</T>
         </>}
-        <T size={11} faint>{`from ${max.source}`}</T>
+        <T size={font.caption} faint>{`from ${max.source}`}</T>
       </View>
     </View>
   )
@@ -157,9 +157,9 @@ function TimingLine({ spec, label }: { spec: any; label: string | null }) {
   return (
     <View style={st.timing}>
       <Icon name="Timer" size={13} color={colors.inkDim} />
-      <T size={13} dim style={{ flex: 1 }}>
+      <T size={font.label} dim style={{ flex: 1 }}>
         {label ? `${label} — ` : null}
-        <T size={13} color={colors.ink} tabular>{lead}</T>
+        <T size={font.label} color={colors.ink} tabular>{lead}</T>
         {bits.length ? ` · ${bits.join(' · ')}` : ''}
       </T>
     </View>
@@ -199,10 +199,10 @@ function Step({ text, index, stop }: { text: string; index: number; stop: boolea
   const { lead, body } = splitLead(m ? text.slice(m[0].length) : text)
   return (
     <View style={st.step}>
-      <View style={st.stepN}><T size={11} weight={700} color={colors.accent} tabular lineHeight={13}>{n}</T></View>
+      <View style={st.stepN}><T size={font.caption} weight={700} color={colors.accent} tabular lineHeight={13}>{n}</T></View>
       <View style={{ flex: 1, minWidth: 0 }}>
-        {lead && <T size={13} weight={600} color={stop ? colors.vizCrit : colors.ink} style={{ marginBottom: 3 }}>{lead}</T>}
-        <T size={14} lineHeight={22}>{body}</T>
+        {lead && <T size={font.label} weight={600} color={stop ? colors.vizCrit : colors.ink} style={{ marginBottom: space[1] }}>{lead}</T>}
+        <T size={font.label}>{body}</T>
       </View>
     </View>
   )
@@ -211,11 +211,11 @@ function Step({ text, index, stop }: { text: string; index: number; stop: boolea
 function Bullet({ text }: { text: string }) {
   const { lead, body } = splitLead(text)
   return (
-    <View style={{ flexDirection: 'row', gap: 8 }}>
-      <T size={14} faint lineHeight={22}>•</T>
+    <View style={{ flexDirection: 'row', gap: space[2] }}>
+      <T size={font.label} faint>•</T>
       <View style={{ flex: 1, minWidth: 0 }}>
-        {lead && <T size={13} weight={600} style={{ marginBottom: 3 }}>{lead}</T>}
-        <T size={14} dim lineHeight={22}>{body}</T>
+        {lead && <T size={font.label} weight={600} style={{ marginBottom: space[1] }}>{lead}</T>}
+        <T size={font.label} dim>{body}</T>
       </View>
     </View>
   )
@@ -259,18 +259,18 @@ export function SectionBody({ section, max, ceiling, tooLow = null }: { section:
     <View>
       <View style={st.sectTitle}>
         <Icon name={section.icon} size={14} color={stop ? colors.vizCrit : colors.inkFaint} />
-        <T size={13} weight={600} color={stop ? colors.vizCrit : colors.inkDim} style={{ flex: 1 }}>{section.title}</T>
+        <T size={font.label} weight={600} color={stop ? colors.vizCrit : colors.inkDim} style={{ flex: 1 }}>{section.title}</T>
       </View>
       {section.loadPct != null && <LoadLine pct={section.loadPct} max={max} />}
       {section.loadCeiling && <CeilingLine spec={section.loadCeiling} ceiling={ceiling} tooLow={tooLow} />}
       {section.kind === 'moves' ? (
         <MovesList session={section.session} />
       ) : section.kind === 'steps' ? (
-        <View style={{ gap: 9 }}>
+        <View style={{ gap: space[2] }}>
           {section.items.map((s: string, i: number) => <Step key={i} text={s} index={i} stop={stop} />)}
         </View>
       ) : (
-        <View style={{ gap: 8 }}>
+        <View style={{ gap: space[2] }}>
           {section.items.map((s: string, i: number) => <Bullet key={i} text={s} />)}
         </View>
       )}
@@ -301,21 +301,20 @@ export function EvidenceNote({ evidence, open = false }: { evidence: any; open?:
     <Fold
       open={open}
       style={st.evNote}
-      headStyle={{ minHeight: 26 }}
       summary={(
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
           <View style={[st.grade, { borderColor: c }]}>
-            <T size={12} color={c} lineHeight={15}>{String(evidence.grade).replace(/-/g, ' ')}</T>
+            <T size={font.caption} color={c}>{String(evidence.grade).replace(/-/g, ' ')}</T>
           </View>
-          <T size={12} faint>why this is in the menu</T>
+          <T size={font.caption} faint>why this is in the menu</T>
         </View>
       )}
     >
-      <T size={13} dim style={{ marginTop: 8 }}>
-        <T size={13} weight={600} color={colors.ink}>Transfer to climbing:</T>{` ${evidence.transfer}`}
+      <T size={font.label} dim style={{ marginTop: space[2] }}>
+        <T size={font.label} weight={600} color={colors.ink}>Transfer to climbing:</T>{` ${evidence.transfer}`}
       </T>
-      <T size={13} dim style={{ marginTop: 8 }}>{evidence.summary}</T>
-      {evidence.sources?.length > 0 && <T size={11} faint style={{ marginTop: 8 }}>{evidence.sources.join(' · ')}</T>}
+      <T size={font.label} dim style={{ marginTop: space[2] }}>{evidence.summary}</T>
+      {evidence.sources?.length > 0 && <T size={font.caption} faint style={{ marginTop: space[2] }}>{evidence.sources.join(' · ')}</T>}
     </Fold>
   )
 }
@@ -338,7 +337,7 @@ export function SessionView({ session, entries, variant = 'compact', showEvidenc
   const { ceiling, tooLow }: any = (ceilingState as any)(entries)
   const pr = session?.protocol
 
-  if (!pr) return <T size={13} dim>{session?.dose}</T>
+  if (!pr) return <T size={font.label} dim>{session?.dose}</T>
 
   const idx = Math.max(0, sections.findIndex(s => s.key === active))
   const current = sections[idx]
@@ -348,7 +347,7 @@ export function SessionView({ session, entries, variant = 'compact', showEvidenc
       {pr.duration && (
         <View style={st.sessDur}>
           <Icon name="Timer" size={13} color={colors.inkFaint} />
-          <T size={12} faint>{pr.duration}</T>
+          <T size={font.caption} faint>{pr.duration}</T>
         </View>
       )}
 
@@ -356,8 +355,8 @@ export function SessionView({ session, entries, variant = 'compact', showEvidenc
 
       {sections.length > 1 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false}
-          style={{ marginHorizontal: -2, marginBottom: 14, flexGrow: 0 }}
-          contentContainerStyle={{ gap: 6, padding: 2 }}>
+          style={{ marginHorizontal: -2, marginBottom: space[4], flexGrow: 0 }}
+          contentContainerStyle={{ gap: space[2], padding: 2 }}>
           {sections.map(s => {
             const on = s.key === current?.key
             const stop = s.tone === 'stop'
@@ -369,7 +368,7 @@ export function SessionView({ session, entries, variant = 'compact', showEvidenc
                   backgroundColor: mix(stop ? colors.vizCrit : colors.accent, 12, colors.panel2),
                 }]}>
                 <Icon name={s.icon} size={13} color={on ? colors.ink : colors.inkFaint} />
-                <T size={12} weight={500} color={on ? colors.ink : colors.inkFaint}>{chipLabel(s)}</T>
+                <T size={font.label} weight={500} color={on ? colors.ink : colors.inkFaint}>{chipLabel(s)}</T>
               </Press>
             )
           })}
@@ -380,10 +379,10 @@ export function SessionView({ session, entries, variant = 'compact', showEvidenc
 
       {variant === 'full' && sections.length > 1 && (
         <View style={st.sectStep}>
-          <Btn kind="ghost" flex icon="ChevronLeft" title="Back" disabled={idx === 0}
+          <Btn kind="secondary" flex icon="ChevronLeft" title="Back" disabled={idx === 0}
             onPress={() => setActive(sections[idx - 1].key)} />
-          <T size={12} faint tabular>{`${idx + 1} / ${sections.length}`}</T>
-          <Btn kind="ghost" flex title="Next" disabled={idx === sections.length - 1}
+          <T size={font.caption} faint tabular>{`${idx + 1} / ${sections.length}`}</T>
+          <Btn kind="secondary" flex title="Next" disabled={idx === sections.length - 1}
             onPress={() => setActive(sections[idx + 1].key)}>
             <Icon name="ChevronRight" size={16} color={colors.inkDim} />
           </Btn>
@@ -394,39 +393,39 @@ export function SessionView({ session, entries, variant = 'compact', showEvidenc
 }
 
 const st = StyleSheet.create({
-  sess: { marginTop: 14, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 14 },
-  sessDur: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 14 },
+  sess: { marginTop: space[4], borderTopWidth: 1, borderTopColor: colors.line, paddingTop: space[4] },
+  sessDur: { flexDirection: 'row', alignItems: 'center', gap: space[1], marginBottom: space[4] },
   load: {
-    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: 8,
-    paddingVertical: 11, paddingHorizontal: 12, marginBottom: 12,
+    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control,
+    paddingVertical: space[3], paddingHorizontal: space[3], marginBottom: space[3],
   },
-  loadUnknown: { flexDirection: 'row', alignItems: 'flex-start', gap: 7 },
-  loadMain: { flexDirection: 'row', alignItems: 'baseline', gap: 9, flexWrap: 'wrap' },
-  loadHow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 6 },
+  loadUnknown: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2] },
+  loadMain: { flexDirection: 'row', alignItems: 'baseline', gap: space[2], flexWrap: 'wrap' },
+  loadHow: { flexDirection: 'row', alignItems: 'center', gap: space[2], flexWrap: 'wrap', marginTop: space[2] },
   timing: {
-    flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 12,
-    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: 8,
-    paddingVertical: 9, paddingHorizontal: 11,
+    flexDirection: 'row', alignItems: 'center', gap: space[2], marginTop: space[3],
+    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control,
+    paddingVertical: space[2], paddingHorizontal: space[3],
   },
-  sectTitle: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 11 },
+  sectTitle: { flexDirection: 'row', alignItems: 'center', gap: space[2], marginBottom: space[3] },
   step: {
-    flexDirection: 'row', gap: 11, alignItems: 'flex-start',
-    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: 8,
-    paddingVertical: 11, paddingHorizontal: 12,
+    flexDirection: 'row', gap: space[3], alignItems: 'flex-start',
+    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control,
+    paddingVertical: space[3], paddingHorizontal: space[3],
   },
   stepN: {
-    width: 22, height: 22, borderRadius: 6, alignItems: 'center', justifyContent: 'center',
+    width: 22, height: 22, borderRadius: radius.mark, alignItems: 'center', justifyContent: 'center',
     backgroundColor: mix(colors.accent, 16, colors.panel),
   },
   chip: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: 999,
-    paddingVertical: 7, paddingHorizontal: 12, minHeight: 36,
+    flexDirection: 'row', alignItems: 'center', gap: space[2],
+    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: radius.pill,
+    paddingVertical: space[2], paddingHorizontal: space[3], minHeight: TAP,
   },
-  sectStep: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16 },
+  sectStep: { flexDirection: 'row', alignItems: 'center', gap: space[2], marginTop: space[4] },
   evNote: {
-    marginBottom: 14, borderWidth: 1, borderColor: colors.line, borderRadius: 8,
-    paddingVertical: 9, paddingHorizontal: 11, backgroundColor: colors.panel2,
+    marginBottom: space[4], borderWidth: 1, borderColor: colors.line, borderRadius: radius.control,
+    paddingVertical: space[2], paddingHorizontal: space[3], backgroundColor: colors.panel2,
   },
-  grade: { borderWidth: 1, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
+  grade: { borderWidth: 1, borderRadius: radius.mark, paddingHorizontal: space[2], paddingVertical: 2 },
 })

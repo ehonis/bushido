@@ -26,7 +26,7 @@ import { Animated, FlatList, Linking, ScrollView, StyleSheet, View, type TextInp
 import * as WebBrowser from 'expo-web-browser'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable'
-import { colors, font, mix, radius, space, TAP } from '../theme'
+import { colors, font, mix, radius, space, TAP, height } from '../theme'
 import { T } from '../ui/Text'
 import { Btn, IconBtn, Input, Press } from '../ui/kit'
 import { Popover } from '../ui/Sheet'
@@ -136,7 +136,7 @@ export function SwipeRemove({ children, onRemove, label = 'Remove', enabled = tr
           style={sw.act}
         >
           <Icon name="Trash2" size={16} color={colors.white} />
-          <T size={font.small} weight={600} color={colors.white}>{label}</T>
+          <T size={font.label} weight={600} color={colors.white}>{label}</T>
         </Press>
       )}
     >
@@ -147,7 +147,7 @@ export function SwipeRemove({ children, onRemove, label = 'Remove', enabled = tr
 
 const sw = StyleSheet.create({
   act: {
-    width: 88, marginLeft: 6, borderRadius: 9, backgroundColor: colors.vizCrit,
+    width: 88, marginLeft: space[2], borderRadius: radius.control, backgroundColor: colors.vizCrit,
     alignItems: 'center', justifyContent: 'center', gap: 2,
   },
 })
@@ -252,10 +252,10 @@ export function Stepper({
         {swap ? (
           <Press onPress={swap.onSwitch} style={st.swap} hitSlop={{ top: 2, bottom: 12, left: 10, right: 10 }}
             accessibilityRole="button" accessibilityLabel={swap.aria || `Weight in ${label}. Switch to ${swap.next}`}>
-            <T size={font.caption} dim align="center" style={{ flexShrink: 1 }}>{swap.box}</T>
+            <T size={font.label} dim align="center" style={{ flexShrink: 1 }}>{swap.box}</T>
             <Icon name="ArrowLeftRight" size={10} color={colors.inkDim} />
           </Press>
-        ) : <T size={font.caption} dim lineHeight={font.caption}>{`${label}${suffix}`}</T>}
+        ) : <T size={font.label} dim >{`${label}${suffix}`}</T>}
       </View>
       <Press onPress={() => bump(1)} disabled={max !== null && n >= max} style={st.stepperBtn}
         accessibilityRole="button" accessibilityLabel={`more ${label}`}>
@@ -294,8 +294,8 @@ export function ExerciseSheet({ field, exercise, name = null, onClose, onAdd = n
   }
   const fact = (k: string, v: string) => (
     <View style={st.fact}>
-      <T size={font.small} dim style={{ width: 44 }}>{k}</T>
-      <T size={font.small} style={{ flex: 1 }}>{v}</T>
+      <T size={font.label} dim style={{ width: TAP }}>{k}</T>
+      <T size={font.label} style={{ flex: 1 }}>{v}</T>
     </View>
   )
 
@@ -321,7 +321,7 @@ export function ExerciseSheet({ field, exercise, name = null, onClose, onAdd = n
         ) : ex?.equipment ? fact('Needs', ex.equipment) : null}
 
         {ex?.how ? <HowBody how={ex.how} showFigure={false} />
-          : <T size={font.small} dim>No step-by-step for this one yet.</T>}
+          : <T size={font.label} dim>No step-by-step for this one yet.</T>}
 
         {video ? (
           <View style={{ gap: space[1], alignItems: 'flex-start' }}>
@@ -389,7 +389,7 @@ export function ExercisePicker({ field, onPick, onClose }: any) {
         <View style={st.pickGroups}>
           {groups.map((g: string) => (
             <Press key={g} haptic onPress={() => { setQ(g); setChip(g) }} style={[st.implchip, { minHeight: 36 }]}>
-              <T size={font.small} faint>{g}</T>
+              <T size={font.label} faint>{g}</T>
             </Press>
           ))}
         </View>
@@ -404,14 +404,14 @@ export function ExercisePicker({ field, onPick, onClose }: any) {
           <View style={st.pickLine}>
             <Press onPress={() => onPick(ex.key)} style={st.pickRow} accessibilityRole="button">
               <ExerciseBody field={field} exercise={ex.key} name={ex.name} size={26} />
-              <T size={15} style={{ flex: 1, minWidth: 0 }}>{ex.name}</T>
-              {ex.group ? <T size={font.small} dim>{ex.group}</T> : null}
+              <T size={font.body} style={{ flex: 1, minWidth: 0 }}>{ex.name}</T>
+              {ex.group ? <T size={font.label} dim>{ex.group}</T> : null}
             </Press>
             <IconBtn icon="Info" label={`What is ${ex.name}?`} onPress={() => { tap(); ask(ex.key) }} />
           </View>
         )}
         ListEmptyComponent={q.trim() ? (
-          <T size={font.small} dim style={{ padding: 12 }}>
+          <T size={font.label} dim style={{ padding: space[3] }}>
             Nothing matches that. Try the movement’s other name, or what it works (“lower abs”, “no equipment”).
           </T>
         ) : null}
@@ -495,7 +495,7 @@ function ImplementChips({ liftField, item, entries, entryId, onPatch }: any) {
   const sorted = [...list].sort((a, b) => Number(b.value === item.implement) - Number(a.value === item.implement))
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={st.impl}
-      contentContainerStyle={{ gap: 6, paddingRight: 12 }} keyboardShouldPersistTaps="handled">
+      contentContainerStyle={{ gap: space[2], paddingRight: space[3] }} keyboardShouldPersistTaps="handled">
       {sorted.map((i) => {
         const on = item.implement === i.value
         return (
@@ -505,13 +505,13 @@ function ImplementChips({ liftField, item, entries, entryId, onPatch }: any) {
               const patch = implementPick(liftField, item, i, entries, entryId)
               if (patch) onPatch(patch)
             }}>
-            <T size={font.small} color={on ? colors.ink : colors.inkDim}>{i.label}</T>
+            <T size={font.label} color={on ? colors.ink : colors.inkDim}>{i.label}</T>
           </Press>
         )
       })}
       {more && !everything ? (
         <Press haptic style={[st.implchip, { borderStyle: 'dashed' }]} accessibilityRole="button" onPress={() => setEverything(true)}>
-          <T size={font.small} color={colors.inkDim}>Other…</T>
+          <T size={font.label} color={colors.inkDim}>Other…</T>
         </Press>
       ) : null}
     </ScrollView>
@@ -552,7 +552,7 @@ export function SetTick({ n, on, onToggle, locked = false, empty = false, onProm
     return (
       <View accessible accessibilityRole="image" accessibilityLabel={on ? `Set ${n} done` : `Set ${n}, nothing logged`}
         style={[st.tick, on ? st.tickOn : { borderStyle: 'dashed' }]}>
-        {on ? <Icon name="Check" size={20} color={colors.ink} /> : <T size={font.small} dim tabular>{String(n)}</T>}
+        {on ? <Icon name="Check" size={20} color={colors.ink} /> : <T size={font.label} dim tabular>{String(n)}</T>}
       </View>
     )
   }
@@ -563,7 +563,7 @@ export function SetTick({ n, on, onToggle, locked = false, empty = false, onProm
       <Press onPress={() => { tap(); onPrompt?.() }} accessibilityRole="checkbox"
         accessibilityState={{ checked: false, disabled: true }} accessibilityLabel={`Set ${n}: type what you did first`}
         style={[st.tick, { borderStyle: 'dashed' }]}>
-        <T size={font.small} faint tabular>{String(n)}</T>
+        <T size={font.label} faint tabular>{String(n)}</T>
       </Press>
     )
   }
@@ -572,7 +572,7 @@ export function SetTick({ n, on, onToggle, locked = false, empty = false, onProm
       accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={`Set ${n} done`}
       style={[st.tick, on && st.tickOn]}>
       {on ? <Icon name="Check" size={20} color={colors.ink} />
-        : <T size={font.small} dim tabular>{String(n)}</T>}
+        : <T size={font.label} dim tabular>{String(n)}</T>}
     </Press>
   )
 }
@@ -637,9 +637,9 @@ export function ExerciseCard({
   const lastTime = prior ? (
     <View style={[st.prior, doing && { marginTop: 0, flex: 1, minWidth: 140 }]}>
       <Icon name="RotateCw" size={12} color={colors.inkFaint} style={{ marginTop: 2 }} />
-      <T size={font.small} faint tabular style={{ flex: 1 }}>
+      <T size={font.label} faint tabular style={{ flex: 1 }}>
         {`last time (${prior.date}): `}
-        <T size={font.small} weight={600} dim>{prior.summary}</T>
+        <T size={font.label} weight={600} dim>{prior.summary}</T>
         {prior.implement ? ` · ${prior.implement}` : ''}
       </T>
     </View>
@@ -661,10 +661,10 @@ export function ExerciseCard({
           <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0 }}>
             <T size={font.body} weight={600} color={finished ? colors.inkDim : undefined}>{item.name}</T>
             {muscles && !doing ? <T size={font.caption} weight={500} dim style={{ marginTop: 2 }}>{muscleWords(muscles)}</T> : null}
-            {modeWords && !doing ? <T size={font.caption} dim style={{ marginTop: 2 }}>{modeWords}</T> : null}
+            {modeWords && !doing ? <T size={font.label} dim style={{ marginTop: 2 }}>{modeWords}</T> : null}
             {/* The summary sits under the name, on one line, so the name has the
                 width (#63 follow-up: a long name beside it and the ⓘ wrapped four lines). */}
-            {line ? <T size={font.small} faint tabular numberOfLines={1} style={{ marginTop: 2 }}>{line}</T> : null}
+            {line ? <T size={font.label} faint tabular numberOfLines={1} style={{ marginTop: 2 }}>{line}</T> : null}
           </View>
           {finished ? (
             <View accessible accessibilityLabel="All sets done" style={{ marginTop: 1 }}>
@@ -681,7 +681,7 @@ export function ExerciseCard({
 
       {open && (
         <>
-          {item.note ? <T size={font.small} faint style={{ marginTop: 4, marginBottom: 8 }}>{item.note}</T> : null}
+          {item.note ? <T size={font.label} faint style={{ marginTop: space[1], marginBottom: space[2] }}>{item.note}</T> : null}
 
           {doing ? (
             /* One line under the head: what it is done with (the switch) and last time. */
@@ -690,7 +690,7 @@ export function ExerciseCard({
                 <Press onPress={() => pickImplement(liftField, item, entries, entryId, onPatch)} style={st.implSwitch}
                   accessibilityRole="button"
                   accessibilityLabel={`${implementLabel(liftField, item.implement) || 'No equipment picked'}. Change what ${item.name} is done with`}>
-                  <T size={font.small} dim>{implementLabel(liftField, item.implement) || 'Equipment'}</T>
+                  <T size={font.label} dim>{implementLabel(liftField, item.implement) || 'Equipment'}</T>
                   <Icon name="ChevronDown" size={13} color={colors.inkDim} />
                 </Press>
               ) : null}
@@ -721,13 +721,13 @@ export function ExerciseCard({
             <View style={st.sets}>
               {item.sets.map((s: any, i: number) => (
                 <View key={s.id} style={st.editRow}>
-                  <T size={font.small} dim tabular align="center" style={{ width: 20 }}>{String(i + 1)}</T>
+                  <T size={font.label} dim tabular align="center" style={{ width: 20 }}>{String(i + 1)}</T>
                   <T size={font.body} tabular numberOfLines={1} style={{ flex: 1 }}>{setWords(item, s)}</T>
                   <RemoveBtn label="Remove" a11y={`Remove set ${i + 1}`} onPress={() => onRemoveSet(s.id)} />
                 </View>
               ))}
               <View style={st.editRow}>
-                <T size={font.body} dim numberOfLines={1} style={{ flex: 1, paddingLeft: 20 + space[2] }}>The whole exercise</T>
+                <T size={font.body} dim numberOfLines={1} style={{ flex: 1, paddingLeft: space[6] + space[2] }}>The whole exercise</T>
                 <RemoveBtn label="Remove" a11y={`Remove ${item.name}`} onPress={onRemove} />
               </View>
             </View>
@@ -736,7 +736,7 @@ export function ExerciseCard({
               {item.sets.map((s: any, i: number) => (
                 <SwipeRemove key={s.id} label="Remove" onRemove={() => onRemoveSet(s.id)}>
                   <View style={[st.set, ticking && { gap: space[2] }]}>
-                    {!ticking ? <T size={font.small} dim tabular align="center" style={{ width: 20 }}>{String(i + 1)}</T> : null}
+                    {!ticking ? <T size={font.label} dim tabular align="center" style={{ width: 20 }}>{String(i + 1)}</T> : null}
                     <View style={st.setFields}>
                       {setFieldsFor(item, s).map((f: string, fi: number) => (
                         <Stepper key={asked && asked.id === s.id && fi === 0 ? `${f}-${asked.n}` : f} grow {...boxFor(f, item, s)} value={s[f]} blank={blank}
@@ -792,7 +792,7 @@ function RemoveBtn({ onPress, label = 'Remove', a11y }: { onPress: () => void; l
     <Press onPress={() => { warn(); onPress() }} accessibilityRole="button" accessibilityLabel={a11y || label}
       style={st.removeBtn}>
       <Icon name="Trash2" size={16} color={colors.bad} />
-      <T size={font.small} weight={600} color={colors.bad}>{label}</T>
+      <T size={font.label} weight={600} color={colors.bad}>{label}</T>
     </Press>
   )
 }
@@ -890,8 +890,8 @@ export function ExerciseSection({
         {/* The count and the reorder button travel TOGETHER, so a long title
             wraps the pair onto a second line instead of squeezing between them. */}
         <View style={st.blockMeta}>
-          {tag ? <T size={font.small} dim>{tag}</T> : null}
-          {count != null && <T size={font.small} dim tabular>{String(count)}</T>}
+          {tag ? <T size={font.label} dim>{tag}</T> : null}
+          {count != null && <T size={font.label} dim tabular>{String(count)}</T>}
           {/* Reorder is per SECTION, because that is the only place an order
               means anything. Offered only where there is something to reorder;
               on the plan side from the block's menu, and its Done here. */}
@@ -900,7 +900,7 @@ export function ExerciseSection({
               accessibilityState={{ selected: ordering }} hitSlop={6}
               style={[st.reorderBtn, ordering && { borderColor: colors.accent }]}>
               <Icon name={ordering ? 'Check' : 'ArrowUpDown'} size={13} color={ordering ? colors.accent : colors.inkFaint} />
-              <T size={font.small} color={ordering ? colors.accent : colors.inkFaint}>{ordering ? 'Done' : 'Reorder'}</T>
+              <T size={font.label} color={ordering ? colors.accent : colors.inkFaint}>{ordering ? 'Done' : 'Reorder'}</T>
             </Press>
           )}
           {menu && !ordering ? menu(ctl) : null}
@@ -913,7 +913,7 @@ export function ExerciseSection({
           {!ordering && extra}
 
           {ordering ? (
-            <View style={{ gap: 6 }}>
+            <View style={{ gap: space[2] }}>
               {items.map((it: any, i: number) => (
                 <ReorderRow key={it.id} item={it} liftField={liftField}
                   first={i === 0} last={i === items.length - 1}
@@ -922,8 +922,8 @@ export function ExerciseSection({
                   onUp={() => move(it.id, 'up')}
                   onDown={() => move(it.id, 'down')} />
               ))}
-              <T size={font.small} dim style={{ marginTop: 2 }}>
-                Order only — nothing else about these changes. Tap <T size={font.small} dim style={{ fontStyle: 'italic' }}>done</T> when it reads right.
+              <T size={font.label} dim style={{ marginTop: 2 }}>
+                Order only — nothing else about these changes. Tap <T size={font.label} dim style={{ fontStyle: 'italic' }}>done</T> when it reads right.
               </T>
             </View>
           ) : (
@@ -944,7 +944,7 @@ export function ExerciseSection({
           {onAdd && liftField && !ordering && (
             <Press onPress={() => { tap(); setAdding(true) }} style={st.add} accessibilityRole="button">
               <Icon name="Plus" size={15} color={colors.inkDim} />
-              <T size={font.small} dim>{addLabel}</T>
+              <T size={font.label} dim>{addLabel}</T>
             </Press>
           )}
           {adding && (
@@ -958,7 +958,7 @@ export function ExerciseSection({
           {/* Below the catalog, because the catalog answers most of this question. */}
           {foot && !ordering && !adding && foot}
 
-          {!items.length && note && <T size={font.small} dim style={{ marginTop: 8 }}>{note}</T>}
+          {!items.length && note && <T size={font.label} dim style={{ marginTop: space[2] }}>{note}</T>}
         </>
       )}
     </View>
@@ -979,7 +979,7 @@ const st = StyleSheet.create({
   // 390pt phone with 44pt ± buttons; when they cannot, the pair wraps.
   swap: {
     flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 2, maxWidth: 64,
-    paddingVertical: 3, paddingHorizontal: 5, borderRadius: 9,
+    paddingVertical: space[1], paddingHorizontal: space[1], borderRadius: radius.control,
     backgroundColor: colors.panel3, borderWidth: 1, borderColor: colors.lineStrong,
   },
   stepperIn: {
@@ -987,13 +987,13 @@ const st = StyleSheet.create({
     backgroundColor: 'transparent', borderWidth: 0, borderRadius: 0,
     fontSize: font.input, fontWeight: '600', fontVariant: ['tabular-nums'], minHeight: 22,
   },
-  pickHead: { flexDirection: 'row', gap: 6, padding: 8, borderBottomWidth: 1, borderBottomColor: colors.line, alignItems: 'center' },
-  pickGroups: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, padding: 8, borderBottomWidth: 1, borderBottomColor: colors.line },
+  pickHead: { flexDirection: 'row', gap: space[2], padding: space[2], borderBottomWidth: 1, borderBottomColor: colors.line, alignItems: 'center' },
+  pickGroups: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2], padding: space[2], borderBottomWidth: 1, borderBottomColor: colors.line },
   // The picker row and its "what is this?" share one line and one divider.
   pickLine: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: colors.line, paddingRight: space[1] },
   pickRow: {
     flex: 1, minWidth: 0,
-    flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingHorizontal: 12, minHeight: TAP,
+    flexDirection: 'row', alignItems: 'center', gap: space[2], paddingVertical: space[3], paddingHorizontal: space[3], minHeight: TAP,
   },
   sheetHead: {
     flexDirection: 'row', alignItems: 'center', gap: space[3],
@@ -1004,24 +1004,24 @@ const st = StyleSheet.create({
   works: { flexDirection: 'row', alignItems: 'center', gap: space[4] },
   fact: { flexDirection: 'row', gap: space[3] },
   implchip: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: space[3], minHeight: 36, borderRadius: radius.pill, justifyContent: 'center',
+    flexDirection: 'row', alignItems: 'center', gap: space[2],
+    paddingHorizontal: space[3], minHeight: TAP, borderRadius: radius.pill, justifyContent: 'center',
     backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line,
   },
   implchipOn: { borderColor: colors.accentLine, backgroundColor: colors.accentSoft },
   item: {
     backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line,
-    borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 8,
+    borderRadius: radius.control, paddingVertical: space[2], paddingHorizontal: space[3], marginBottom: space[2],
   },
-  itemHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, minHeight: 34 },
+  itemHead: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2], minHeight: 34 },
   itemRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space[1] },
   // The base 44pt icon button, pulled into the card's padding so the head keeps its height.
-  about: { marginVertical: -5, marginRight: -8 },
-  prior: { flexDirection: 'row', gap: 6, alignItems: 'flex-start', marginTop: 6, marginBottom: 2 },
-  impl: { marginVertical: 8, marginRight: -12, flexGrow: 0 },
-  sets: { gap: 7, marginTop: 8 },
-  set: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.panel2 },
-  setFields: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  about: { marginVertical: -space[1], marginRight: -space[2] },
+  prior: { flexDirection: 'row', gap: space[2], alignItems: 'flex-start', marginTop: space[2], marginBottom: 2 },
+  impl: { marginVertical: space[2], marginRight: -space[3], flexGrow: 0 },
+  sets: { gap: space[2], marginTop: space[2] },
+  set: { flexDirection: 'row', alignItems: 'center', gap: space[2], backgroundColor: colors.panel2 },
+  setFields: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
   editRow: { flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: TAP },
   removeBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[1] + 2,
@@ -1029,23 +1029,23 @@ const st = StyleSheet.create({
     borderWidth: 1, borderColor: colors.line,
   },
   // Add on the left, Remove on the far right: they do opposite things.
-  itemFoot: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 10 },
+  itemFoot: { flexDirection: 'row', alignItems: 'center', gap: space[4], marginTop: space[2] },
   // Quiet buttons whose text lines up with the card's edge: the padding is the tap target.
   footBtn: { paddingHorizontal: space[2], marginHorizontal: -space[2] },
-  blockHead: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 },
-  blockToggle: { flexDirection: 'row', alignItems: 'center', gap: 7, flexGrow: 1, flexShrink: 1, minWidth: 0, minHeight: TAP },
-  blockMeta: { flexDirection: 'row', alignItems: 'center', gap: 10, marginLeft: 'auto' },
+  blockHead: { flexDirection: 'row', alignItems: 'center', gap: space[2], flexWrap: 'wrap', marginBottom: space[1] },
+  blockToggle: { flexDirection: 'row', alignItems: 'center', gap: space[2], flexGrow: 1, flexShrink: 1, minWidth: 0, minHeight: TAP },
+  blockMeta: { flexDirection: 'row', alignItems: 'center', gap: space[2], marginLeft: 'auto' },
   reorderBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 32, paddingHorizontal: 10,
-    borderRadius: 999, borderWidth: 1, borderColor: colors.line,
+    flexDirection: 'row', alignItems: 'center', gap: space[1], minHeight: TAP, paddingHorizontal: space[2],
+    borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line,
   },
   reorderRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6, paddingHorizontal: 8,
-    borderRadius: 10, borderWidth: 1,
+    flexDirection: 'row', alignItems: 'center', gap: space[2], paddingVertical: space[2], paddingHorizontal: space[2],
+    borderRadius: radius.control, borderWidth: 1,
   },
   arrow: {
     width: TAP, height: TAP, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: 9,
+    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control,
   },
   add: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[2], minHeight: TAP,
@@ -1057,9 +1057,9 @@ const st = StyleSheet.create({
     borderWidth: 1, borderColor: colors.lineStrong,
   },
   tickOn: { backgroundColor: colors.accentSoft, borderColor: colors.accentLine },
-  doingMeta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space[1], columnGap: space[3], marginTop: 6 },
+  doingMeta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space[1], columnGap: space[3], marginTop: space[2] },
   implSwitch: {
     flexDirection: 'row', alignItems: 'center', gap: space[1], minHeight: TAP, paddingHorizontal: space[3],
-    marginVertical: -6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line,
+    marginVertical: -space[2], borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line,
   },
 })

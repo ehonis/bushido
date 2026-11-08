@@ -19,7 +19,7 @@
  */
 import React, { useState } from 'react'
 import { Linking, View } from 'react-native'
-import { colors, font, TAP } from '../theme'
+import { colors, font, TAP, space } from '../theme'
 import { T } from '../ui/Text'
 import { Btn } from '../ui/kit'
 import { Fold } from '../ui/Fold'
@@ -62,7 +62,7 @@ function Numbers({ a }: { a: any }) {
   if (a.avgWatts) bits.push(`${Math.round(a.weightedAvgWatts || a.avgWatts)} W`)
   if (a.calories) bits.push(`${Math.round(a.calories)} cal`)
   if (a.sufferScore != null) bits.push(`RE ${a.sufferScore}`)
-  return <T size={font.small} dim tabular>{bits.join(' · ')}</T>
+  return <T size={font.label} dim tabular>{bits.join(' · ')}</T>
 }
 
 /** Laps or mile splits, folded away — the detail that makes a snapshot the whole ride. */
@@ -70,10 +70,10 @@ function Laps({ rows, label }: { rows: any[]; label: string }) {
   if (!rows?.length) return null
   const pace = rows.some(r => r.paceMinPerMi)
   const cols = ['Lap', 'mi', 'min', pace ? 'Pace' : 'mph', 'bpm', 'W', 'ft']
-  const cell = (k: number) => ({ flex: k === 0 ? 0.6 : 1, paddingHorizontal: 6, textAlign: (k === 0 ? 'left' : 'right') as 'left' | 'right' })
+  const cell = (k: number) => ({ flex: k === 0 ? 0.6 : 1, paddingHorizontal: space[2], textAlign: (k === 0 ? 'left' : 'right') as 'left' | 'right' })
   return (
     <Fold headStyle={{ minHeight: TAP }} summary={`${rows.length} ${label}`}>
-      <View style={{ marginTop: 6 }}>
+      <View style={{ marginTop: space[2] }}>
         <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.line, paddingVertical: 2 }}>
           {cols.map((c, k) => <T key={c} size={font.caption} weight={500} faint tabular style={cell(k)}>{c}</T>)}
         </View>
@@ -90,7 +90,7 @@ function Laps({ rows, label }: { rows: any[]; label: string }) {
             r.elevationFt ?? '',
           ]
           return (
-            <View key={r.index ?? i} style={{ flexDirection: 'row', paddingVertical: 3 }}>
+            <View key={r.index ?? i} style={{ flexDirection: 'row', paddingVertical: space[1] }}>
               {vals.map((v, k) => <T key={k} size={font.caption} dim tabular style={cell(k)}>{String(v)}</T>)}
             </View>
           )
@@ -156,8 +156,8 @@ export function StravaActivities({ session, entry, entries, onSave }: { session:
     <View style={wh.block}>
       <BlockHead icon="Bike" title="Strava" pulling={pulling} onPull={pull} />
 
-      {error ? <T size={font.small} color={colors.warn} style={wh.err}>{error}</T> : null}
-      {!error && status?.ok === false ? <T size={font.small} color={colors.warn} style={wh.err}>{status.detail}</T> : null}
+      {error ? <T size={font.label} color={colors.warn} style={wh.err}>{error}</T> : null}
+      {!error && status?.ok === false ? <T size={font.label} color={colors.warn} style={wh.err}>{status.detail}</T> : null}
 
       {/* Everything attached, each a row that opens onto its numbers, laps and
           detach. A brick is two rides and a run; a slot that held one lost
@@ -173,8 +173,8 @@ export function StravaActivities({ session, entry, entries, onSave }: { session:
             return (
               <AttachedRow key={snap.id} first={i === 0} title={snap.name || snap.sport} meta={meta} open={Boolean(alsoOn)}>
                 {alsoOn ? (
-                  <T size={font.small} color={colors.warn}>
-                    Also on <T size={font.small} weight={600} color={colors.warn}>{alsoOn.name}</T>. A ride is one session, so one of these is wrong.
+                  <T size={font.label} color={colors.warn}>
+                    Also on <T size={font.label} weight={600} color={colors.warn}>{alsoOn.name}</T>. A ride is one session, so one of these is wrong.
                   </T>
                 ) : null}
                 <Numbers a={snap} />
@@ -182,7 +182,7 @@ export function StravaActivities({ session, entry, entries, onSave }: { session:
                   <Line2>{`On ${snap.gear.name}${snap.gear.distanceMi ? ` · ${Math.round(snap.gear.distanceMi).toLocaleString()} mi on it` : ''}`}</Line2>
                 ) : null}
                 {snap.description ? (
-                  <T size={font.small} dim style={{ fontStyle: 'italic' }}>{'“'}{snap.description}{'”'}</T>
+                  <T size={font.label} dim style={{ fontStyle: 'italic' }}>{'“'}{snap.description}{'”'}</T>
                 ) : null}
                 <Laps rows={snap.laps} label="laps" />
                 {!snap.laps?.length ? <Laps rows={snap.splits} label="mile splits" /> : null}
@@ -206,16 +206,16 @@ export function StravaActivities({ session, entry, entries, onSave }: { session:
       {attachedList.length > 1 ? (
         <View style={wh.total}>
           <Icon name="Timer" size={14} color={colors.inkDim} />
-          <T size={font.small} dim style={{ flex: 1 }}>
+          <T size={font.label} dim style={{ flex: 1 }}>
             {attachedList.length} activities on this session,{' '}
-            <T size={font.small} weight={600}>{totalMin} min</T> moving in total
+            <T size={font.label} weight={600}>{totalMin} min</T> moving in total
           </T>
         </View>
       ) : null}
 
       {offers.length === 0 ? (
         attachedList.length === 0 ? (
-          <T size={font.small} dim style={wh.empty}>
+          <T size={font.label} dim style={wh.empty}>
             {cache?.fetchedAt
               ? 'Nothing on Strava for this day. Just finished? Refresh once it uploads.'
               : 'No Strava data yet.'}
@@ -223,7 +223,7 @@ export function StravaActivities({ session, entry, entries, onSave }: { session:
         ) : null
       ) : (
         <>
-          {attachedList.length > 0 ? <T size={font.small} weight={600} style={wh.more}>Also on this day</T> : null}
+          {attachedList.length > 0 ? <T size={font.label} weight={600} style={wh.more}>Also on this day</T> : null}
           <View style={wh.list}>
             {offers.map((c, i) => {
               const a = c.activity

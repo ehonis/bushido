@@ -2,7 +2,7 @@
 // `max`. Moved here from features/app.tsx unchanged, so the shell's kit owns it.
 import React from 'react'
 import { StyleSheet, View } from 'react-native'
-import { colors } from '../theme'
+import { colors, radius, space, TAP, height } from '../theme'
 import { Icon } from '../lib/icons'
 import { localIso } from '../lib/dates.js'
 import { Input, Press } from './kit'
@@ -18,7 +18,7 @@ export function DayStepper({ value, max, onChange }: { value: string; max?: stri
   }
   const label = new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
       <Press haptic onPress={() => shift(-1)} style={st.dayBtn} accessibilityLabel="The day before"><Icon name="ChevronLeft" size={18} color={colors.inkDim} /></Press>
       <Input value={label} editable={false} style={{ flex: 1, textAlign: 'center' }} />
       <Press haptic onPress={() => shift(1)} disabled={Boolean(max && value >= max)} style={st.dayBtn} accessibilityLabel="The day after"><Icon name="ChevronRight" size={18} color={colors.inkDim} /></Press>
@@ -27,5 +27,5 @@ export function DayStepper({ value, max, onChange }: { value: string; max?: stri
 }
 
 const st = StyleSheet.create({
-  dayBtn: { width: 44, height: 44, borderRadius: 8, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  dayBtn: { width: TAP, height: TAP, borderRadius: radius.control, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
 })

@@ -192,30 +192,39 @@ export function Modal({
       <div className={`modal ${tone ? `t-${tone}` : ''}`} role="dialog" aria-modal="true" aria-label={title}
         data-editing={editing ? '' : undefined}
         onClick={(e) => e.stopPropagation()} onInput={() => setTouched(true)} {...bind}>
-        <header className="modal-head">
-          {icon && <span className="modal-ico"><Icon name={icon} size={20} /></span>}
-          <div className="modal-titles">
-            <div className="modal-title">{title}</div>
-            {sub && <div className="modal-sub">{sub}</div>}
-            {/* A state you can flip (the session's done chip): at the top, far from every input. */}
-            {status && !confirming && <div className="modal-status">{status}</div>}
+        {/* THE HEADER (#82, from #91's review): one title row that never wraps its
+            line (the day and one count, ellipsized), the bin, pencil and X on it,
+            and the state row (the done chip, who it is shared with) across the
+            full width under it. Squeezed beside three buttons, "Wed, Nov 4 · 3
+            exercises" broke and the chips stacked: a 190px header at 390. The
+            icon well is decoration and gives way on a phone when the bin and the
+            pencil are both there (`.modal-head.full`). */}
+        <header className={`modal-head${onDelete && onRename ? ' full' : ''}`}>
+          <div className="modal-headrow">
+            {icon && <span className="modal-ico"><Icon name={icon} size={20} /></span>}
+            <div className="modal-titles">
+              <div className="modal-title">{title}</div>
+              {sub && <div className="modal-sub">{sub}</div>}
+            </div>
+            {/* The bin first and the pencil between it and the X, so the destructive
+                one is never beside the exit (it asks first anyway). */}
+            {onDelete && (
+              <button className="modal-btn danger" onClick={() => setConfirming(true)}
+                aria-label={deleteLabel} title={deleteLabel}>
+                <Icon name="Trash2" size={16} />
+              </button>
+            )}
+            {onRename && (
+              <button className="modal-btn" onClick={onRename} aria-label="Edit this workout" title="Edit">
+                <Icon name="Pencil" size={16} />
+              </button>
+            )}
+            <button className="modal-btn close" onClick={onClose} aria-label="Close">
+              <Icon name="X" size={18} />
+            </button>
           </div>
-          {/* The bin first and the pencil between it and the X, so the destructive
-              one is never beside the exit (it asks first anyway). */}
-          {onDelete && (
-            <button className="modal-btn danger" onClick={() => setConfirming(true)}
-              aria-label={deleteLabel} title={deleteLabel}>
-              <Icon name="Trash2" size={16} />
-            </button>
-          )}
-          {onRename && (
-            <button className="modal-btn" onClick={onRename} aria-label="Edit this workout" title="Edit">
-              <Icon name="Pencil" size={16} />
-            </button>
-          )}
-          <button className="modal-btn close" onClick={onClose} aria-label="Close">
-            <Icon name="X" size={18} />
-          </button>
+          {/* A state you can flip (the session's done chip): at the top, far from every input. */}
+          {status && !confirming && <div className="modal-status">{status}</div>}
         </header>
 
         {confirming ? (
@@ -228,10 +237,10 @@ export function Modal({
                   training load. Anything you logged on it goes with it.</>}
               </p>
               <div className="confirm-acts">
-                <button className="btn ghost" onClick={() => setConfirming(false)}>Keep it</button>
+                <button className="btn secondary" onClick={() => setConfirming(false)}>Keep it</button>
                 {/* Just the verb: the heading above it already says what of. The
                     full label wrapped onto two lines at 430px. */}
-                <button className="btn bad" onClick={() => { setConfirming(false); onDelete() }}>
+                <button className="btn destructive" onClick={() => { setConfirming(false); onDelete() }}>
                   <Icon name="Trash2" size={16} /> Remove
                 </button>
               </div>

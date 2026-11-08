@@ -123,7 +123,7 @@ export function ProfileMenu({ plan, entries, upsertEntry, deleteEntry, status, l
           <View style={[st.avDot, { backgroundColor: DOT[status] || colors.good }]} />
         </View>
         {/* The name and chevron come back only where there is room (.mebtn-name, over 420px). */}
-        {width > 420 ? <T size={font.small} numberOfLines={1} style={{ maxWidth: 80 }}>{me.firstName || me.name}</T> : null}
+        {width > 420 ? <T size={font.label} numberOfLines={1} style={{ maxWidth: 80 }}>{me.firstName || me.name}</T> : null}
         {width > 420 ? <Icon name="ChevronDown" size={14} color={colors.inkFaint} /> : null}
       </Press>
 
@@ -261,9 +261,9 @@ export function FactsForm({ groups, entries, strava, upsertEntry }: any) {
               const { value, source, date } = (factValue as any)(f, { facts, strava, entries })
               const num = f.type === 'number'
               return (
-                <View key={f.key} style={{ gap: 6 }}>
+                <View key={f.key} style={{ gap: space[2] }}>
                   <View style={st.factLabel}>
-                    <T size={font.small} dim>{f.unit ? `${f.label} (${f.unit})` : f.label}</T>
+                    <T size={font.label} dim>{f.unit ? `${f.label} (${f.unit})` : f.label}</T>
                     {/* A value the user did not give must never look like one they did. */}
                     {source === 'strava' && <T size={font.caption} faint>from Strava</T>}
                     {source === 'logged' && <T size={font.caption} faint>{`logged ${date}`}</T>}
@@ -384,7 +384,7 @@ export function PeopleCard({ who, first }: any) {
           </View>
         )
       })}
-      {error ? <T size={font.small} color={colors.bad}>{error}</T> : null}
+      {error ? <T size={font.label} color={colors.bad}>{error}</T> : null}
     </Sec>
   )
 }
@@ -529,16 +529,16 @@ const st = StyleSheet.create({
   // The avatar: a 44pt target around a 32pt face (.mebtn), the name only where there is room.
   mebtn: {
     flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: TAP, minWidth: TAP,
-    justifyContent: 'center', paddingHorizontal: 6, borderRadius: radius.pill,
+    justifyContent: 'center', paddingHorizontal: space[2], borderRadius: radius.pill,
   },
   av: { width: 32, height: 32 },
-  avImg: { width: 32, height: 32, borderRadius: 16 },
+  avImg: { width: 32, height: 32, borderRadius: radius.card },
   ini: {
-    width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center',
+    width: 32, height: 32, borderRadius: radius.card, alignItems: 'center', justifyContent: 'center',
     backgroundColor: colors.panel3, borderWidth: 1, borderColor: colors.lineStrong,
   },
   avDot: {
-    position: 'absolute', right: -1, bottom: -1, width: 10, height: 10, borderRadius: 5,
+    position: 'absolute', right: -1, bottom: -1, width: 10, height: 10, borderRadius: radius.mark,
     borderWidth: 2, borderColor: colors.bg,
   },
   head: {
@@ -546,14 +546,14 @@ const st = StyleSheet.create({
     paddingVertical: space[2], paddingLeft: space[4], paddingRight: space[2],
     borderBottomWidth: 1, borderBottomColor: colors.line,
   },
-  headAv: { width: 40, height: 40, borderRadius: 20 },
+  headAv: { width: 40, height: 40, borderRadius: radius.sheet },
   list: { marginBottom: space[3] },
   rule: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line },
   sec: { paddingBottom: space[2] },
   secRule: { borderTopWidth: 1, borderTopColor: colors.line, marginTop: space[3], paddingTop: space[4] },
-  factLabel: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', gap: 6 },
+  factLabel: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', gap: space[2] },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: space[2], marginTop: space[1] },
   static: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: 52 },
   dotWell: { width: 20, alignItems: 'center' },
-  dot: { width: 8, height: 8, borderRadius: 4 },
+  dot: { width: 8, height: 8, borderRadius: radius.mark },
 })

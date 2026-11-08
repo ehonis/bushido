@@ -9,7 +9,7 @@
  */
 import React, { useState } from 'react'
 import { StyleSheet, View } from 'react-native'
-import { colors, font, radius, space, TAP } from '../theme'
+import { colors, font, radius, space, TAP, height } from '../theme'
 import { T } from '../ui/Text'
 import { Btn, IconBtn, Press, Segmented } from '../ui/kit'
 import { Popover } from '../ui/Sheet'
@@ -48,7 +48,7 @@ export function CircuitSteppers({ circuit, onChange }: { circuit: any; onChange:
         const up = c.seconds ? Math.min(c.max, stepSeconds(v, 1)) : v + 1
         return (
           <View key={c.k} style={st.cell}>
-            <T size={font.small} dim>{c.label}</T>
+            <T size={font.label} dim>{c.label}</T>
             <T size={font.title} weight={600} tabular>{c.value}</T>
             <View style={st.cellStep}>
               <StepBtn icon="Minus" label={`Less ${c.label.toLowerCase()}`} onPress={v <= c.min ? null : () => set(c.k, down)} />
@@ -112,9 +112,9 @@ export function CircuitList({ items, work, liftField, onTiming, onRemove, onMove
                 <ExerciseBody field={liftField} exercise={it.key} name={it.name} size={28} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <T size={font.body} weight={600}>{it.name}</T>
-                  {m ? <T size={font.small} dim>{muscleWords(m)}</T> : null}
+                  {m ? <T size={font.label} dim>{muscleWords(m)}</T> : null}
                 </View>
-                <T size={font.small} weight={own ? 600 : 400} color={own ? colors.ink : colors.inkDim} tabular>{timingWords(it.timing, work)}{it.load ? ` @ ${it.load}` : ''}</T>
+                <T size={font.label} weight={own ? 600 : 400} color={own ? colors.ink : colors.inkDim} tabular>{timingWords(it.timing, work)}{it.load ? ` @ ${it.load}` : ''}</T>
                 <Icon name={shown ? 'ChevronUp' : 'ChevronDown'} size={15} color={colors.inkFaint} />
               </Press>
               {it.key ? <IconBtn icon="Info" size={18} label={`What is ${it.name}?`} onPress={() => setAbout({ key: it.key!, name: it.name })} /> : null}
@@ -135,7 +135,7 @@ export function CircuitList({ items, work, liftField, onTiming, onRemove, onMove
       {onAdd && liftField ? (
         <Press onPress={() => { tap(); setAdding(true) }} style={st.add} accessibilityRole="button">
           <Icon name="Plus" size={15} color={colors.inkDim} />
-          <T size={font.small} dim>{items.length ? 'Add an exercise' : 'Pick the exercises'}</T>
+          <T size={font.label} dim>{items.length ? 'Add an exercise' : 'Pick the exercises'}</T>
         </Press>
       ) : null}
       {adding && onAdd ? (
@@ -186,7 +186,7 @@ function TimingEdit({ timing, work, name, first, last, onTiming, onUp, onDown, o
             <T size={font.title} weight={600} tabular style={st.value}>{reps} reps</T>
             <StepBtn icon="Plus" label={`More reps of ${name}`} onPress={reps >= LIMITS.reps[1] ? null : () => { tap(); onTiming({ reps: reps + 1 }) }} />
           </View>
-          <T size={font.small} dim>Tap when done</T>
+          <T size={font.label} dim>Tap when done</T>
         </View>
       ) : null}
       <View style={st.acts}>
@@ -208,7 +208,7 @@ const st = StyleSheet.create({
   },
   cellStep: { flexDirection: 'row', gap: space[2] },
   row: {
-    minHeight: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[3],
+    minHeight: height.row, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[3],
     paddingLeft: space[4], paddingRight: space[2], paddingVertical: space[1],
   },
   rowLine: { borderTopWidth: 1, borderTopColor: colors.line },

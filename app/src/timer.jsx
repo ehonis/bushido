@@ -240,7 +240,7 @@ export function TimerSetup({ title, presets, onStart, onSave = null, onDelete = 
         )}
         {circuit && onPlace && (
           <button className="btn quiet it-link" onClick={() => onPlace(name, config)}>
-            <Icon name="CalendarDays" size={15} /> Put it on today
+            <Icon name="CalendarDays" size={15} /> Add to Today
           </button>
         )}
 
@@ -296,7 +296,7 @@ export function TimerSetup({ title, presets, onStart, onSave = null, onDelete = 
                 <input type="text" value={naming} placeholder="Name this preset" maxLength={40} autoFocus
                   onChange={e => setNaming(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveAs() }} />
                 <button className="btn secondary" disabled={!naming.trim()} onClick={saveAs}>Save</button>
-                <button className="btn ghost" onClick={() => setNaming(null)}>Cancel</button>
+                <button className="btn secondary" onClick={() => setNaming(null)}>Cancel</button>
               </div>
             ) : (<>
               {chosen?.saved && edited && onSave && (
@@ -525,7 +525,7 @@ export function WorkHead({ title, sub = null, who = null, muted = false, onMute,
  * once every set is marked); a primary action goes above it, the rest below.
  */
 export function LeaveDialog({ title, body = null, actions = [], onKeep, keepLabel = 'Keep going' }) {
-  const cls = { secondary: 'secondary', quiet: 'quiet', bad: 'bad' }
+  const cls = { secondary: 'secondary', quiet: 'quiet', destructive: 'destructive' }
   const first = actions.filter(a => a.kind === 'primary')
   const rest = actions.filter(a => a.kind !== 'primary')
   return (
@@ -535,7 +535,7 @@ export function LeaveDialog({ title, body = null, actions = [], onKeep, keepLabe
         {body && <p className="sub">{body}</p>}
         <div className="wk-acts">
           {first.map(a => <button key={a.label} className="btn" onClick={a.onClick}>{a.label}</button>)}
-          <button className={`btn ${first.length ? 'ghost' : ''}`} onClick={onKeep}>{keepLabel}</button>
+          <button className={`btn ${first.length ? 'secondary' : ''}`} onClick={onKeep}>{keepLabel}</button>
           {rest.map(a => <button key={a.label} className={`btn ${cls[a.kind] || 'secondary'}`} onClick={a.onClick}>{a.label}</button>)}
         </div>
       </div>
@@ -734,7 +734,7 @@ export function TimerRun({
           {logged && <p className="it-logged">{logged}</p>}
           {after}
           {onAgain && <button className="btn it-start" onClick={onAgain}><Icon name="RotateCw" size={18} /> Again</button>}
-          <button className={`btn ${onAgain ? 'ghost' : ''} it-wide`} onClick={onClose}>{closeLabel}</button>
+          <button className={`btn ${onAgain ? 'secondary' : ''} it-wide`} onClick={onClose}>{closeLabel}</button>
         </div>
       ) : (
         <div className="it-body it-live">
@@ -779,7 +779,7 @@ export function TimerRun({
           onKeep={() => setConfirmStop(false)}
           actions={[
             ...(onLeave ? [{ label: 'Leave it open', kind: 'secondary', onClick: onLeave }] : []),
-            { label: 'Stop', kind: 'bad', onClick: stop },
+            { label: 'Stop', kind: 'destructive', onClick: stop },
           ]} />
       )}
 

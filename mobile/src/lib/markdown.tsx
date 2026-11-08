@@ -15,7 +15,7 @@
  */
 import React from 'react'
 import { Linking, ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native'
-import { colors } from '../theme'
+import { colors, font, radius, space } from '../theme'
 import { T } from '../ui/Text'
 
 /* --------------------------------------------------------------- inline */
@@ -107,7 +107,7 @@ export function Markdown({ text, size = 14, color = colors.ink, style }: {
       while (i < lines.length && !/^\s*```/.test(lines[i])) body.push(lines[i++])
       i++
       out.push({ kind: 'pre', el: (
-        <ScrollView key={key++} horizontal style={s.pre} contentContainerStyle={{ padding: 10 }}>
+        <ScrollView key={key++} horizontal style={s.pre} contentContainerStyle={{ padding: space[2] }}>
           <T mono size={size * 0.88} color={color} lineHeight={lh}>{body.join('\n')}</T>
         </ScrollView>
       ) })
@@ -121,7 +121,7 @@ export function Markdown({ text, size = 14, color = colors.ink, style }: {
       // Headings inside a chat bubble are a size step, not a document outline —
       // an h1 in a reply should not be bigger than the page's own title.
       out.push({ kind: 'h', el: (
-        <T key={key++} size={14} weight={700} color={colors.ink} lineHeight={lh} accessibilityRole="header">
+        <T key={key++} size={font.label} weight={700} color={colors.ink} lineHeight={lh} accessibilityRole="header">
           {inline(h[2], `h${key}`)}
         </T>
       ) })
@@ -192,12 +192,12 @@ export const inlineMarkdown = inline
 const s = StyleSheet.create({
   strong: { color: colors.ink, fontWeight: '700' },
   em: { color: colors.ink, fontStyle: 'italic' },
-  code: { fontFamily: 'Menlo', fontSize: 12.5, backgroundColor: colors.panel2 },
+  code: { fontFamily: 'Menlo', fontSize: font.caption, backgroundColor: colors.panel2 },
   link: { color: colors.accent, textDecorationLine: 'underline' },
   pre: {
-    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: 8, flexGrow: 0,
+    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control, flexGrow: 0,
   },
-  quote: { paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: colors.line },
-  li: { flexDirection: 'row', gap: 6, marginTop: 3, paddingLeft: 4 },
+  quote: { paddingLeft: space[3], borderLeftWidth: 2, borderLeftColor: colors.line },
+  li: { flexDirection: 'row', gap: space[2], marginTop: space[1], paddingLeft: space[1] },
   marker: { minWidth: 14 },
 })

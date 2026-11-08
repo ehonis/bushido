@@ -169,7 +169,7 @@ export default [
         const none = buttonsOf(renderToString(<LeaveDialog title="Leave the workout?" onKeep={noop}
           actions={leaveActions({ left: 0, onLeave: noop, onFinish: noop, onAskFinish: noop })} />))
         if (JSON.stringify(none[0]) !== JSON.stringify(['', 'Finish workout'])) throw new Error('with every set marked, Finish workout is not the primary')
-        if (!none.some(([k, t]) => k === 'ghost' && t === 'Keep going')) throw new Error('Keep going is not the quiet second once everything is done')
+        if (!none.some(([k, t]) => k === 'secondary' && t === 'Keep going')) throw new Error('Keep going is not the quiet second once everything is done')
         if (/1 sets/.test(JSON.stringify(buttonsOf(renderToString(<LeaveDialog title="x" onKeep={noop}
           actions={leaveActions({ left: 1, onLeave: noop, onFinish: noop, onAskFinish: noop })} />))))) throw new Error('"1 sets"')
       }],

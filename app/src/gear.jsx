@@ -52,7 +52,7 @@ export function GearSection({ plan, entries, strava, upsertEntry, deleteEntry })
     return (
       <div className="empty">
         <Icon name="ShoppingBag" size={24} />
-        <span>No gear yet. Bikes and shoes arrive from Strava; add anything else.</span>
+        <span>No gear yet</span>
         <button className="btn" onClick={() => setAdding(true)}>Add gear</button>
       </div>
     )
@@ -161,8 +161,8 @@ export function GearForm({ plan, row, onSave, onCancel, onDelete }) {
         <h3>Remove {row.name}?</h3>
         <p className="sub">Workouts logged with it keep their history.</p>
         <div className="confirm-acts">
-          <button className="btn ghost" onClick={() => setConfirming(false)}>Keep it</button>
-          <button className="btn bad" onClick={onDelete}>Remove</button>
+          <button className="btn secondary" onClick={() => setConfirming(false)}>Keep it</button>
+          <button className="btn destructive" onClick={onDelete}>Remove</button>
         </div>
       </div>
     )
@@ -221,7 +221,7 @@ export function GearForm({ plan, row, onSave, onCancel, onDelete }) {
 
       <div className="prof-actions">
         {onDelete && <button className="btn quiet prof-remove" onClick={() => setConfirming(true)}>Remove</button>}
-        {!synced && <button className="btn ghost" onClick={onCancel}>Cancel</button>}
+        {!synced && <button className="btn secondary" onClick={onCancel}>Cancel</button>}
         <button className="btn" onClick={submit}>{synced ? 'Done' : row ? 'Save' : 'Add it'}</button>
       </div>
     </div>

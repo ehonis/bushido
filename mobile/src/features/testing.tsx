@@ -3,7 +3,7 @@
 // app/src/testing.jsx. Moved out of tabs.tsx (2026-10-25).
 import React, { useState } from 'react'
 import { StyleSheet, View } from 'react-native'
-import { colors, font, radius, space } from '../theme'
+import { colors, font, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
 import { Btn, Card, Chip, Empty, Field, H2, SectionHeader } from '../ui/kit'
 import { Fold } from '../ui/Fold'
@@ -40,7 +40,7 @@ export function TestingTab({ plan, entries = [], upsertEntry }: { plan: any; ent
     <>
       {(plan?.testingNotes || []).map((n: any, i: number) => (
         <Blurb key={i} id={`testnote-${i}`} title={n.title}>
-          <T size={font.small} dim>{n.body}</T>
+          <T size={font.label} dim>{n.body}</T>
         </Blurb>
       ))}
 
@@ -51,7 +51,7 @@ export function TestingTab({ plan, entries = [], upsertEntry }: { plan: any; ent
         return (
           <Card key={t.id}>
             <H2>{t.name}</H2>
-            <T size={font.small} dim style={{ marginBottom: space[3] }}>{t.why}</T>
+            <T size={font.label} dim style={{ marginBottom: space[3] }}>{t.why}</T>
 
             {t.metrics.map((m: any, mi: number) => {
               // A result without this metric is no point, never a zero.
@@ -86,8 +86,8 @@ export function TestingTab({ plan, entries = [], upsertEntry }: { plan: any; ent
 function Def({ dt, children }: { dt: string; children: React.ReactNode }) {
   return (
     <View style={{ flexDirection: 'row', gap: space[3] }}>
-      <T size={font.small} dim style={{ width: 96 }}>{dt}</T>
-      <T size={font.small} style={{ flex: 1 }}>{children}</T>
+      <T size={font.label} dim style={{ width: 96 }}>{dt}</T>
+      <T size={font.label} style={{ flex: 1 }}>{children}</T>
     </View>
   )
 }
@@ -104,7 +104,7 @@ function CeilingReadout({ entries }: { entries: any[] }) {
   if (!c) {
     if (!tooLow) return null
     return (
-      <T size={font.small} dim style={{ marginTop: space[3] }}>
+      <T size={font.label} dim style={{ marginTop: space[3] }}>
         {`Critical force on ${tooLow.date} was ${Math.round(tooLow.cf * 10) / 10} kg, at or under the ${CF_CORRECTION_KG} kg correction, so this rule gives no ceiling. Retest before you set the gauge from it.`}
       </T>
     )
@@ -123,17 +123,17 @@ function CeilingReadout({ entries }: { entries: any[] }) {
       </View>
       {/* A newer result with no critical force on it does not hide this one. */}
       {incomplete ? (
-        <T size={font.small} dim style={{ marginBottom: space[3] }}>{`The ${incomplete} result has no critical force, so this is from ${c.date}.`}</T>
+        <T size={font.label} dim style={{ marginBottom: space[3] }}>{`The ${incomplete} result has no critical force, so this is from ${c.date}.`}</T>
       ) : null}
 
       <View style={{ flexDirection: 'row', gap: space[6], flexWrap: 'wrap', marginBottom: space[4] }}>
         <View style={{ gap: 2 }}>
-          <T size={font.display} weight={600} lineHeight={34} tabular>{String(round(c.ceiling))}</T>
-          <T size={font.caption} dim>kg ceiling</T>
+          <T size={font.stat} weight={600} tabular>{String(round(c.ceiling))}</T>
+          <T size={font.label} dim>kg ceiling</T>
         </View>
         <View style={{ gap: 2 }}>
-          <T size={font.display} weight={600} lineHeight={34} tabular color={colors.accent}>{String(round(c.ceiling - 2))}</T>
-          <T size={font.caption} dim>kg — unilateral target</T>
+          <T size={font.stat} weight={600} tabular color={colors.accent}>{String(round(c.ceiling - 2))}</T>
+          <T size={font.label} dim>kg — unilateral target</T>
         </View>
       </View>
 
@@ -193,7 +193,7 @@ function TestRunner({ test, onSave, onDone }: { test: any; onSave: (e: any) => v
       <RunnerSec title="Steps">
         <View style={{ gap: space[2] }}>
           {test.procedure.map((s: string, i: number) => (
-            <View key={i} style={{ flexDirection: 'row', gap: 6 }}>
+            <View key={i} style={{ flexDirection: 'row', gap: space[2] }}>
               <T size={font.body} dim tabular style={{ width: 20 }}>{`${i + 1}.`}</T>
               <T size={font.body} style={{ flex: 1 }}>{s}</T>
             </View>
@@ -223,10 +223,10 @@ function TestRunner({ test, onSave, onDone }: { test: any; onSave: (e: any) => v
           </Field>
         ))}
         <View style={{ flexDirection: 'row', gap: space[2], justifyContent: 'flex-end' }}>
-          <Btn kind="ghost" title="Cancel" onPress={onDone} />
+          <Btn kind="secondary" title="Cancel" onPress={onDone} />
           <Btn title="Save result" onPress={save} disabled={!result} />
         </View>
-        {!result ? <T size={font.small} dim style={{ marginTop: space[2], textAlign: 'right' }}>Type at least one result to save it.</T> : null}
+        {!result ? <T size={font.label} dim style={{ marginTop: space[2], textAlign: 'right' }}>Type at least one result to save it.</T> : null}
       </RunnerSec>
 
       {test.interpretation && (
@@ -262,12 +262,12 @@ export function WhyTab({ plan }: { plan: any }) {
     <>
       {plan?.exposureBudget && (
         <Blurb id="exposure-budget" title={plan.exposureBudget.title}>
-          <T size={font.small} dim style={{ marginBottom: plan.exposureBudget.disagreement ? space[3] : 0 }}>
+          <T size={font.label} dim style={{ marginBottom: plan.exposureBudget.disagreement ? space[3] : 0 }}>
             {plan.exposureBudget.body}
           </T>
           {plan.exposureBudget.disagreement && (
-            <Fold summary="Where my sources disagreed" headStyle={{ minHeight: 44 }} style={{ borderTopWidth: 1, borderTopColor: colors.line, paddingTop: space[2] }}>
-              <T size={font.small} dim style={{ marginTop: 6 }}>{plan.exposureBudget.disagreement}</T>
+            <Fold summary="Where my sources disagreed" headStyle={{ minHeight: TAP }} style={{ borderTopWidth: 1, borderTopColor: colors.line, paddingTop: space[2] }}>
+              <T size={font.label} dim style={{ marginTop: space[2] }}>{plan.exposureBudget.disagreement}</T>
             </Fold>
           )}
         </Blurb>
@@ -275,7 +275,7 @@ export function WhyTab({ plan }: { plan: any }) {
 
       {plan?.reframe && (
         <Blurb id="reframe" title={plan.reframe.title}>
-          <T size={font.small} dim>{plan.reframe.body}</T>
+          <T size={font.label} dim>{plan.reframe.body}</T>
         </Blurb>
       )}
 

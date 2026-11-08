@@ -43,7 +43,7 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Svg, { Circle } from 'react-native-svg'
-import { colors, font, mix, radius, space, TAP } from '../theme'
+import { colors, font, mix, radius, space, TAP, clockSize, height } from '../theme'
 import { T } from '../ui/Text'
 import { Btn, Card, IconBtn, Press, SectionHeader, Sub, Toggle, s as kit, type BtnKind } from '../ui/kit'
 import { Modal } from '../ui/Sheet'
@@ -573,7 +573,7 @@ function CircuitRun({ pres, block, run, only, intro, who, switcher, shown, onRun
   const after = told || missedAll.length ? (
     <View style={{ alignSelf: 'stretch', alignItems: 'center', gap: space[2] }}>
       {told?.notes.map((n: string) => <T key={n} size={font.body}>{n}</T>)}
-      {mine && mine.said === null ? <T size={font.small} dim>Saving to {andWords(together.names)}’s log…</T> : null}
+      {mine && mine.said === null ? <T size={font.label} dim>Saving to {andWords(together.names)}’s log…</T> : null}
       {missedAll.length ? (
         <>
           <T size={font.body} accessibilityRole="alert">Not on {andWords(missedAll)}’s log yet</T>
@@ -606,20 +606,20 @@ function CircuitStep({ block, onStart, onSkip, onList, together = null }: any) {
     <ScrollView contentContainerStyle={{ padding: space.gutter, gap: space[3] }}>
       {/* Skipping a whole circuit is at the top, away from Start, and asks first. */}
       <View style={[st.where, { justifyContent: 'space-between' }]}>
-        <T size={font.small} dim numberOfLines={1} style={{ flexShrink: 1 }}>{block.name} · Circuit</T>
+        <T size={font.label} dim numberOfLines={1} style={{ flexShrink: 1 }}>{block.name} · Circuit</T>
         <Press onPress={onSkip} style={st.addSet} accessibilityRole="button" accessibilityLabel={`Skip ${block.name}`}>
           <Icon name="SkipForward" size={14} color={colors.inkDim} />
-          <T size={font.small} dim>Skip</T>
+          <T size={font.label} dim>Skip</T>
         </Press>
       </View>
-      <T size={font.heading} weight={600}>{block.name}</T>
-      <T size={font.small} dim>{describe(config)}{total ? ` · ${clock(total)}` : ''}</T>
+      <T size={font.screen} weight={600}>{block.name}</T>
+      <T size={font.label} dim>{describe(config)}{total ? ` · ${clock(total)}` : ''}</T>
       <Card style={{ padding: 0 }}>
         {block.items.map((it: any, i: number) => (
           <View key={it.id} style={[{ flexDirection: 'row', justifyContent: 'space-between', gap: space[3], padding: space[3] },
             i > 0 && { borderTopWidth: 1, borderTopColor: colors.line }]}>
             <T size={font.body} style={{ flexShrink: 1 }}>{it.name}</T>
-            <T size={font.small} dim tabular>{timingWords(circuitTiming(it) as any, block.circuit.work)}</T>
+            <T size={font.label} dim tabular>{timingWords(circuitTiming(it) as any, block.circuit.work)}</T>
           </View>
         ))}
       </Card>
@@ -628,16 +628,16 @@ function CircuitStep({ block, onStart, onSkip, onList, together = null }: any) {
           padding: space[3], borderRadius: radius.card, backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line }}>
           <View style={{ flexShrink: 1 }}>
             <T size={font.body}>{together.words}</T>
-            <T size={font.small} dim>{together.on ? `One clock, logged for ${andWords([together.host, ...together.names])}` : 'Each of you starts your own'}</T>
+            <T size={font.label} dim>{together.on ? `One clock, logged for ${andWords([together.host, ...together.names])}` : 'Each of you starts your own'}</T>
           </View>
           <Toggle value={together.on} onChange={together.onToggle} />
         </View>
       ) : null}
       {together?.busyOn ? (
-        <T size={font.small} dim>Running together on {together.busyOn === 'your' ? 'your' : `${together.busyOn}’s`} side. It logs here when it ends.</T>
+        <T size={font.label} dim>Running together on {together.busyOn === 'your' ? 'your' : `${together.busyOn}’s`} side. It logs here when it ends.</T>
       ) : (
         <>
-          <Btn icon="Play" title="Start the circuit" onPress={onStart} style={{ minHeight: 56 }} />
+          <Btn icon="Play" title="Start the circuit" onPress={onStart} style={{ minHeight: height.run }} />
           <Btn kind="quiet" icon="Layers" title="All sets" onPress={onList} />
         </>
       )}
@@ -707,14 +707,14 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
             the two were 8pt apart where the thumb works (#75). A skip is put back
             from All sets. */}
         <View style={st.where}>
-          <T size={font.small} dim tabular numberOfLines={1} style={{ flexShrink: 1 }}>
+          <T size={font.label} dim tabular numberOfLines={1} style={{ flexShrink: 1 }}>
             {`${step.blockName} · Set ${step.index + 1} of ${step.of}`}
           </T>
           {!logged ? (
             <Press onPress={onSkip} style={st.addSet} accessibilityRole="button"
               accessibilityLabel={`Skip set ${step.index + 1} of ${item.name}`}>
               <Icon name="SkipForward" size={14} color={colors.inkDim} />
-              <T size={font.small} dim>Skip</T>
+              <T size={font.label} dim>Skip</T>
             </Press>
           ) : null}
         </View>
@@ -724,14 +724,14 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
         {item.exercise ? (
           <Press onPress={() => { tap(); setAbout(true) }} style={st.moveAbout}
             accessibilityRole="button" accessibilityLabel={`${item.name}: how to do it`}>
-            <T size={font.heading} weight={600} lineHeight={28} align="center" style={{ flexShrink: 1 }}>{item.name}</T>
+            <T size={font.screen} weight={600} align="center" style={{ flexShrink: 1 }}>{item.name}</T>
             <Icon name="Info" size={18} color={colors.inkFaint} />
           </Press>
         ) : (
-          <T size={font.heading} weight={600} lineHeight={28} align="center" style={{ marginTop: space[3], marginBottom: 2 }}>{item.name}</T>
+          <T size={font.screen} weight={600} align="center" style={{ marginTop: space[3], marginBottom: 2 }}>{item.name}</T>
         )}
         {about ? <ExerciseSheet field={liftField} exercise={item.exercise} name={item.name} onClose={() => setAbout(false)} /> : null}
-        {item.implementLabel ? <T size={font.small} dim align="center">{item.implementLabel}</T> : null}
+        {item.implementLabel ? <T size={font.label} dim align="center">{item.implementLabel}</T> : null}
 
         {/* What it works. Bigger here than anywhere else, because this is the one
             screen the user is looking at while doing it. */}
@@ -744,7 +744,7 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
 
         {/* What was asked for, always on screen and never in the box. `data.plan`
             is the target, `data.run` is what happened. */}
-        <T size={font.small} dim tabular align="center" style={st.target}>
+        <T size={font.label} dim tabular align="center" style={st.target}>
           {'Planned '}<T size={font.body} weight={600} tabular>{target}</T>
         </T>
 
@@ -760,17 +760,17 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
 
         {briefing.map((b: any, i: number) => (
           <View key={i} style={st.cue}>
-            <Icon name="ClipboardCheck" size={14} color={colors.inkDim} style={{ marginTop: 3 }} />
-            <T size={font.small} dim lineHeight={20} style={{ flexShrink: 1 }}>
-              <T size={font.small} weight={600}>{`${b.name}.`}</T>{` ${b.note}`}
+            <Icon name="ClipboardCheck" size={14} color={colors.inkDim} style={{ marginTop: space[1] }} />
+            <T size={font.label} dim style={{ flexShrink: 1 }}>
+              <T size={font.label} weight={600}>{`${b.name}.`}</T>{` ${b.note}`}
             </T>
           </View>
         ))}
 
         {(step.set.note || item.note) ? (
           <View style={st.cue}>
-            <Icon name="Info" size={14} color={colors.inkDim} style={{ marginTop: 3 }} />
-            <T size={font.small} dim lineHeight={20} style={{ flexShrink: 1 }}>{step.set.note || item.note}</T>
+            <Icon name="Info" size={14} color={colors.inkDim} style={{ marginTop: space[1] }} />
+            <T size={font.label} dim style={{ flexShrink: 1 }}>{step.set.note || item.note}</T>
           </View>
         ) : null}
 
@@ -782,7 +782,7 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
         {prior ? (
           <View style={st.prior}>
             <Icon name="RotateCw" size={13} color={colors.inkDim} />
-            <T size={font.small} dim tabular style={{ flexShrink: 1 }}>
+            <T size={font.label} dim tabular style={{ flexShrink: 1 }}>
               {`last time (${prior.date}): ${prior.summary}${prior.implement ? ` · ${prior.implement}` : ''}`}
             </T>
           </View>
@@ -831,14 +831,13 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
 }
 
 const RUN_FG: Record<BtnKind, string> = {
-  primary: colors.onAccent, secondary: colors.ink, ghost: colors.inkDim, quiet: colors.inkDim, bad: colors.bg,
+  primary: colors.onAccent, secondary: colors.ink, quiet: colors.inkDim, destructive: colors.bg,
 }
 const RUN_BG: Record<BtnKind, ViewStyle> = {
   primary: { backgroundColor: colors.accent, borderColor: colors.accent },
   secondary: { backgroundColor: colors.panel3, borderColor: colors.lineStrong },
-  ghost: { backgroundColor: 'transparent', borderColor: colors.lineStrong },
   quiet: { backgroundColor: 'transparent', borderColor: 'transparent' },
-  bad: { backgroundColor: colors.vizCrit, borderColor: colors.vizCrit },
+  destructive: { backgroundColor: colors.vizCrit, borderColor: colors.vizCrit },
 }
 
 /**
@@ -875,7 +874,7 @@ function RunBtn({ kind = 'primary', big, icon, iconSize = 16, label, a11y, onPre
  * genuinely different controls: that one sits six to a row in a list, this one
  * is two to a screen with 64pt targets and a value you can read from arm's
  * length on the floor. Its 56pt number is one of the two sizes above
- * font.display (the interval timer's clock is the other, docs/DESIGN.md "Type").
+ * font.stat (the interval timer's clock is the other, docs/DESIGN.md "Type").
  */
 function BigStepper({ label, value, step = 1, min = null, onChange, swap = null, time = false }: {
   swap?: WeightSwap
@@ -909,10 +908,10 @@ function BigStepper({ label, value, step = 1, min = null, onChange, swap = null,
         {swap ? (
           <Press onPress={swap.onSwitch} style={st.swap}
             accessibilityRole="button" accessibilityLabel={`Weight in ${label}. Switch to ${swap.next}`}>
-            <T size={font.small} dim>{swap.box}</T>
+            <T size={font.label} dim>{swap.box}</T>
             <Icon name="ArrowLeftRight" size={13} color={colors.inkDim} />
           </Press>
-        ) : <T size={font.small} dim>{label}</T>}
+        ) : <T size={font.label} dim>{label}</T>}
       </View>
       <Press onPress={() => bump(1)} style={st.bigstepBtn} accessibilityRole="button" accessibilityLabel={`more ${label}`}>
         <Icon name="Plus" size={26} color={colors.ink} />
@@ -948,25 +947,25 @@ function HoldScreen({ step, program, timer, now, onFace, onBack, onBump, onPause
   const seg = v.segment
   const counting = seg.kind === 'countin'
   const k = KIND_COLOR[seg.kind] || colors.inkDim
-  const big = Math.min(220, Math.max(96, width * 0.34))
+  const big = clockSize(width)
   return (
     <View style={{ flex: 1 }}>
       <View style={[st.body, { flex: 1 }]}>
         <View style={[st.where, { justifyContent: 'space-between' }]}>
-          <T size={font.small} dim tabular numberOfLines={1} style={{ flexShrink: 1 }}>
+          <T size={font.label} dim tabular numberOfLines={1} style={{ flexShrink: 1 }}>
             {`${step.blockName} · Set ${step.index + 1} of ${step.of}`}
           </T>
           <Press onPress={onStop} style={st.addSet} accessibilityRole="button" accessibilityLabel="Stop the clock, log nothing">
             <Icon name="X" size={14} color={colors.inkDim} />
-            <T size={font.small} dim>Stop the clock</T>
+            <T size={font.label} dim>Stop the clock</T>
           </Press>
         </View>
-        <T size={font.heading} weight={600} lineHeight={28} align="center" style={{ marginTop: space[3] }}>{step.item.name}</T>
+        <T size={font.screen} weight={600} align="center" style={{ marginTop: space[3] }}>{step.item.name}</T>
         <Press onPress={() => { impact(); onFace() }} accessibilityRole="button" accessibilityLabel={v.paused ? 'Resume' : 'Pause'}
           style={st.face}>
-          <T size={Math.min(36, Math.max(font.heading, width * 0.08))} weight={600} color={k}>{counting ? 'Get ready' : 'Hold'}</T>
+          <T size={Math.min(font.stat, Math.max(font.screen, width * 0.08))} weight={600} color={k}>{counting ? 'Get ready' : 'Hold'}</T>
           <T size={big} weight={600} tabular color={k}
-            style={{ lineHeight: big * 1.02, letterSpacing: -big * 0.03, opacity: v.paused ? 0.4 : 1 }}>
+            style={{ lineHeight: big * 1.02, opacity: v.paused ? 0.4 : 1 }}>
             {clock(Math.ceil(v.left))}
           </T>
           {v.progress != null ? (
@@ -974,7 +973,7 @@ function HoldScreen({ step, program, timer, now, onFace, onBack, onBump, onPause
               <View style={{ width: `${v.progress * 100}%`, height: '100%', backgroundColor: k }} />
             </View>
           ) : null}
-          <T size={font.small} dim>{v.paused ? 'Paused · tap to carry on' : counting ? 'Then the set starts' : 'It marks itself at zero · Skip ends it here'}</T>
+          <T size={font.label} dim>{v.paused ? 'Paused · tap to carry on' : counting ? 'Then the set starts' : 'It marks itself at zero · Skip ends it here'}</T>
         </Press>
       </View>
       <View style={st.acts}>
@@ -996,8 +995,8 @@ function HoldScreen({ step, program, timer, now, onFace, onBack, onBump, onPause
 function RestScreen({ seconds, of, next, paused, onBack, onBump, onPause, onSkip }: any) {
   const pct = of > 0 ? Math.max(0, Math.min(1, seconds / of)) : 0
   const { width } = useWindowDimensions()
-  // The web's conic ring (min(62vw, 230px), the inner 79% cut out), as one arc.
-  const size = Math.min(width * 0.62, 230)
+  // The web's conic ring (min(72vw, 280px), the inner 79% cut out), as one arc.
+  const size = Math.min(width * 0.72, 280)
   const thick = size * 0.105
   const r = size / 2 - thick / 2
   const circ = 2 * Math.PI * r
@@ -1013,13 +1012,13 @@ function RestScreen({ seconds, of, next, paused, onBack, onBump, onPause, onSkip
                 strokeDasharray={`${circ * pct} ${circ}`} transform={`rotate(-90 ${size / 2} ${size / 2})`} />
             ) : null}
           </Svg>
-          {/* The runner's own clock size (above font.display, as BigStepper's). */}
-          <T size={56} weight={600} tabular lineHeight={64} style={{ opacity: paused ? 0.4 : 1 }}>{mmss(seconds)}</T>
+          {/* A live clock at its floor (font.clock), the ring sized so it fits. */}
+          <T size={font.clock} weight={600} tabular lineHeight={font.clock} style={{ opacity: paused ? 0.4 : 1 }}>{mmss(seconds)}</T>
         </View>
 
         {next ? (
-          <T size={font.small} dim align="center" style={{ marginTop: space[4] }}>
-            {'Next: '}<T size={font.small} weight={600}>{next.item.name}</T>
+          <T size={font.label} dim align="center" style={{ marginTop: space[4] }}>
+            {'Next: '}<T size={font.label} weight={600}>{next.item.name}</T>
             {` · Set ${next.index + 1} of ${next.of} · ${setLine(next.set, next.item)}`}
           </T>
         ) : null}
@@ -1040,7 +1039,7 @@ function FinishScreen({ progress, elapsed, onFinish, onReview }: any) {
     <View style={{ flex: 1 }}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={[st.body, { justifyContent: 'center', alignItems: 'center' }]}>
         <Icon name="CircleCheck" size={44} color={colors.vizGood} />
-        <T size={font.heading} weight={600} align="center" style={{ marginTop: space[3], marginBottom: space[1] }}>That is everything</T>
+        <T size={font.screen} weight={600} align="center" style={{ marginTop: space[3], marginBottom: space[1] }}>That is everything</T>
         <Sub style={{ textAlign: 'center' }}>
           {`${progress.done} of ${progress.total} sets in ${mmss(elapsed)}${progress.skipped ? ` · ${progress.skipped} skipped` : ''}`}
         </Sub>
@@ -1107,7 +1106,7 @@ function SetList({ pres, steps, run, cursor, onJump, onUnmark, onUnskip, onClose
                         style={skipped ? { textDecorationLine: 'line-through' } : null}>
                         {logged && actual ? setLine(actual, s.item) : setLine(s.set, s.item)}
                       </T>
-                      <T size={font.small} dim tabular>
+                      <T size={font.label} dim tabular>
                         {`Set ${s.index + 1}${logged ? ' · Done' : skipped ? ' · Skipped' : here ? ' · Next' : ''}`}
                       </T>
                     </View>
@@ -1136,15 +1135,15 @@ const st = StyleSheet.create({
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space[3], padding: space[6] },
   bar: { height: 3, backgroundColor: colors.panel2 },
   barFill: { height: '100%', backgroundColor: colors.accent },
-  body: { flexGrow: 1, paddingTop: space[5], paddingHorizontal: space.gutter, paddingBottom: space[3], width: '100%', maxWidth: 560, alignSelf: 'center' },
+  body: { flexGrow: 1, paddingTop: space[6], paddingHorizontal: space.gutter, paddingBottom: space[3], width: '100%', maxWidth: 560, alignSelf: 'center' },
   where: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[2], height: 20 },
   // "Add a set" beside the count: quiet, and 44pt tall. The negative margins keep
   // the row its own height while the padding reaches the tap size.
   addSet: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[1],
-    minHeight: TAP, paddingHorizontal: space[3], marginVertical: -12, borderRadius: radius.pill,
+    minHeight: TAP, paddingHorizontal: space[3], marginVertical: -space[3], borderRadius: radius.pill,
   },
-  bodyMap: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 10, marginBottom: 2 },
+  bodyMap: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[2], marginTop: space[2], marginBottom: 2 },
   target: { marginTop: space[4], marginBottom: space[2] },
   inputs: { gap: space[4], marginTop: space[3], marginBottom: space[2] },
   bigstep: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[3] },
@@ -1161,14 +1160,14 @@ const st = StyleSheet.create({
   bigstepIn: {
     width: '100%', padding: 0, paddingHorizontal: 0, paddingVertical: 0, minHeight: 58, textAlign: 'center',
     backgroundColor: 'transparent', borderWidth: 0, color: colors.ink,
-    fontSize: 56, fontWeight: '600', fontVariant: ['tabular-nums'],
+    fontSize: font.live, fontWeight: '600', fontVariant: ['tabular-nums'],
   },
   cue: { flexDirection: 'row', gap: space[2], alignItems: 'flex-start', justifyContent: 'center', marginTop: space[3] },
-  prior: { flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', marginTop: space[2] },
+  prior: { flexDirection: 'row', gap: space[2], alignItems: 'center', justifyContent: 'center', marginTop: space[2] },
   restPlan: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[3], marginTop: space[4], marginBottom: space[2], flexWrap: 'wrap' },
   // One primary, full width, where the thumb is.
   acts: { paddingTop: space[3], paddingBottom: space[4], paddingHorizontal: space.gutter, backgroundColor: colors.bg, width: '100%', maxWidth: 560, alignSelf: 'center' },
-  big: { width: '100%', minHeight: 64 },
+  big: { width: '100%', minHeight: height.run },
   quietBtn: { paddingHorizontal: space[2] },
   actsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[2], marginTop: space[2] },
   ring: { alignSelf: 'center', marginVertical: space[4], alignItems: 'center', justifyContent: 'center' },

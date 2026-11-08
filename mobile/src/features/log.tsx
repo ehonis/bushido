@@ -245,7 +245,7 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }: any) 
       {!workouts.length && (
         <Empty icon="NotebookPen">
           <T size={font.body} dim align="center">Nothing logged yet</T>
-          <T size={font.small} dim align="center">Workouts you log show up here, newest first.</T>
+          <T size={font.label} dim align="center">Workouts you log show up here, newest first.</T>
           {onLog ? <Btn title="Log a workout" onPress={() => onLog()} /> : null}
         </Empty>
       )}
@@ -328,7 +328,7 @@ function LogRow({ w, cat, onOpen, onRemove }: {
       <Icon name={w.icon} size={20} color={colors.inkDim} />
       <View style={st.main}>
         <T size={font.body} weight={500} numberOfLines={1}>{w.name}</T>
-        {meta ? <T size={font.small} dim tabular>{meta}</T> : null}
+        {meta ? <T size={font.label} dim tabular>{meta}</T> : null}
         {/* A workout done together, or one the owner planned for this person. */}
         {people ? <T size={font.caption} dim>{people}</T> : null}
       </View>
@@ -347,7 +347,7 @@ function LogRow({ w, cat, onOpen, onRemove }: {
       renderRightActions={() => (
         <Press onPress={remove} accessibilityRole="button" accessibilityLabel={DELETE_LABEL} style={st.swipeDel}>
           <Icon name="Trash2" size={18} color={colors.bg} />
-          <T size={font.caption} weight={600} color={colors.bg}>Remove</T>
+          <T size={font.label} weight={600} color={colors.bg}>Remove</T>
         </Press>
       )}
     >

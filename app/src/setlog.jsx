@@ -543,8 +543,8 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null, initi
       {confirmOff && (
         <div className="exlog-confirm" role="alertdialog" aria-label="Stop logging each climb">
           <span>Remove what you logged for {said} {plural(what, said)}?</span>
-          <button type="button" className="btn ghost" onClick={() => setConfirmOff(false)}>Keep it</button>
-          <button type="button" className="btn bad" onClick={turnOff}>Remove</button>
+          <button type="button" className="btn secondary" onClick={() => setConfirmOff(false)}>Keep it</button>
+          <button type="button" className="btn destructive" onClick={turnOff}>Remove</button>
         </div>
       )}
 

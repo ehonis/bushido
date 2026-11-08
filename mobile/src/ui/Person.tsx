@@ -5,7 +5,7 @@
 // name always goes with the colour.
 import React from 'react'
 import { StyleSheet, View } from 'react-native'
-import { colors } from '../theme'
+import { colors, font, radius, space } from '../theme'
 import { T } from './Text'
 
 export const toneColor = (tone?: number | null) =>
@@ -16,7 +16,7 @@ export function SideWho({ who }: { who?: { name: string; tone?: number } | null 
   if (!who) return null
   return (
     <View style={[st.pill, { backgroundColor: toneColor(who.tone) }]}>
-      <T size={12} weight={700} color={colors.bg}>{who.name}</T>
+      <T size={font.caption} weight={700} color={colors.bg}>{who.name}</T>
     </View>
   )
 }
@@ -32,7 +32,7 @@ export function Dot({ tone }: { tone?: number | null }) {
 }
 
 const st = StyleSheet.create({
-  pill: { paddingHorizontal: 8, paddingVertical: 1, borderRadius: 999, alignSelf: 'flex-start', marginBottom: 2 },
+  pill: { paddingHorizontal: space[2], paddingVertical: 1, borderRadius: radius.pill, alignSelf: 'flex-start', marginBottom: 2 },
   rule: { height: 3 },
-  dot: { width: 9, height: 9, borderRadius: 5 },
+  dot: { width: 9, height: 9, borderRadius: radius.mark },
 })

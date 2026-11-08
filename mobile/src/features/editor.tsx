@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
-import { colors, font, radius, space, TAP } from '../theme'
+import { colors, font, radius, space, TAP, leading } from '../theme'
 import { Icon } from '../lib/icons'
 import { T } from '../ui/Text'
 import { Btn, IconBtn, Input, Press } from '../ui/kit'
@@ -30,7 +30,7 @@ function ImplChip({ label, icon, on, onPress }: { label: string; icon?: string; 
     <Press haptic onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: !!on }}
       style={[st.implchip, on && st.implchipOn]}>
       {icon ? <Icon name={icon} size={13} color={c} /> : null}
-      <T size={font.small} color={c}>{label}</T>
+      <T size={font.label} color={c}>{label}</T>
     </Press>
   )
 }
@@ -71,21 +71,21 @@ function PieceAdder({ unit, onAdd, label = pieceWords(null) }: { unit: string; o
     return (
       <Press haptic onPress={() => setOpen(true)} style={st.addPiece}>
         <Icon name="Timer" size={15} color={colors.inkFaint} />
-        <T size={font.small} faint>{label}</T>
+        <T size={font.label} faint>{label}</T>
       </Press>
     )
   }
 
   return (
     <View style={st.pieceadd}>
-      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+      <View style={{ flexDirection: 'row', gap: space[2], alignItems: 'center' }}>
         <Input autoFocus value={name} onChangeText={setName} style={{ flex: 1, minWidth: 0 }}
           accessibilityLabel="What the piece is called"
           placeholder="easy spin, 400s, hollow hold…"
           returnKeyType="done" onSubmitEditing={add} />
         <IconBtn icon="X" size={16} label="Close" onPress={() => { setOpen(false); setName('') }} />
       </View>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2], alignItems: 'center' }}>
         {[['time', 'by time'], ['distance', 'by distance'], ['reps', 'by reps']].map(([k, lbl]) => (
           <ImplChip key={k} label={lbl} on={by === k} onPress={() => setBy(k)} />
         ))}
@@ -144,7 +144,7 @@ function BlockNote({ note, editing, asked, onCommit, onFocus, onDone }: any) {
     if (pending.current !== null) { commit.current(pending.current); pending.current = null }
     onDone?.()
   }
-  if (!editing) return note ? <T size={font.small} faint style={{ marginBottom: space[2] }}>{note}</T> : null
+  if (!editing) return note ? <T size={font.label} faint style={{ marginBottom: space[2] }}>{note}</T> : null
   return (
     <Input multiline value={text} onChangeText={(v: string) => { pending.current = v; setText(v) }}
       autoFocus={asked} onFocus={onFocus} onBlur={leave}
@@ -187,11 +187,11 @@ function CircuitBlock({ block: b, pres, onChange, onDrop, liftField, entries, en
     <View style={{ marginBottom: open ? 22 : 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
         <Press onPress={() => { tap(); onToggle() }} accessibilityRole="button" accessibilityState={{ expanded: open }}
-          style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 7, minHeight: TAP }}>
+          style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: TAP }}>
           <Icon name={open ? 'ChevronUp' : 'ChevronDown'} size={14} color={colors.inkFaint} />
           <T size={font.body} weight={600} style={{ flex: 1, minWidth: 0 }}>{b.name}</T>
-          {tag ? <T size={font.small} dim>{tag}</T> : null}
-          <T size={font.small} dim tabular>{setCount(b)}</T>
+          {tag ? <T size={font.label} dim>{tag}</T> : null}
+          <T size={font.label} dim tabular>{setCount(b)}</T>
         </Press>
         {menu ? menu({ reorder: null }) : null}
       </View>
@@ -374,16 +374,16 @@ export function PrescriptionEditor({
 export { setLine }
 
 const st = StyleSheet.create({
-  subp: { color: colors.inkDim, fontSize: 12.5, lineHeight: 19 },
+  subp: { color: colors.inkDim, fontSize: font.label, lineHeight: leading.label },
 
   implchip: {
-    flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: space[3], minHeight: 36,
+    flexDirection: 'row', alignItems: 'center', gap: space[2], paddingHorizontal: space[3], minHeight: TAP,
     borderRadius: radius.pill, backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line,
   },
   implchipOn: { borderColor: colors.accentLine, backgroundColor: colors.accentSoft },
   addPiece: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: TAP, marginTop: 6,
-    borderWidth: 1, borderStyle: 'dashed', borderColor: colors.line, borderRadius: 8, paddingHorizontal: 10,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[2], minHeight: TAP, marginTop: space[2],
+    borderWidth: 1, borderStyle: 'dashed', borderColor: colors.line, borderRadius: radius.control, paddingHorizontal: space[2],
   },
-  pieceadd: { gap: 8, padding: 10, marginTop: 6, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.line, borderRadius: 8 },
+  pieceadd: { gap: space[2], padding: space[2], marginTop: space[2], borderWidth: 1, borderStyle: 'dashed', borderColor: colors.line, borderRadius: radius.control },
 })

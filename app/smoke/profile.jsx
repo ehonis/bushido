@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 /* Smoke cases: the profile: Testing, Why, gear, WHOOP, Strava, the screen probe, People.
  * Run by app/smoke/index.jsx (`npm run smoke`); moved out of app/smoke.jsx in #73,
  * unchanged and in their old relative order. A case is [name, element | null, assert?].
@@ -689,6 +690,11 @@ export default [
     <PrefsProvider settings={{ blurbs: { allHidden: true, hidden: {}, shown: {} } }} saveSettings={noop}>
       <WhyTab plan={plan} />
     </PrefsProvider>],
+  /* The screen probe is a diagnostic, not a setting (#82, G-visual-ia F11): folded under Troubleshooting. */
+  ['SettingsPage(the screen probe is behind Troubleshooting)', null, () => {
+    const src = readFileSync(new URL('../src/profile.jsx', import.meta.url), 'utf8')
+    if (!/<details className="prof-trouble">[\s\S]*Troubleshooting[\s\S]*<ScreenCard \/>[\s\S]*<\/details>/.test(src)) throw new Error('the screen probe is shown as an ordinary setting')
+  }],
   ['ScreenCard(renders before it can measure)', <ScreenCard />,
     (html) => { if (!/Measuring/.test(text(html))) throw new Error('no placeholder before measurement') }],
   ['describeScreen(names the iOS 26 short viewport)', null, () => {

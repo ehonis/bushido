@@ -3,6 +3,7 @@
  * unchanged and in their old relative order. A case is [name, element | null, assert?].
  */
 import { renderToString } from 'react-dom/server'
+import { isoShift, dayWords } from '../src/lib/dates.js'
 import { readFileSync } from 'node:fs'
 import { Modal, isTextEntry, footerShown, sheetDismissable, EDIT_SETTLE_MS } from '../src/modal.jsx'
 import { SessionSheet, planTalkWhere } from '../src/sheet.jsx'
@@ -65,9 +66,9 @@ export default [
       <SessionSheet opt={opt} entry={entry} tone="rec" entries={rich} isFuture={false}
         onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop} />)
     if (!/aria-label="Edit this workout"/.test(html)) throw new Error('no pencil beside the X')
-    if (!/aria-label="Remove from today"/.test(html)) throw new Error('no remove button beside the X')
+    if (!/aria-label="Remove workout"/.test(html)) throw new Error('no remove button beside the X')
     // And the old footer link is gone, so there is exactly one way to do it.
-    if (/Remove from today<\/button>/.test(html.replace(/aria-label="Remove from today"[^>]*>/, '')) &&
+    if (/Remove workout<\/button>/.test(html.replace(/aria-label="Remove workout"[^>]*>/, '')) &&
         /linkbtn extra-rm/.test(html)) {
       throw new Error('the footer remove link survived')
     }
@@ -614,7 +615,7 @@ export default [
       out={{ sets: { routes: [{ reps: 2, climbs: [{ grade: 10.2, fell: false, felt: '', style: '' }, { grade: '', fell: false, felt: '', style: '' }] }] } }} />)
     const t = text(html)
     if (!/Remove what you logged for 1 route\?/.test(t)) throw new Error('the question is missing')
-    if (!/>Keep it</.test(t) || !/class="btn bad"[^>]*>Remove</.test(html)) throw new Error('both answers must be offered')
+    if (!/>Keep it</.test(t) || !/class="btn destructive"[^>]*>Remove</.test(html)) throw new Error('both answers must be offered')
     if (/>Count only</.test(t)) throw new Error('the control stays while its question is open')
     // A route card offers the letters / plus-minus switch, and routes are named as routes.
     if (!/class="seg tap gradesys"/.test(html) || !/>5\.10a</.test(html) || !/>5\.10\+</.test(html)) throw new Error('no route grade switch')
@@ -767,7 +768,7 @@ export default [
       const t = text(html)
       if (!t.includes(PRESCRIPTION.title)) throw new Error('the sheet is not titled by the plan')
       // This one has a bike piece in it, so there is a clock to run.
-      if (!/Start the workout/.test(t)) throw new Error('no way into the runner from the sheet')
+      if (!/Start workout/.test(t)) throw new Error('no way into the runner from the sheet')
       // Asking the model is planning: on the day it is done it is behind the pencil
       // (#79, `planTalkWhere`), not above the first set.
       if (/Why this session|Ask the model/.test(t)) throw new Error('the model panel is back above the sets while doing')
@@ -801,7 +802,7 @@ export default [
           onClose={noop} />
       </PlanProvider>)
     const t = text(html)
-    if (/Start the workout/.test(t)) throw new Error('a lift session is offering a clock again')
+    if (/Start workout/.test(t)) throw new Error('a lift session is offering a clock again')
     // The chip by the title (#77), never a footer under the sets.
     const chip = (h) => (h.match(/<button[^>]*class="done-chip[^"]*"[^>]*>/) || [''])[0]
     if (/<footer class="modal-foot">/.test(html)) throw new Error('a lift session with nothing to start has a footer (a Close?) under its sets')
@@ -839,14 +840,14 @@ export default [
       </PlanProvider>)
     const foot = (html) => (html.match(/<footer class="modal-foot">([\s\S]*?)<\/footer>/) || [])[1] ?? null
     const today = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: true } })
-    if (!/Start the workout/.test(foot(today) || '')) throw new Error('a runnable session lost its Start')
+    if (!/Start workout/.test(foot(today) || '')) throw new Error('a runnable session lost its Start')
     if (/>Close</.test(foot(today) || '')) throw new Error('Close is back in the footer beside Start')
     if (/Mark (un)?done/.test(foot(today) || '')) throw new Error('the done toggle is back in the footer')
     if (!/class="modal-btn close"[^>]*aria-label="Close"/.test(today)) throw new Error('the header X is gone: no way to close')
     // A plan for today is done once something is done on it (D10, #74). Untouched, it still
     // offers Start in the footer and its chip (not the footer) reads "Not done".
     const kept = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false } })
-    if (!/Start the workout/.test(foot(kept) || '') || /Mark (un)?done|>Close</.test(foot(kept) || '')) throw new Error('an untouched plan for today: the footer is not just Start')
+    if (!/Start workout/.test(foot(kept) || '') || /Mark (un)?done|>Close</.test(foot(kept) || '')) throw new Error('an untouched plan for today: the footer is not just Start')
     if (!/class="done-chip "[^>]*aria-checked="false"/.test(kept)) throw new Error('an untouched plan for today reads as done')
     const logged = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false, out: { ...(PLANNED_ENTRY.data.out || {}), rpe: 6 } } })
     if (!/class="done-chip on"[^>]*aria-checked="true"/.test(logged)) throw new Error('a plan with something logged on it today does not read as done')
@@ -854,7 +855,7 @@ export default [
     // done, nothing is left to start: no footer at all, rather than a Close.
     const finished = foot(sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: true, run: { startedAt: 1, endedAt: 2 } } }))
     // A run under way or finished is carried on, not started again (#79).
-    if (!/Carry on/.test(finished || '') || /Start the workout/.test(finished || '') || />Close</.test(finished || '')) throw new Error('a run finished today cannot be reopened as Carry on, or Close came back')
+    if (!/Carry on/.test(finished || '') || /Start workout/.test(finished || '') || />Close</.test(finished || '')) throw new Error('a run finished today cannot be reopened as Carry on, or Close came back')
     const past = sheet({ ...PLANNED_ENTRY, date: '2026-01-05', data: { ...PLANNED_ENTRY.data, done: true, run: { startedAt: 1, endedAt: 2 } } })
     if (foot(past) !== null) throw new Error(`a sheet with nothing to start still has a footer: ${text(foot(past))}`)
     const later = sheet({ ...PLANNED_ENTRY, date: '2999-01-01', data: { ...PLANNED_ENTRY.data, done: false } }, true)
@@ -864,7 +865,7 @@ export default [
     // A card with nothing on the day yet: putting it there is the footer's one action.
     const card = foot(renderToString(<SessionSheet opt={otherCard} entry={null} tone="rec" entries={[]}
       onLog={noop} onSave={noop} onSetDone={noop} onClose={noop} />)) || ''
-    if (!/Add to today/.test(card) || />Close</.test(card)) throw new Error(`the unplaced card's footer reads "${text(card)}"`)
+    if (!/Add to Today/.test(card) || />Close</.test(card)) throw new Error(`the unplaced card's footer reads "${text(card)}"`)
   }],
   /*
    * DONE IS A CHIP BY THE TITLE (#77), at its new address: `.modal-status` in
@@ -924,10 +925,42 @@ export default [
         <SessionSheet opt={PLANNED_CARD} entry={PLANNED_ENTRY} tone="rec" entries={rich} isFuture={false}
           onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onRemove={noop} onClose={noop} />
       </PlanProvider>)
-    const head = (html.match(/<header class="modal-head">([\s\S]*?)<\/header>/) || [])[1] || ''
+    const head = (html.match(/<header class="modal-head[^"]*">([\s\S]*?)<\/header>/) || [])[1] || ''
     const at = (re) => head.search(re)
-    const bin = at(/aria-label="Remove from today"/), pencil = at(/aria-label="Edit this workout"/), x = at(/aria-label="Close"/)
+    const bin = at(/aria-label="Remove workout"/), pencil = at(/aria-label="Edit this workout"/), x = at(/aria-label="Close"/)
     if (!(bin >= 0 && pencil > bin && x > pencil)) throw new Error(`header order bin ${bin}, pencil ${pencil}, close ${x}`)
+  }],
+  /*
+   * THE HEADER AT 390 (#82, from #91's review). For any day older than yesterday
+   * the line under the title ("Wed, Nov 4 · 3 exercises") wrapped beside the bin,
+   * the pencil and the X, and the done chip and "with Sam · in sync" stacked
+   * under it: a 190px header. Now the title row holds the title, ONE line of
+   * context that ellipsizes rather than wraps, and the buttons; the state row is
+   * the header's own row, the full width under it; and on a phone the icon well
+   * gives way when the bin and the pencil are both there. SSR cannot measure, so
+   * the structure and the rules that make it so are what is pinned.
+   */
+  ['SessionSheet(header at 390 on an older day: one meta line, the chips across the width)', null, () => {
+    const day = isoShift(TODAY, -5)
+    const entry = { ...PLANNED_ENTRY, id: `daily-${day}`, date: day }
+    const html = renderToString(
+      <PlanProvider plan={plan}>
+        <SessionSheet opt={PLANNED_CARD} entry={entry} tone="rec" entries={rich} isFuture={false}
+          onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onRemove={noop} onRename={noop} onClose={noop} />
+      </PlanProvider>)
+    const head = (html.match(/<header class="modal-head full">([\s\S]*?)<\/header>/) || [])[1]
+    if (!head) throw new Error('a header with both the bin and the pencil is not marked full')
+    const row = (head.match(/^<div class="modal-headrow">([\s\S]*?)<\/div><div class="modal-status">/) || [])[1]
+    if (!row) throw new Error('the state row is not its own row under the title row')
+    if (/done-chip/.test(row)) throw new Error('the done chip is squeezed into the title row')
+    if (!/class="modal-status"[\s\S]*done-chip/.test(head)) throw new Error('no done chip in the state row')
+    const sub = text((row.match(/<div class="modal-sub">(.*?)<\/div>/) || [])[1] || '').replace(/<[^>]+>/g, '')
+    if (!sub.startsWith(dayWords(day)) || sub.split(' · ').length > 2) throw new Error(`the context line is "${sub}"`)
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    const rule = (sel) => (css.match(new RegExp(`${sel.replace(/[.\[\]]/g, '\\$&')} \\{([^}]*)\\}`)) || [])[1] || ''
+    if (!/white-space: nowrap/.test(rule('.modal-sub')) || !/text-overflow: ellipsis/.test(rule('.modal-sub'))) throw new Error('the context line can wrap')
+    if (!/flex-direction: column/.test(rule('.modal-head'))) throw new Error('the header is one row again')
+    if (!/@media \(max-width: 479px\) \{\s*\.modal-head\.full \.modal-ico \{ display: none; \}/.test(css)) throw new Error('the icon well still takes the phone’s width')
   }],
   /*
    * THE HEADER (#41): the name, then the day and the time as typed. It used to
@@ -1014,7 +1047,7 @@ export default [
       <SessionSheet opt={PLANNED_CARD} entry={entry} tone="rec" entries={[entry]} isFuture={false}
         onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={noop} onClose={noop} />
     </PlanProvider>))
-    if (!/Start the workout/.test(sheet)) throw new Error('a lift block switched to Circuit is not runnable')
+    if (!/Start workout/.test(sheet)) throw new Error('a lift block switched to Circuit is not runnable')
     // Started: no run on the entry yet, so it opens in the count-in, with the first exercise up next.
     const fresh = renderToString(<PlanProvider plan={HELD_PLAN}><WorkoutRunner session={PLANNED_CARD} entry={entry}
       entries={[]} onRun={noop} onExit={noop} /></PlanProvider>)
@@ -1129,8 +1162,8 @@ export default [
       if (!/aria-label="Edit this workout"/.test(html)) throw new Error(`${where}: no pencil`)
     }
     // Running is Today's: history offers no Start.
-    if (/Start the workout|Carry on/.test(fromLog)) throw new Error('the Log offers to start a workout')
-    if (!/Remove this workout/.test(fromLog)) throw new Error('an earlier day’s bin says "from today"')
+    if (/Start workout|Carry on/.test(fromLog)) throw new Error('the Log offers to start a workout')
+    if (!/aria-label="Remove workout"/.test(fromLog) || /from today/.test(fromLog)) throw new Error('an earlier day’s bin says "from today"')
   }],
   ['SessionLog(a planned entry: no second "What did you lift?"; rows a run logged still show)', null, () => {
     const bare = renderToString(<SessionLog session={PLANNED_CARD} entry={PLANNED_ENTRY} entries={[]} onSave={noop} />)

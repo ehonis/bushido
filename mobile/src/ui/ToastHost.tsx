@@ -9,7 +9,7 @@ import Animated, { FadeInUp, FadeOut, cancelAnimation, Easing, useAnimatedStyle,
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useToasts, dismissToast, holdToasts, type Toast } from '../lib/toast'
 import { Icon } from '../lib/icons'
-import { colors } from '../theme'
+import { colors, font, radius, space, TAP } from '../theme'
 import { T } from './Text'
 import { Press } from './kit'
 import { success, tap, warn } from './haptics'
@@ -62,13 +62,13 @@ function Item({ t, index, open, offset, frontHeight, onHeight }: {
       {t.duration > 0 ? <Countdown duration={t.duration} held={open} restart={t.count} /> : null}
       <Animated.View style={[st.row, body]} onLayout={(e) => onHeight(t.id, Math.round(e.nativeEvent.layout.height))}>
         <Icon name={ICONS[t.kind] || ICONS.error} size={16} color={colors.white} style={{ marginTop: 1 }} />
-        <T size={14} color={colors.white} style={{ flex: 1 }}>
-          {t.text}{t.count > 1 ? <T size={12} weight={600} color={colors.white}>{`  ×${t.count}`}</T> : null}
+        <T size={font.label} color={colors.white} style={{ flex: 1 }}>
+          {t.text}{t.count > 1 ? <T size={font.caption} weight={600} color={colors.white}>{`  ×${t.count}`}</T> : null}
         </T>
         {t.action ? (
           <Press style={st.action} onPress={() => { const run = t.action!.onClick; dismissToast(t.id); run() }}>
             {actionIcon ? <Icon name={actionIcon} size={13} color={colors.white} /> : null}
-            <T size={13} weight={600} color={colors.white}>{t.action.label}</T>
+            <T size={font.label} weight={600} color={colors.white}>{t.action.label}</T>
           </Press>
         ) : null}
         <Press hitSlop={10} onPress={() => dismissToast(t.id)} accessibilityLabel="Dismiss notification">
@@ -157,12 +157,12 @@ const st = StyleSheet.create({
   wrap: { position: 'absolute', left: 12, right: 12, zIndex: 1000 },
   toast: {
     position: 'absolute', left: 0, right: 0, top: 0, transformOrigin: 'top',
-    borderRadius: 12, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 8 },
+    borderRadius: radius.card, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 8 },
   },
-  row: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingTop: 14, paddingBottom: 12, paddingLeft: 14, paddingRight: 12 },
+  row: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2], paddingTop: space[4], paddingBottom: space[3], paddingLeft: space[4], paddingRight: space[3] },
   bar: { position: 'absolute', top: 0, left: 0, right: 0, height: 3, backgroundColor: 'rgba(255,255,255,0.6)', transformOrigin: 'left' },
   action: {
-    flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'center',
-    paddingHorizontal: 10, minHeight: 32, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.15)',
+    flexDirection: 'row', alignItems: 'center', gap: space[1], alignSelf: 'center',
+    paddingHorizontal: space[2], minHeight: TAP, borderRadius: radius.control, backgroundColor: 'rgba(255,255,255,0.15)',
   },
 })

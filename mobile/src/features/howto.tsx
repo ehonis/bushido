@@ -19,7 +19,7 @@
  */
 import React, { useState } from 'react'
 import { StyleSheet, View } from 'react-native'
-import { colors, mix, radius } from '../theme'
+import { colors, mix, radius, font, space } from '../theme'
 import { Icon } from '../lib/icons'
 import { Figure } from '../lib/figures'
 import { T } from '../ui/Text'
@@ -48,14 +48,14 @@ export function HowBody({ how, showFigure = true, style }: { how: any; showFigur
       {showFigure && how.figure ? (
         <View style={s.fig}><Figure name={how.figure} color={colors.ink} /></View>
       ) : null}
-      {how.gist ? <T size={15} weight={500} lineHeight={22} style={{ marginBottom: 12 }}>{how.gist}</T> : null}
+      {how.gist ? <T size={font.body} weight={500} style={{ marginBottom: space[3] }}>{how.gist}</T> : null}
 
       {how.steps?.length > 0 ? (
         <View style={s.steps}>
           {how.steps.map((step: string, i: number) => (
             <View key={i} style={s.step}>
-              <View style={s.n}><T size={11} weight={700} color={colors.accent} lineHeight={13} tabular>{String(i + 1)}</T></View>
-              <T size={14} lineHeight={21} style={{ flex: 1 }}>{step}</T>
+              <View style={s.n}><T size={font.caption} weight={700} color={colors.accent} lineHeight={13} tabular>{String(i + 1)}</T></View>
+              <T size={font.label} style={{ flex: 1 }}>{step}</T>
             </View>
           ))}
         </View>
@@ -65,8 +65,8 @@ export function HowBody({ how, showFigure = true, style }: { how: any; showFigur
         <View style={[s.note, s.noteWarn]}>
           <Icon name="TriangleAlert" size={15} color={colors.vizWarn} style={s.noteIcon} />
           <View style={{ flex: 1 }}>
-            <T size={13} weight={600} color={colors.vizWarn} style={{ marginBottom: 2 }}>Most common mistake</T>
-            <T size={13} dim lineHeight={20}>{how.watch}</T>
+            <T size={font.label} weight={600} color={colors.vizWarn} style={{ marginBottom: 2 }}>Most common mistake</T>
+            <T size={font.label} dim>{how.watch}</T>
           </View>
         </View>
       ) : null}
@@ -74,8 +74,8 @@ export function HowBody({ how, showFigure = true, style }: { how: any; showFigur
         <View style={s.note}>
           <Icon name="Feather" size={15} color={colors.inkFaint} style={s.noteIcon} />
           <View style={{ flex: 1 }}>
-            <T size={13} weight={600} style={{ marginBottom: 2 }}>Make it easier</T>
-            <T size={13} dim lineHeight={20}>{how.easier}</T>
+            <T size={font.label} weight={600} style={{ marginBottom: 2 }}>Make it easier</T>
+            <T size={font.label} dim>{how.easier}</T>
           </View>
         </View>
       ) : null}
@@ -83,8 +83,8 @@ export function HowBody({ how, showFigure = true, style }: { how: any; showFigur
         <View style={s.note}>
           <Icon name="TrendingUp" size={15} color={colors.inkFaint} style={s.noteIcon} />
           <View style={{ flex: 1 }}>
-            <T size={13} weight={600} style={{ marginBottom: 2 }}>Make it harder</T>
-            <T size={13} dim lineHeight={20}>{how.harder}</T>
+            <T size={font.label} weight={600} style={{ marginBottom: 2 }}>Make it harder</T>
+            <T size={font.label} dim>{how.harder}</T>
           </View>
         </View>
       ) : null}
@@ -105,17 +105,17 @@ export function HowRow({ exercise, open, onToggle, meta }: { exercise: any; open
       <Press haptic style={s.head} onPress={onToggle} accessibilityRole="button" accessibilityState={{ expanded: !!open }}>
         <View style={s.thumb}><Figure name={how?.figure} color={open ? colors.accent : colors.inkDim} /></View>
         <View style={s.heads}>
-          <T size={15} weight={600} lineHeight={20}>{exercise.name}</T>
-          {how?.gist ? <T size={12.5} dim lineHeight={17.5} numberOfLines={open ? 3 : 2}>{how.gist}</T> : null}
+          <T size={font.body} weight={600}>{exercise.name}</T>
+          {how?.gist ? <T size={font.caption} dim numberOfLines={open ? 3 : 2}>{how.gist}</T> : null}
         </View>
-        {dose ? <T size={12} faint tabular numberOfLines={1}>{dose}</T> : null}
+        {dose ? <T size={font.caption} faint tabular numberOfLines={1}>{dose}</T> : null}
         <View style={open ? { transform: [{ rotate: '180deg' }] } : null}>
           <Icon name="ChevronDown" size={17} color={open ? colors.accent : colors.inkFaint} />
         </View>
       </Press>
       {open && how ? <HowBody how={how} showFigure={false} style={s.body} /> : null}
       {open && !how ? (
-        <T size={13} faint style={s.none}>
+        <T size={font.label} faint style={s.none}>
           No step-by-step for this one yet — the full protocol is in the sections above.
         </T>
       ) : null}
@@ -173,31 +173,31 @@ export const hasMoves = (session: any) =>
   (session?.logSpec?.exercises || []).some((ex: any) => ex.how)
 
 const s = StyleSheet.create({
-  list: { gap: 8 },
+  list: { gap: space[2] },
   row: {
-    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.md,
+    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.card,
     overflow: 'hidden',
   },
   rowOn: { borderColor: mix(colors.accent, 45, colors.line) },
-  head: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 62, paddingVertical: 10, paddingHorizontal: 12 },
+  head: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: 62, paddingVertical: space[2], paddingHorizontal: space[3] },
   thumb: { width: 50, height: 42 },
   heads: { flex: 1, minWidth: 0, gap: 2 },
-  none: { paddingHorizontal: 14, paddingBottom: 14 },
-  body: { paddingHorizontal: 14, paddingBottom: 14 },
+  none: { paddingHorizontal: space[4], paddingBottom: space[4] },
+  body: { paddingHorizontal: space[4], paddingBottom: space[4] },
   fig: {
-    height: 132, marginBottom: 14, padding: 10,
-    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: 9,
+    height: 132, marginBottom: space[4], padding: space[2],
+    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control,
   },
-  steps: { gap: 9 },
-  step: { flexDirection: 'row', gap: 11, alignItems: 'flex-start' },
+  steps: { gap: space[2] },
+  step: { flexDirection: 'row', gap: space[3], alignItems: 'flex-start' },
   n: {
-    width: 21, height: 21, marginTop: 1, borderRadius: 11,
+    width: 21, height: 21, marginTop: 1, borderRadius: radius.card,
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: mix(colors.accent, 18, colors.panel),
   },
   note: {
-    flexDirection: 'row', gap: 9, alignItems: 'flex-start',
-    marginTop: 12, paddingVertical: 10, paddingHorizontal: 11, borderRadius: 8,
+    flexDirection: 'row', gap: space[2], alignItems: 'flex-start',
+    marginTop: space[3], paddingVertical: space[2], paddingHorizontal: space[3], borderRadius: radius.control,
     backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line,
   },
   noteWarn: { borderColor: mix(colors.vizWarn, 35, colors.line) },

@@ -60,7 +60,7 @@ export function GearSection({ plan, entries, strava, upsertEntry, deleteEntry }:
     return (
       <>
         <Empty icon="ShoppingBag">
-          <T dim size={font.body} align="center">No gear yet. Bikes and shoes arrive from Strava; add anything else.</T>
+          <T dim size={font.body} align="center">No gear yet</T>
           <Btn title="Add gear" onPress={() => setAdding(true)} />
         </Empty>
         {form}
@@ -99,7 +99,7 @@ function GearRow({ row, kind, first, onOpen }: any) {
       <Icon name={kind.icon || 'ShoppingBag'} size={20} color={colors.inkDim} />
       <View style={st.rowName}>
         <T size={font.body} weight={500} numberOfLines={1} color={row.retired ? colors.inkDim : colors.ink}>{row.name}</T>
-        <T size={font.small} dim>{facts.join(' · ')}</T>
+        <T size={font.label} dim>{facts.join(' · ')}</T>
         {/*
           * The mileage gap, said out loud rather than folded into one number.
           * Strava keeps its own odometer; anything logged here with no Strava
@@ -107,11 +107,11 @@ function GearRow({ row, kind, first, onOpen }: any) {
           * would double-count every ride that WAS on Strava.
           */}
         {row.source === 'strava' && row.unsyncedMiles > 0 ? (
-          <T size={font.small} color={colors.warn}>{`+ ${fmt(row.unsyncedMiles)} mi logged here that Strava has not seen`}</T>
+          <T size={font.label} color={colors.warn}>{`+ ${fmt(row.unsyncedMiles)} mi logged here that Strava has not seen`}</T>
         ) : null}
       </View>
       <View style={st.rowNum}>
-        <T size={font.small} dim tabular>
+        <T size={font.label} dim tabular>
           <T size={font.title} weight={600} tabular color={row.retired ? colors.inkDim : colors.ink}>{String(fmt(head.value))}</T>
           {` ${head.unit}`}
         </T>
@@ -175,13 +175,13 @@ function GearForm({ plan, row, onSave, onCancel, onDelete }: any) {
       deleteBody="Workouts logged with it keep their history."
       footer={(
         <>
-          {synced ? null : <Btn kind="ghost" title="Cancel" flex onPress={onCancel} />}
+          {synced ? null : <Btn kind="secondary" title="Cancel" flex onPress={onCancel} />}
           <Btn title={synced ? 'Done' : row ? 'Save' : 'Add it'} flex onPress={submit} disabled={!synced && !name.trim()} />
         </>
       )}
     >
       {synced && (
-        <T size={font.small} dim style={{ marginBottom: space[3] }}>From Strava, which keeps its name, odometer and default.</T>
+        <T size={font.label} dim style={{ marginBottom: space[3] }}>From Strava, which keeps its name, odometer and default.</T>
       )}
 
       {!synced && (
@@ -201,10 +201,10 @@ function GearForm({ plan, row, onSave, onCancel, onDelete }: any) {
         {synced ? (
           <T size={font.input} faint>{acquired || 'No date'}</T>
         ) : acquired ? (
-          <View style={{ gap: 6 }}>
+          <View style={{ gap: space[2] }}>
             <DayStepper value={acquired} max={localIso()} onChange={setAcquired} />
-            <Press haptic onPress={() => setAcquired('')} style={{ alignSelf: 'flex-start', paddingVertical: 4 }}>
-              <T size={font.caption} dim>Clear the date</T>
+            <Press haptic onPress={() => setAcquired('')} style={{ alignSelf: 'flex-start', paddingVertical: space[1] }}>
+              <T size={font.label} dim>Clear the date</T>
             </Press>
           </View>
         ) : (
@@ -225,7 +225,7 @@ function GearForm({ plan, row, onSave, onCancel, onDelete }: any) {
       <View style={st.toggle}>
         <View style={{ flex: 1 }}>
           <T size={font.body}>Retired</T>
-          <T size={font.small} dim>Keeps its history, stops being offered</T>
+          <T size={font.label} dim>Keeps its history, stops being offered</T>
         </View>
         <Toggle value={retired} onChange={setRetired} disabled={synced} />
       </View>

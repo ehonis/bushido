@@ -61,10 +61,10 @@ export function ActivityPicker({ field, value, onChange, out = null }: any) {
   const sheet = open ? (
     <Popover label={field.label} onClose={cancel}>
       <View style={st.sheetHead}>
-        <T size={font.small} dim style={{ flex: 1 }}>{field.label}</T>
+        <T size={font.label} dim style={{ flex: 1 }}>{field.label}</T>
         <IconBtn icon="X" size={16} label="Close" onPress={cancel} />
       </View>
-      <View style={{ paddingHorizontal: 12, paddingBottom: 8 }}>
+      <View style={{ paddingHorizontal: space[3], paddingBottom: space[2] }}>
         <Input
           autoFocus value={q} placeholder="Search activities" accessibilityLabel="Search activities"
           onChangeText={setQ}
@@ -79,16 +79,16 @@ export function ActivityPicker({ field, value, onChange, out = null }: any) {
           keyExtractor={(a) => a.key}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 12 }}
+          contentContainerStyle={{ paddingHorizontal: space[3], paddingBottom: space[3] }}
           renderItem={({ item: a }) => (
             <Press onPress={() => choose(a.key)} style={st.actrow} accessibilityRole="button">
               <Icon name={a.icon} size={18} color={colors.inkDim} />
               <T size={font.body} style={{ flex: 1, minWidth: 0 }}>{a.name}</T>
-              <T size={font.small} dim>{a.group}</T>
+              <T size={font.label} dim>{a.group}</T>
             </Press>
           )}
           ListEmptyComponent={(
-            <T size={font.small} dim style={{ marginVertical: space[2], marginHorizontal: 2 }}>
+            <T size={font.label} dim style={{ marginVertical: space[2], marginHorizontal: 2 }}>
               {`Nothing matches “${q}”.`}
             </T>
           )}
@@ -100,9 +100,9 @@ export function ActivityPicker({ field, value, onChange, out = null }: any) {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           stickySectionHeadersEnabled
-          contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 12 }}
+          contentContainerStyle={{ paddingHorizontal: space[3], paddingBottom: space[3] }}
           renderSectionHeader={({ section }) => (
-            <View style={st.groupHead}><T size={font.small} weight={600} dim>{section.title}</T></View>
+            <View style={st.groupHead}><T size={font.label} weight={600} dim>{section.title}</T></View>
           )}
           renderItem={({ item: a }: any) => (
             <Press onPress={() => choose(a.key)} style={st.actrow} accessibilityRole="button">
@@ -113,9 +113,9 @@ export function ActivityPicker({ field, value, onChange, out = null }: any) {
         />
       )}
       {value ? (
-        <View style={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: Math.max(12, insets.bottom) }}>
+        <View style={{ paddingHorizontal: space[3], paddingTop: space[2], paddingBottom: Math.max(12, insets.bottom) }}>
           <Press onPress={cancel} style={st.cancel} accessibilityRole="button">
-            <T size={font.small} dim>{`Keep ${activityLabel(field, value)}`}</T>
+            <T size={font.label} dim>{`Keep ${activityLabel(field, value)}`}</T>
           </Press>
         </View>
       ) : null}
@@ -137,11 +137,11 @@ export function ActivityPicker({ field, value, onChange, out = null }: any) {
           <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
             <T size={font.body} weight={500} numberOfLines={1}>{name}</T>
             <View style={{ flexDirection: 'row', gap: space[2], alignItems: 'center' }}>
-              <T size={font.small} dim>{picked ? 'Activity' : 'No longer in the catalog'}</T>
-              {picked && source ? <T size={font.small} color={colors.accent}>{`from ${source}`}</T> : null}
+              <T size={font.label} dim>{picked ? 'Activity' : 'No longer in the catalog'}</T>
+              {picked && source ? <T size={font.label} color={colors.accent}>{`from ${source}`}</T> : null}
             </View>
           </View>
-          <T size={font.small} dim>Change</T>
+          <T size={font.label} dim>Change</T>
           <Icon name="ChevronRight" size={16} color={colors.inkFaint} />
         </Press>
         {sheet}
@@ -151,7 +151,7 @@ export function ActivityPicker({ field, value, onChange, out = null }: any) {
 
   return (
     <View style={{ gap: space[2] }}>
-      <T size={font.small} dim>{field.label}</T>
+      <T size={font.label} dim>{field.label}</T>
       {/* The pinned sports, one tap each, as answer chips. */}
       <View style={st.pins}>
         {pins.map((a) => (
@@ -160,7 +160,7 @@ export function ActivityPicker({ field, value, onChange, out = null }: any) {
       </View>
       <Press onPress={startSearch} style={st.more} accessibilityRole="button">
         <Icon name="Target" size={16} color={colors.inkDim} />
-        <T size={font.small} dim style={{ flex: 1 }}>Something else</T>
+        <T size={font.label} dim style={{ flex: 1 }}>Something else</T>
       </Press>
       {sheet}
     </View>
@@ -178,8 +178,8 @@ const st = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: TAP, paddingHorizontal: space[3],
     borderWidth: 1, borderStyle: 'dashed', borderColor: colors.lineStrong, borderRadius: radius.control,
   },
-  sheetHead: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 8 },
-  groupHead: { marginTop: 10, marginBottom: 2, paddingVertical: 4, backgroundColor: colors.panel },
+  sheetHead: { flexDirection: 'row', alignItems: 'center', gap: space[2], paddingHorizontal: space[3], paddingTop: space[2], paddingBottom: space[2] },
+  groupHead: { marginTop: space[2], marginBottom: 2, paddingVertical: space[1], backgroundColor: colors.panel },
   actrow: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: TAP, paddingHorizontal: space[2], borderRadius: radius.control },
   cancel: {
     minHeight: TAP, alignItems: 'center', justifyContent: 'center',
