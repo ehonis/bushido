@@ -191,11 +191,15 @@ const noMode = ({ weightMode: _m, weightLabel: _l, ...rest }) => rest
 /** A copy of their own last set: its numbers as a start, but not typed until they type into it. */
 const untypedCopy = ({ typed: _t, ...s }) => ({ ...s, note: '' })
 
-/** One of the owner's sets on their side: the target, not the owner's weight, and nothing they typed. */
-const theirSet = ({ typed: _t, ...s }) => ({ ...s, weight: null })
+/** One of the owner's sets on their side: the target, not the owner's weight, cue or anything they typed. */
+const theirSet = ({ typed: _t, ...s }) => ({ ...s, weight: null, note: '' })
 
-/** One of the owner's exercises on their side: the target, not the owner's weight or what it meant. */
-const theirItem = (item) => ({ ...noMode(item), sets: (item.sets || []).map(theirSet) })
+/**
+ * One of the owner's exercises on their side: the target, not the owner's
+ * weight, what it meant, or the planner's note on it ("3x10 at 95 was RPE 6
+ * last time", written from the owner's log).
+ */
+const theirItem = (item) => ({ ...noMode(item), note: '', sets: (item.sets || []).map(theirSet) })
 
 /**
  * The owner's plan as the start of theirs: the exercises, never the owner's
@@ -205,8 +209,131 @@ const theirItem = (item) => ({ ...noMode(item), sets: (item.sets || []).map(thei
  * log (`thread`, `why`, `notes`, `changed`).
  */
 function theirPlan(mine) {
-  const { draftId: _d, thread: _t, why: _w, notes: _n, changed: _c, ...plan } = mine
-  return { ...plan, why: '', notes: [], blocks: mine.blocks.map(b => ({ ...b, items: (b.items || []).map(theirItem) })) }
+  const { draftId: _d, ...plan } = ownerWordsOff(mine)
+  return { ...plan, blocks: mine.blocks.map(b => ({ ...b, items: (b.items || []).map(theirItem) })) }
+}
+
+/**
+ * A plan without the words the planner wrote for the person it was made for:
+ * its reasoning (`why`), notes, the conversation (`thread`), the request (`ask`),
+ * what a revision changed, and its note on each exercise and set. On a copy
+ * those are the OWNER's: written from the owner's log, WHOOP recovery and
+ * weights included ("Yellow recovery today (51%)…", "3x10 at 95 was RPE 6 last
+ * time"), and nothing on them is about the person whose copy it is. A block's
+ * note stays: it is the workout's own prose (a warm-up block exists by it) and
+ * shared structure (server/sharedsync.js BLOCK_KEYS).
+ */
+function ownerWordsOff({ why: _w, notes: _n, thread: _t, ask: _a, changed: _c, ...plan }) {
+  const blocks = Array.isArray(plan.blocks) ? plan.blocks.map(b => ({
+    ...b,
+    items: (Array.isArray(b?.items) ? b.items : []).map(it => ({
+      ...it, note: '', sets: (Array.isArray(it?.sets) ? it.sets : []).map(x => ({ ...x, note: '' })),
+    })),
+  })) : plan.blocks
+  return { ...plan, why: '', notes: [], blocks }
+}
+
+/** One shown plan per stored plan, so a screen given it keeps one object while nothing changed. */
+const shownOf = new WeakMap()
+
+/**
+ * The plan as THIS log's person sees it (#96): every screen that draws a plan
+ * reads it through here (the sheet's editor, notes and model panel, the
+ * runner), on the web and the phone. On a copy (`sharedFrom`) the owner's
+ * words are left out at display time, because copies shared before
+ * `theirPlan` stripped them still carry them. Display only: nothing stored is
+ * rewritten (AGENTS.md §4), by reading or by writing. Every write from such a
+ * screen goes back through `withStoredWords`, which puts each hidden word back
+ * exactly as stored, so the person's edit lands on the stored plan.
+ *
+ * Words the person wrote with the model on their own copy are theirs, and the
+ * sheet stamps them so (`ownWords`, `ownWordsOn`): such a plan is shown whole.
+ */
+export function planShown(entry) {
+  const plan = entry?.data?.plan
+  if (!plan || typeof plan !== 'object') return null
+  if (!entry.data.sharedFrom || plan.ownWords === true) return plan
+  if (!shownOf.has(plan)) shownOf.set(plan, ownerWordsOff(plan))
+  return shownOf.get(plan)
+}
+
+const WORD_KEYS = ['why', 'notes', 'thread', 'ask', 'changed']
+
+/** `to` with `key` exactly as `from` has it: the same value, or no key when `from` has none. */
+function sameKey(to, from, key) {
+  if (from && Object.prototype.hasOwnProperty.call(from, key)) return to[key] === from[key] ? to : { ...to, [key]: from[key] }
+  if (!Object.prototype.hasOwnProperty.call(to, key)) return to
+  const { [key]: _gone, ...rest } = to
+  return rest
+}
+
+/**
+ * A plan edited on a screen that was SHOWN `planShown`, made a write to the
+ * stored plan (#96 review 2): the filter is for what is drawn, never for what
+ * is stored (AGENTS.md §4). Every word it hid comes back exactly as stored,
+ * byte for byte, a key the stored plan never had included: the plan's own
+ * (`why`, `notes`, `thread`, `ask`, `changed`) and each exercise's and set's
+ * `note`. An exercise is the stored one by its uid, else by its name and which
+ * of that name it is (`keyed`), else by its id; a set by its place in it. What
+ * the person added has nothing stored to take, and keeps its blank. Anything
+ * the filter did not touch (not a copy, or words that are the person's own,
+ * `ownWords`, which a model revision on their copy writes) is `next` as it is.
+ * Used by every write from those screens: the sheet's editor, on the person's
+ * own side and on the owner's view of it, and the runner.
+ */
+export function withStoredWords(entry, next) {
+  const stored = entry?.data?.plan
+  if (!next || typeof next !== 'object' || !stored || typeof stored !== 'object') return next
+  if (!entry.data.sharedFrom || stored.ownWords === true || next.ownWords === true) return next
+  const byUid = new Map()
+  const byKey = new Map()
+  const byId = new Map()
+  for (const { key, item } of keyed(stored)) {
+    if (item?.uid) byUid.set(item.uid, item)
+    byKey.set(key, item)
+    if (item?.id) byId.set(item.id, item)
+  }
+  const claimed = new Set()
+  const claim = (m) => (m && !claimed.has(m) ? (claimed.add(m), m) : null)
+  const seen = new Map()
+  let plan = next
+  for (const k of WORD_KEYS) plan = sameKey(plan, stored, k)
+  if (!Array.isArray(next.blocks)) return plan
+  const blocks = next.blocks.map(b => ({
+    ...b,
+    items: (Array.isArray(b?.items) ? b.items : []).map(it => {
+      const name = String(it?.name || '')
+      const n = (seen.get(name) || 0) + 1
+      seen.set(name, n)
+      const was = claim(it?.uid && byUid.get(it.uid)) || claim(byKey.get(`${name}#${n}`)) || claim(it?.id && byId.get(it.id))
+      if (!was) return it
+      const sets = (Array.isArray(it.sets) ? it.sets : []).map((x, i) => (was.sets?.[i] ? sameKey(x, was.sets[i], 'note') : x))
+      return { ...sameKey(it, was, 'note'), sets }
+    }),
+  }))
+  return { ...plan, blocks }
+}
+
+/**
+ * A plan written by the model panel on this person's own copy: its words are
+ * now theirs (`planShown` shows them). Anything that is not a copy is as it is.
+ */
+export const ownWordsOn = (entry, plan) => (entry?.data?.sharedFrom && plan ? { ...plan, ownWords: true } : plan)
+
+/**
+ * Who a removal's toast says the exercises stay in step with (lib/removal.js
+ * `syncLine`), or null: the other sides of this synced workout, from where the
+ * sheet stands (#96, folded out of both sheets). On the owner's side, everyone
+ * on it with sync on (`on`, `sharedPeopleOn`); on someone else's side, the owner
+ * ("you"); and on the other person's OWN copy, whoever shared it, when the
+ * server says it is in step (`inStep`): a removal there reaches the owner's log too.
+ */
+export function syncedSides(entry, on = [], side = null) {
+  if (side) return isSynced(entry, side.id) ? ['you'] : null
+  const names = on.filter(p => isSynced(entry, p.id)).map(p => p.name)
+  if (names.length) return names
+  if (!on.length && inStep(entry)) return [String(entry.data.sharedFrom.name || '').trim() || 'the person who shared it']
+  return null
 }
 
 /** Their plan with every exercise and set of the owner's that it lacks. Never takes anything out. */
@@ -392,21 +519,49 @@ export async function addPerson({ ownerEntry, person, session = null, owner = nu
 }
 
 /**
- * Take someone off the owner's workout. Their copy is tombstoned only if they
- * have put nothing of their own on it; otherwise `confirmFn` is asked first, and
- * a no leaves both entries as they were. Resolves the owner's entry to write,
- * or null when nothing should change.
+ * Take someone off the owner's workout (#96). Nothing they logged is ever lost
+ * by it: a copy they have put something of their own on (`hasOwnMarks`) is KEPT
+ * in their log as their workout, only no longer linked (the server then flags
+ * it not in step, `flagChanges`); one they have not touched is tombstoned, as
+ * it holds nothing but the owner's exercises. No question either way: the toast
+ * says which (`takeOffWords`), with Undo (`undoTakeOff`).
+ *
+ * This used to tombstone a logged copy too, after a bare "take it out of Sam's
+ * log anyway?" with no Undo: one tap on the owner's phone deleted someone
+ * else's sets and weights.
+ *
+ * Resolves `{ ownerEntry, link, copy, kept }`, or null when they are not on it:
+ * the owner's entry to write, the link as it was, and their copy as it was read.
  */
-export async function removePerson({ ownerEntry, person, session = null, api, confirmFn }) {
+export async function removePerson({ ownerEntry, person, session = null, api }) {
   const link = sharedWithOf(ownerEntry).find(s => s.id === person.id)
   if (!link) return null
   const copy = await api.getPersonEntry(person.id, link.entryId)
-  if (copy && !copy.deleted) {
-    if (hasOwnMarks(copy, session)) {
-      const yes = await confirmFn(`${person.name} has already logged some of this. Take it out of ${person.name}'s log anyway?`)
-      if (!yes) return null
-    }
-    await api.putPersonEntry(person.id, tombstoneOf(copy))
+  const live = Boolean(copy && !copy.deleted)
+  const kept = live && hasOwnMarks(copy, session)
+  if (live && !kept) await api.putPersonEntry(person.id, tombstoneOf(copy))
+  return { ownerEntry: withSharedPerson(ownerEntry, person.id, null, { remove: true }), link, copy: live ? copy : null, kept }
+}
+
+/** What taking someone off did, in the toast: only what is certain. */
+export function takeOffWords(person, { kept = false } = {}) {
+  return kept
+    ? `Took ${person.name} off this workout. It stays in ${person.name}\u2019s log with what ${person.name} logged.`
+    : `Took ${person.name} off this workout`
+}
+
+/**
+ * Undo of `removePerson`: their copy back if it was tombstoned (the copy as it
+ * was, stamped now so it wins over the tombstone), then the owner's entry with
+ * the link exactly as it was, sync flag included. Resolves the owner's entry to
+ * write. `ownerEntry` is the owner's entry NOW, not as it was taken off.
+ */
+export async function undoTakeOff({ ownerEntry, person, taken, api, now = new Date().toISOString() }) {
+  const { link, copy, kept } = taken
+  if (copy && !kept) {
+    const { deleted: _d, ...back } = copy
+    await api.putPersonEntry(person.id, { ...back, updatedAt: now })
   }
-  return withSharedPerson(ownerEntry, person.id, null, { remove: true })
+  const rest = sharedWithOf(ownerEntry).filter(s => s.id !== person.id)
+  return { ...ownerEntry, data: { ...(ownerEntry.data || {}), sharedWith: [...rest, link] } }
 }

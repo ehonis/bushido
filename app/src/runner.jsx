@@ -64,7 +64,8 @@ import { ExerciseBody, musclesOf, muscleWords } from './lib/bodymap.jsx'
 import { usePlan } from './lib/planctx.jsx'
 import { TimerRun, WorkHead, LeaveDialog, leaveActions, ControlRow, setsWord } from './timer.jsx'
 import { timingWords } from './circuit.jsx'
-import { andWords, togetherSaid } from './lib/trainer.js'
+import { andWords, togetherSaid, togetherItems } from './lib/trainer.js'
+import { planShown, withStoredWords } from './lib/shared.js'
 
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).padStart(2, '0')}`
 
@@ -96,7 +97,8 @@ const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).padStart(2
  * is written to every side when it ends (`write`, which says who it missed).
  */
 export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onFinish = null, who = null, switcher = null, shown = true, together = null }) {
-  const pres = entry?.data?.plan || null
+  // As this log's person sees it: never the owner's notes on a copy (lib/shared.js `planShown`, #96).
+  const pres = planShown(entry)
   const steps = useMemo(() => prescriptionSteps(pres), [pres])
   const liftField = liftFieldOf(usePlan())
   const run = entry?.data?.run || null
@@ -273,7 +275,7 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
    */
   const addAnother = () => {
     if (!step) return
-    write(run, { plan: addSetLike(pres, step.itemId, { ...step.set, ...(draft || {}) }) })
+    write(run, { plan: withStoredWords(entry, addSetLike(pres, step.itemId, { ...step.set, ...(draft || {}) })) })
   }
 
   // What this exercise's weight means (#58), on the plan, and on the log in the
@@ -515,7 +517,7 @@ function CircuitRun({
     if (withThem && onShare) {
       onShare({
         block: { uid: block.uid || null, id: block.id, name: block.name },
-        items: block.items.map(it => ({ uid: it.uid || null, name: it.name })),
+        items: togetherItems(block),
         done, at, seconds, key, ...(withIds ? { with: withIds } : {}),
       })
     }

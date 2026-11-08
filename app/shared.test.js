@@ -1,12 +1,15 @@
 // Shared workouts: one workout, two logs. What is copied, which id the copy
 // takes, and when taking someone off asks first. See src/lib/shared.js.
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import {
   sharePeople, sharedWithOf, sharedPeopleOn, withLine, sharedOut, hasOwnMarks, copyIdFor,
   sharedCopy, withSharedPerson, addPerson, removePerson, copyExercises, hasExercises,
-  isSynced, withSync, openSide, inStep, inStepLine, shareSummary,
+  isSynced, withSync, openSide, inStep, inStepLine, shareSummary, takeOffWords, undoTakeOff,
+  planShown, syncedSides, ownWordsOn, withStoredWords,
 } from './src/lib/shared.js'
 import { withAck, adoptAcks } from './src/lib/store.js'
+import { formOut, categoryOf } from './src/lib/category.js'
 import { createCopyQueue, openedCopy } from './src/lib/copyqueue.js'
 import { patchSet, dropEmptyBlocks, keepTyped } from './src/lib/prescription.js'
 
@@ -150,25 +153,53 @@ test('adding over their own session lands as an extra on their day', async () =>
   assert.equal(sharedWithOf(ownerEntry)[0].entryId, 'daily-2026-10-05-log-workout')
 })
 
-test('taking them off: quiet when they have marked nothing, asks first when they have', async () => {
+test('taking them off: an untouched copy goes; a logged one stays in their log, unlinked, never asked about (#96)', async () => {
   const api = fakeApi()
   const added = (await addPerson({ ownerEntry: ride, person: PEOPLE[1], session: workoutCard, api })).ownerEntry
-  let asked = 0
-  const no = async () => { asked++; return false }
-  const quiet = await removePerson({ ownerEntry: added, person: PEOPLE[1], session: workoutCard, api, confirmFn: no })
-  assert.equal(asked, 0, 'asked about an untouched copy')
-  assert.equal(api.log.get(ride.id).deleted, true, 'not a tombstone')
-  assert.equal(quiet.data.sharedWith, undefined)
+  const quiet = await removePerson({ ownerEntry: added, person: PEOPLE[1], session: workoutCard, api })
+  assert.equal(api.log.get(ride.id).deleted, true, 'an untouched copy is not a tombstone')
+  assert.equal(quiet.kept, false)
+  assert.equal(quiet.ownerEntry.data.sharedWith, undefined)
+  assert.equal(takeOffWords(PEOPLE[1], quiet), 'Took Sam off this workout')
 
   const api2 = fakeApi()
   const added2 = (await addPerson({ ownerEntry: ride, person: PEOPLE[1], session: workoutCard, api: api2 })).ownerEntry
-  api2.log.set(ride.id, { ...api2.log.get(ride.id), data: { ...api2.log.get(ride.id).data, done: true } })
-  assert.equal(await removePerson({ ownerEntry: added2, person: PEOPLE[1], session: workoutCard, api: api2, confirmFn: no }), null)
-  assert.equal(asked, 1)
-  assert.equal(api2.log.get(ride.id).deleted, undefined, 'a no still removed their done session')
-  const yes = await removePerson({ ownerEntry: added2, person: PEOPLE[1], session: workoutCard, api: api2, confirmFn: async () => true })
-  assert.equal(api2.log.get(ride.id).deleted, true)
-  assert.equal(yes.data.sharedWith, undefined)
+  const logged = { ...api2.log.get(ride.id), data: { ...api2.log.get(ride.id).data, done: true, out: { rpe: 6 } } }
+  api2.log.set(ride.id, logged)
+  const puts = api2.calls.filter(c => c[0] === 'put').length
+  const taken = await removePerson({ ownerEntry: added2, person: PEOPLE[1], session: workoutCard, api: api2 })
+  assert.equal(taken.kept, true)
+  assert.equal(api2.log.get(ride.id).deleted, undefined, 'their logged workout was deleted from the owner\'s phone')
+  assert.equal(api2.log.get(ride.id).data.out.rpe, 6)
+  assert.equal(api2.calls.filter(c => c[0] === 'put').length, puts, 'a kept copy was written')
+  assert.equal(taken.ownerEntry.data.sharedWith, undefined, 'the link stayed')
+  assert.match(takeOffWords(PEOPLE[1], taken), /stays in Sam\u2019s log with what Sam logged/)
+  assert.equal(await removePerson({ ownerEntry: taken.ownerEntry, person: PEOPLE[1], api: api2 }), null, 'not on it')
+})
+
+test('Undo of taking them off puts back the link as it was, and an untouched copy (#96)', async () => {
+  const api = fakeApi()
+  const added = (await addPerson({ ownerEntry: ride, person: PEOPLE[1], session: workoutCard, api })).ownerEntry
+  const unsynced = withSync(added, 'sam', false)
+  const copyBefore = api.log.get(ride.id)
+  const taken = await removePerson({ ownerEntry: unsynced, person: PEOPLE[1], session: workoutCard, api })
+  assert.equal(api.log.get(ride.id).deleted, true)
+  const back = await undoTakeOff({ ownerEntry: taken.ownerEntry, person: PEOPLE[1], taken, api, now: 'zz' })
+  assert.deepEqual(sharedWithOf(back), [{ id: 'sam', entryId: ride.id }], 'sync came back on, or the link changed')
+  const restored = api.log.get(ride.id)
+  assert.equal(restored.deleted, undefined)
+  assert.equal(restored.updatedAt, 'zz', 'not stamped past the tombstone')
+  assert.deepEqual(restored.data, copyBefore.data)
+
+  // A kept copy is never written by Undo: only the link comes back.
+  const api2 = fakeApi()
+  const added2 = (await addPerson({ ownerEntry: ride, person: PEOPLE[1], session: workoutCard, api: api2 })).ownerEntry
+  api2.log.set(ride.id, { ...api2.log.get(ride.id), data: { ...api2.log.get(ride.id).data, out: { rpe: 6 } } })
+  const taken2 = await removePerson({ ownerEntry: added2, person: PEOPLE[1], session: workoutCard, api: api2 })
+  const puts = api2.calls.filter(c => c[0] === 'put').length
+  const back2 = await undoTakeOff({ ownerEntry: taken2.ownerEntry, person: PEOPLE[1], taken: taken2, api: api2 })
+  assert.equal(api2.calls.filter(c => c[0] === 'put').length, puts)
+  assert.deepEqual(sharedWithOf(back2), [{ id: 'sam', entryId: ride.id, sync: true }])
 })
 
 /* --------------------------------------------- copying the owner's exercises */
@@ -480,6 +511,34 @@ test('a shared planned workout carries what KIND of workout it is, so their log 
   assert.equal(hasOwnMarks(copy, planCard), false, 'the kind of workout counted as their own mark')
 })
 
+test('an older copy names no activity; its form shows the one its plan files it under, nothing written (#96)', () => {
+  const old = { ...pull, data: { ...pull.data, sharedFrom: { id: 'owner', name: 'Alex' }, out: { rpe: 6 } } }
+  assert.deepEqual(formOut(old), { rpe: 6, activity: 'lift' })
+  assert.deepEqual(old.data.out, { rpe: 6 }, 'reading the form rewrote the copy')
+  assert.equal(categoryOf(old, []), 'lift', 'and it files where the form says')
+  // Its own answer always wins; nothing to read from, nothing made up.
+  assert.equal(formOut({ ...old, data: { ...old.data, out: { activity: 'run' } } }).activity, 'run')
+  assert.deepEqual(formOut({ id: 'x', data: { out: { rpe: 2 } } }), { rpe: 2 })
+  assert.deepEqual(formOut(null), {})
+})
+
+test('a copy whose plan names only the lifting category reads Lift too; support alone still asks (#96 review)', () => {
+  const fixture = JSON.parse(readFileSync(new URL('../test/fixtures/plan.json', import.meta.url), 'utf8'))
+  const card = fixture.dailyMenu.find(m => m.id === 'planned')
+  // daily-2026-10-16's shape: plan category lift, no activity anywhere, nothing in out.
+  const oct16 = { id: 'daily-2026-10-16', kind: 'daily', date: '2026-10-16', data: { optId: 'planned', done: false,
+    sharedFrom: { id: 'owner', name: 'Alex' }, out: {},
+    plan: { title: 'Push/Pull', category: 'lift', activity: null, blocks: [
+      { id: 'b0', name: 'Push', category: 'lift', activity: null, items: [] },
+      { id: 'b1', name: 'Pull', category: 'lift', activity: null, items: [] },
+      { id: 'b2', name: 'Accessory', category: null, activity: null, items: [] }] } } }
+  assert.equal(formOut(oct16, card).activity, 'lift')
+  assert.deepEqual(oct16.data.out, {}, 'reading the form rewrote the copy')
+  assert.equal(formOut(oct16).activity, undefined, 'no card, nothing made up')
+  const support = { ...oct16, data: { ...oct16.data, plan: { ...oct16.data.plan, category: 'support', blocks: [] } } }
+  assert.equal(formOut(support, card).activity, undefined, 'support names no one activity')
+})
+
 test('a number they typed into their plan is their own mark; a target is not', () => {
   const copy = sharedCopy(pull, { session: planCard, owner: PEOPLE[0] })
   assert.equal(hasOwnMarks(copy, planCard), false)
@@ -518,13 +577,128 @@ test('the owner\'s one sharing row: who, and whether they are in sync (#80)', ()
   assert.deepEqual(shareSummary(e([{ id: 'sam', sync: true }, { id: 'jo' }]), two), { title: 'with Sam and Jo', sync: 'Sam in sync' })
 })
 
-test('a weight on their copy is their mark, typed or not: taking them off asks first (#80)', () => {
+test('a weight on their copy is their mark, typed or not: taking them off keeps it (#80, #96)', () => {
   const plan = (sets) => ({ blocks: [{ id: 'b0', items: [{ id: 'b0i0', kind: 'lift', name: 'Hip thrust', sets }] }] })
   const copy = (sets) => ({ id: 'daily-2026-11-04', data: { optId: 'planned', done: false, sharedFrom: { id: 'owner' }, plan: plan(sets), out: {} } })
   assert.equal(hasOwnMarks(copy([{ reps: 10, weight: null }])), false, 'the share\'s target reps are not theirs')
   assert.equal(hasOwnMarks(copy([{ reps: 10, weight: 50 }])), true, 'Sam\'s weight, typed before the mark, is not a mark')
   const own = { id: 'x', data: { optId: 'planned', done: false, plan: plan([{ reps: 10, weight: 50 }]), out: {} } }
   assert.equal(hasOwnMarks(own), false, 'an unmarked weight on an entry that is no copy may be a target')
+})
+
+/* ------------------------------------------- what a copy shows its person (#96) */
+
+// The shape of a copy shared before `theirPlan` stripped the planner's words: the
+// owner's reasoning, notes (the owner's recovery and weights), request and conversation.
+const oldCopy = {
+  id: 'daily-2026-10-13', kind: 'daily', date: '2026-10-13',
+  data: {
+    optId: 'planned', done: false, sharedFrom: { id: 'owner', name: 'Alex' },
+    out: { activity: 'lift' },
+    plan: {
+      v: 1, title: 'Legs', category: 'lift', activity: 'lift', focus: null, minutes: 50,
+      why: 'Your recovery is 51% today, so loads stay flat.', changed: 'Swapped the squat.',
+      notes: ['Yellow/red recovery today (51%): holding loads flat.', 'Row has sat at 50 lb for two sessions.'],
+      ask: 'legs, my knee is sore', thread: [{ role: 'you', text: 'easier please' }, { role: 'model', text: 'Done.' }],
+      createdAt: 'x', model: 'm',
+      blocks: [{ id: 'b0', name: 'Main', note: 'Chest and shoulders.', items: [
+        { id: 'b0i0', kind: 'lift', name: 'Squat', note: '3x10 at 95 was RPE 6 last time — bump up 5 lb.',
+          sets: [{ id: 's0', reps: 5, weight: null, note: 'Last logged 125/125/150, hold it.' }] }] }],
+    },
+  },
+}
+
+test('a copy never shows the owner\'s notes, reasoning, request or conversation, older copies included (#96)', () => {
+  const shown = planShown(oldCopy)
+  assert.deepEqual(shown.notes, [])
+  assert.equal(shown.why, '')
+  for (const k of ['ask', 'thread', 'changed']) assert.equal(k in shown, false, `${k} shown on a copy`)
+  const it = shown.blocks[0].items[0]
+  assert.equal(it.note, '', 'the planner\'s note on an exercise shown on a copy')
+  assert.equal(it.sets[0].note, '', 'the planner\'s note on a set shown on a copy')
+  assert.deepEqual([it.name, it.sets[0].reps], ['Squat', 5], 'the exercises are the copy\'s own')
+  assert.equal(shown.blocks[0].note, 'Chest and shoulders.', 'a block\'s own prose is the workout, shared structure')
+  assert.equal(planShown(oldCopy), shown, 'a new object every render')
+  assert.equal(oldCopy.data.plan.notes.length, 2, 'the stored copy was rewritten')
+  assert.match(oldCopy.data.plan.blocks[0].items[0].note, /RPE 6/, 'the stored copy was rewritten')
+  // Words the person wrote with the model on their own copy are theirs.
+  const theirs = ownWordsOn(oldCopy, { ...oldCopy.data.plan, why: 'Sam\'s own reasoning' })
+  assert.equal(planShown({ ...oldCopy, data: { ...oldCopy.data, plan: theirs } }).why, 'Sam\'s own reasoning')
+  assert.equal(ownWordsOn({ id: 'x', data: {} }, oldCopy.data.plan), oldCopy.data.plan, 'stamped on the owner\'s own plan')
+  // The owner's own plan, and one planned for them alone (written from their own log), show as they are.
+  const { sharedFrom: _f, ...own } = oldCopy.data
+  assert.equal(planShown({ ...oldCopy, data: own }), own.plan)
+  assert.equal(planShown({ ...oldCopy, data: { ...own, plannedBy: { id: 'owner', name: 'Alex' } } }).notes.length, 2)
+  assert.equal(planShown({ id: 'x', data: {} }), null)
+})
+
+test('the filter is display only: an edit from her sheet lands on the stored plan, every hidden note byte for byte (#96 review 2)', () => {
+  // daily-2026-10-20-planned's shape: an older copy, no uids, notes on the plan, each exercise and some sets.
+  const set = (id, note = '') => ({ id, reps: 12, weight: 10, seconds: null, distance: null, restSec: null, unit: null, note })
+  const item = (i, name, note, notes) => ({ id: `b0i${i}`, kind: 'lift', name, note, exercise: name.toLowerCase(), group: 'core',
+    implement: 'dumbbell', implementLabel: 'Dumbbell', weightLabel: 'per hand', unit: null,
+    sets: notes.map((n, j) => set(`b0i${i}s${j}`, n)) })
+  const stored = {
+    v: 1, title: 'Core & hips', category: 'support', activity: null, focus: null, minutes: 25,
+    why: 'Your recovery was 48% this morning.', notes: ['Keep it light after Saturday.'], changed: null,
+    createdAt: '2026-10-20T07:00:00Z', model: 'm', ask: 'something easy',
+    blocks: [{ id: 'b0', name: 'Core', note: 'Slow and controlled.', category: 'support', activity: null, items: [
+      item(0, 'Dead bug', 'Last logged 3x12 at bodyweight; add the 10 lb plate.', ['Owner: slow on the way down.', 'Owner: slow on the way down.', 'Owner: slow on the way down.']),
+      item(1, 'Side plank', 'You skipped these on 10-16.', ['', '', '']),
+      item(2, 'Bird dog', 'RPE 4 last time, go 2 more reps.', ['', '', '']),
+    ] }],
+  }
+  const copy = { id: 'daily-2026-10-20-planned', kind: 'daily', date: '2026-10-20',
+    data: { optId: 'planned', slot: 'extra', done: false, out: {}, sharedFrom: { id: 'owner', name: 'Alex' }, plan: stored } }
+  const before = JSON.stringify(stored)
+  // Her sheet shows the filtered plan; she edits a weight on it, and the sheet writes.
+  const shown = planShown(copy)
+  const edited = patchSet(shown, 'b0i1', 'b0i1s0', { weight: 15 })
+  const written = withStoredWords(copy, edited)
+  assert.equal(JSON.stringify(stored), before, 'the stored plan object was mutated')
+  assert.deepEqual(written, patchSet(stored, 'b0i1', 'b0i1s0', { weight: 15 }), 'the write is not the stored plan with her edit')
+  const notesOf = (p) => JSON.stringify(p.blocks.map(b => b.items.map(i => [i.note, i.sets.map(x => x.note)])))
+  assert.equal(notesOf(written), notesOf(stored), 'an exercise or set note was lost')
+  for (const k of ['why', 'notes', 'changed', 'ask']) assert.equal(JSON.stringify(written[k]), JSON.stringify(stored[k]), `${k} lost`)
+  assert.equal('thread' in written, false, 'a key the stored plan never had was added')
+  assert.equal(written.blocks[0].items[1].sets[0].weight, 15)
+  // And what she sees after it is still the filtered plan.
+  const after = planShown({ ...copy, data: { ...copy.data, plan: written } })
+  assert.equal(notesOf(after), JSON.stringify([[['', ['', '', '']], ['', ['', '', '']], ['', ['', '', '']]]]))
+  assert.equal(after.why, '')
+  // Moved, removed and added: each stored note follows its own exercise; a new one has nothing to take.
+  const moved = { ...shown, blocks: [{ ...shown.blocks[0], items: [shown.blocks[0].items[2], shown.blocks[0].items[0],
+    { ...shown.blocks[0].items[0], id: 'new', name: 'Plank', exercise: 'plank' }] }] }
+  const w2 = withStoredWords(copy, moved)
+  assert.deepEqual(w2.blocks[0].items.map(i => i.note), ['RPE 4 last time, go 2 more reps.', 'Last logged 3x12 at bodyweight; add the 10 lb plate.', ''])
+  // Not a copy, or words that are hers: nothing put back.
+  const { sharedFrom: _f, ...own } = copy.data
+  assert.equal(withStoredWords({ ...copy, data: own }, edited), edited)
+  const hers = { ...edited, ownWords: true, why: 'Sam\'s own' }
+  assert.equal(withStoredWords(copy, hers), hers)
+})
+
+test('a new share leaves out the owner\'s request too, not only the reasoning (#96)', () => {
+  const { sharedFrom: _f, ...data } = oldCopy.data
+  const copy = sharedCopy({ ...oldCopy, data }, { owner: PEOPLE[0] })
+  for (const k of ['ask', 'thread', 'changed', 'draftId']) assert.equal(k in copy.data.plan, false, `${k} copied`)
+  assert.equal(copy.data.plan.blocks[0].items[0].note, '', 'the planner\'s note on an exercise copied')
+  assert.equal(copy.data.plan.blocks[0].items[0].sets[0].note, '', 'the planner\'s note on a set copied')
+  assert.equal(copy.data.plan.why, '')
+  assert.deepEqual(copy.data.plan.notes, [])
+})
+
+test('who a removal says the exercises stay in step with, from where the sheet stands (#96)', () => {
+  const owners = { id: 'daily-2026-11-08', data: { sharedWith: [{ id: 'sam', entryId: 'daily-2026-11-08', sync: true }, { id: 'jo', entryId: 'x' }] } }
+  const on = [{ id: 'sam', name: 'Sam' }, { id: 'jo', name: 'Jo' }]
+  assert.deepEqual(syncedSides(owners, on, null), ['Sam'], 'the owner\'s side: only those in sync')
+  assert.deepEqual(syncedSides(owners, on, on[0]), ['you'], 'Sam\'s side, from the owner\'s phone')
+  assert.equal(syncedSides(owners, on, on[1]), null, 'Jo is not in sync')
+  // Sam's own phone: the copy names nobody, and its removal reaches the owner's log too.
+  const theirs = { id: 'daily-2026-11-08', data: { sharedFrom: { id: 'owner', name: 'Alex', sync: true } } }
+  assert.deepEqual(syncedSides(theirs, [], null), ['Alex'])
+  assert.equal(syncedSides({ ...theirs, data: { sharedFrom: { id: 'owner', name: 'Alex', sync: false } } }, [], null), null)
+  assert.equal(syncedSides({ id: 'x', data: {} }, [], null), null)
 })
 
 for (const [name, fn] of tests) {

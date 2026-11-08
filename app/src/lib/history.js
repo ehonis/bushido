@@ -71,16 +71,53 @@ export function samePlanned(entry, e) {
 }
 
 /**
+ * Where an entry sits in its day, as the day list shows it (tabs.jsx): the main
+ * session first, then the extras by id.
+ */
+const dayPlace = (e) => [e?.data?.slot === 'extra' ? 1 : 0, String(e?.id || '')]
+
+/**
+ * When a session started, in ms, where something measured or stamped it: its
+ * run, the WHOOP or Strava workout attached to it, then its done tap. Null when
+ * nothing did (a lift typed on the sheet): a day carries no other clock.
+ */
+function startedAt(e) {
+  const d = e?.data || {}
+  for (const v of [d.run?.startedAt, d.out?.whoop?.start, d.out?.strava?.start, d.doneAt]) {
+    const t = typeof v === 'number' ? v : Date.parse(v)
+    if (Number.isFinite(t) && t > 0) return t
+  }
+  return null
+}
+
+/**
+ * Is `e` before `me`: an earlier day, or earlier the same day, by when each
+ * started where both say, else by the day list's order.
+ */
+function before(e, me) {
+  if (String(e.date) !== String(me.date)) return String(e.date) < String(me.date)
+  const [ta, tb] = [startedAt(e), startedAt(me)]
+  if (ta !== null && tb !== null && ta !== tb) return ta < tb
+  const [a, b] = [dayPlace(e), dayPlace(me)]
+  return a[0] !== b[0] ? a[0] < b[0] : a[1] < b[1]
+}
+
+/**
  * Every time you DID this workout (`isDone`: not a plan still to come, not one
- * marked undone), newest first, the entry being shown left out. `entry` is that
- * entry; without it, it is looked up by `excludeId`, and a container's history
- * without an entry to compare is none, never a guess.
+ * marked undone) BEFORE the one being shown, newest first, that one left out.
+ * `entry` is that entry; without it, it is looked up by `excludeId`, and a
+ * container's history without an entry to compare is none, never a guess.
+ *
+ * Before is by day, then by time (#96: a Nov 7 workout listed Nov 8's as "the
+ * last time"): an earlier day, or a session that started earlier the same day
+ * (`before`), so a second lift in the evening still says "earlier today". With
+ * no entry (a card not yet on a day) nothing is bounded.
  */
 export function priorSessions(entries, session, excludeId, entry = null) {
   const ids = priorIdsOf(session)
   if (!ids.length) return []
-  const all = (entries || []).filter(e => e?.kind === 'daily' && e.id !== excludeId && isDone(e))
   const me = entry || (entries || []).find(e => e?.id === excludeId) || null
+  const all = (entries || []).filter(e => e?.kind === 'daily' && e.id !== excludeId && isDone(e) && (!me?.date || before(e, me)))
   let hits
   if (!session?.sched?.repeatVia) hits = all.filter(e => ids.includes(e.data?.optId))
   else if (me?.data?.plan) hits = all.filter(e => samePlanned(me, e))
@@ -88,5 +125,5 @@ export function priorSessions(entries, session, excludeId, entry = null) {
     const activity = me?.data?.out?.activity
     hits = activity ? all.filter(e => ids.includes(e.data?.optId) && !e.data?.plan && e.data?.out?.activity === activity) : []
   }
-  return hits.sort((a, b) => String(b.date).localeCompare(String(a.date)))
+  return hits.sort((a, b) => String(b.date).localeCompare(String(a.date)) || (before(a, b) ? 1 : before(b, a) ? -1 : 0))
 }

@@ -68,6 +68,7 @@ import { clock } from '../lib/workout.js'
 import { TimerRun, WorkHead, LeaveDialog, leaveActions, ControlRow, setsWord, KIND_COLOR } from './timer'
 import { timingWords } from './circuit'
 import * as trainerLib from '../lib/trainer.js'
+import { planShown, withStoredWords } from '../lib/shared.js'
 import { Stepper, boxFor, stepBox, TimeInput, weightSwitch, ExerciseSheet, type WeightSwap } from './exercises'
 import { ExerciseBody, musclesOf, muscleWords } from '../lib/bodymap'
 import { usePlan } from '../lib/planctx.jsx'
@@ -122,7 +123,8 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
 }) {
   void session
   const insets = useSafeAreaInsets()
-  const pres = entry?.data?.plan || null
+  // As this log's person sees it: never the owner's notes on a copy (lib/shared.js `planShown`, #96).
+  const pres: any = planShown(entry)
   const steps: any[] = useMemo(() => prescriptionSteps(pres), [pres])
   const liftField = liftFieldOf(usePlan())
   const run = entry?.data?.run || null
@@ -296,7 +298,7 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
   const addAnother = () => {
     if (!step) return
     impact()
-    write(run, { plan: (addSetLike as any)(pres, step.itemId, { ...step.set, ...(draft || {}) }) })
+    write(run, { plan: withStoredWords(entry, (addSetLike as any)(pres, step.itemId, { ...step.set, ...(draft || {}) })) })
   }
 
   // What this exercise's weight means (#58), on the plan, and on the log in the
@@ -562,7 +564,7 @@ function CircuitRun({ pres, block, run, only, intro, who, switcher, shown, onRun
     if (withThem && onShare) {
       onShare({
         block: { uid: block.uid || null, id: block.id, name: block.name },
-        items: block.items.map((it: any) => ({ uid: it.uid || null, name: it.name })),
+        items: (trainerLib as any).togetherItems(block),
         done, at, seconds, key, ...(withIds ? { with: withIds } : {}),
       })
     }

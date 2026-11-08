@@ -22,7 +22,7 @@ import {
 import { localIso } from './src/lib/dates.js'
 import { liftMeasure, liftSummary } from './src/lib/lifts.js'
 import {
-  shareCircuit, togetherWrite, togetherSides, togetherWords, togetherSaid, applyRun, notePending, pendingFor, retryPending,
+  shareCircuit, togetherItems, togetherWrite, togetherSides, togetherWords, togetherSaid, applyRun, notePending, pendingFor, retryPending,
   sideTaken, PENDING_KEY, STALE_CLOCK_MS,
 } from './src/lib/trainer.js'
 import { fillOut } from './src/lib/prescription.js'
@@ -485,6 +485,48 @@ ta('together, finished: both done and ended, the same seconds, one write each, e
   for (const e of [owner, sam]) assert.ok(e.data.run.endedAt && e.data.done === true && isDone(e, TODAY))
   assert.equal(sam.data.sharedFrom.name, 'Alex')
   assert.deepEqual(togetherSaid('you', [{ id: 'sam', name: 'Sam', status: 'logged' }]).head, 'Logged for you and Sam')
+})
+
+ta('together: a count on the side that ran it is a count on the other, even where it arrived blank (#96)', async () => {
+  const { result: old, owner } = finished()
+  // How the runner names the exercises now: how the clock ran each one.
+  const result = { ...old, items: togetherItems(owner.data.plan.blocks[0]) }
+  assert.deepEqual(result.items.map(x => x.by), ['reps', 'time'])
+  // Sam's crunch came over the sync blank (no reps, no seconds): the circuit's own timing on Sam's side.
+  const sam = samOf()
+  const blankPlan = normalizePrescription({ title: 'Abs', blocks: [{ uid: 'B1', name: 'Abs', circuit: { work: 40, rest: 20, rounds: 2, countIn: 0 }, items: [
+    { uid: 'CR', kind: 'lift', name: 'Crunch', exercise: 'crunch', sets: [{}] },
+    { uid: 'PL', kind: 'lift', name: 'Plank', exercise: 'plank', sets: [{ seconds: 30 }] },
+  ] }] }, { liftField })
+  assert.equal(circuitTiming(blankPlan.blocks[0].items[0]).by, 'circuit', 'the fixture is not a blank arrival')
+  const srv = server({ ...sam, data: { ...sam.data, plan: blankPlan } })
+  await share(srv, result, owner)
+  assert.deepEqual(rowsOf(srv.entry), [['crunch', [[null, '', ''], [null, '', '']]], ['plank', [[30, null, ''], [30, null, '']]]],
+    'the crunches landed as holds of the seconds spent on them')
+  assert.equal(srv.entry.data.run.sets[blankPlan.blocks[0].items[0].sets[0].id].seconds, undefined)
+})
+
+ta('together: a side that holds what the other counted keeps its own shape, seconds (#96 review)', async () => {
+  const { result: old, owner } = finished()
+  const result = { ...old, items: togetherItems(owner.data.plan.blocks[0]) }
+  // The owner counts the crunches; Sam holds them 45 s (a wall sit counted one way, held the other).
+  const sam = samOf()
+  const held = normalizePrescription({ title: 'Abs', blocks: [{ uid: 'B1', name: 'Abs', circuit: { work: 40, rest: 20, rounds: 2, countIn: 0 }, items: [
+    { uid: 'CR', kind: 'lift', name: 'Crunch', exercise: 'crunch', sets: [{ seconds: 45 }] },
+    { uid: 'PL', kind: 'lift', name: 'Plank', exercise: 'plank', sets: [{ seconds: 30 }] },
+  ] }] }, { liftField })
+  assert.equal(circuitTiming(held.blocks[0].items[0]).by, 'time')
+  const srv = server({ ...sam, data: { ...sam.data, plan: held } })
+  await share(srv, result, owner)
+  assert.deepEqual(rowsOf(srv.entry)[0], ['crunch', [[25, null, ''], [25, null, '']]], 'Sam\'s hold became blank reps')
+  // And Sam counting what the owner held stays a count.
+  const counts = normalizePrescription({ title: 'Abs', blocks: [{ uid: 'B1', name: 'Abs', circuit: { work: 40, rest: 20, rounds: 2, countIn: 0 }, items: [
+    { uid: 'CR', kind: 'lift', name: 'Crunch', exercise: 'crunch', sets: [{ reps: 15 }] },
+    { uid: 'PL', kind: 'lift', name: 'Plank', exercise: 'plank', sets: [{ reps: 10 }] },
+  ] }] }, { liftField })
+  const srv2 = server({ ...sam, data: { ...sam.data, plan: counts } })
+  await share(srv2, result, owner)
+  assert.deepEqual(rowsOf(srv2.entry)[1], ['plank', [[null, '', ''], [null, '', '']]], 'Sam\'s count became a hold')
 })
 
 ta('together, stopped early: what was done lands on both, the same, one write', async () => {

@@ -89,7 +89,8 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
   `DoneChip`, `useDoneFlip` (the flip and its Undo toast) and `SheetStart` (the footer's one
   action), used by the session sheet and `PersonEntrySheet`. Who is on a shared workout is
   `ShareChip` under the title, opening `SharePanel` (a `Popover`, so a page sheet over the
-  session sheet); taking someone off closes the panel before the system alert asks.
+  session sheet); taking someone off closes the panel, then says what it did in a toast with Undo (it never
+  deletes what they logged, so it no longer asks).
 - **A workout with more than one side** (`features/trainer.tsx` `SidesWorkout`) presents ONE
   full-screen modal and renders each side's runner or workout mode inside it with `embedded`,
   because iOS presents one modal at a time; the hidden sides stay mounted so their clocks run.

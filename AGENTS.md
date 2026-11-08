@@ -109,7 +109,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | The session sheet | `app/src/sheet.jsx`, `app/src/sheetparts.jsx` | `SessionSheet` (header, body, footer) and `runnable`; Today (`tabs.jsx`) opens it. `sheetparts.jsx` is what every sheet of a workout shares (#80): `DoneChip`, `useDoneFlip` (the flip and its Undo toast) and `SheetStart` (the one footer action), used by the owner's sheet and `PersonEntrySheet`. The row meta line both use is `app/src/metaline.jsx`. Twins: `mobile/src/features/sheet.tsx`, `sheetparts.tsx`. |
 | Prescription editor | `app/src/editor.jsx` | `PrescriptionEditor` (`doing` on the sheet, #79), its blocks and items, `BlockMenu` (a block's ⋯), `blockTag`, `PieceAdder`, `BlockQuota`: the one editor Plan a workout and the sheet share. Block operations are `addBlock`, `renameBlock`, `noteBlock`, `removeBlock`, `moveBlock` in `lib/prescription.js`. Twin: `mobile/src/features/editor.tsx` (the ⋯ is the system action sheet). |
 | Day switcher | `app/src/tabs.jsx` (`DaySwitcher`; `dayWords`, `isoShift` in `lib/dates.js`) | ‹ day › in words; Today's title and the rest day's date (§10.9). The phone's is `mobile/src/ui/DayStepper.tsx`. |
-| Session history | `app/src/lib/history.js` | `priorSessions`: which earlier entries are THIS workout ("The last 5 times you did this"). A card by its ids (`aka`, `priorIds`); a planned workout by its title or mostly the same exercises; a free-form one by its activity (#74). |
+| Session history | `app/src/lib/history.js` | `priorSessions`: which earlier entries are THIS workout ("The last 5 times you did this"), before the one shown in the day list's order (#96: an earlier day, or an earlier session of the same day). A card by its ids (`aka`, `priorIds`); a planned workout by its title or mostly the same exercises; a free-form one by its activity (#74). |
 | Toasts | `app/src/toast.jsx`, `app/src/lib/toast.js` | Mobile's API (`pushToast`, `pushError`) on the web: a removal's Undo, a failed save's Retry. |
 | Log feed | `app/src/log.jsx` | Newest first; the open sheet is keyed by ID and is `LogSheet`: Today's `SessionSheet`, with no Start (#79). |
 | Progress | `app/src/lib/scope.js`, `app/src/lib/metrics.js`, `app/src/progress.jsx` | Charts declare when they apply. |
@@ -444,9 +444,33 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     through the owner's store or cache, so logs still never mix on a device. The server
     refuses non-owners, acting-as, the owner's own log, and any live entry without
     `sharedFrom` (`not-shared`); a sync never writes into an entry they logged themselves.
-    Those writes fire no habit sync and no push. Taking someone off tombstones their copy
-    only if they have marked nothing (`hasOwnMarks`; copied lifts with nothing marked on
-    them are not marks), otherwise it asks. WHOOP/Strava stay off on their side.
+    Those writes fire no habit sync and no push. **Taking someone off never deletes what
+    they logged** (#96): a copy they have marked (`hasOwnMarks`; copied lifts with nothing
+    marked on them are not marks) stays in their log as their own workout, unlinked (the
+    server flags it not in step); one they never touched is tombstoned. No question either
+    way: a toast says which, with Undo (`removePerson`, `takeOffWords`, `undoTakeOff`). It
+    used to tombstone a logged copy after a bare browser confirm, with no Undo. A kept copy
+    is then theirs: the server stamps it `sharedFrom.off` when the link goes (`flagCopy`,
+    `withOff`; cleared when a link is back) and refuses the owner's writes to it through the
+    people route (409 `not-linked`). A copy never linked yet is not refused, because adding
+    someone writes the copy first and links it second. WHOOP/Strava stay off on their side.
+  - **A copy shows its person nothing the planner wrote for the owner** (#96): the plan's
+    `why`, `notes`, `thread`, `ask` and `changed`, and the note on each exercise and set
+    ("3x10 at 95 was RPE 6 last time"), are the owner's (the owner's recovery and weights,
+    in the owner's words). A share leaves them out (`theirPlan`), and the sheet and the
+    runner read a plan through `planShown(entry)`, which hides them on any entry with
+    `sharedFrom`, so copies shared before the share stripped them are covered without
+    rewriting them. A block's note stays: it is the workout's prose and shared structure.
+    **Display only**: every write from those screens (the editor on either side, the
+    runner's added set) goes through `withStoredWords`, which puts each hidden word back
+    byte for byte, so an edit lands on the stored plan and erases nothing (review 2: the
+    first version saved the filtered plan and lost the notes for good). What the person
+    asks the model on their own copy is theirs:
+    the sheet stamps it `ownWords` (`ownWordsOn`) and such a plan is shown whole.
+    An older copy's form also reads the activity its plan files it under (`formOut` in
+    lib/category.js, the form's twin of `filedOut`), so it no longer asks "What kind of
+    workout was this?" with nothing picked. A removal on the other person's own copy says
+    the synced line about the owner (`syncedSides`), because it reaches the owner's log too.
   - Pinned by `server/sharedsync.test.js`, the `shared workouts:` and `sync:` steps in
     `server/http.test.js`, `app/shared.test.js`, and the `SessionSheet(… sharing chip …)`,
     `SharePanel(…)`, person bar, `PersonSwitch(…)` and `TheirSide` smoke cases.
@@ -513,6 +537,11 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
        as "Sam already logged it" / "Sam is running it": not a miss, no Retry. Totals are
        read off what is there (`run.circuitTimes`, set per block), never added to. The
        shared-sync rule again: logged data is never removed by anyone else's write.
+       A blank is filled in the shape the CLOCK ran it (#96): the result names how each
+       exercise was timed (`togetherItems`, `by`), and one counted in reps on the side that
+       ran it is a count where this side's own timing is blank (`endCircuit` `counted`),
+       never a hold of the seconds spent on its reps. A side that says reps or seconds
+       keeps its own shape.
     2. **It decides from fresh data.** Someone else's side is re-read from the server right
        before it is written and rule 1 applied to THAT, never to a copy on screen that may
        hold a write that never landed. This run's key (the clock's `startedAt`,

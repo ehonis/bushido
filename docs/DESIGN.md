@@ -52,7 +52,7 @@ this is the map, kept short on purpose.
 | Not shared | — | — | — | — |
 | Shared, in step | Add someone (sync on by default); switch on (aligns once, add-only) | Carried both ways by uid | Never cross | "Exercises stay in step with Alex's" |
 | Shared, not in step | Switch off; a share from before sync | Stays where it is; Copy my exercises adds the owner's | Never cross | "with Alex" only |
-| Taken off | Take off (asks first if they logged anything) | The copy is tombstoned, or kept as theirs | Theirs | not in step |
+| Taken off | Take off (a toast with Undo, no question, #96) | Tombstoned if they logged nothing, else kept in their log as theirs, unlinked; the owner's devices no longer write it (`sharedFrom.off`) | Theirs | not in step |
 
 **A write to a synced entry** (`intentOf`): a device sends back the base it was given.
 
