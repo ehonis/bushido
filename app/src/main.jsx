@@ -4,11 +4,20 @@ import App from './App.jsx'
 import './styles.css'
 // Each area's rules, after the tokens, base components and shell they use and
 // before timer.css, which is where they sat when they were all in styles.css
-// (docs/DESIGN.md, "Wave 2: who owns which file").
+// (docs/DESIGN.md, "Wave 2: who owns which file"). One file per area since #73; the
+// order is the cascade, so a new file goes where its rules used to sit.
+import './css/sheet.css'
+import './css/setlog.css'
 import './css/today.css'
-import './css/logging.css'
+import './css/toast.css'
+import './css/workout.css'
+import './css/picker.css'
+import './css/planner.css'
+import './css/editor.css'
+import './css/runner.css'
 import './css/feed.css'
 import './css/profile.css'
+import './css/integrations.css'
 import './css/people.css'
 import './timer.css'
 import { reportOpen } from './lib/push.js'

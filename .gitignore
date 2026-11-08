@@ -1,7 +1,7 @@
 # Build output — regenerate with `cd app && npm run build`
 dist/
 app/node_modules/
-app/.smoke.mjs
+app/smoke/.smoke.mjs
 app/.mdtest.mjs
 
 # Your actual training log and its snapshots. Runtime state, not source:

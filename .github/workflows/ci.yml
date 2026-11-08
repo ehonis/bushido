@@ -25,8 +25,25 @@ jobs:
           cache: npm
           cache-dependency-path: app/package-lock.json
       - run: npm ci
-      - run: npm test
-      - name: server tests
-        working-directory: server
-        run: for t in *.test.js; do echo "== $t"; node "$t"; done
+      # Every app and server suite, each run even when one fails, with a summary at
+      # the end (scripts/test.mjs). The root package has no dependencies of its own.
+      - name: tests
+        working-directory: .
+        run: npm test
       - run: npm run build
+
+  # The iPhone app: strict TypeScript over mobile/src, including the lib copies.
+  mobile:
+    runs-on: ${{ github.event.repository.private && 'box' || 'ubuntu-latest' }}
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck

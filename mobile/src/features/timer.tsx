@@ -38,12 +38,11 @@ import { CUES, acquireWakeLock, releaseWakeLock } from '../lib/cues'
 import { clock } from '../lib/workout.js'
 import { currentMe } from '../lib/whoami.js'
 import * as timer from '../lib/timer.js'
-import { exerciseOf } from '../lib/lifts.js'
+import { exerciseOf, liftFieldOf } from '../lib/lifts.js'
 import { usePlan } from '../lib/planctx.jsx'
 import { ExerciseBody, musclesOf, muscleWords } from '../lib/bodymap'
 import { ExerciseSheet } from './exercises'
 import { CircuitList, SecondsRow } from './circuit'
-import { liftFieldOf } from './planner'
 import { SideRule, SideWho } from '../ui/Person'
 
 const {

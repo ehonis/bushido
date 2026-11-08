@@ -48,3 +48,19 @@ export function shiftWeek(mondayIso, n) {
   d.setDate(d.getDate() + n * 7)
   return localIso(d)
 }
+
+/** `iso` moved by `n` days, in local days. */
+export const isoShift = (iso, n) => {
+  const d = fromIso(iso)
+  d.setDate(d.getDate() + n)
+  return localIso(d)
+}
+
+/** A day in words: "Today", "Yesterday", "Tomorrow", else "Sat, Oct 24". */
+export function dayWords(iso, today = localIso()) {
+  const offset = Math.round((fromIso(iso) - fromIso(today)) / 86400000)
+  if (offset === 0) return 'Today'
+  if (offset === -1) return 'Yesterday'
+  if (offset === 1) return 'Tomorrow'
+  return fromIso(iso).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+}

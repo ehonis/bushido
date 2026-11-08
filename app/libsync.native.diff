@@ -1,0 +1,100 @@
+# The native edits in mobile/src/lib, as hunks of web → mobile without line numbers.
+# Checked by app/libsync.test.js; regenerate with `node app/libsync.test.js --update`
+# only when a native edit changes on purpose. "-" is the web line, "+" the mobile one.
+=== signout.js
+- /** The entries in this device's cache (lib/store.js: `{ state: { entries }, version, dirty }`). */
+- function localEntries(storage) {
+-   for (const key of CACHE_KEYS) {
++ /**
++  * The entries in this device's cache (lib/store.js: `{ state: { entries }, version, dirty }`).
++  * Native: `cacheKey` is the open log's own key (whoami.js cacheKeyFor), so a
++  * person other than the owner, or the owner acting as them, flushes and counts
++  * their own log rather than the owner's.
++  */
++ function localEntries(storage, cacheKey) {
++   for (const key of cacheKey ? [cacheKey] : CACHE_KEYS) {
+=== signout.js
+- export async function signOutDevice({ fetchFn, storage, session, cachesApi, idb, confirmFn, flagTarget, channel, retirePush }) {
++ export async function signOutDevice({ fetchFn, storage, session, cachesApi, idb, confirmFn, flagTarget, channel, retirePush, cacheKey }) {
+=== signout.js
+-   const local = localEntries(storage)
++   const local = localEntries(storage, cacheKey)
+=== signout.js
+-   if (unsynced !== 0 && !confirmFn(lossMessage(unsynced))) { thaw(); return { signedOut: false, unsynced } }
++   // Native: confirmFn is a system alert, so it may return a promise.
++   if (unsynced !== 0 && !(await confirmFn(lossMessage(unsynced)))) { thaw(); return { signedOut: false, unsynced } }
+=== stats.js
+- import { totalSets, totalReps } from '../setlog.jsx'
++ // Native: the web's app/src/setlog.jsx is features/setlog.tsx here.
++ import { totalSets, totalReps } from '../features/setlog'
+=== store.js
+- import { handoffTarget, retirePushSubscription } from './handoff.js'
+- import { isSignedOut, makeLocalPersist, onSignedOutElsewhere } from './signout.js'
++ import { isSignedOut, makeLocalPersist } from './signout.js'
+=== store.js
++ // Native: AppState stands in for visibilitychange (lib/foreground.ts). The
++ // web's hostname handoff and cross-tab sign-out have no meaning in one app.
++ import { onForeground } from './foreground'
+=== store.js
+- /** On an old hostname, move once nothing local is left unpushed (handoff.js). */
+- async function handoffIfSynced(isDirty) {
+-   const to = !isDirty() && typeof window !== 'undefined' ? handoffTarget(window.location) : null
+-   if (!to) return
+-   await retirePushSubscription()
+-   // An edit during the unsubscribe is unpushed again; its push comes back here.
+-   if (!isDirty()) window.location.replace(to)
+- }
+- 
+=== store.js
++ // Native: the web gets a fresh module on every sign-in (a page load); the app
++ // keeps this module across a sign-out and a sign-in as someone else, so the
++ // writer is re-made when the key changes rather than writing under the old one.
+=== store.js
++ let persistKey = null
+=== store.js
+-   persist = persist || makeLocalPersist({ storage: window.localStorage, flagTarget: window, key: cacheKey() })
++   const key = cacheKey()
++   if (!persist || persistKey !== key) {
++     persist = makeLocalPersist({ storage: window.localStorage, flagTarget: window, key })
++     persistKey = key
++   }
+=== store.js
+-       handoffIfSynced(() => dirtyRef.current)
+=== store.js
+-       else handoffIfSynced(() => dirtyRef.current)
+=== store.js
+-   // Initial load, then poll; refresh whenever the tab regains focus so picking
+-   // up the phone after logging on the laptop shows current data immediately.
+-   // Another tab signed out: this one holds the log in memory, so leave for the
+-   // sign-in page rather than keep showing (or re-caching) it.
+-   useEffect(() => onSignedOutElsewhere({
+-     win: window,
+-     fn: () => { clearInterval(pushTimer.current); window.location.assign('/login') },
+-   }), [])
+- 
++   // Initial load, then poll; refresh whenever the app comes back to the
++   // foreground so picking up the phone after logging on the laptop shows
++   // current data immediately.
+=== store.js
+-     const onFocus = () => { if (document.visibilityState === 'visible') pull() }
+-     document.addEventListener('visibilitychange', onFocus)
+-     window.addEventListener('online', onFocus)
++     const off = onForeground(pull)
+=== store.js
+-       document.removeEventListener('visibilitychange', onFocus)
+-       window.removeEventListener('online', onFocus)
++       off()
+=== strava.jsx
++ import { onForeground } from './foreground'
+=== strava.jsx
+-     const onFocus = () => { if (document.visibilityState === 'visible') load() }
+-     document.addEventListener('visibilitychange', onFocus)
+-     return () => document.removeEventListener('visibilitychange', onFocus)
++     return onForeground(load)
+=== whoop.jsx
++ import { onForeground } from './foreground'
+=== whoop.jsx
+-     const onFocus = () => { if (document.visibilityState === 'visible') load() }
+-     document.addEventListener('visibilitychange', onFocus)
+-     return () => document.removeEventListener('visibilitychange', onFocus)
++     return onForeground(load)

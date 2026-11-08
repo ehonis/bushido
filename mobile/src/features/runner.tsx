@@ -53,7 +53,7 @@ import { Icon } from '../lib/icons'
 import { onForeground } from '../lib/foreground'
 import { NumInput } from './numinput'
 import { CUES, primeAudio, resumeAudio, acquireWakeLock, releaseWakeLock } from '../lib/cues'
-import { lastLift } from '../lib/lifts.js'
+import { lastLift, liftFieldOf } from '../lib/lifts.js'
 import {
   prescriptionSteps, runProgress, firstOpen, restLeft, runElapsed,
   markSet, unmarkSet, skipSet, unskipSet, nudgeRest, endRest, goToSet, finishRun,
@@ -68,7 +68,6 @@ import { timingWords } from './circuit'
 import * as trainerLib from '../lib/trainer.js'
 import { Stepper, STEP, weightSwitch, ExerciseSheet, type WeightSwap } from './exercises'
 import { ExerciseBody, musclesOf, muscleWords } from '../lib/bodymap'
-import { liftFieldOf } from './planner'
 import { usePlan } from '../lib/planctx.jsx'
 import { SideRule, SideWho } from '../ui/Person'
 

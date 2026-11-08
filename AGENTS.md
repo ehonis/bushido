@@ -81,7 +81,7 @@ reasons behind the design, and the things that have been removed on purpose.
 
 | Thing | Path | Notes |
 |---|---|---|
-| Render smoke suite | `app/smoke.jsx` | `npm run smoke` in `app/`. Mounts every tab and session viewer against real content. |
+| Render smoke suite | `app/smoke/` | `npm run smoke` in `app/`. Mounts every tab and session viewer against real content: one file of cases per area (`today.jsx`, `sheet.jsx`, `editor.jsx`, `planner.jsx`, `runner.jsx`, `workout.jsx`, `timer.jsx`, `log.jsx`, `progress.jsx`, `profile.jsx`, `people.jsx`, `misc.jsx`), shared `fixtures.jsx`, one runner `index.jsx`. |
 | Store, merge, `isDone`, `markDone`, `doneWhenPlaced`, `isTraining`, entry ids | `app/src/lib/store.js` | The server's word-for-word copy of `isDone` is in `server/notify-facts.js` (§4). |
 | Session lookup | `app/src/lib/menu.js` | `optFor(menu, optId)`; renamed cards declare old ids as `aka`. |
 | Categories | `app/src/lib/category.js` | `categoryOf`, `disciplineOf`: what an entry files under, for the Log filter and Progress. |
@@ -105,7 +105,9 @@ reasons behind the design, and the things that have been removed on purpose.
 | Quick log | `app/src/quicklog.jsx`, `app/src/lib/quicklog.js` | `<QuickLog plan entries upsertEntry date onPlaced />`: up to three recent activities (then the catalog's pins), one tap each; under Log a workout in the + menu, Recent in Log a workout, and Today's empty day. Places through `placeEntries`, so the id and done-by-default are Log a workout's own. |
 | Unlogged workouts | `app/src/lib/unlogged.js`, `app/src/unlogged.jsx` | What WHOOP/Strava saw that the log lacks; `pairUp`, `mergeTargets`, `outWith()`. |
 | Session sheet / edit panel | `app/src/sessionlog.jsx` | `SessionLog`, `SessionDetails`, `DetailsSheet`, `NameField`. |
-| Day switcher | `app/src/tabs.jsx` (`DaySwitcher`, `dayWords`) | ‹ day › in words; Today's title and the rest day's date (§10.9). The phone's is `mobile/src/ui/DayStepper.tsx`. |
+| The session sheet | `app/src/sheet.jsx` | `SessionSheet` (header, body, footer) and `runnable`; Today (`tabs.jsx`) opens it. The row meta line both use is `app/src/metaline.jsx`. Twin: `mobile/src/features/sheet.tsx`. |
+| Prescription editor | `app/src/editor.jsx` | `PrescriptionEditor`, its blocks and items, `PieceAdder`, `BlockQuota`: the one editor Plan a workout and the sheet share. Twin: `mobile/src/features/editor.tsx`. |
+| Day switcher | `app/src/tabs.jsx` (`DaySwitcher`; `dayWords`, `isoShift` in `lib/dates.js`) | ‹ day › in words; Today's title and the rest day's date (§10.9). The phone's is `mobile/src/ui/DayStepper.tsx`. |
 | Toasts | `app/src/toast.jsx`, `app/src/lib/toast.js` | Mobile's API (`pushToast`, `pushError`) on the web: a removal's Undo, a failed save's Retry. |
 | Log feed | `app/src/log.jsx` | Newest first; the open sheet is keyed by ID. |
 | Progress | `app/src/lib/scope.js`, `app/src/lib/metrics.js`, `app/src/progress.jsx` | Charts declare when they apply. |
@@ -115,7 +117,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Body diagram | `app/src/lib/bodymap.jsx`, `app/muscles.build.mjs` | `react-body-highlighter` + `free-exercise-db`; nothing hand-drawn. |
 | How-to figures | `app/src/howto.jsx`, `app/src/lib/figures.jsx` | Registry of SVG figures named by content. |
 | Palette | `app/src/styles.css` `:root`, `app/validate_palette.js` | `npm run palette`; a real gate (§6.10). |
-| Styles | `app/src/styles.css` (tokens, base components, shell), `app/src/css/<area>.css` (each screen area's rules, one owner each), `app/src/timer.css` | A new rule goes in its area's file. See `docs/DESIGN.md`, "Visual system". |
+| Styles | `app/src/styles.css` (tokens, base components, shell), `app/src/css/<area>.css` (each screen area's rules, one owner each), `app/src/timer.css` | A new rule goes in its area's file (`sheet.css`, `today.css`, `planner.css`, `editor.css`, `runner.css`, `workout.css`, …); `main.jsx` imports them in cascade order. See `docs/DESIGN.md`, "Visual system". |
 | Notifications client | `app/src/lib/push.js`, `app/src/notifications.jsx` | |
 | Device screen probe | `app/src/screeninfo.jsx` | Measures the iOS safe-area bug on the device (§10.5). |
 | Whose log this is | `app/src/lib/whoami.js` | Decided before the store mounts; per-person cache key; `X-Bushido-User` on every API call (§3). |
@@ -141,13 +143,18 @@ node app/starter.build.mjs    # regenerate content/starter.json and examples/pla
 - **Content files need no rebuild** — they are fetched at runtime — but run `npm test`
   after editing one anyway: the suites walk every session set by set and catch a bad
   property access in hand-written JSON here rather than on a phone mid-session.
-- `npm test` at the root = `npm --prefix app test` then every `server/*.test.js`. The app
-  half includes `handoff.test.js`, the palette check, the per-area suites
-  (`test:fingers`, `test:streak`, `test:gear`, `test:progress`, `test:workout`,
-  `test:tests` (test-result sessions), `test:lifts`, `test:presc`, `test:naming`,
-  `test:md`, `test:starter`, `test:signout`, `test:whoami`, `test:shared`,
-  `test:trainer`) and the smoke suite. Run a
-  single suite while iterating; run the whole thing before you finish.
+- `npm test` at the root runs `scripts/test.mjs`: every app suite, then every
+  `server/*.test.js`, each one even when an earlier one failed, then a PASS/FAIL line per
+  suite and a non-zero exit if any failed (`npm --prefix app test` and `npm run test:server`
+  run each half). The app half is its `test:*` scripts in the runner's order: the handoff
+  test, the palette check, the per-area suites (`test:fingers`, `test:streak`, `test:gear`,
+  `test:progress`, `test:workout`, `test:tests` (test-result sessions), `test:lifts`,
+  `test:presc`, `test:naming`, `test:md`, `test:starter`, `test:signout`, `test:whoami`,
+  `test:shared`, `test:trainer`, …), `test:libsync` (every file in `mobile/src/lib` is its web
+  original, less the native edits in `app/libsync.native.diff`), `test:cycles` (no import
+  cycle in either app) and the smoke suite. A new `test:*` script must be added to the
+  runner's list, which refuses to run otherwise. Tests read fixtures from `test/fixtures/`,
+  never `data/`. Run a single suite while iterating; run the whole thing before you finish.
 - **The generated content must not drift.** `app/starter.test.mjs` fails if
   `content/starter.json` or `examples/plan.json` no longer match what
   `app/starter.build.mjs` produces from `test/fixtures/plan.json`. Edit the fixture's
@@ -166,7 +173,7 @@ node app/starter.build.mjs    # regenerate content/starter.json and examples/pla
 
 ### What the smoke suite is for, and how to extend it
 
-The smoke suite (`app/smoke.jsx`) server-renders every tab, sheet and flow against real
+The smoke suite (`app/smoke/`) server-renders every tab, sheet and flow against real
 content. It is the main defence for this codebase, and it has had to learn three lessons:
 
 - **A missing door is invisible to a render test.** "The picker renders" passes when a
@@ -1334,7 +1341,7 @@ workouts; `priorIds` for history.
 **The log form and the planner's editor are the same component** (`exercises.jsx`).
 `liftlog.jsx` adapts the positional stored shape (index as set id) rather than migrating
 history; a blank is `''` there and `null` on a prescription via one `blank` prop.
-`BlockQuota` (the per-block "A separate … workout" control) stays in `planner.jsx`. `.exlog-*` styles stay for the climbing set log,
+`BlockQuota` (the per-block "A separate … workout" control) is the editor's (`editor.jsx`, with `PrescriptionEditor`), not `exercises.jsx`. `.exlog-*` styles stay for the climbing set log,
 which is a genuinely different form. `SessionLog(other training, a lift)` and
 `Sheet(a planned session)` pin the same one-open-card shape from opposite sides; if they
 disagree, someone has grown a second copy.
@@ -1414,7 +1421,7 @@ What that means for the code that stays:
 ### 10.9 Today and the session sheet, redone (#41, 2026-10-25)
 
 The owner called the old screens atrocious. Same functions; what changed, each pinned in
-the batch A section of `app/smoke.jsx`:
+`app/smoke/today.jsx` and `app/smoke/sheet.jsx`:
 
 - **The day is Today's title** (`DaySwitcher` with `title`): "Today" / "Yesterday" / a
   date, ‹ › beside it, a quiet "Today" to come back. Not a card for two arrows.

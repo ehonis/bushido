@@ -12,10 +12,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "smoke": "esbuild smoke.jsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --outfile=.smoke.mjs --log-level=error && node .smoke.mjs",
+    "smoke": "esbuild smoke/index.jsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --outfile=smoke/.smoke.mjs --log-level=error && node smoke/.smoke.mjs",
     "test:workout": "node workout.test.js",
     "test:circuit": "node circuit.test.js",
-    "test": "node handoff.test.js && npm run palette && npm run test:fingers && npm run test:streak && npm run test:gear && npm run test:progress && npm run test:workout && npm run test:circuit && npm run test:tests && npm run test:lifts && npm run test:presc && npm run test:naming && npm run test:md && npm run test:starter && npm run test:exercises && npm run test:signout && npm run test:whoami && npm run test:shared && npm run test:trainer && npm run test:drafts && npm run test:done && npm run smoke",
+    "test": "node ../scripts/test.mjs app",
     "test:lifts": "node lifts.test.js",
     "test:gear": "node gear.test.js",
     "test:progress": "node progress.test.js",
@@ -33,7 +33,10 @@
     "test:drafts": "node drafts.test.js",
     "test:done": "node done.test.js",
     "test:fingers": "node fingers.test.js",
-    "test:tests": "node tests.test.js"
+    "test:tests": "node tests.test.js",
+    "test:handoff": "node handoff.test.js",
+    "test:libsync": "node libsync.test.js",
+    "test:cycles": "node cycles.test.js"
   },
   "dependencies": {
     "lucide-react": "^1.28.0",
