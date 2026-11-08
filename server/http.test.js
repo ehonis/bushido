@@ -790,6 +790,75 @@ async function waitFor(fn, label, ms = 8000) {
     eq(itemsIn(theirsOn(id)).map(i => i.uid), itemsIn(ownOn(id)).map(i => i.uid), 'the two sides no longer share uids')
   })
 
+  /*
+   * #105. Copies shared before uids existed (the seed's, Oct 13 to Oct 24) have no uid
+   * and no syncBase on either side, and a plan can have the same exercise in two blocks
+   * (Back squat in the main block and in a circuit; three rounds with the same names).
+   */
+  const squatPlan = () => ids({ title: 'Legs', blocks: [
+    { name: 'Main', note: '', items: [lifted('Back squat', st(3, { weight: null })), lifted('Romanian deadlift', st(2, { weight: null }))] },
+    { name: 'Finisher', note: '', circuit: { work: 40, rest: 20, rounds: 3 }, items: [lifted('Back squat', st(1, { weight: null })), lifted('Lunge', st(1, { weight: null }))] },
+  ] })
+  const shape = (e) => e.data.plan.blocks.map(b => `${b.name}[${b.items.map(i => `${i.name}:${i.sets.length}`).join(',')}]`)
+  /** An entry written into a log file as an install from before uids left it. */
+  const plant = (file, entry) => {
+    const doc = JSON.parse(fs.readFileSync(file, 'utf8'))
+    doc.state.entries[entry.id] = entry
+    fs.writeFileSync(file, JSON.stringify(doc))
+  }
+
+  await step('sync: a pre-uid share (#105): the first write from either side, by the runner or the sheet, adds nothing and lands its numbers where they were written', async () => {
+    const date = '2026-09-20'
+    const id = `daily-${date}`
+    const old = (data) => ({ id, kind: 'daily', date, updatedAt: `${date}T08:00:00.000Z`, data: { optId: 'planned', slot: 'main', done: false, plan: squatPlan(), out: {}, ...data } })
+    plant(path.join(two.dataDir, 'state.json'), old({ sharedWith: [{ id: 'sam', entryId: id, sync: true }] }))
+    plant(path.join(two.dataDir, 'users', 'sam', 'state.json'), old({ sharedFrom: { id: 'owner', name: 'Alex' } }))
+    const want = shape(ownOn(id))
+    // Sam's phone, first: the runner marks set 1 of the main block's Back squat.
+    const samRun = theirsOn(id)
+    eq((await saveSams({ ...samRun, data: { ...samRun.data, run: { sets: { b0i0s0: { reps: 5, weight: 40 } }, cursor: 'b0i0s1' } } })).status, 200)
+    eq([shape(theirsOn(id)), shape(ownOn(id))], [want, want], 'the runner\'s first write added an exercise')
+    eq(theirsOn(id).data.run.sets, { b0i0s0: { reps: 5, weight: 40 } }, 'Sam\'s mark moved off the main block\'s Back squat')
+    // The owner's sheet, on a device that still holds the entry from before uids: 100 typed into the same set.
+    const ownSheet = old({ sharedWith: [{ id: 'sam', entryId: id, sync: true }] })
+    ownSheet.data.plan.blocks[0].items[0].sets[0] = { ...ownSheet.data.plan.blocks[0].items[0].sets[0], weight: 100, typed: true }
+    eq((await saveOwn(ownSheet)).status, 200)
+    eq([shape(theirsOn(id)), shape(ownOn(id))], [want, want], 'the sheet\'s first write added an exercise')
+    eq(ownOn(id).data.plan.blocks.map(b => b.items.map(i => i.sets.map(s => s.weight))), [[[100, null, null], [null, null]], [[null], [null]]], 'the owner\'s typed 100 was lost or moved')
+    eq(theirsOn(id).data.plan.blocks[0].items[0].sets[0].weight, null, 'the owner\'s number crossed to Sam')
+    // Both sides stamped the same uids, so a change made now crosses once.
+    eq(itemsIn(theirsOn(id)).map(i => i.uid), itemsIn(ownOn(id)).map(i => i.uid), 'the two sides minted different uids')
+    eq((await saveOwn(replan(ownOn(id), bs => { bs[1].items.push(lifted('Step-up', st(1, { weight: null }))); return bs }))).status, 200)
+    eq(shape(theirsOn(id)), ['Main[Back squat:3,Romanian deadlift:2]', 'Finisher[Back squat:1,Lunge:1,Step-up:1]'], 'the owner\'s Step-up did not reach Sam once')
+  })
+
+  await step('sync: an old phone\'s copy (no uids) never puts a number on the same-named exercise in another block (#105)', async () => {
+    const date = '2026-09-21'
+    const id = `daily-${date}`
+    // Shared with sync on while the main block had no Back squat; Sam's phone keeps that copy.
+    const plan = squatPlan()
+    plan.blocks[0].items.shift()
+    const fresh = ids(plan)
+    eq((await saveOwn({ id, kind: 'daily', date, data: { optId: 'planned', slot: 'main', done: false, plan: fresh, out: {} } })).status, 200)
+    const r = await post('sam', { id, kind: 'daily', date, updatedAt: tick(), data: { optId: 'planned', slot: 'main', done: false, plan: fresh, out: {}, sharedFrom: { id: 'owner' } } })
+    const pre = (await r.json()).entry
+    eq((await saveOwn({ ...ownOn(id), data: { ...ownOn(id).data, sharedWith: [{ id: 'sam', entryId: id, sync: true }] } })).status, 200)
+    // The owner adds Back squat to the main block; it reaches Sam.
+    eq((await saveOwn(replan(ownOn(id), bs => { bs[0].items.unshift(lifted('Back squat', st(3, { weight: null }))); return bs }))).status, 200)
+    const want = ['Main[Back squat:3,Romanian deadlift:2]', 'Finisher[Back squat:1,Lunge:1]']
+    eq(shape(theirsOn(id)), want, 'the owner\'s Back squat did not reach Sam, so this proves nothing')
+    // Sam's old copy: 30 typed into the circuit's Back squat (b1i0s0 there), and the runner's mark on it.
+    const old = { ...pre, updatedAt: tick(), data: { ...pre.data, run: { sets: { b1i0s0: { seconds: 40 } } } } }
+    old.data.plan = { ...old.data.plan, blocks: old.data.plan.blocks.map((b, bi) => (bi !== 1 ? b
+      : { ...b, items: b.items.map((it, ii) => (ii ? it : { ...it, sets: [{ ...it.sets[0], weight: 30, typed: true }] })) })) }
+    eq((await get(`${two.base}/api/entry`, { method: 'POST', headers: { ...json, ...samSays.headers }, body: JSON.stringify({ entry: old }) })).status, 200)
+    eq([shape(theirsOn(id)), shape(ownOn(id))], [want, want], 'the old copy changed the structure')
+    const fin = theirsOn(id).data.plan.blocks[1].items[0]
+    const main = theirsOn(id).data.plan.blocks[0].items[0]
+    eq([fin.sets[0].weight, main.sets.map(s => s.weight)], [30, [null, null, null]], 'Sam\'s 30 landed on the main block\'s Back squat')
+    eq(Object.keys(theirsOn(id).data.run.sets), ['b1i0s0'], 'Sam\'s mark moved to the main block\'s Back squat')
+  })
+
   await step('sync: X1, a deadlift set Sam logged offline survives the owner removing Deadlift, on Sam\'s side only', async () => {
     // A day still to come: an untouched plan there reads as nothing lifted (lib/lifts.js
     // `liftsDone`), so the owner's removal reaches it. On a done day gone by, its sets

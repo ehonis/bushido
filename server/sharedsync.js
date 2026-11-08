@@ -25,8 +25,11 @@
  * are positional and re-minted by every edit (prescription.js `reindex`), so
  * they are never used for matching. An item that arrives without a uid (an
  * older app, a model revision that rebuilt the plan) takes the uid of the
- * same-named item it replaces, if there is one. Logged lifts (`out.lifts`)
- * already have uids (lib/lifts.js).
+ * same-named item it replaces IN ITS OWN BLOCK, if there is one, never one in
+ * another block (`stampPlan`, #105). An entry shared before uids existed is
+ * stamped by its own items on its first write, the same uids on both sides
+ * (`fnv` of where each row is). Logged lifts (`out.lifts`) already have uids
+ * (lib/lifts.js).
  *
  * THE RULE. Entries are last-write-wins as a whole, so any device can send back
  * an old list of exercises: a phone that has not pulled, a copy from before sync
@@ -145,36 +148,95 @@ function shapeOf(data) {
 
 /* -------------------------------------------------------------- identity */
 
-/** Give every row a uid: its own, else the unclaimed uid of a same-named row in `ref`, else a new one. */
-function stampList(list, ref, keyOf) {
-  const own = new Set(list.map(x => x.uid).filter(Boolean))
-  const pool = new Map()
-  for (const r of ref) {
-    if (!r?.uid || own.has(r.uid)) continue
-    const k = keyOf(r)
-    if (!pool.has(k)) pool.set(k, [])
-    pool.get(k).push(r.uid)
-  }
-  const seen = new Set()
-  let changed = false
-  const out = list.map(x => {
-    if (x.uid && !seen.has(x.uid)) { seen.add(x.uid); return x }
-    const uid = pool.get(keyOf(x))?.shift() || mintUid()
-    seen.add(uid)
-    changed = true
-    return { ...x, uid }
+/*
+ * MATCHING ROWS WITHOUT A UID (#105). Every copy shared before sync identity
+ * existed has no uid anywhere, and a plan often has the same exercise in two
+ * blocks (Back squat in the main block and again in a circuit; "Round 1 of 3",
+ * "Round 2 of 3" with the same names). A row takes a uid from `ref` by where it
+ * IS: its block first (same place and name, then same name, then same place),
+ * then, inside the block that matched, an item in the same place with the same
+ * name, then one with the same name. Never an item from another block: matched
+ * across blocks, a write's numbers landed on the other block's exercise, and an
+ * exercise the runner marked was not found and was added a second time.
+ * Each pass runs over the whole list before the next, so a looser match never
+ * takes a uid a closer one wanted. A uid is used once (`claimed`).
+ */
+const nameOf = (x) => String(x?.name || '')
+const BLOCK_TESTS = [
+  (x, i, r, j) => i === j && nameOf(x) === nameOf(r),
+  (x, i, r) => nameOf(x) === nameOf(r),
+  (x, i, r, j) => i === j,
+]
+const ITEM_TESTS = BLOCK_TESTS.slice(0, 2)
+
+/**
+ * The uid for each of `list`: its own (the first row to carry it), else an
+ * unclaimed one of `ref`'s by the first of `tests` that matches, else a new
+ * one. `own` is every uid the plan already carries (never given to another
+ * row), `claimed` the uids handed out so far; both span the whole plan.
+ */
+function matchUids(list, ref, tests, own, claimed, placeOf = null) {
+  const uids = list.map(x => {
+    if (!x.uid || claimed.has(x.uid)) return null
+    claimed.add(x.uid)
+    return x.uid
   })
-  return changed ? out : list
+  const free = (u) => u && !own.has(u) && !claimed.has(u)
+  for (const test of tests) {
+    list.forEach((x, i) => {
+      if (uids[i]) return
+      const j = ref.findIndex((r, k) => free(r?.uid) && test(x, i, r, k))
+      if (j >= 0) { uids[i] = ref[j].uid; claimed.add(ref[j].uid) }
+    })
+  }
+  return uids.map((u, i) => {
+    if (u) return u
+    const at = placeOf && placeOf[i]
+    const m = free(at) ? at : mintUid()
+    claimed.add(m)
+    return m
+  })
+}
+
+/*
+ * A uid FROM WHERE A ROW IS, for a plan stamped with nothing stamped to match
+ * (#105): its block's name and how many blocks before it have that name, then
+ * its own name and how many before it in that block have that name. Both sides
+ * of a workout shared before uids derive the same uid for the same exercise,
+ * whichever of them is written first, without either reading the other; an
+ * exercise only one side has, or one moved, gets one of its own.
+ */
+function fnv(s) {
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193) >>> 0
+  return h.toString(36)
+}
+const occurrences = (list) => {
+  const n = new Map()
+  return list.map(x => { const k = nameOf(x); const c = n.get(k) || 0; n.set(k, c + 1); return `${k}#${c}` })
 }
 
 function stampPlan(plan, ref) {
   const blocks0 = blocksOf(plan)
-  const blocks = stampList(blocks0, blocksOf(ref), b => String(b.name || ''))
-  const flat = blocks.flatMap(itemsOf)
-  const items = stampList(flat, blocksOf(ref).flatMap(itemsOf), it => String(it.name || ''))
-  if (blocks === blocks0 && items === flat) return plan
-  let i = 0
-  return { ...plan, blocks: blocks.map(b => ({ ...b, items: itemsOf(b).map(() => items[i++]) })) }
+  const refBlocks = blocksOf(ref)
+  const derive = !refBlocks.some(b => b.uid || itemsOf(b).some(it => it.uid))
+  const blockPlaces = occurrences(blocks0)
+  const ownBlocks = new Set(blocks0.map(b => b.uid).filter(Boolean))
+  const ownItems = new Set(blocks0.flatMap(itemsOf).map(it => it.uid).filter(Boolean))
+  const blockUids = matchUids(blocks0, refBlocks, BLOCK_TESTS, ownBlocks, new Set(), derive ? blockPlaces.map(p => `p${fnv(p)}`) : null)
+  const claimed = new Set()
+  let changed = false
+  const blocks = blocks0.map((b, bi) => {
+    const items0 = itemsOf(b)
+    const refItems = itemsOf(refBlocks.find(r => r.uid === blockUids[bi]))
+    const places = derive ? occurrences(items0).map(p => `p${fnv(`${blockPlaces[bi]}/${p}`)}`) : null
+    const uids = matchUids(items0, refItems, ITEM_TESTS, ownItems, claimed, places)
+    const items = items0.map((it, ii) => (it.uid === uids[ii] ? it : { ...it, uid: uids[ii] }))
+    if (b.uid === blockUids[bi] && items.every((it, ii) => it === items0[ii])) return b
+    changed = true
+    return { ...b, uid: blockUids[bi], items }
+  })
+  return changed ? { ...plan, blocks } : plan
 }
 
 /** `data` with a uid on every block and plan item, matched against `ref` (what is stored). */
@@ -864,12 +926,20 @@ function onWrite(prev, next, ids, linksOf) {
     if (was && same(e, was)) continue
     const link = linksOf(e, was)
     if (!link) continue
-    const live = was && !was.deleted && isObj(was.data) ? was : null
-    // A copy takes the owner's uids for anything it has none for, so a write
-    // landing just as sync is switched on cannot mint uids of its own that the
-    // alignment would then see as different exercises.
-    const ref = link.ref ? { plan: { blocks: [...blocksOf(live?.data?.plan), ...blocksOf(link.ref.plan)] } } : live?.data
-    const sent = stampData(e.data, ref)
+    const was0 = was && !was.deleted && isObj(was.data) ? was : null
+    /*
+     * What is stored is stamped first, by its OWN items (#105): a copy takes the
+     * owner's uids where the owner's block and exercise are where its own are, so
+     * a write landing just as sync is switched on cannot mint uids that the
+     * alignment would then see as different exercises; anything else gets a new
+     * one. Then the write is matched against THAT, block by block. An entry
+     * shared before uids existed has none on either the stored copy or the one
+     * its device sends, and matched against nothing, every exercise the write
+     * had logged on read as missing from the stored plan and was added again.
+     * Its stamp is no more than any synced write already writes: uids and a base.
+     */
+    const live = was0 && hasPlan(was0.data) ? { ...was0, data: stampData(was0.data, link.ref) } : was0
+    const sent = stampData(e.data, live ? live.data : link.ref)
     let data = sent
     let intent = null
     // Only a write that expresses structural intent (`intentOf`) changes or carries structure.
@@ -922,7 +992,10 @@ function receive(state, entryId, c, accept) {
   if (!e || e.deleted || e.kind !== 'daily' || !isObj(e.data) || !accept(e)) return state
   // Only synced links carry, so a copy that receives one is in step (`flagged`).
   const at = { date: e.date, today: c.today }
-  const data = flagged(c.align ? align(c.after, e.data, at) : carry(stampData(e.data, c.after), c.before, c.after, at), true)
+  // An entry with rows that have no uid yet takes them from what the sender had BEFORE its
+  // change (#105): that is the structure this side should match, a rename included.
+  const ref = Array.isArray(c.before?.plan) ? { plan: { blocks: c.before.plan } } : c.after
+  const data = flagged(c.align ? align(c.after, e.data, at) : carry(stampData(e.data, ref), c.before, c.after, at), true)
   const base = nextBase(entryId, e.data.syncBase, data)
   const out = { ...data }
   if (base) out.syncBase = base
