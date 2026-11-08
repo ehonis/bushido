@@ -31,7 +31,7 @@
  * future chart would group by; the names are what the log reads back as.
  */
 
-import { localIso } from './dates.js'
+import { localIso, dayWords } from './dates.js'
 import { isDone } from './store.js'
 
 export const LIFT_FIELD = 'lifts'
@@ -623,17 +623,15 @@ function nextUid(list, key) {
  *
  * One set and not three, and blank rather than seeded: there is no prescription
  * here to confirm, so any number in the box would be the app's invention. The
- * implement defaults to the movement's first offered one only when the catalog
- * gives it exactly one honest answer — otherwise it is a question. An implement
- * chosen that way starts in the weight mode the exercise was last logged in
- * (`rememberedWeightMode`, from `entries`).
+ * implement is `defaultImplement`'s (the one last lifted with, else what the
+ * catalog says), and starts in the weight mode the exercise was last logged in
+ * with it (`rememberedWeightMode`, from `entries`).
  */
 export function addLift(field, list, key, { entries = [], excludeId = null } = {}) {
   const ex = exerciseOf(field, key)
   if (!ex) return list
-  const offered = implementsFor(field, key)
   const rows = liftsIn({ [LIFT_FIELD]: list })
-  const implement = offered.length === 1 ? offered[0].value : ''
+  const implement = defaultImplement(field, key, { entries, excludeId })
   return [...rows, withWeightMode(field, {
     uid: nextUid(rows, key),
     key,
@@ -851,8 +849,199 @@ export function lastLift(entries = [], key, excludeId = null, field = null, meas
       if (liftKeyOf(l) !== key) continue
       if (measure && liftMeasure(l, field) !== measure) continue
       const summary = liftSummary(l, field)
-      if (summary) hits.push({ date: e.date, implement: l.implementLabel || l.implement || null, summary })
+      if (summary) hits.push({ date: e.date, implement: l.implementLabel || l.implement || null, summary, row: l })
     }
   }
   return hits.sort((a, b) => String(b.date).localeCompare(String(a.date)))[0] || null
+}
+
+/**
+ * When last time was, in the words every other date on the sheet uses
+ * (`dayWords`: "Yesterday", "Fri, Nov 7"), never the raw "2026-11-07" (#93).
+ */
+export const lastTimeWhen = (prior, today = localIso()) => (prior?.date ? dayWords(prior.date, today) : '')
+
+/**
+ * What "use last time" writes (#93): last time's numbers into this exercise's
+ * BLANK boxes, set by set (set 3 takes last time's set 3, or its last set when
+ * it had fewer), as `[{ setId, patch }]`. It never overwrites a number, never
+ * adds a set, and fills the weight only when it means the same thing as last
+ * time (the same implement in the same mode): 90 lb per side is not 90 lb on
+ * the bar. Empty when there is nothing to fill, which is when the line stops
+ * being a button.
+ *
+ * `item` is the card's (exercises.jsx): `{ kind, implement, weightMode, sets: [{ id, … }] }`.
+ */
+export function lastTimeFill(field, item, prior) {
+  const rows = (prior?.row?.sets || []).filter(r => num(r?.reps) !== null || num(r?.seconds) !== null || num(r?.weight) !== null)
+  if (item?.kind !== 'lift' || !rows.length) return []
+  const row = prior.row
+  const sameLoad = (item.implement || '') === (row.implement || '')
+    && weightModeOf(field, item) === weightModeOf(field, row)
+  const count = liftMeasure(row, field) === 'time' ? 'seconds' : 'reps'
+  const blank = (v) => v === null || v === undefined || v === ''
+  return (item.sets || []).flatMap((s, i) => {
+    const from = rows[i] || rows.at(-1)
+    const patch = {}
+    if (count in s && blank(s[count]) && num(from[count]) !== null) patch[count] = num(from[count])
+    if ('weight' in s && blank(s.weight) && sameLoad && num(from.weight) !== null) patch.weight = num(from.weight)
+    return Object.keys(patch).length ? [{ setId: s.id, patch }] : []
+  })
+}
+
+/**
+ * Fills (`lastTimeFill`, `copyDownFills`) laid onto a list of sets (by `id`): one
+ * write for the whole exercise. A filled set is NOT typed: it holds a target,
+ * not something done, so it counts as lifted only once its ✓ is ticked (D10,
+ * D11). Any old mark on it goes; a patch that says `typed` (an Undo putting a
+ * set back exactly) keeps its own.
+ */
+export const withFills = (sets = [], fills = []) => sets.map(s => {
+  const f = fills.find(x => x.setId === s.id)
+  if (!f) return s
+  const { typed: _t, ...rest } = s
+  return { ...rest, ...f.patch }
+})
+
+const COPIED = ['reps', 'seconds', 'weight', 'distance']
+const holdsNumber = (s) => COPIED.some(f => num(s?.[f]) !== null)
+
+/**
+ * COPY DOWN (#93, the owner's ask): one set's numbers into every EMPTY set below
+ * it in the same exercise, as `[{ setId, patch }]`. Empty is no reps, seconds,
+ * weight or distance; a set below with any number is left exactly as it is. It
+ * never adds or removes a set, so on a synced workout the structure the sync
+ * carries is untouched and nothing reaches the other person (numbers never
+ * cross, AGENTS.md §3); before this the way to get it was removing and adding
+ * sets, which the sync does carry. What the weight means (its mode) is the
+ * exercise's, one per exercise, so the copied number means the same thing.
+ */
+export function copyDownFills(sets = [], setId) {
+  const at = sets.findIndex(s => s?.id === setId)
+  const from = sets[at]
+  if (at < 0 || !holdsNumber(from)) return []
+  const patch = Object.fromEntries(COPIED.filter(f => num(from[f]) !== null).map(f => [f, num(from[f])]))
+  return sets.slice(at + 1).filter(s => !holdsNumber(s)).map(s => ({ setId: s.id, patch: { ...patch } }))
+}
+
+/** Is Copy down offered on set `i`: it has a number and the set right under it has none. */
+export const canCopyDown = (sets = [], i) => holdsNumber(sets[i]) && i + 1 < sets.length && !holdsNumber(sets[i + 1])
+
+/**
+ * What Copy down's Undo writes (#93 review): the copied sets put back exactly as
+ * they were BEFORE (`sets`), but only those that `now` still shows untouched,
+ * holding exactly the copied numbers and not ticked. A set typed into or ticked
+ * since the copy is the person's own work and stays: an Undo that wrote the old
+ * blanks over it took a 95 typed into set 3, untyped a ticked set 2, and put a
+ * workout for today back to Not done. `now` defaults to just after the copy.
+ */
+export const unfills = (sets = [], fills = [], now = withFills(sets, fills)) => fills.flatMap(f => {
+  const s = sets.find(x => x.id === f.setId)
+  const cur = now.find(x => x.id === f.setId)
+  if (!s || !cur || cur.typed === true) return []
+  if (Object.keys(f.patch).some(k => num(cur[k]) !== num(f.patch[k]))) return []
+  const patch = Object.fromEntries(Object.keys(f.patch).map(k => [k, s[k]]))
+  return [{ setId: f.setId, patch: s.typed === true ? { ...patch, typed: true } : patch }]
+})
+
+/**
+ * Who an exercise card is (#93): its `uid` (minted by the server, never changed),
+ * else what it is. A positional id (`b0i1`) is a place, not an exercise: keyed by
+ * it, the next exercise took a removed card's state, Edit and all.
+ */
+export const cardIdentity = (item) => item?.uid || `${item?.exercise || ''}|${item?.name || ''}|${item?.kind || ''}`
+
+/** The React key of an exercise card: its `uid` where it has one, so its state goes with it, else its id. */
+export const cardKey = (item) => (item?.uid ? `u:${item.uid}` : `i:${item?.id}`)
+
+/**
+ * The implement this exercise was last LIFTED with, or null: the same reading
+ * as `rememberedWeightMode` (what was lifted, with a number, on an entry done
+ * and dated on or before `today`; the newest decides), for a new exercise to
+ * start on (#93, C N2).
+ */
+export function rememberedImplement(field, entries = [], key, excludeId = null, today = localIso()) {
+  if (!key) return null
+  let best = null
+  for (const e of entries) {
+    if (e?.deleted || e?.kind !== 'daily' || e.id === excludeId || !(String(e.date || '') <= today)) continue
+    if (e.data?.done === false && e.data?.undone === true) continue
+    const row = liftsDone(e, today).find(l => liftKeyOf(l) === key && l.implement
+      && (l.sets || []).some(r => num(r?.reps) !== null || num(r?.seconds) !== null || num(r?.weight) !== null))
+    if (!row) continue
+    const at = `${e.date || ''}|${e.updatedAt || ''}`
+    if (!best || at > best.at) best = { at, implement: row.implement }
+  }
+  return best && implementOf(field, best.implement) ? best.implement : null
+}
+
+/**
+ * What a NEW exercise is done with (#93, C N2): a squat added by hand had no
+ * implement, so its card read "No equipment picked", its weight a bare "lb",
+ * and weight-mode memory (which needs an implement) never ran. In order:
+ *
+ *   1. the one it was last lifted with (`rememberedImplement`);
+ *   2. the only one the catalog offers it;
+ *   3. the first it declares;
+ *   4. the one implement its library `equipment` line names, when it names
+ *      exactly one ("Bench, barbell and rack" is a barbell);
+ *
+ * else none, and the card asks. One tap on the card changes it either way.
+ */
+export function defaultImplement(field, key, { entries = [], excludeId = null, today = localIso() } = {}) {
+  const remembered = rememberedImplement(field, entries, key, excludeId, today)
+  if (remembered) return remembered
+  const offered = implementsFor(field, key)
+  if (offered.length === 1) return offered[0].value
+  const declared = exerciseOf(field, key)?.implements
+  if (Array.isArray(declared) && declared.length && implementOf(field, declared[0])) return declared[0]
+  const said = String(exerciseOf(field, key)?.equipment || '').toLowerCase()
+  if (!said) return ''
+  const named = catalogOf(field).implements.filter(i => {
+    const word = String(i.label || '').toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return word && new RegExp(`(^|[^a-z])${word}s?([^a-z]|$)`).test(said)
+  })
+  return named.length === 1 ? named[0].value : ''
+}
+
+/**
+ * The unit a weight box says under its number (#93): "lb", or the label's own
+ * last word where it has no pounds in it ("level"). What the number MEANS
+ * ("on the bar", "of assistance") is said once on the card (`weightMeaning`),
+ * so the box's label is one short word that never wraps.
+ */
+export function weightUnit(label) {
+  const words = String(label || 'lb').trim().split(/\s+/)
+  return words.find(w => /^(lb|lbs|kg)$/i.test(w)) || words.at(-1) || 'lb'
+}
+
+/**
+ * What a lift's weight means, for the card to say once (#93): with a choice of
+ * meanings, the one it is in now (`{ words: 'on the bar', modes: 2 }`, the
+ * switch's words); with one, the implement's label when it says more than the
+ * unit (`{ words: 'lb of assistance', modes: 1 }`); else null.
+ */
+export function weightMeaning(field, row) {
+  const modes = weightModesFor(field, row?.implement)
+  if (modes.length > 1) return { words: (modeOf(field, row) || modes[0]).short, modes: modes.length }
+  const label = row?.weightLabel || weightLabelFor(field, row?.implement)
+  return label && label.trim() !== weightUnit(label) ? { words: label.trim(), modes: 1 } : null
+}
+
+/**
+ * Which group the exercise picker opens on (#93, C N11): the group most of the
+ * block's exercises are in, else the catalog group the block is named for
+ * ("Core"), else none (the whole catalog, as before). A Legs block opened on
+ * Bench press.
+ */
+export function pickerGroupFor(field, items = [], title = '') {
+  const { groups } = catalogOf(field)
+  const counts = new Map()
+  for (const it of items) {
+    const g = it?.group || exerciseOf(field, it?.exercise)?.group
+    if (g && groups.includes(g)) counts.set(g, (counts.get(g) || 0) + 1)
+  }
+  if (counts.size) return [...counts].sort((a, b) => b[1] - a[1])[0][0]
+  const t = String(title || '').toLowerCase()
+  return groups.find(g => t && t.split(/[^a-z&]+/).includes(g.toLowerCase())) || null
 }

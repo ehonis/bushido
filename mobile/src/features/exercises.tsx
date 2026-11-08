@@ -17,9 +17,10 @@
  * leaks in here. A blank is `''` on the log and `null` on a prescription; `blank`
  * on the stepper is how that survives sharing a component.
  *
- * Native: the picker is a page sheet with the search box focused, set rows and
- * folded cards swipe left to remove (the web's X and "remove" stay), every step
- * ticks, and a set that becomes complete buzzes.
+ * Native: the picker is a page sheet (the keyboard waits for a tap on the
+ * search box: up at once, it covered the list, #93), set rows and folded cards
+ * swipe left to remove (Edit's Remove stays), every step ticks, and a set that
+ * becomes complete buzzes.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, FlatList, Linking, ScrollView, StyleSheet, View, type TextInputProps } from 'react-native'
@@ -40,7 +41,8 @@ import { acceptMinutesText, minutesText, numOrNull } from '../lib/numtext.js'
 import {
   searchExercises, implementsFor, lastLift, catalogOf, exerciseOf, muscleName, measureFor,
   weightModesFor, weightPatch, nextWeightMode, rememberedWeightMode, weightModeWords, weightBoxOf,
-  implementChoices, implementLabel,
+  implementChoices, implementLabel, weightModeOf, weightMeaning, weightUnit, lastTimeFill, lastTimeWhen,
+  pickerGroupFor, copyDownFills, canCopyDown, unfills, cardIdentity, cardKey,
 } from '../lib/lifts.js'
 import { ExerciseBody, BodyMap, musclesOf, muscleWords } from '../lib/bodymap'
 import { HowBody } from './howto'
@@ -156,7 +158,8 @@ export type WeightSwap = { box: string; next: string; aria?: string; onSwitch: (
 
 /**
  * The tap that changes what a lift's weight means (issue #58), or null where
- * its implement has one meaning. The same for the editor, the log and the runner.
+ * its implement has one meaning: the runner's 44pt pill. The card's is
+ * `modeFlip` (#93), once per exercise and with Undo.
  */
 export function weightSwitch(liftField: any, item: any, onPatch: (patch: any) => void): WeightSwap {
   if (item?.kind !== 'lift' || weightModesFor(liftField, item.implement).length < 2) return null
@@ -201,24 +204,31 @@ export function countSwitch(liftField: any, item: any, onPatch: (patch: any) => 
 /**
  * One number, moved with thumbs (docs/DESIGN.md, Stepper): − and + either side
  * of an input that is still an input, what it measures under it, on the tokens.
- * Two fit beside a set's number on a phone. The minus goes inert at the floor
- * rather than disappearing — a control that vanishes under your thumb
- * mid-session moves everything next to it. The big sibling is the runner's.
- * `swap` (from `weightSwitch`) turns the label into the switch for what the
- * number means: the words you read are the thing you tap.
+ * Two fit beside a set's ✓ on a 390pt phone (`SET_ROW`). The minus goes inert
+ * at the floor rather than disappearing — a control that vanishes under your
+ * thumb mid-session moves everything next to it. The big sibling is the runner's.
+ *
+ * THE NUMBER IS THE CELL (#93): the input is the whole middle, 44pt tall, with
+ * its one-word unit drawn inside it under the number and taking no touch, so a
+ * tap anywhere between the ± puts the cursor in the number. It was a 48×22 box
+ * under the weight's meaning switch, whose hitSlop made it the cell's biggest
+ * target: a tap aimed at 90 turned "on the bar" into "per side". What a number
+ * means is the card's to say now, once (`ModeSwitch`). `label` stays the box's
+ * full accessible name; `unit` is what it shows.
  */
 export function Stepper({
-  label, value, step = 1, min = null, max = null, suffix = '', quiet = false,
-  blank = null, placeholder = '—', onChange, swap = null, time = false, grow = false, focus = false,
+  label, unit = null, value, step = 1, min = null, max = null, suffix = '', quiet = false,
+  blank = null, placeholder = '—', onChange, time = false, grow = false, focus = false,
 }: {
   /** Mount with the keyboard up: a blank set's ✓ asks for its first number this way. */
   focus?: boolean
-  swap?: WeightSwap
   /** A minutes box over seconds (`boxFor`), stepped by `bumpTime`. */
   time?: boolean
   /** In a set row: take the row's spare width, so the number box is the big target. */
   grow?: boolean
   label: string
+  /** The short word under the number ("lb"); `label` when absent. */
+  unit?: string | null
   value: any
   placeholder?: string
   step?: number
@@ -241,21 +251,17 @@ export function Stepper({
         {time ? (
           <TimeInput value={value} accessibilityLabel={label} placeholder={placeholder} blank={blank} onChange={onChange} autoFocus={focus}
             placeholderTextColor={colors.inkFaint} keyboardAppearance="dark" selectionColor={colors.accent}
-            selectTextOnFocus style={[st.stepperIn, grow && { width: '100%' }]} />
+            selectTextOnFocus style={st.stepperIn} />
         ) : (
           <NumInput
             value={value} accessibilityLabel={label} placeholder={placeholder} blank={blank} onChange={onChange} autoFocus={focus}
             placeholderTextColor={colors.inkFaint} keyboardAppearance="dark" selectionColor={colors.accent}
-            selectTextOnFocus style={[st.stepperIn, grow && { width: '100%' }]}
+            selectTextOnFocus style={st.stepperIn}
           />
         )}
-        {swap ? (
-          <Press onPress={swap.onSwitch} style={st.swap} hitSlop={{ top: 2, bottom: 12, left: 10, right: 10 }}
-            accessibilityRole="button" accessibilityLabel={swap.aria || `Weight in ${label}. Switch to ${swap.next}`}>
-            <T size={font.label} dim align="center" style={{ flexShrink: 1 }}>{swap.box}</T>
-            <Icon name="ArrowLeftRight" size={10} color={colors.inkDim} />
-          </Press>
-        ) : <T size={font.label} dim >{`${label}${suffix}`}</T>}
+        <View pointerEvents="none" style={st.unit}>
+          <T size={font.label} dim numberOfLines={1} align="center">{`${unit ?? label}${suffix}`}</T>
+        </View>
       </View>
       <Press onPress={() => bump(1)} disabled={max !== null && n >= max} style={st.stepperBtn}
         accessibilityRole="button" accessibilityLabel={`more ${label}`}>
@@ -264,6 +270,60 @@ export function Stepper({
     </View>
   )
 }
+
+/**
+ * What one tap on the card's meaning switch does (#93): write the next meaning
+ * and offer Undo, because it changes what every number on the exercise stands
+ * for (and what weight memory learns). `write` writes through the card's LATEST
+ * closure, so an Undo seconds later lands on today's plan. Null where the
+ * implement has one meaning. The web's `modeFlip`.
+ */
+export function modeFlip(liftField: any, item: any, write: (patch: any) => void,
+  toast: { push: typeof pushToast; dismiss: typeof dismissToast } = { push: pushToast, dismiss: dismissToast }) {
+  if (item?.kind !== 'lift' || weightModesFor(liftField, item.implement).length < 2) return null
+  const before = (weightPatch as any)(liftField, item.implement, weightModeOf(liftField, item))
+  const next = (weightPatch as any)(liftField, item.implement, nextWeightMode(liftField, item))
+  const nextWords = (weightMeaning as any)(liftField, { implement: item.implement, weightMode: next.weightMode })?.words
+  return {
+    words: (weightMeaning as any)(liftField, item)?.words as string,
+    next: next.weightLabel as string,
+    onSwitch: () => {
+      tap()
+      write(next)
+      toast.push(`${item.name}: weight now ${nextWords}`, 'info', {
+        duration: UNDO_MS,
+        action: { label: 'Undo', icon: null, onClick: () => write(before) },
+      })
+    },
+  }
+}
+
+/**
+ * The card's one switch for what its weight means (#93; #58's switch, moved out
+ * of every set's cell): "on the bar ⇆", once per exercise, beside what it is done
+ * with. A hold's "seconds ⇆" sits here too. With one meaning the words are said,
+ * not offered.
+ */
+function ModeSwitch({ words, aria, onSwitch }: { words: string; aria?: string; onSwitch?: () => void }) {
+  if (!onSwitch) return <T size={font.label} dim style={{ paddingHorizontal: space[1] }}>{words}</T>
+  return (
+    <Press onPress={onSwitch} style={st.modeSwitch} accessibilityRole="button" accessibilityLabel={aria}>
+      <T size={font.label} dim numberOfLines={1}>{words}</T>
+      <Icon name="ArrowLeftRight" size={13} color={colors.inkDim} />
+    </Press>
+  )
+}
+
+/**
+ * The set row's widths (#93, F N1), named so `app/smoke/system.jsx` can add
+ * them up for a 390pt phone: the ✓, the gap after it (16 clear of the reps' −,
+ * so a left-thumb miss on − never ticks), each stepper's middle, and the seam
+ * between the two steppers. 44 + 16 + 2 × (1 + 44 + 44 + 44 + 1) + 2 = 330,
+ * inside the card's 332, so reps, weight and the ✓ are ONE row;
+ * they wrapped onto two (each set about 100pt tall) when the meaning switch
+ * widened the weight's middle.
+ */
+export const SET_ROW = { tick: TAP, tickGap: space[4], mid: TAP, seam: 2 }
 
 /* ------------------------------------------------------- what the movement is */
 
@@ -349,12 +409,14 @@ export function ExerciseSheet({ field, exercise, name = null, onClose, onAdd = n
  * Tapping a group chip SEARCHES for the group, so browsing and searching are the
  * same mechanism, and someone who does not want to type still has a way in.
  */
-export function ExercisePicker({ field, onPick, onClose }: any) {
+export function ExercisePicker({ field, onPick, onClose, group = null }: any) {
   const [q, setQ] = useState('')
-  // A tapped group chip is that group exactly; typing makes it a search again.
-  const [chip, setChip] = useState<string | null>(null)
-  const hits = useMemo(() => (searchExercises as any)(field, chip ? '' : q, { limit: 24, group: chip }), [field, q, chip])
   const { exercises, groups } = catalogOf(field) as any
+  /* A tapped group chip is that group exactly; typing makes it a search again.
+     It opens on the block's group (#93, `pickerGroupFor`), and the chips stay
+     up with that one on; tapping it again is the whole catalog. */
+  const [chip, setChip] = useState<string | null>(group && groups.includes(group) ? group : null)
+  const hits = useMemo(() => (searchExercises as any)(field, chip ? '' : q, { limit: 24, group: chip }), [field, q, chip])
   /*
    * "What is this?" before adding it (issue #63): the sheet, with Add in its
    * foot. Add slides the sheet away FIRST and adds once it is gone (onDismiss):
@@ -376,7 +438,7 @@ export function ExercisePicker({ field, onPick, onClose }: any) {
     <View style={{ flex: 1 }}>
       <View style={st.pickHead}>
         <Input
-          autoFocus value={q} onChangeText={(t: string) => { setQ(t); setChip(null) }}
+          value={q} onChangeText={(t: string) => { setQ(t); setChip(null) }}
           accessibilityLabel="Search for an exercise"
           placeholder={`search ${exercises.length} exercises…`}
           autoCorrect={false} autoCapitalize="none" returnKeyType="search" clearButtonMode="while-editing"
@@ -388,8 +450,9 @@ export function ExercisePicker({ field, onPick, onClose }: any) {
       {!q.trim() && groups.length > 0 && (
         <View style={st.pickGroups}>
           {groups.map((g: string) => (
-            <Press key={g} haptic onPress={() => { setQ(g); setChip(g) }} style={[st.implchip, { minHeight: 36 }]}>
-              <T size={font.label} faint>{g}</T>
+            <Press key={g} haptic onPress={() => setChip(chip === g ? null : g)} style={[st.implchip, chip === g && st.implchipOn]}
+              accessibilityRole="button" accessibilityState={{ selected: chip === g }}>
+              <T size={font.label} color={chip === g ? colors.ink : colors.inkDim}>{g}</T>
             </Press>
           ))}
         </View>
@@ -594,7 +657,7 @@ export function SetTick({ n, on, onToggle, locked = false, empty = false, onProm
 export function ExerciseCard({
   item, liftField, entries = [], entryId = null, defaultOpen = false, defaultEditing = false, blank = null,
   onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove, doing = false, onTick = null, focus = false,
-  asWritten = false,
+  asWritten = false, onFill = null,
 }: any) {
   const [open, setOpen] = useState(defaultOpen)
   const [about, setAbout] = useState(false)
@@ -602,6 +665,26 @@ export function ExerciseCard({
   const [editing, setEditing] = useState(defaultEditing)
   // The next exercise to do opens as the last one is ticked off.
   useEffect(() => { if (focus) setOpen(true) }, [focus])
+  /*
+   * EDIT BELONGS TO THE EXERCISE, NOT THE PLACE (#93, A F1). Plan item ids are
+   * positional, so after Remove the next exercise took this card's place and its
+   * state, Edit included, with its Remove under the thumb. The section keys cards
+   * by `uid` (`cardKey`); an item without one yet is caught here.
+   */
+  const ident = cardIdentity(item)
+  const seen = useRef(ident)
+  useEffect(() => {
+    if (seen.current === ident) return
+    seen.current = ident
+    setEditing(false); setOpen(defaultOpen)
+  }, [ident])
+  // The card's writes as of the latest render, for an Undo that lands seconds later.
+  const patchNow = useRef(onPatch)
+  patchNow.current = onPatch
+  const fillNow = useRef(onFill)
+  fillNow.current = onFill
+  const itemNow = useRef(item)
+  itemNow.current = item
   // The set whose blank ✓ was tapped: its first box remounts focused (`asked` in its key).
   const [asked, setAsked] = useState<{ id: string; n: number } | null>(null)
   const chooses = choosesImplement(liftField, item)
@@ -614,8 +697,9 @@ export function ExerciseCard({
   const prior = useMemo(
     () => (item.exercise ? (lastLift as any)(entries, item.exercise, entryId, liftField, measure) : null),
     [entries, item.exercise, entryId, liftField, measure])
-  const swap = weightSwitch(liftField, item, onPatch)
+  const flip = modeFlip(liftField, item, (p: any) => patchNow.current(p))
   const count = countSwitch(liftField, item, onPatch)
+  const meaning: any = item.kind === 'lift' ? (weightMeaning as any)(liftField, item) : null
   // A mode other than the default, said under the name, so the summary beside it
   // stays short enough not to squeeze the name on a phone.
   const modeWords = item.kind === 'lift' ? weightModeWords(liftField, item) : null
@@ -623,8 +707,10 @@ export function ExerciseCard({
   const ticks = ticking ? item.sets.filter((s: any) => (setTicked as any)(s, asWritten)).length : 0
   const finished = ticking && (itemTicked as any)(item, asWritten)
   const line = ticking && ticks && !finished
-    ? [item.line, `${ticks} of ${item.sets.length} done`].filter(Boolean).join(' · ')
+    ? [`${ticks} of ${item.sets.length} done`, item.line].filter(Boolean).join(' · ')
     : item.line
+  const fill: any[] = onFill && prior && !asWritten ? (lastTimeFill as any)(liftField, item, prior) : []
+  const copyDown = onFill && !asWritten ? (s: any) => { impact(); copyDownWrite(item, s.id, (f) => fillNow.current?.(f), undefined, () => itemNow.current) } : null
 
   // A set whose every box now has a number is a set done: the success buzz.
   const patchSet = (s: any, patch: any) => {
@@ -634,16 +720,20 @@ export function ExerciseCard({
     onPatchSet(s.id, patch)
   }
 
-  const lastTime = prior ? (
-    <View style={[st.prior, doing && { marginTop: 0, flex: 1, minWidth: 140 }]}>
-      <Icon name="RotateCw" size={12} color={colors.inkFaint} style={{ marginTop: 2 }} />
-      <T size={font.label} faint tabular style={{ flex: 1 }}>
-        {`last time (${prior.date}): `}
-        <T size={font.label} weight={600} dim>{prior.summary}</T>
-        {prior.implement ? ` · ${prior.implement}` : ''}
-      </T>
-    </View>
-  ) : null
+  const lastTime = prior ? <LastTime prior={prior} onUse={fill.length ? () => { impact(); onFill(fill) } : null} /> : null
+  /* What the weight means and how a hold is counted: once, on the card, beside
+     what it is done with. Never in a set's cell (#93). */
+  const switches = (
+    <>
+      {flip ? (
+        <ModeSwitch words={flip.words} onSwitch={flip.onSwitch}
+          aria={`Weight is ${item.weightLabel || 'lb'}. Switch to ${flip.next}`} />
+      ) : null}
+      {!flip && meaning ? <ModeSwitch words={meaning.words} /> : null}
+      {count ? <ModeSwitch words={count.box === 'sec' ? 'seconds' : 'reps'} aria={count.aria} onSwitch={count.onSwitch} /> : null}
+    </>
+  )
+  const hasSwitches = Boolean(flip || meaning || count)
 
   const card = (
     <View style={st.item}>
@@ -663,7 +753,7 @@ export function ExerciseCard({
             {muscles && !doing ? <T size={font.caption} weight={500} dim style={{ marginTop: 2 }}>{muscleWords(muscles)}</T> : null}
             {modeWords && !doing ? <T size={font.label} dim style={{ marginTop: 2 }}>{modeWords}</T> : null}
             {/* The summary sits under the name, on one line, so the name has the
-                width (#63 follow-up: a long name beside it and the ⓘ wrapped four lines). */}
+                width. How far it is leads (#93). */}
             {line ? <T size={font.label} faint tabular numberOfLines={1} style={{ marginTop: 2 }}>{line}</T> : null}
           </View>
           {finished ? (
@@ -684,7 +774,8 @@ export function ExerciseCard({
           {item.note ? <T size={font.label} faint style={{ marginTop: space[1], marginBottom: space[2] }}>{item.note}</T> : null}
 
           {doing ? (
-            /* One line under the head: what it is done with (the switch) and last time. */
+            /* One line under the head: what it is done with (the switch), what
+               its weight means, and last time. */
             <View style={st.doingMeta}>
               {chooses ? (
                 <Press onPress={() => pickImplement(liftField, item, entries, entryId, onPatch)} style={st.implSwitch}
@@ -694,9 +785,10 @@ export function ExerciseCard({
                   <Icon name="ChevronDown" size={13} color={colors.inkDim} />
                 </Press>
               ) : null}
+              {switches}
               {lastTime}
             </View>
-          ) : lastTime}
+          ) : null}
 
           {/*
             * What it is loaded with, on ONE line that scrolls. The chosen one
@@ -706,16 +798,17 @@ export function ExerciseCard({
           {chooses && !doing ? (
             <ImplementChips liftField={liftField} item={item} entries={entries} entryId={entryId} onPatch={onPatch} />
           ) : null}
+          {/* Planning: what the weight means and last time, right above the sets they fill. */}
+          {!doing && (hasSwitches || lastTime) ? <View style={st.doingMeta}>{switches}{lastTime}</View> : null}
 
           {/*
-            * THE SET ROW HAS NOTHING BUT NUMBERS (#77). Its ✕ wrapped onto a line
-            * of its own under the reps stepper on a 390pt phone, so stepping reps
-            * down deleted the set. A set is now its number and its steppers, and
-            * the steppers share the row's width (the number box is the big
-            * target), wrapping as a pair under the first when they cannot fit.
-            * A set comes off by a swipe on its row (iOS's own gesture) or in
-            * Edit, and either way with Undo. In doing mode the number is the
-            * set's ✓, at the row's end (#79).
+            * THE SET ROW HAS NOTHING BUT NUMBERS (#77). A set is its number and
+            * its steppers, and the steppers share the row's width (the number box
+            * is the big target). A set comes off by a swipe on its row (iOS's own
+            * gesture) or in Edit, and either way with Undo. In doing mode the
+            * set's number is its ✓, in the same place at the row's START (#93):
+            * at the end it sat beside the weight's +, the button pressed most,
+            * and a miss logged a set.
             */}
           {editing ? (
             <View style={st.sets}>
@@ -726,25 +819,33 @@ export function ExerciseCard({
                   <RemoveBtn label="Remove" a11y={`Remove set ${i + 1}`} onPress={() => onRemoveSet(s.id)} />
                 </View>
               ))}
-              <View style={st.editRow}>
-                <T size={font.body} dim numberOfLines={1} style={{ flex: 1, paddingLeft: space[6] + space[2] }}>The whole exercise</T>
-                <RemoveBtn label="Remove" a11y={`Remove ${item.name}`} onPress={onRemove} />
+              {/* The whole exercise is a different size of removal, so it looks
+                  like one (#93, A F11): under a rule, full width, named. */}
+              <View style={st.editAll}>
+                <RemoveBtn all label={`Remove ${item.name}`} a11y={`Remove ${item.name}`} onPress={onRemove} />
               </View>
             </View>
           ) : (
             <View style={st.sets}>
               {item.sets.map((s: any, i: number) => (
-                <SwipeRemove key={s.id} label="Remove" onRemove={() => onRemoveSet(s.id)}>
-                  <View style={[st.set, ticking && { gap: space[2] }]}>
-                    {!ticking ? <T size={font.label} dim tabular align="center" style={{ width: 20 }}>{String(i + 1)}</T> : null}
-                    <View style={st.setFields}>
-                      {setFieldsFor(item, s).map((f: string, fi: number) => (
-                        <Stepper key={asked && asked.id === s.id && fi === 0 ? `${f}-${asked.n}` : f} grow {...boxFor(f, item, s)} value={s[f]} blank={blank}
-                          focus={asked?.id === s.id && fi === 0}
-                          placeholder={s.hint?.[f] != null && s.hint[f] !== '' ? String(s.hint[f]) : '—'}
-                          swap={f === 'weight' ? swap : (f === 'reps' || f === 'seconds') ? count : null}
-                          onChange={(v) => patchSet(s, { [f]: v })} />
-                      ))}
+                <React.Fragment key={s.id}>
+                <SwipeRemove label="Remove" onRemove={() => onRemoveSet(s.id)}>
+                  <View style={[st.set, ticking && { gap: SET_ROW.tickGap }]}>
+                    {ticking ? (
+                      <SetTick n={i + 1} on={(setTicked as any)(s, asWritten)} locked={asWritten} onToggle={(v) => onTick(s.id, v)}
+                        empty={!(setHasNumber as any)(s)} onPrompt={() => setAsked({ id: s.id, n: (asked?.n || 0) + 1 })} />
+                    ) : <T size={font.label} dim tabular align="center" style={{ width: 20 }}>{String(i + 1)}</T>}
+                    <View style={[st.setFields, ticking && { gap: SET_ROW.seam }]}>
+                      {setFieldsFor(item, s).map((f: string, fi: number) => {
+                        const box = boxFor(f, item, s)
+                        return (
+                          <Stepper key={asked && asked.id === s.id && fi === 0 ? `${f}-${asked.n}` : f} grow {...box}
+                            unit={f === 'weight' ? (weightUnit as any)(box.label) : null} value={s[f]} blank={blank}
+                            focus={asked?.id === s.id && fi === 0}
+                            placeholder={s.hint?.[f] != null && s.hint[f] !== '' ? String(s.hint[f]) : '—'}
+                            onChange={(v) => patchSet(s, { [f]: v })} />
+                        )
+                      })}
                       {/* Lifting has no programmed rest — see `normalizeSet`. An
                           interval piece keeps it: the rest at the wall IS the set. */}
                       {item.kind === 'interval' && (
@@ -752,12 +853,16 @@ export function ExerciseCard({
                           onChange={(v) => onPatchSet(s.id, { restSec: v })} />
                       )}
                     </View>
-                    {ticking ? (
-                      <SetTick n={i + 1} on={(setTicked as any)(s, asWritten)} locked={asWritten} onToggle={(v) => onTick(s.id, v)}
-                        empty={!(setHasNumber as any)(s)} onPrompt={() => setAsked({ id: s.id, n: (asked?.n || 0) + 1 })} />
-                    ) : null}
                   </View>
                 </SwipeRemove>
+                {/* Copy down (#93): its own line under the set it copies, at the
+                    row's right edge, 16pt clear of the steppers above and below.
+                    Numbers only, with Undo. */}
+                {copyDown && (canCopyDown as any)(item.sets, i) ? (
+                  <Btn kind="quiet" icon="ArrowDownToLine" title="Copy down" style={st.copyDown}
+                    onPress={() => copyDown(s)} />
+                ) : null}
+                </React.Fragment>
               ))}
             </View>
           )}
@@ -786,11 +891,69 @@ export function ExerciseCard({
   return open ? card : <SwipeRemove label="Remove" onRemove={onRemove}>{card}</SwipeRemove>
 }
 
-/** Edit's "Remove": in the bad colour, because in Edit it is the point. 44pt, with Undo after. */
-function RemoveBtn({ onPress, label = 'Remove', a11y }: { onPress: () => void; label?: string; a11y?: string }) {
+/**
+ * Copy down, written (#93; the web's `copyDownWrite`): set `setId`'s numbers into
+ * every empty set below it as ONE write through `fill`, then "Copied to 2 sets"
+ * with Undo, which puts those sets back exactly (`unfills`). Numbers only.
+ */
+export function copyDownWrite(item: any, setId: string, fill: (fills: any[]) => void,
+  toast: { push: typeof pushToast } = { push: pushToast }, latest: () => any = () => null) {
+  const fills: any[] = (copyDownFills as any)(item.sets, setId)
+  if (!fills.length) return null
+  fill(fills)
+  return toast.push(`Copied to ${fills.length} set${fills.length === 1 ? '' : 's'}`, 'info', {
+    duration: UNDO_MS,
+    action: {
+      label: 'Undo', icon: null,
+      onClick: () => {
+        // Only the sets still as the copy left them: anything typed or ticked since stays.
+        const now = latest()?.sets
+        const back: any[] = (unfills as any)(item.sets, fills, now || undefined)
+        if (back.length) fill(back)
+      },
+    },
+  })
+}
+
+/**
+ * Last time, in words (#93): "Last time · Fri, Nov 7: 3 × 10 @ 90 lb · EZ bar".
+ * With blanks it can fill (`lastTimeFill`) it is a button that fills them in one
+ * tap ("Use"), the numbers only, never ticked. With nothing to fill it is a line.
+ */
+function LastTime({ prior, onUse = null }: { prior: any; onUse?: (() => void) | null }) {
+  const words = (
+    <T size={font.label} faint tabular style={{ flex: 1 }}>
+      {`Last time · ${(lastTimeWhen as any)(prior)}: `}
+      <T size={font.label} weight={600} dim>{prior.summary}</T>
+      {prior.implement ? ` · ${prior.implement}` : ''}
+    </T>
+  )
+  if (!onUse) {
+    return (
+      <View style={st.prior}>
+        <Icon name="RotateCw" size={12} color={colors.inkFaint} style={{ marginTop: 2 }} />
+        {words}
+      </View>
+    )
+  }
+  return (
+    <Press onPress={onUse} style={[st.prior, st.priorUse]} accessibilityRole="button"
+      accessibilityLabel={`Use last time: ${prior.summary}`}>
+      <Icon name="RotateCw" size={12} color={colors.inkFaint} />
+      {words}
+      <T size={font.label} weight={600}>Use</T>
+    </Press>
+  )
+}
+
+/** The card's key, re-exported where the cards are (`cardKey`, lib/lifts.js: the web's, the same file). */
+export { cardKey }
+
+/** Edit's "Remove": in the bad colour, because in Edit it is the point. 44pt, with Undo after. `all`: the whole exercise. */
+function RemoveBtn({ onPress, label = 'Remove', a11y, all = false }: { onPress: () => void; label?: string; a11y?: string; all?: boolean }) {
   return (
     <Press onPress={() => { warn(); onPress() }} accessibilityRole="button" accessibilityLabel={a11y || label}
-      style={st.removeBtn}>
+      style={[st.removeBtn, all && st.removeAll]}>
       <Icon name="Trash2" size={16} color={colors.bad} />
       <T size={font.label} weight={600} color={colors.bad}>{label}</T>
     </Press>
@@ -854,12 +1017,13 @@ function ReorderRow({ item, liftField, first, last, moved, onSettled, onUp, onDo
  * ⋯ at the end of the head; Reorder then lives in it. `tag` is what the head
  * says of them; `lead` (a node, or a function handed the same) sits under the
  * head: the block's note. `doing`, `onTick`, `focusId` are the card's.
+ * `onFill(itemId, [{ setId, patch }])` writes "use last time" as ONE write.
  */
 export function ExerciseSection({
   title, count, items, liftField, entries = [], entryId = null,
   firstOpenId = null, blank = null, addLabel = 'Add an exercise here',
   open = true, onToggle = null,
-  onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove,
+  onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove, onFill = null,
   onMove = null, onAdd = null, extra = null, foot = null, note = null,
   menu = null, tag = null, lead = null, doing = false, onTick = null, focusId = null, asWritten = false,
 }: any) {
@@ -928,7 +1092,7 @@ export function ExerciseSection({
             </View>
           ) : (
             items.map((it: any) => (
-              <ExerciseCard key={it.id} item={it} liftField={liftField}
+              <ExerciseCard key={cardKey(it)} item={it} liftField={liftField}
                 entries={entries} entryId={entryId} blank={blank}
                 defaultOpen={it.id === firstOpenId || it.id === added}
                 doing={doing} asWritten={asWritten} onTick={onTick ? (setId: any, v: boolean) => onTick(it.id, setId, v) : null}
@@ -937,7 +1101,8 @@ export function ExerciseSection({
                 onPatchSet={(setId: any, patch: any) => onPatchSet(it.id, setId, patch)}
                 onAddSet={() => onAddSet(it.id)}
                 onRemoveSet={(setId: any) => onRemoveSet(it.id, setId)}
-                onRemove={() => onRemove(it.id)} />
+                onRemove={() => onRemove(it.id)}
+                onFill={onFill ? (fills: any[]) => onFill(it.id, fills) : null} />
             ))
           )}
 
@@ -949,7 +1114,7 @@ export function ExerciseSection({
           )}
           {adding && (
             <Popover label="Add an exercise" onClose={() => setAdding(false)}>
-              <ExercisePicker field={liftField}
+              <ExercisePicker field={liftField} group={pickerGroupFor(liftField, items, title)}
                 onPick={(key: string) => { impact(); setAdded(onAdd(key) || null); setAdding(false) }}
                 onClose={() => setAdding(false)} />
             </Popover>
@@ -973,19 +1138,20 @@ const st = StyleSheet.create({
   stepperQuiet: { backgroundColor: 'transparent', borderColor: colors.line },
   stepperBtn: { width: TAP, height: TAP, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center' },
   stepperGrow: { flexGrow: 1 },
-  stepperMid: { alignItems: 'center', gap: 1, minWidth: 48, paddingVertical: 2 },
-  // The web's .stepper-swap: a raised pill so the label reads as a control, at
-  // most 64 wide (two short lines), so reps and weight still share a row on a
-  // 390pt phone with 44pt ± buttons; when they cannot, the pair wraps.
-  swap: {
-    flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 2, maxWidth: 64,
-    paddingVertical: space[1], paddingHorizontal: space[1], borderRadius: radius.control,
-    backgroundColor: colors.panel3, borderWidth: 1, borderColor: colors.lineStrong,
-  },
+  // The number is the cell (#93): the box fills the middle, the unit is drawn in it.
+  stepperMid: { minWidth: SET_ROW.mid, height: TAP },
   stepperIn: {
-    width: 48, padding: 0, paddingHorizontal: 0, paddingVertical: 0, textAlign: 'center', color: colors.ink,
-    backgroundColor: 'transparent', borderWidth: 0, borderRadius: 0,
-    fontSize: font.input, fontWeight: '600', fontVariant: ['tabular-nums'], minHeight: 22,
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    padding: 0, paddingHorizontal: 0, paddingTop: 0, paddingBottom: space[4], textAlign: 'center', color: colors.ink,
+    backgroundColor: 'transparent', borderWidth: 0, borderRadius: radius.control,
+    fontSize: font.input, fontWeight: '600', fontVariant: ['tabular-nums'], minHeight: TAP, height: TAP,
+  },
+  unit: { position: 'absolute', left: 0, right: 0, bottom: space[1] },
+  // The card's meaning switch (#93), the web's .modeswitch.
+  modeSwitch: {
+    flexDirection: 'row', alignItems: 'center', gap: space[1], minHeight: TAP, paddingHorizontal: space[3],
+    marginVertical: -space[2], borderRadius: radius.pill, borderWidth: 1, borderColor: colors.lineStrong,
+    backgroundColor: colors.panel3,
   },
   pickHead: { flexDirection: 'row', gap: space[2], padding: space[2], borderBottomWidth: 1, borderBottomColor: colors.line, alignItems: 'center' },
   pickGroups: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2], padding: space[2], borderBottomWidth: 1, borderBottomColor: colors.line },
@@ -1013,21 +1179,30 @@ const st = StyleSheet.create({
     backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line,
     borderRadius: radius.control, paddingVertical: space[2], paddingHorizontal: space[3], marginBottom: space[2],
   },
-  itemHead: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2], minHeight: 34 },
+  itemHead: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2], minHeight: TAP },
   itemRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space[1] },
   // The base 44pt icon button, pulled into the card's padding so the head keeps its height.
   about: { marginVertical: -space[1], marginRight: -space[2] },
-  prior: { flexDirection: 'row', gap: space[2], alignItems: 'flex-start', marginTop: space[2], marginBottom: 2 },
+  prior: { flexDirection: 'row', gap: space[2], alignItems: 'flex-start', marginTop: space[2], marginBottom: 2, width: '100%' },
+  // Last time as a button (#93): it fills the blank sets.
+  priorUse: {
+    alignItems: 'center', minHeight: TAP, paddingHorizontal: space[3], paddingVertical: space[2],
+    borderWidth: 1, borderStyle: 'dashed', borderColor: colors.lineStrong, borderRadius: radius.control,
+  },
   impl: { marginVertical: space[2], marginRight: -space[3], flexGrow: 0 },
   sets: { gap: space[2], marginTop: space[2] },
   set: { flexDirection: 'row', alignItems: 'center', gap: space[2], backgroundColor: colors.panel2 },
   setFields: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
   editRow: { flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: TAP },
+  // With `sets`' gap of 8, 16 clear of the stepper rows on both sides (#93 review).
+  copyDown: { alignSelf: 'flex-end', minHeight: TAP, paddingHorizontal: space[3], marginVertical: space[2] },
+  editAll: { borderTopWidth: 1, borderTopColor: colors.line, marginTop: space[2], paddingTop: space[3] },
   removeBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[1] + 2,
     minHeight: TAP, paddingHorizontal: space[3], borderRadius: radius.control,
     borderWidth: 1, borderColor: colors.line,
   },
+  removeAll: { flex: 1, borderColor: mix(colors.bad, 55, colors.line) },
   // Add on the left, Remove on the far right: they do opposite things.
   itemFoot: { flexDirection: 'row', alignItems: 'center', gap: space[4], marginTop: space[2] },
   // Quiet buttons whose text lines up with the card's edge: the padding is the tap target.
@@ -1057,7 +1232,7 @@ const st = StyleSheet.create({
     borderWidth: 1, borderColor: colors.lineStrong,
   },
   tickOn: { backgroundColor: colors.accentSoft, borderColor: colors.accentLine },
-  doingMeta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: space[1], columnGap: space[3], marginTop: space[2] },
+  doingMeta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', rowGap: space[3], columnGap: space[2], marginTop: space[3] },
   implSwitch: {
     flexDirection: 'row', alignItems: 'center', gap: space[1], minHeight: TAP, paddingHorizontal: space[3],
     marginVertical: -space[2], borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line,

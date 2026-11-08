@@ -3,18 +3,41 @@
  * unchanged and in their old relative order. A case is [name, element | null, assert?].
  */
 import { renderToString } from 'react-dom/server'
+import { dayWords } from '../src/lib/dates.js'
 import { PrescriptionEditor, BlockMenu, blockTag, noteDraft, landsOf } from '../src/editor.jsx'
 import { normalizePrescription, setCircuit, noteBlock, tickSet, setTicked, addSet } from '../src/lib/prescription.js'
 import { SessionLog } from '../src/sessionlog.jsx'
 import { readFileSync } from 'node:fs'
 import * as EXERCISES from '../src/exercises.jsx'
-import { ExercisePicker, ExerciseSheet, ExerciseCard, SetTick, STEP, undoControl, UNDO_MS } from '../src/exercises.jsx'
+import { ExercisePicker, ExerciseSheet, ExerciseCard, ExerciseSection, SetTick, STEP, undoControl, UNDO_MS, Stepper, modeFlip, cardKey, copyDownWrite } from '../src/exercises.jsx'
 import { removalWords, syncLine } from '../src/lib/removal.js'
 import { searchExercises } from '../src/lib/lifts.js'
 import {
   plan, entries, noop, TODAY, back, text, LIFT_FIELD, SQUAT, PRESCRIPTION, TRIP,
   PRIOR_LIFTS, HELD_CARD, HELD_FIELD, HELD_ENTRY,
 } from './fixtures.jsx'
+
+import { removeItem, appendLift } from '../src/lib/prescription.js'
+import { lastTimeFill } from '../src/lib/lifts.js'
+
+/* Walk a component's returned element tree (no render): what it hands its children. */
+const kids = (e) => [e?.props?.children].flat(Infinity).filter(Boolean)
+function findAll(e, ok, out = []) {
+  if (!e || typeof e !== 'object') return out
+  if (Array.isArray(e)) { e.forEach(x => findAll(x, ok, out)); return out }
+  if (ok(e)) out.push(e)
+  for (const k of kids(e)) findAll(k, ok, out)
+  return out
+}
+const findEl = (e, ok) => findAll(e, ok)[0] || null
+/* A component's returned tree, its hooks run inside a real render. */
+function treeOf(C, props) {
+  let tree = null
+  const Probe = () => { tree = C(props); return null }
+  renderToString(<Probe />)
+  return tree
+}
+const lastTimeFillOf = (prior) => lastTimeFill(LIFT_FIELD, { kind: 'lift', implement: 'barbell', sets: [{ id: 's0', reps: null, weight: null }] }, prior)
 
 export default [
   /*
@@ -204,7 +227,8 @@ export default [
       if (!/muscle|<svg/.test(html)) throw new Error('the body did not render as SVG')
 
       // 2. What the user did last time, on the screen where the weight is CHOSEN.
-      if (!/last time \(2026-09-10\)/.test(t)) throw new Error('no previous session on the planning screen')
+      // In the sheet's words (#93: "Fri, Nov 7", never "2026-11-07").
+      if (!t.includes(`Last time · ${dayWords('2026-09-10')}`) || /2026-09-10/.test(t)) throw new Error('no previous session on the planning screen, in words')
       if (!/175/.test(t)) throw new Error('the previous weight is not shown')
 
       // 3. A category per block, not per session: where the session splits into
@@ -452,6 +476,8 @@ export default [
     if (setTicked({ typed: true, reps: null, weight: null })) throw new Error('a typed-but-empty set reads as done')
     const html = renderToString(<SetTick n={1} on={false} empty onToggle={noop} onPrompt={noop} />)
     if (!/aria-disabled="true"/.test(html) || !/type what you did first/.test(html)) throw new Error('a blank set’s ✓ does not say what it needs')
+    // Never the empty-state's class (#93): its padding made the ✓ 50×66 and wrapped the row.
+    if (/class="[^"]*\bempty\b/.test(html)) throw new Error('a blank set’s ✓ wears .empty, the empty-state component')
     let prompted = false; let toggled = false
     SetTick({ n: 1, on: false, empty: true, onToggle: () => { toggled = true }, onPrompt: () => { prompted = true } }).props.onClick()
     if (toggled || !prompted) throw new Error('a blank set’s ✓ ticks instead of asking for the number')
@@ -469,5 +495,189 @@ export default [
     if (!/^A separate .* workout$/.test(t[1]) || !/^A separate .* workout$/.test(t[3])) throw new Error(`the workouts that open an entry do not say so: ${t}`)
     if (t[0] !== 'Part of the workout beside it' || t[2] !== 'Part of the workout beside it') throw new Error(`a block that joins its neighbour claims its own entry: ${t}`)
     if (landsOf(trip).size !== 4) throw new Error('not every block of a split workout says where it lands')
+  }],
+
+  /* ================================================= the set row (#93) ===
+   *
+   * B F1 / A F2, the blocker: a tap at the centre of the weight cell hit the
+   * weight-meaning switch and turned 90 lb on the bar into 90 lb per side, with
+   * no Undo. The number is the cell now, the ✓ is at the row's start, and what a
+   * number means is switched once, on the card, with Undo. Each pinned at its
+   * old address (absent) and its new one (present).
+   */
+  ['Stepper(the number is the cell: the box is the whole middle, its unit drawn in it, no button in it)', null, () => {
+    const html = renderToString(<Stepper label="lb on the bar" unit="lb" value={90} onChange={noop} />)
+    const mid = (html.match(/<label class="stepper-mid">([\s\S]*?)<\/label>/) || [])[1]
+    if (!mid) throw new Error('the middle is not a label for its box: a tap beside the number focuses nothing')
+    if (/<button/.test(mid)) throw new Error('a button sits in the number\'s cell')
+    if (!/<input[^>]*aria-label="lb on the bar"/.test(mid)) throw new Error('the box lost its full name')
+    if (!/<span class="stepper-label" aria-hidden="true">lb<\/span>/.test(mid)) throw new Error('the cell does not say just its unit')
+    const css = readFileSync(new URL('../src/css/editor.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+    const rule = (sel) => (css.match(new RegExp(`\\n${sel.replace(/[.*]/g, (c) => '\\' + c)} \\{([^}]*)\\}`)) || [])[1] || ''
+    if (!/height: var\(--tap\)/.test(rule('.stepper-mid'))) throw new Error('the number cell is not 44 tall')
+    if (!/position: absolute; inset: 0; width: 100%; height: 100%/.test(rule('.stepper-mid input'))) throw new Error('the box does not fill its cell')
+    if (!/font-size: var\(--fs-input\)/.test(rule('.stepper-mid input'))) throw new Error('the number is under 16px')
+    if (!/pointer-events: none/.test(rule('.stepper-label')) || !/white-space: nowrap/.test(rule('.stepper-label'))) throw new Error('the unit takes taps or wraps')
+  }],
+  ['ExerciseCard(doing: ✓ at the row’s start, the cells numbers only, the meaning switched once on the card)', null, () => {
+    const item = { id: 'b0i0', uid: 'u-row', kind: 'lift', name: 'Bent-over row', exercise: 'bent-over-row', implement: 'ez-bar',
+      weightLabel: 'lb on the bar', line: '3 × 10', sets: [0, 1, 2].map(i => ({ id: `s${i}`, reps: 10, weight: 90 })) }
+    const html = renderToString(<ExerciseCard item={item} liftField={LIFT_FIELD} defaultOpen doing onTick={noop}
+      onPatch={noop} onPatchSet={noop} onAddSet={noop} onRemoveSet={noop} onRemove={noop} />)
+    const rows = html.match(/<div class="presc-set">[\s\S]*?(?=<div class="presc-set|<\/div><div class="presc-itemfoot")/g) || []
+    if (rows.length !== 3) throw new Error(`${rows.length} set rows`)
+    for (const r of rows) {
+      if (!/^<div class="presc-set"><button[^>]*class="presc-tick/.test(r)) throw new Error('the ✓ is not the first thing in the row')
+      if (/stepper-swap|Switch to|modeswitch/.test(r)) throw new Error('a meaning switch is back in a set row')
+    }
+    if ((html.match(/class="modeswitch"/g) || []).length !== 1) throw new Error('not one meaning switch on the card')
+    if (!/<button[^>]*class="modeswitch"[^>]*aria-label="Weight is lb on the bar\. Switch to lb per side"[^>]*>on the bar/.test(html)) throw new Error('the switch does not say what it is and what a tap does')
+    const meta = (html.match(/<div class="presc-doingmeta">([\s\S]*?)<div class="presc-sets/) || [])[1] || ''
+    if (!/implswitch/.test(meta) || !/modeswitch/.test(meta)) throw new Error('the meaning is not beside what it is done with')
+    const css = readFileSync(new URL('../src/css/editor.css', import.meta.url), 'utf8')
+    if (!/\.presc-sets\.doing \.presc-set \{ gap: var\(--sp-4\); \}/.test(css)) throw new Error('the ✓ is not 16px clear of the reps’ −')
+  }],
+  ['modeFlip(one tap writes the next meaning and offers Undo, which writes the old one back)', null, () => {
+    const item = { kind: 'lift', name: 'Bent-over row', implement: 'ez-bar', weightLabel: 'lb on the bar' }
+    const writes = []; const pushed = []
+    const toast = { push: (words, kind, opts) => { pushed.push({ words, opts }); return 1 }, dismiss: noop }
+    const f = modeFlip(LIFT_FIELD, item, (p) => writes.push(p), toast)
+    if (f.words !== 'on the bar') throw new Error(`the switch reads "${f.words}"`)
+    f.onSwitch()
+    if (writes[0]?.weightMode !== 'side' || writes[0].weightLabel !== 'lb per side') throw new Error(`wrote ${JSON.stringify(writes[0])}`)
+    if (pushed[0]?.words !== 'Bent-over row: weight now per side' || pushed[0].opts.action?.label !== 'Undo') throw new Error('no toast with Undo')
+    pushed[0].opts.action.onClick()
+    if (writes[1]?.weightMode !== null || writes[1].weightLabel !== 'lb on the bar') throw new Error(`Undo wrote ${JSON.stringify(writes[1])}`)
+    if (modeFlip(LIFT_FIELD, { kind: 'lift', implement: 'machine' }, noop, toast) !== null) throw new Error('a machine offers a meaning')
+  }],
+  ['ExerciseCard(last time: in words, a button that fills the blank sets, a line when there is nothing to fill)', null, () => {
+    const card = (sets, props = {}) => renderToString(<ExerciseCard liftField={LIFT_FIELD} entries={PRIOR_LIFTS} defaultOpen
+      item={{ id: 'i', kind: 'lift', name: SQUAT.name, exercise: SQUAT.key, implement: 'barbell', weightLabel: 'lb on the bar', line: '', sets }}
+      onPatch={noop} onPatchSet={noop} onAddSet={noop} onRemoveSet={noop} onRemove={noop} {...props} />)
+    const blank = card([{ id: 's0', reps: null, weight: null }], { onFill: noop })
+    const t = text(blank).replace(/<[^>]+>/g, '')
+    if (!t.includes(`Last time · ${dayWords('2026-09-10')}: 2 × 5 @ 175 lb`) || /2026-09-10/.test(t)) throw new Error(`last time is not in words: ${t.slice(0, 200)}`)
+    if (!/<button[^>]*class="presc-prior presc-use"[^>]*aria-label="Use last time: 2 × 5 @ 175 lb"/.test(blank)) throw new Error('last time does not fill a blank set')
+    if (/<button[^>]*presc-use/.test(card([{ id: 's0', reps: 5, weight: 185 }], { onFill: noop }))) throw new Error('a Use button with nothing to fill')
+    if (/<button[^>]*presc-use/.test(card([{ id: 's0', reps: null, weight: null }]))) throw new Error('a Use button where nothing can write it')
+    // What it hands the parent: the blanks, as one write.
+    const fills = lastTimeFillOf({ date: '2026-09-10', summary: '2 × 5 @ 175 lb', row: PRIOR_LIFTS[0].data.out.lifts[0] })
+    if (JSON.stringify(fills) !== JSON.stringify([{ setId: 's0', patch: { reps: 5, weight: 175 } }])) throw new Error(JSON.stringify(fills))
+  }],
+  ['PrescriptionEditor("use last time" is one write of numbers as targets: never a ticked set)', null, () => {
+    // Hand-built: one blank set, then a second (normalizePrescription keeps no blank plan).
+    const one = appendLift({ v: 1, title: 'P', blocks: [] }, LIFT_FIELD, SQUAT.key)
+    const pres = addSet(one, one.blocks[0].items[0].id)
+    const [s0, s1] = pres.blocks[0].items[0].sets.map(x => x.id)
+    let out = null
+    const tree = treeOf(PrescriptionEditor, { pres, liftField: LIFT_FIELD, entries: PRIOR_LIFTS, onChange: (p) => { out = p } })
+    const section = findEl(tree, (e) => e?.type === ExerciseSection)
+    if (!section?.props.onFill) throw new Error('the editor hands its cards no way to fill')
+    section.props.onFill(pres.blocks[0].items[0].id, [{ setId: s0, patch: { reps: 5, weight: 175 } }, { setId: s1, patch: { reps: 5, weight: 175 } }])
+    const sets = out?.blocks[0].items[0].sets || []
+    if (sets.map(x => `${x.reps}@${x.weight}`).join(',') !== '5@175,5@175') throw new Error(`filled ${JSON.stringify(sets)}`)
+    if (sets.some(x => x.typed)) throw new Error('a fill ticked a set: a ✓ means done, a fill is a target')
+  }],
+  ['ExerciseCard(Edit: the whole exercise is its own named Remove, under a rule, apart from the sets’)', null, () => {
+    const item = { ...PRESCRIPTION.blocks[1].items[0], line: '3 × 8' }
+    const html = renderToString(<ExerciseCard item={item} liftField={LIFT_FIELD} defaultOpen defaultEditing
+      onPatch={noop} onPatchSet={noop} onAddSet={noop} onRemoveSet={noop} onRemove={noop} />)
+    const all = (html.match(/<div class="presc-editrow presc-editall">([\s\S]*?)<\/div>/) || [])[1] || ''
+    if (!/class="btn quiet presc-rmall"/.test(all) || !text(all).includes(`Remove ${item.name}`)) throw new Error('the whole-exercise Remove does not name what it takes')
+    if ((html.match(/presc-rmall/g) || []).length !== 1 || (html.match(/class="btn quiet presc-rm"/g) || []).length !== item.sets.length) throw new Error('set removes and the exercise remove look alike')
+    const css = readFileSync(new URL('../src/css/editor.css', import.meta.url), 'utf8')
+    if (!/\.presc-editall \{ border-top: 1px solid var\(--line\)/.test(css)) throw new Error('no rule above the whole-exercise Remove')
+  }],
+  /* A F1: Edit followed the PLACE. Positional ids meant the next exercise took
+     the removed card's component, Edit open, its Remove under the thumb. */
+  ['cardKey(a card is its exercise: removing one leaves every other card’s key, and so its state, where it was)', null, () => {
+    const pres = normalizePrescription({ title: 'P', blocks: [{ name: 'M', items: ['bent-over-row', 'preacher-curl', SQUAT.key].map(k => ({ kind: 'lift', exercise: k, sets: [{ reps: 5 }] })) }] }, { liftField: LIFT_FIELD })
+    const withUids = { ...pres, blocks: pres.blocks.map(b => ({ ...b, items: b.items.map((it, i) => ({ ...it, uid: `u${i}` })) })) }
+    const keys = (p) => p.blocks[0].items.map(cardKey)
+    const before = keys(withUids)
+    const after = keys(removeItem(withUids, 'b0i0'))
+    // Positional ids renumber: Preacher curl takes b0i0, the id the removed row had.
+    const moved = removeItem(withUids, 'b0i0').blocks[0].items[0]
+    if (moved.id !== 'b0i0' || moved.uid !== 'u1') throw new Error('the fixture no longer renumbers, so this proves nothing')
+    if (after.join() !== before.slice(1).join()) throw new Error(`keys moved: ${before} → ${after}`)
+    const tree = treeOf(ExerciseSection, { title: 'M', items: withUids.blocks[0].items, liftField: LIFT_FIELD, onPatch: noop, onPatchSet: noop, onAddSet: noop, onRemoveSet: noop, onRemove: noop })
+    const cards = findAll(tree, (e) => e?.type === ExerciseCard)
+    if (cards.map(c => c.key).join() !== before.join()) throw new Error(`the section keys cards by ${cards.map(c => c.key)}`)
+  }],
+  ['ExercisePicker(opens on the block’s group, chips still up; no keyboard of its own on a phone)', null, () => {
+    const squat = LIFT_FIELD.exercises.find(e => e.key === SQUAT.key)
+    const html = renderToString(<ExercisePicker field={LIFT_FIELD} group={squat.group} onPick={noop} onClose={noop} />)
+    if (!new RegExp(`class="implchip on" aria-pressed="true">${squat.group.replace(/&/g, '&amp;')}<`).test(html)) throw new Error('the block’s group is not the one open')
+    const rows = [...html.matchAll(/<button class="expick-row"[\s\S]*?<span class="sub">([^<]*)<\/span>/g)].map(m => m[1])
+    if (!rows.length || rows.some(g => g !== squat.group.replace(/&/g, '&amp;'))) throw new Error(`the list is not the group: ${rows.slice(0, 4)}`)
+    if (/autofocus|autoFocus/i.test(html)) throw new Error('the search box takes the keyboard on a phone')
+    const src = readFileSync(new URL('../src/exercises.jsx', import.meta.url), 'utf8')
+    if (!/group=\{pickerGroupFor\(liftField, items, title\)\}/.test(src)) throw new Error('the section does not open the picker on its group')
+  }],
+  /* COPY DOWN (#93, the owner's ask): one set's numbers into the empty sets
+     under it, numbers only, with Undo. Under the set, never beside a ✓ or a +. */
+  ['ExerciseCard(Copy down: under a set with numbers whose next set is empty; nowhere else)', null, () => {
+    const item = (sets) => ({ id: 'b0i0', uid: 'u', kind: 'lift', name: 'Bent-over row', exercise: 'bent-over-row', implement: 'ez-bar',
+      weightLabel: 'lb on the bar', line: '', sets: sets.map((x, i) => ({ id: `s${i}`, reps: null, weight: null, ...x })) })
+    const card = (sets, props = {}) => renderToString(<ExerciseCard item={item(sets)} liftField={LIFT_FIELD} defaultOpen onFill={noop}
+      onPatch={noop} onPatchSet={noop} onAddSet={noop} onRemoveSet={noop} onRemove={noop} {...props} />)
+    const n = (h) => (h.match(/class="btn quiet presc-copydown"/g) || []).length
+    for (const doing of [false, true]) {
+      const props = doing ? { doing: true, onTick: noop } : {}
+      const html = card([{ reps: 10, weight: 90 }, {}, {}], props)
+      if (n(html) !== 1) throw new Error(`${n(html)} Copy down buttons (doing: ${doing})`)
+      // It sits between set 1 and set 2, outside both rows.
+      if (!/<\/div><button type="button" class="btn quiet presc-copydown" aria-label="Copy set 1 to the empty sets below">/.test(html)) throw new Error('Copy down is not its own line under set 1')
+      const rows = html.match(/<div class="presc-set">[\s\S]*?<\/span><\/div>/g) || []
+      if (rows.some(r => /presc-copydown/.test(r))) throw new Error('Copy down is inside a set row, beside the ✓ or a +')
+      if (n(card([{ reps: 10, weight: 90 }, { reps: 10, weight: 90 }], props))) throw new Error('offered with nothing empty below')
+      if (n(card([{}, {}], props))) throw new Error('offered on an empty set')
+    }
+    if (n(card([{ reps: 10, weight: 90 }, {}], { onFill: null }))) throw new Error('offered where nothing can write it')
+    if (n(card([{ reps: 10, weight: 90 }, {}], { doing: true, onTick: noop, asWritten: true }))) throw new Error('offered on a done day read as written')
+    const css = readFileSync(new URL('../src/css/editor.css', import.meta.url), 'utf8')
+    const rule = (css.match(/\.btn\.quiet\.presc-copydown \{([^}]*)\}/) || [])[1] || ''
+    if (!/min-height: var\(--tap\)/.test(rule)) throw new Error('Copy down is under 44px')
+    // Its own line at the row's right edge, 16px clear of the steppers above and below (the grid's 8 + its 8).
+    if (!/justify-self: end/.test(rule) || !/margin: var\(--sp-2\) 0/.test(rule) || /margin-left/.test(rule)) throw new Error('Copy down is back beside a stepper column')
+    if (!/\.presc-sets \{ display: grid; gap: var\(--sp-2\)/.test(css)) throw new Error('the set grid gap moved: redo the 16px clearance')
+  }],
+  ['SessionLog(the lift log offers Copy down too)', <SessionLog session={plan.dailyMenu.find(m => m.id === 'log-workout')}
+    entry={{ id: 'cd', kind: 'daily', date: TODAY, updatedAt: 'z', data: { optId: 'log-workout', out: { activity: 'lift', lifts: [
+      { uid: 'bench-press-1', key: 'bench-press', name: 'Bench press', implement: 'barbell', sets: [{ reps: 5, weight: 135 }, { reps: '', weight: '' }] }] } } }}
+    entries={[]} onSave={noop} bare />,
+    html => { if (!/class="btn quiet presc-copydown"/.test(html)) throw new Error('no Copy down on a logged lift') }],
+  ['copyDownWrite(one write of the numbers; "Copied to 2 sets" with Undo, which puts the blanks back exactly)', null, () => {
+    const item = { sets: [{ id: 'a', reps: 10, weight: 90 }, { id: 'b', reps: null, weight: null }, { id: 'c', reps: null, weight: null, typed: true }] }
+    const writes = []; let toast = null
+    copyDownWrite(item, 'a', (f) => writes.push(f), { push: (words, kind, opts) => { toast = { words, opts }; return 1 } })
+    if (writes.length !== 1 || writes[0].length !== 2) throw new Error(`wrote ${JSON.stringify(writes)}`)
+    if (toast?.words !== 'Copied to 2 sets' || toast.opts.action?.label !== 'Undo') throw new Error(`toast ${JSON.stringify(toast)}`)
+    toast.opts.action.onClick()
+    if (JSON.stringify(writes[1]) !== JSON.stringify([{ setId: 'b', patch: { reps: null, weight: null } }, { setId: 'c', patch: { reps: null, weight: null, typed: true } }])) {
+      throw new Error(`Undo wrote ${JSON.stringify(writes[1])}`)
+    }
+    // The review's repro: Copy down, type 95 into set 3, tick set 2, Undo. Both stay.
+    let now = { sets: [{ id: 'a', reps: 10, weight: 90 }, { id: 'b', reps: 10, weight: 90 }, { id: 'c', reps: 10, weight: 90 }] }
+    const w2 = []; let t2 = null
+    copyDownWrite(item, 'a', (f) => w2.push(f), { push: (words, kind, opts) => { t2 = opts; return 1 } }, () => now)
+    now = { sets: [now.sets[0], { ...now.sets[1], typed: true }, { ...now.sets[2], weight: 95, typed: true }] }
+    t2.action.onClick()
+    if (w2.length !== 1) throw new Error(`Undo wrote over sets touched since: ${JSON.stringify(w2[1])}`)
+    if (copyDownWrite({ sets: [{ id: 'a', reps: 1 }] }, 'a', () => { throw new Error('wrote nothing to fill') }) !== null) throw new Error('a toast with nothing copied')
+  }],
+  ['PrescriptionEditor(Copy down is numbers only: same sets, same ids, none ticked)', null, () => {
+    const one = appendLift({ v: 1, title: 'P', blocks: [] }, LIFT_FIELD, SQUAT.key)
+    const id = one.blocks[0].items[0].id
+    let pres = addSet(addSet(one, id), id)
+    pres = { ...pres, blocks: [{ ...pres.blocks[0], items: [{ ...pres.blocks[0].items[0], sets: pres.blocks[0].items[0].sets.map((x, i) => (i ? x : { ...x, reps: 5, weight: 185, typed: true })) }] }] }
+    let out = null
+    const section = findEl(treeOf(PrescriptionEditor, { pres, liftField: LIFT_FIELD, onChange: (p) => { out = p }, doing: true }), (e) => e?.type === ExerciseSection)
+    const item = pres.blocks[0].items[0]
+    copyDownWrite(item, item.sets[0].id, (f) => section.props.onFill(id, f), { push: () => 1 })
+    const sets = out.blocks[0].items[0].sets
+    if (sets.map(x => x.id).join() !== item.sets.map(x => x.id).join()) throw new Error('a set was added, removed or renumbered')
+    if (sets.map(x => `${x.reps}@${x.weight}`).join() !== '5@185,5@185,5@185') throw new Error(JSON.stringify(sets))
+    if (sets.slice(1).some(x => x.typed) || !sets[0].typed) throw new Error('a copied set reads as done, or the source lost its tick')
   }],
 ]

@@ -37,6 +37,8 @@ import {
   Ellipsis, ArrowUp, ArrowDown,
   // Who is on a shared workout: add someone, take someone off (#80).
   UserPlus, UserMinus,
+  // Copy a set's numbers down into the empty sets under it (#93).
+  ArrowDownToLine,
   // Aliased: an unaliased `Infinity` import shadows the global inside this
   // module, which is a trap for whoever next edits it.
   Infinity as InfinityIcon,
@@ -62,6 +64,7 @@ const REGISTRY = {
   SkipBack, ArrowLeftRight,
   Ellipsis, ArrowUp, ArrowDown,
   UserPlus, UserMinus,
+  ArrowDownToLine,
   Infinity: InfinityIcon,
 }
 

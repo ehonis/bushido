@@ -36,7 +36,7 @@
  */
 
 import {
-  catalogOf, exerciseOf, implementLabel, implementsFor, weightPatch, rememberedWeightMode, measureFor,
+  catalogOf, exerciseOf, implementLabel, implementsFor, weightPatch, rememberedWeightMode, measureFor, defaultImplement,
 } from './lifts.js'
 import {
   normalizeCircuit, circuitConfig, circuitOf, compile, totalSeconds, circuitDone, view, CIRCUIT_DEFAULT, LIMITS,
@@ -1556,15 +1556,15 @@ export const firstUnticked = (pres, asWritten = false) =>
   (pres?.blocks || []).flatMap(b => b.items || []).find(it => !itemTicked(it, asWritten))?.id || null
 
 /**
- * A blank lift row, for adding a movement the planner did not think of. An
- * implement chosen for it starts in the weight mode the exercise was last
- * logged in, as on the log (`addLift`).
+ * A blank lift row, for adding a movement the planner did not think of. It
+ * starts on `defaultImplement` (the one last lifted with, else what the catalog
+ * says, #93), in the weight mode the exercise was last logged in with it, as on
+ * the log (`addLift`).
  */
 export function appendLift(pres, liftField, key, { blockId = null, entries = [], excludeId = null } = {}) {
   const ex = exerciseOf(liftField, key)
   if (!ex) return pres
-  const offered = implementsFor(liftField, key)
-  const implement = offered.length === 1 ? offered[0].value : ''
+  const implement = defaultImplement(liftField, key, { entries, excludeId })
   const { weightMode, weightLabel } = implement
     ? weightPatch(liftField, implement, rememberedWeightMode(liftField, entries, key, implement, excludeId))
     : { weightMode: null, weightLabel: null }

@@ -602,6 +602,37 @@ async function waitFor(fn, label, ms = 8000) {
     eq([after.data.done, after.data.out, after.data.run], [before.data.done, before.data.out, before.data.run])
   })
 
+  /* Copy down (#93) is numbers only: the other side's copy, its structure and
+     its sync base are byte for byte what they were, written from either side. */
+  await step('sync: Copy down on one side never reaches the other (numbers only, no set added)', async () => {
+    const { copyDownFills, withFills } = await import('../app/src/lib/lifts.js')
+    const copyDown = (e, name) => replan(e, bs => bs.map(b => ({ ...b, items: b.items.map(it => {
+      if (it.name !== name) return it
+      const from = it.sets.find((x, i) => i + 1 < it.sets.length && (x.reps != null || x.weight != null))
+      return { ...it, sets: withFills(it.sets, copyDownFills(it.sets, from.id)) }
+    }) })))
+    // The owner's side: Deadlift's second set is the blank one Sam's add left there.
+    let sams = JSON.stringify(samCopy())
+    const dl = itemsIn(ownerEntry()).find(i => i.name === 'Deadlift')
+    ok(dl.sets.length === 2 && dl.sets[1].weight == null, 'the fixture has no blank set to copy into')
+    eq((await saveOwn(copyDown(ownerEntry(), 'Deadlift'))).status, 200)
+    const mine = itemsIn(ownerEntry()).find(i => i.name === 'Deadlift')
+    eq(mine.sets.map(x => [x.reps, x.weight]), [[dl.sets[0].reps, 100], [dl.sets[0].reps, 100]], 'the copy did not land on the owner\'s side')
+    ok(!mine.sets[1].typed, 'a copied set was marked typed')
+    eq(JSON.stringify(samCopy()), sams, 'Copy down on the owner\'s side changed Sam\'s copy or its sync base')
+    // Sam's side: the squat's blank set, from Sam's own phone.
+    const owners = JSON.stringify(ownerEntry())
+    const sq = itemsIn(samCopy()).find(i => i.name === 'Squat')
+    const n = sq.sets.length
+    const blank = (x) => x.reps == null && x.weight == null
+    ok(sq.sets.some(blank), 'Sam\'s squat has no blank set to copy into')
+    eq((await saveSams(copyDown(samCopy(), 'Squat'))).status, 200)
+    const after = itemsIn(samCopy()).find(i => i.name === 'Squat').sets
+    eq(after.length, n, 'a set was added or removed')
+    ok(!after.some(blank), `the copy did not land on Sam's side: ${JSON.stringify(after.map(x => [x.reps, x.weight]))}`)
+    eq(JSON.stringify(ownerEntry()), owners, 'Copy down on Sam\'s side changed the owner\'s entry or its sync base')
+  })
+
   await step('sync: removed on one side; kept on the other only where the other logged on it', async () => {
     // Sam logged Squat (b0i0s0) and nothing on Walking lunge.
     staleOwner = JSON.parse(JSON.stringify(ownerEntry()))

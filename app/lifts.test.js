@@ -26,6 +26,7 @@ import {
   weightModesFor, weightModeOf, weightLabelOf, weightPatch, nextWeightMode, rememberedWeightMode,
   weightModeWords, liftFieldIn, weightBoxOf, liftMeasure, measureFor, muscleName, blankSet, canSwitchMeasure,
   liftsDone, planLifts, liftedLine, implementChoices,
+  lastTimeFill, lastTimeWhen, withFills, copyDownFills, canCopyDown, unfills, cardKey, cardIdentity, rememberedImplement, defaultImplement, weightUnit, weightMeaning, pickerGroupFor,
 } from './src/lib/lifts.js'
 import { isRepeatable, extraEntryId } from './src/lib/store.js'
 import { gateResolver, catalogOf as activityCatalog } from './src/lib/activities.js'
@@ -54,6 +55,8 @@ const eq = (got, want, what = '') => {
   }
 }
 const ok = (cond, msg) => { if (!cond) throw new Error(msg) }
+// What "last time" says, without the row it read (`row`, which "use last time" fills from, #93).
+const said = (p) => (p ? { date: p.date, implement: p.implement, summary: p.summary } : p)
 // Since 2026-09-14 a field may gate on what the CATALOG says about the activity
 // (`shape`, `elevation`, `incline`) rather than on a list of activity keys, so
 // the card needs its resolver to be asked what is on screen. See outputs.js.
@@ -475,7 +478,7 @@ check('what he lifted last time is findable, newest first', () => {
     { id: 'c', kind: 'daily', date: '2026-09-09', deleted: true,
       data: { out: { [LIFT_FIELD]: [{ uid: 'bench-press-1', key: 'bench-press', sets: [{ reps: 5, weight: 999 }] }] } } },
   ]
-  eq(lastLift(entries, 'bench-press'), { date: '2026-09-08', implement: 'Barbell', summary: '1 × 5 @ 175 lb' })
+  eq(said(lastLift(entries, 'bench-press')), { date: '2026-09-08', implement: 'Barbell', summary: '1 × 5 @ 175 lb' })
   eq(lastLift(entries, 'bench-press', 'b').date, '2026-09-01', 'the entry being edited is not its own history')
   eq(lastLift(entries, 'deadlift'), null, 'a movement he has never done')
   eq(lastLift([], 'bench-press'), null)
@@ -857,7 +860,7 @@ check('D11: a done plan with an empty out is what was lifted, in the runner’s 
 
 check('D11: "last time" is the plan done yesterday, not the free-form log two months back', () => {
   const log = [freeRow, plannedOn('2026-10-20', { plan: pullPlan([{ reps: 10, weight: 85 }]) }), plannedOn('2026-11-07')]
-  eq(lastLift(log, 'bent-over-row', 'daily-2026-11-08', liftField, null, D11_TODAY),
+  eq(said(lastLift(log, 'bent-over-row', 'daily-2026-11-08', liftField, null, D11_TODAY)),
     { date: '2026-11-07', implement: 'EZ bar', summary: '3 × 10 @ 90 lb' })
 })
 
@@ -871,7 +874,7 @@ check('D11: a plan not done is not a log: still to come, untouched today (D10), 
   }
   // Typed into today: done, and so lifted.
   const typed = plannedOn(D11_TODAY, { done: false, plan: pullPlan([{ reps: 8, weight: 95, typed: true }]) })
-  eq(lastLift([freeRow, typed], 'bent-over-row', null, liftField, null, D11_TODAY), { date: D11_TODAY, implement: 'EZ bar', summary: '1 × 8 @ 95 lb' })
+  eq(said(lastLift([freeRow, typed], 'bent-over-row', null, liftField, null, D11_TODAY)), { date: D11_TODAY, implement: 'EZ bar', summary: '1 × 8 @ 95 lb' })
 })
 
 check('D11: a run’s own row stands for its item; a blank logged row hides nothing', () => {
@@ -965,6 +968,142 @@ check('implementChoices: what the exercise declares, then Other… (#79)', () =>
   eq(implementChoices(none, 'thing', null).shown.length, 0, 'an undeclared exercise offered the whole list')
   eq(implementChoices(none, 'thing', all[0].value).shown.map(i => i.value), [all[0].value])
   ok(implementChoices(none, 'thing', null).more)
+})
+
+/* ===================================================== the set row (#93) === */
+
+check('#93 last time in words, never the raw date', () => {
+  eq(lastTimeWhen({ date: '2026-11-07' }, '2026-11-08'), 'Yesterday')
+  ok(!/2026/.test(lastTimeWhen({ date: '2026-09-17' }, '2026-11-08')), 'an ISO date in the words')
+  ok(/Sep/.test(lastTimeWhen({ date: '2026-09-17' }, '2026-11-08')) && /17/.test(lastTimeWhen({ date: '2026-09-17' }, '2026-11-08')), 'not "Thu, Sep 17"')
+  eq(lastTimeWhen(null), '')
+})
+
+check('#93 use last time: blanks only, set by set, never adds a set, never overwrites', () => {
+  const prior = lastLift([plannedOn('2026-11-07', { plan: pullPlan([{ reps: 10, weight: 90 }, { reps: 8, weight: 95 }]) })],
+    'bent-over-row', null, liftField, null, D11_TODAY)
+  const item = (sets, extra = {}) => ({ kind: 'lift', exercise: 'bent-over-row', implement: 'ez-bar', ...extra,
+    sets: sets.map((x, i) => ({ id: `s${i}`, reps: null, weight: null, ...x })) })
+  // Three blank sets: set 3 takes last time's last set.
+  eq(lastTimeFill(liftField, item([{}, {}, {}]), prior), [
+    { setId: 's0', patch: { reps: 10, weight: 90 } },
+    { setId: 's1', patch: { reps: 8, weight: 95 } },
+    { setId: 's2', patch: { reps: 8, weight: 95 } }])
+  // A number typed stays; only its blank neighbour is filled.
+  eq(lastTimeFill(liftField, item([{ reps: 12 }]), prior), [{ setId: 's0', patch: { weight: 90 } }])
+  // Nothing blank: nothing to do, so the line is not a button.
+  eq(lastTimeFill(liftField, item([{ reps: 5, weight: 100 }]), prior), [])
+  // A different meaning: 90 on the bar is not 90 per side. Reps only.
+  eq(lastTimeFill(liftField, item([{}], { weightMode: 'side' }), prior), [{ setId: 's0', patch: { reps: 10 } }])
+  eq(lastTimeFill(liftField, item([{}], { implement: 'dumbbell' }), prior), [{ setId: 's0', patch: { reps: 10 } }])
+  // The log's blank is '' and fills the same way.
+  eq(lastTimeFill(liftField, { kind: 'lift', implement: 'ez-bar', sets: [{ id: '0', reps: '', weight: '' }] }, prior),
+    [{ setId: '0', patch: { reps: 10, weight: 90 } }])
+  eq(lastTimeFill(liftField, item([{}]), null), [], 'no last time, nothing to fill')
+  eq(withFills([{ id: 'a', reps: null }, { id: 'b', reps: 3 }], [{ setId: 'a', patch: { reps: 9 } }]), [{ id: 'a', reps: 9 }, { id: 'b', reps: 3 }])
+})
+
+check('#93 a new exercise gets an implement: the one last lifted with, else what the catalog says', () => {
+  const squatted = (date, implement, extra = {}) => ({ id: `d-${date}`, kind: 'daily', date, updatedAt: `${date}T10:00:00Z`,
+    data: { optId: 'log-workout', done: true, ...extra, out: { lifts: [{ uid: 'back-squat-1', key: 'back-squat', name: 'Back squat',
+      implement, sets: [{ reps: 5, weight: 185 }] }] } } })
+  const undeclared = liftField.exercises.find(e => e.key === 'back-squat')
+  ok(undeclared && !undeclared.implements, 'the fixture squat is meant to declare no implement')
+  eq(rememberedImplement(liftField, [squatted('2026-10-01', 'barbell'), squatted('2026-11-01', 'smith')], 'back-squat', null, D11_TODAY), 'smith', 'not the newest')
+  eq(rememberedImplement(liftField, [squatted('2026-11-01', 'smith', { done: false, undone: true })], 'back-squat', null, D11_TODAY), null, 'an undone day taught it')
+  eq(rememberedImplement(liftField, [squatted('2026-11-09', 'smith')], 'back-squat', null, D11_TODAY), null, 'a later day taught it')
+  eq(defaultImplement(liftField, 'back-squat', { entries: [squatted('2026-10-01', 'barbell')], today: D11_TODAY }), 'barbell')
+  // Never lifted: what it declares first, else the one implement its equipment names.
+  const goblet = liftField.exercises.find(e => Array.isArray(e.implements) && e.implements.length > 1)
+  eq(defaultImplement(liftField, goblet.key, { today: D11_TODAY }), goblet.implements[0])
+  const said = { ...liftField, exercises: [...liftField.exercises.filter(e => e.key !== 'back-squat'),
+    { ...undeclared, equipment: 'Barbell and rack' }] }
+  eq(defaultImplement(said, 'back-squat', { today: D11_TODAY }), 'barbell', 'the equipment line names a barbell')
+  eq(defaultImplement({ ...said, exercises: [{ ...undeclared, equipment: 'Barbell or dumbbells' }] }, 'back-squat', { today: D11_TODAY }), '',
+    'two named is still a question')
+  eq(defaultImplement(liftField, 'back-squat', { today: D11_TODAY }), '', 'nothing says: still a question')
+  // addLift uses it, and memory for the mode then works on it.
+  const log = [squatted('2026-10-01', 'barbell')]
+  log[0].data.out.lifts[0].weightMode = 'side'
+  const [row] = addLift(liftField, [], 'back-squat', { entries: log })
+  eq([row.implement, row.weightMode], ['barbell', 'side'], 'a hand-added squat starts on its bar, per side as last time')
+})
+
+check('#93 the box says one word; the card says what it means', () => {
+  eq(['lb on the bar', 'lb per hand', 'added lb', 'lb of assistance', 'band or level', 'level', 'lb · one dumbbell', ''].map(weightUnit),
+    ['lb', 'lb', 'lb', 'lb', 'level', 'level', 'lb', 'lb'])
+  eq(weightMeaning(liftField, { implement: 'barbell' }), { words: 'on the bar', modes: 2 })
+  eq(weightMeaning(liftField, { implement: 'barbell', weightMode: 'side' }), { words: 'per side', modes: 2 })
+  eq(weightMeaning(liftField, { implement: 'dumbbell', weightMode: 'one' }), { words: 'one dumbbell', modes: 2 })
+  eq(weightMeaning(liftField, { implement: 'assisted' }), { words: 'lb of assistance', modes: 1 })
+  eq(weightMeaning(liftField, { implement: 'machine' }), null, 'plain pounds needs no words')
+})
+
+check('#93 the picker opens on the block’s group', () => {
+  const bench = liftField.exercises.find(e => e.key === 'bench-press')
+  const squat = liftField.exercises.find(e => e.key === 'back-squat')
+  eq(pickerGroupFor(liftField, [{ exercise: 'back-squat' }, { exercise: 'back-squat' }, { exercise: 'bench-press' }], 'Main'), squat.group)
+  eq(pickerGroupFor(liftField, [], 'Core finisher'), catalogOf(liftField).groups.includes('Core') ? 'Core' : null)
+  eq(pickerGroupFor(liftField, [{ kind: 'interval', name: 'Zone 2' }], 'Ride'), null, 'a ride opens on everything')
+  ok(bench.group !== squat.group, 'fixture')
+})
+
+check('#93 copy down: one set into every EMPTY set below it, nothing else, never typed', () => {
+  const sets = [
+    { id: 'a', reps: 10, weight: 90, typed: true },
+    { id: 'b', reps: null, weight: null },
+    { id: 'c', reps: 8, weight: null },          // has a number: left exactly as it is
+    { id: 'd', reps: null, weight: null, typed: true }, // a stale mark on an empty set
+  ]
+  eq(copyDownFills(sets, 'a'), [{ setId: 'b', patch: { reps: 10, weight: 90 } }, { setId: 'd', patch: { reps: 10, weight: 90 } }])
+  eq(copyDownFills(sets, 'b'), [], 'an empty set has nothing to copy')
+  eq(copyDownFills(sets, 'd'), [], 'nothing below the last set')
+  eq(copyDownFills(sets, 'nope'), [])
+  // Above is never touched, and a set is never added or removed.
+  eq(copyDownFills([{ id: 'x', reps: null }, { id: 'y', reps: 5, weight: 50 }, { id: 'z', reps: null, weight: null }], 'y'),
+    [{ setId: 'z', patch: { reps: 5, weight: 50 } }])
+  // A hold copies its seconds; the log's '' is empty too, and numbers come out as numbers.
+  eq(copyDownFills([{ id: '0', seconds: '45', weight: '' }, { id: '1', seconds: '', weight: '' }], '0'), [{ setId: '1', patch: { seconds: 45 } }])
+  // Laid on: the copied sets are NOT typed (filled, not done), even one that had a stale mark.
+  const filled = withFills(sets, copyDownFills(sets, 'a'))
+  eq(filled.map(x => [x.reps, x.weight, Boolean(x.typed)]), [[10, 90, true], [10, 90, false], [8, null, false], [10, 90, false]])
+  eq(filled.length, sets.length, 'a set was added or removed')
+  // Undo puts them back exactly, mark included.
+  eq(withFills(filled, unfills(sets, copyDownFills(sets, 'a'))), sets)
+  // ...but only the sets still as the copy left them (#93 review): a 95 typed into
+  // set d and a ✓ on set b since the copy are the person's own, and stay.
+  const fills = copyDownFills(sets, 'a')
+  const later = filled.map(x => (x.id === 'd' ? { ...x, weight: 95, typed: true } : x.id === 'b' ? { ...x, typed: true } : x))
+  eq(unfills(sets, fills, later), [], 'Undo wrote the old blanks over work done since')
+  const oneLater = filled.map(x => (x.id === 'd' ? { ...x, weight: 95 } : x))
+  eq(unfills(sets, fills, oneLater), [{ setId: 'b', patch: { reps: null, weight: null } }], 'an untouched copied set is not put back')
+  eq(withFills(oneLater, unfills(sets, fills, oneLater)).map(x => [x.reps, x.weight]), [[10, 90], [null, null], [8, null], [10, 95]])
+  // Offered on a set with a number whose next set is empty; hidden otherwise.
+  eq(sets.map((_, i) => canCopyDown(sets, i)), [true, false, true, false])
+  eq(canCopyDown([{ id: 'a', reps: 5 }, { id: 'b', reps: 5 }], 0), false, 'nothing empty under it')
+})
+
+check('#93 a card is its exercise: keyed by uid, so removing one moves no other card’s state', () => {
+  const items = [{ id: 'b0i0', uid: 'u0', exercise: 'a' }, { id: 'b0i1', uid: 'u1', exercise: 'b' }]
+  const renumbered = [{ ...items[1], id: 'b0i0' }]   // after removing the first: positional ids shift
+  eq(cardKey(renumbered[0]), cardKey(items[1]), 'the key followed the place')
+  eq(cardKey({ id: 'b0i0' }), 'i:b0i0', 'no uid yet: its id')
+  ok(cardIdentity({ id: 'b0i0', exercise: 'a', name: 'A' }) !== cardIdentity({ id: 'b0i0', exercise: 'b', name: 'B' }), 'two exercises in one place read as one')
+  eq(cardIdentity(items[0]), 'u0')
+})
+
+check('#93 copy down on a lift log row: the stored shape, nothing added', () => {
+  let list = addLift(liftField, [], 'bench-press')
+  const uid = list[0].uid
+  list = setLiftSet(list, uid, 0, { reps: 5, weight: 135 })
+  list = addLiftSet(list, uid); list = setLiftSet(list, uid, 1, { reps: '', weight: '' })
+  list = addLiftSet(list, uid)
+  const rows = list[0].sets.map((r, i) => ({ ...r, id: String(i) }))
+  const fills = copyDownFills(rows, '0')
+  const out = fills.reduce((l, f) => setLiftSet(l, uid, Number(f.setId), f.patch), list)
+  eq(out[0].sets, [{ reps: 5, weight: 135 }, { reps: 5, weight: 135 }, { reps: 5, weight: 135 }])
+  eq(fills.length, 2, 'both blank rows below set 1')
+  eq(out[0].sets.length, 3, 'a row was added or removed')
 })
 
 console.log(failed ? `\n${failed} lift/output test(s) failed` : '\nall lift and output tests pass')

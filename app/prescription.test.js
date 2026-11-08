@@ -491,6 +491,23 @@ t('an added exercise arrives with one blank set', () => {
   assert.equal(added.sets[0].weight, null)
 })
 
+/* #93 (C N2): a hand-added squat had no implement, so its weight was a bare
+   "lb" and weight-mode memory, which needs an implement, never ran. */
+t('an added exercise starts on the implement it was last lifted with, in that mode', () => {
+  const sq = liftField.exercises.find(e => e.key === 'back-squat')
+  assert.ok(sq && !sq.implements, 'the fixture squat declares no implement')
+  const log = [{ id: 'old', kind: 'daily', date: '2026-01-05', updatedAt: 'a', data: { done: true, out: { lifts: [
+    { uid: 'back-squat-1', key: 'back-squat', name: 'Back squat', implement: 'barbell', weightMode: 'side', weightLabel: 'lb per side',
+      sets: [{ reps: 5, weight: 70 }] }] } } }]
+  const added = appendLift(legs, liftField, 'back-squat', { entries: log }).blocks.at(-1).items.at(-1)
+  assert.equal(added.implement, 'barbell')
+  assert.equal(added.implementLabel, 'Barbell')
+  assert.equal(added.weightMode, 'side')
+  assert.equal(added.weightLabel, 'lb per side')
+  // Never lifted and nothing in the catalog says: still a question.
+  assert.equal(appendLift(legs, liftField, 'back-squat').blocks.at(-1).items.at(-1).implement, '')
+})
+
 t('a completed set survives an edit that renumbers the ids', () => {
   const steps = prescriptionSteps(legs)
   let run = markSet(emptyRun(T0), steps[3], { reps: 6, weight: 155 }, { at: T0, steps })

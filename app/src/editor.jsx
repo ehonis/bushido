@@ -14,6 +14,7 @@ import {
   addBlock, renameBlock, noteBlock, removeBlock, moveBlock, tickSet, firstUnticked, splitPrescription,
 } from './lib/prescription.js'
 import { removalWords, syncLine } from './lib/removal.js'
+import { withFills } from './lib/lifts.js'
 import { ExerciseSection, useUndoable } from './exercises.jsx'
 import { CircuitSteppers, CircuitList, SecondsRow } from './circuit.jsx'
 
@@ -478,6 +479,8 @@ export function PrescriptionEditor({
             : null}
           onPatch={(id, patch) => onChange(patchItem(pres, id, patch))}
           onPatchSet={(id, setId, patch) => onChange(patchSet(pres, id, setId, patch))}
+          /* "Use last time" (#93): the numbers as targets, in one write, never ticked. */
+          onFill={(id, fills) => onChange(patchItem(pres, id, { sets: withFills(itemOf(id)?.sets, fills) }))}
           onAddSet={(id) => onChange(addSet(pres, id))}
           onRemoveSet={dropSet}
           onRemove={dropItem}

@@ -911,9 +911,13 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   `exercise`). A control that says "did this set as planned" must write `typed`: the sheet's
   ✓ does (`tickSet`, #79), and on a done plan's earlier day the ✓s are read, not toggled,
   the way `liftsDone` reads it (`setTicked(s, asWritten)`).
-- **What a lift's weight means is switched on its label** (#58). The words under the
-  weight box (lift log, planner editor, runner, web and phone) are a button when the
-  implement has more than one meaning: dumbbell and kettlebell "per hand" / "1 DB"
+- **What a lift's weight means is switched once per exercise** (#58; moved off the set
+  row in #93). On a card (lift log, planner editor, doing mode; web and phone) it is
+  one switch beside the implement (`ModeSwitch`, "on the bar ⇆"), and every flip shows
+  a toast with Undo (`modeFlip`); the runner keeps its 44px pill under the big weight.
+  In a set's cell the weight says only its unit (`weightUnit`: "lb"): the switch used
+  to be the cell's biggest target, and a tap aimed at 90 made it 90 per side. Switched
+  when the implement has more than one meaning: dumbbell and kettlebell "per hand" / "1 DB"
   (one dumbbell), barbell, EZ, trap, Smith and landmine "on the bar" / "per side";
   anything else keeps its declared label and no switch. The choices are code
   (`weightModesFor` in `lib/lifts.js`, each `{ value, label, short, box, partial }`:
@@ -973,6 +977,19 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   `measure` as structure with `exercise`, keeps the writer's own while its exercise is the
   one it sent, and keeps the seconds on their own side, like reps; it is not in
   `ITEM_KEYS`, so every stored `syncBase` still compares equal.
+- **The set row** (#93): the number is the cell (the box fills the 44px middle
+  between the ±, its unit drawn inside it); in doing mode the ✓ is at the row's start,
+  where the set's number is when planning, never beside the weight's +. "Last time" is
+  in `dayWords` ("Fri, Nov 7") and, where this exercise has blank sets, a button that
+  fills them (`lastTimeFill`: blanks only, the weight only in the same meaning).
+  **Copy down** (`copyDownFills`) fills the empty sets under a set with its numbers,
+  from its own line at the row's right edge (16px clear of every stepper), with Undo
+  ("Copied to 2 sets") that puts back only the sets still as it left them: anything
+  typed into or ticked since stays (`unfills`). The ✓ is 16px clear of the reps' −. Both are NUMBERS ONLY in one write
+  (`withFills`): no set added or removed, so a synced workout's structure and the other
+  person's log are untouched, and a filled set is not `typed`: it is a target, lifted
+  (D10, D11) only once its ✓ is ticked. A new exercise starts on `defaultImplement`
+  (the one last lifted with, else what the catalog says), so mode memory applies.
 - **Lifts have no rest intervals.** `restSec` is dropped in `normalizeSet` on the way in,
   not hidden. Interval pieces keep their rest.
 - **Adding a set copies what was done** (`addSetLike` in the runner, appended, so no ids
