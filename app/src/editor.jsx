@@ -543,6 +543,7 @@ export function PrescriptionEditor({
           onPatchSet={(id, setId, patch) => onChange(patchSet(pres, id, setId, patch))}
           /* "Use last time" (#93): the numbers as targets, in one write, never ticked. */
           onFill={(id, fills) => onChange(patchItem(pres, id, { sets: withFills(itemOf(id)?.sets, fills) }))}
+          growFill={!syncedWith?.length}
           onAddSet={(id) => onChange(addSet(pres, id))}
           onRemoveSet={dropSet}
           onRemove={dropItem}

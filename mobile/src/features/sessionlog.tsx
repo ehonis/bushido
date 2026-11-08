@@ -31,6 +31,7 @@ import { GearPicker } from './gearpicker'
 import { WhoopWorkouts } from './whoop'
 import { StravaActivities } from './strava'
 import { dayWords } from '../lib/dates.js'
+import { isSharedEntry } from '../lib/shared.js'
 
 /* --------------------------------------------------------------- notes --- */
 
@@ -540,7 +541,7 @@ export function SessionLog({
             // Exercises chosen at log time, with their own implement and sets.
             if (f.type === 'lifts') {
               return (
-                <LiftLog key={f.key} field={f} out={out} entries={entries} entryId={entry?.id} onSave={onSave} hints={hints} />
+                <LiftLog key={f.key} field={f} out={out} entries={entries} entryId={entry?.id} onSave={onSave} hints={hints} grow={!isSharedEntry(entry)} />
               )
             }
             // A number the app can work out is a PLACEHOLDER, and one a service

@@ -467,19 +467,31 @@ function toldOf(row) {
   return told
 }
 
-/** How many climbs this row counts: the described ones once any is, else its count. */
-export function climbsCounted(row) {
+/**
+ * Does any row of this exercise have a described climb? Then the described
+ * climbs are the count in EVERY row of it with the detail on (#111, E F1): Add
+ * set copies the last row's count into a new row of blank records, and counted
+ * by its own `reps` that row passed for climbs ("2 described, Add set, 4 routes").
+ * A row is not a session of its own; the exercise is one list of climbs.
+ */
+export const anyTold = (rows) => Array.isArray(rows) && rows.some(r => Array.isArray(r?.[CLIMB_FIELD]) && toldOf(r).length > 0)
+
+/**
+ * How many climbs this row counts: the described ones once any is (in this row,
+ * or in another row of the same exercise, `rows`), else its count.
+ */
+export function climbsCounted(row, rows = null) {
   const reps = Math.max(0, Math.floor(Number(row?.reps) || 0))
   if (!Array.isArray(row?.[CLIMB_FIELD])) return reps
   const told = toldOf(row).length
-  return told > 0 ? told : reps
+  return told > 0 || anyTold(rows) ? told : reps
 }
 
-/** Climbs in the row's list nobody has described, while others are: not counted. */
-export function untoldIn(row) {
+/** Climbs in the row's list nobody has described, while others are (here or elsewhere in `rows`): not counted. */
+export function untoldIn(row, rows = null) {
   if (!Array.isArray(row?.[CLIMB_FIELD])) return 0
   const told = toldOf(row).length
-  return told > 0 ? climbCount(row?.reps) - told : 0
+  return told > 0 || anyTold(rows) ? climbCount(row?.reps) - told : 0
 }
 
 /**
@@ -489,7 +501,7 @@ export function untoldIn(row) {
  */
 export function climbTotals(rows) {
   const list = rows || []
-  const count = list.reduce((s, r) => s + climbsCounted(r), 0)
+  const count = list.reduce((s, r) => s + climbsCounted(r, list), 0)
   const said = climbsIn(list).filter(climbSaid)
   return {
     count,
@@ -497,7 +509,7 @@ export function climbTotals(rows) {
     falls: fallsIn(list),
     downs: downsIn(list),
     lengths: lengthsIn(list),
-    untold: list.reduce((s, r) => s + untoldIn(r), 0),
+    untold: list.reduce((s, r) => s + untoldIn(r, list), 0),
   }
 }
 
@@ -532,7 +544,7 @@ export const downsIn = (rows) => climbsIn(rows).filter(c => c.down === 'both' ||
  */
 export function lengthsIn(rows) {
   return (rows || []).reduce((sum, r) => {
-    const n = climbsCounted(r)
+    const n = climbsCounted(r, rows)
     const list = Array.isArray(r?.[CLIMB_FIELD]) ? r[CLIMB_FIELD] : []
     const extra = list.filter(c => c?.down === 'both').length
     return sum + n + extra
@@ -703,7 +715,8 @@ export function climbVolume(opt, out) {
   let n = 0
   for (const ex of exercisesOf(opt)) {
     if (!countsClimbs(ex)) continue
-    for (const r of out?.sets?.[ex.key] || []) n += climbsCounted(r)
+    const rows = out?.sets?.[ex.key] || []
+    for (const r of rows) n += climbsCounted(r, rows)
   }
   return n
 }

@@ -45,12 +45,12 @@ import { Icon } from './lib/icons.jsx'
 import { NumInput } from './numinput.jsx'
 import { useModalLayer, Popover } from './modal.jsx'
 import { CUES, primeAudio, resumeAudio, acquireWakeLock, releaseWakeLock } from './lib/cues.js'
-import { lastLift, liftFieldOf } from './lib/lifts.js'
+import { lastLift, liftFieldOf, weightUnit } from './lib/lifts.js'
 import { isLogged, isSkipped, setLine, itemLine, setFieldsFor, measureOfItem, blockTimer, circuitOnly, circuitTiming } from './lib/prescription.js'
 import { compile, startRun, view as timerView, describe, totalSeconds, back, bump, skip as skipSegment, togglePause, isTimedSet } from './lib/timer.js'
 import { useRunner, circuitTick } from './lib/runflow.js'
 import { clock } from './lib/workout.js'
-import { Stepper, boxFor, stepBox, TimeInput, weightSwitch, SwapWords, ExerciseSheet } from './exercises.jsx'
+import { Stepper, boxFor, stepBox, TimeInput, modeFlip, ModeSwitch, ExerciseSheet } from './exercises.jsx'
 import { ExerciseBody, musclesOf, muscleWords } from './lib/bodymap.jsx'
 import { usePlan } from './lib/planctx.jsx'
 import { WorkHead, LeaveDialog, leaveActions, ControlRow, setsWord } from './workchrome.jsx'
@@ -402,7 +402,13 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
     () => (item.exercise ? lastLift(entries, item.exercise, entryId, liftField, item.kind === 'lift' ? measureOfItem(item) : null) : null),
     [entries, item, entryId, liftField])
   const muscles = musclesOf(liftField, item.exercise)
-  const swap = weightSwitch(liftField, item, onPatchItem)
+  /* What the weight means (#111, B F1): the sheet's switch (`modeFlip`: a toast
+     with Undo, through the latest write so an Undo lands on the plan as it is
+     then), beside the implement under the name. It was a pill 6px under the big
+     weight that flipped what the number meant, and taught weight memory, in silence. */
+  const patchNow = useRef(onPatchItem)
+  patchNow.current = onPatchItem
+  const flip = modeFlip(liftField, item, (p) => patchNow.current(p))
   const [about, setAbout] = useState(false)
 
   const target = setLine(step.set, item)
@@ -438,7 +444,15 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
         </h2>
       ) : <h2 className="run-move">{item.name}</h2>}
       {about && <ExerciseSheet field={liftField} exercise={item.exercise} name={item.name} onClose={() => setAbout(false)} />}
-      {item.implementLabel && <div className="run-impl">{item.implementLabel}</div>}
+      {(item.implementLabel || flip) && (
+        <div className="run-impl">
+          {item.implementLabel && <span>{item.implementLabel}</span>}
+          {flip && (
+            <ModeSwitch words={flip.words} onSwitch={flip.onSwitch}
+              aria={`Weight is ${item.weightLabel || 'lb'}. Switch to ${flip.next}`} />
+          )}
+        </div>
+      )}
 
       {/* What it works. Bigger here than anywhere else, because this is the one
           screen the user is looking at while doing it. */}
@@ -454,11 +468,13 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
       {/* The same fields the editor shows, from the same function — a box the user can
           plan in and not record in is worse than no box. See setFieldsFor. */}
       <div className="run-inputs">
-        {fields.map(f => (
-          <BigStepper key={f} {...boxFor(f, item, step.set)} value={draft?.[f]}
-            swap={f === 'weight' ? swap : null}
-            onChange={v => onPatch({ [f]: v })} />
-        ))}
+        {fields.map(f => {
+          const b = boxFor(f, item, step.set)
+          return (
+            <BigStepper key={f} {...b} unit={f === 'weight' ? weightUnit(b.label) : null} value={draft?.[f]}
+              onChange={v => onPatch({ [f]: v })} />
+          )
+        })}
       </div>
 
       {briefing.map((b, i) => (
@@ -543,7 +559,7 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
  * is two to a screen with 64px targets and a value you can read from arm's
  * length on the floor.
  */
-export function BigStepper({ label, value, step = 1, min = null, onChange, swap = null, time = false }) {
+export function BigStepper({ label, unit = null, value, step = 1, min = null, onChange, time = false }) {
   // A piece's time is a minutes box (`boxFor`, #78), pressed exactly as the editor's.
   const bump = (d) => onChange(stepBox({ step, min, time }, value, d))
   return (
@@ -559,12 +575,9 @@ export function BigStepper({ label, value, step = 1, min = null, onChange, swap 
         {time
           ? <TimeInput className="bigstep-in" aria-label={label} placeholder="—" value={value} onChange={onChange} />
           : <NumInput className="bigstep-in" aria-label={label} placeholder="—" value={value} onChange={onChange} />}
-        {swap ? (
-          <button type="button" className="bigstep-label stepper-swap" onClick={swap.onSwitch}
-            aria-label={`Weight in ${label}. Switch to ${swap.next}`}>
-            <SwapWords label={swap.box} size={13} />
-          </button>
-        ) : <span className="bigstep-label">{label}</span>}
+        {/* The unit only ("lb"): what the number means is said once, by the
+            implement (`modeFlip`), never a switch under the number (#111). */}
+        <span className="bigstep-label">{unit ?? label}</span>
       </div>
       <button className="bigstep-btn" onClick={() => bump(1)} aria-label={`more ${label}`}>
         <Icon name="Plus" size={26} />

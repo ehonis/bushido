@@ -185,7 +185,7 @@ function createDrafts({ max = MAX_DRAFTS, maxAgeMs = MAX_AGE_MS, now = () => Dat
 
     Promise.resolve()
       .then(() => plan({ kind, draft: working, message, signal: ctrl.signal }))
-      .then((built) => settle(d => merged(d, kind, built?.plan, built?.remembered)))
+      .then((built) => settle(d => merged(d, kind, built?.plan, built?.remembered, built?.lifting)))
       .catch((err) => settle(d => failed(d, String(err?.message || err || 'the planner failed'))))
     return working
   }
@@ -202,7 +202,7 @@ function createDrafts({ max = MAX_DRAFTS, maxAgeMs = MAX_AGE_MS, now = () => Dat
    * same rule as `reviseWeightModes` in app/src/lib/prescription.js, here so it
    * is on the draft, whatever happens to the page that asked.
    */
-  function withWeightModes(before, after, remembered) {
+  function withWeightModes(before, after, remembered, lifting = null) {
     const items = (blocks) => (Array.isArray(blocks) ? blocks : []).flatMap(b => (Array.isArray(b?.items) ? b.items : []))
     const left = items(before).filter(it => it?.kind === 'lift')
     const take = (it) => {
@@ -212,12 +212,18 @@ function createDrafts({ max = MAX_DRAFTS, maxAgeMs = MAX_AGE_MS, now = () => Dat
     return after.map(b => (Array.isArray(b?.items) ? {
       ...b,
       items: b.items.map(it => {
-        if (it?.kind !== 'lift' || !it.exercise || !it.implement) return it
+        if (it?.kind !== 'lift' || !it.exercise) return it
         const old = take(it)
-        const mode = old && old.implement === it.implement ? old.weightMode
-          : remembered?.get(`${it.exercise}|${it.implement}`)
+        // No implement from the model (#111, C F1: the catalog declares none for
+        // a Back squat, so it cannot name one): the one it had on a revision, else
+        // where one added by hand starts (`defaultImplementOf`), so the weight
+        // means something and memory runs. The app labels it (`normalizeItem`).
+        const implement = it.implement || old?.implement || defaultImplementOf(lifting?.field, it.exercise, lifting?.last)
+        if (!implement) return it
+        const mode = old && old.implement === implement ? old.weightMode
+          : remembered?.get(`${it.exercise}|${implement}`)
         const { weightMode: _m, ...rest } = it
-        return mode ? { ...rest, weightMode: mode } : rest
+        return { ...rest, implement, ...(mode ? { weightMode: mode } : {}) }
       }),
     } : b))
   }
@@ -228,7 +234,7 @@ function createDrafts({ max = MAX_DRAFTS, maxAgeMs = MAX_AGE_MS, now = () => Dat
    * blank; on a revision the user's own category choice stands, and `changed`
    * becomes the newest line of the thread.
    */
-  function merged(d, kind, built, remembered = null) {
+  function merged(d, kind, built, remembered = null, lifting = null) {
     if (!built || !Array.isArray(built.blocks) || !built.blocks.length) {
       return failed(d, 'the planner returned nothing usable')
     }
@@ -238,7 +244,7 @@ function createDrafts({ max = MAX_DRAFTS, maxAgeMs = MAX_AGE_MS, now = () => Dat
         ...d, status: 'ready', error: null, updatedAt: stamp(),
         pres: {
           ...cur, ...built,
-          blocks: withWeightModes(cur.blocks, built.blocks, remembered),
+          blocks: withWeightModes(cur.blocks, built.blocks, remembered, lifting),
           category: cur.category || built.category || null,
           activity: cur.activity || built.activity || null,
           ask: cur.ask || null,
@@ -251,7 +257,7 @@ function createDrafts({ max = MAX_DRAFTS, maxAgeMs = MAX_AGE_MS, now = () => Dat
       ...d, status: 'ready', error: null, updatedAt: stamp(),
       pres: {
         ...built,
-        blocks: withWeightModes([], built.blocks, remembered),
+        blocks: withWeightModes([], built.blocks, remembered, lifting),
         category: built.category || primary.category || null,
         activity: built.activity || primary.activity || null,
         focus: built.focus || d.ask.goal || d.ask.label,
@@ -429,4 +435,65 @@ function rememberedModes(entries, today) {
   return new Map([...best].map(([k, v]) => [k, v.mode]))
 }
 
-module.exports = { createDrafts, dirOf, keptIdsIn, rememberedModes, MAX_DRAFTS, MAX_AGE_MS, CLAIM_MS, RESTARTED }
+/*
+ * The implement each exercise was last LIFTED with (#111): app/src/lib/lifts.js
+ * `rememberedImplement` for every exercise at once, read as `rememberedModes`
+ * reads (the same rows, the same entries, the newest decides).
+ */
+function rememberedImplements(entries, today) {
+  const best = new Map()
+  for (const e of Object.values(entries || {})) {
+    if (!e || e.deleted || e.kind !== 'daily' || !(String(e.date || '') <= today)) continue
+    if (e.data?.done === false && e.data?.undone === true) continue
+    const at = `${e.date || ''}|${e.updatedAt || ''}`
+    const seen = new Set()
+    for (const l of liftedRows(e, today)) {
+      const key = l?.key || l?.exercise
+      if (!key || seen.has(key) || !l.implement || !(l.sets || []).some(numbered)) continue
+      seen.add(key)
+      const b = best.get(key)
+      if (!b || at > b.at) best.set(key, { at, implement: l.implement })
+    }
+  }
+  return new Map([...best].map(([k, v]) => [k, v.implement]))
+}
+
+/** The plan's `type: "lifts"` field (the exercise catalog), as app/src/lib/lifts.js `liftFieldOf`. */
+function liftFieldOf(plan) {
+  for (const opt of Array.isArray(plan?.dailyMenu) ? plan.dailyMenu : []) {
+    for (const f of Array.isArray(opt?.outputs) ? opt.outputs : []) if (f?.type === 'lifts') return f
+  }
+  return null
+}
+
+/*
+ * What a model-written lift is done with when it names nothing (#111): app/src/
+ * lib/lifts.js `defaultImplement`, the rule a lift added by hand starts on, and
+ * drafts.test.js holds the two to the same answers. `last` is
+ * `rememberedImplements`. In order: the one it was last lifted with (if the
+ * catalog still has it), the only one the catalog offers it, the first it
+ * declares, the one implement its library `equipment` line names; else none.
+ */
+function defaultImplementOf(field, key, last = null) {
+  const all = Array.isArray(field?.implements) ? field.implements : []
+  const known = (v) => all.some(i => i.value === v)
+  const remembered = last?.get?.(key)
+  if (remembered && known(remembered)) return remembered
+  const ex = (Array.isArray(field?.exercises) ? field.exercises : []).find(e => e?.key === key) || null
+  const declared = Array.isArray(ex?.implements) && ex.implements.length ? ex.implements : null
+  const offered = declared ? all.filter(i => declared.includes(i.value)) : all
+  if (offered.length === 1) return offered[0].value
+  if (declared && known(declared[0])) return declared[0]
+  const said = String(ex?.equipment || '').toLowerCase()
+  if (!said) return ''
+  const named = all.filter(i => {
+    const word = String(i.label || '').toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return word && new RegExp(`(^|[^a-z])${word}s?([^a-z]|$)`).test(said)
+  })
+  return named.length === 1 ? named[0].value : ''
+}
+
+module.exports = {
+  createDrafts, dirOf, keptIdsIn, rememberedModes, rememberedImplements, liftFieldOf, defaultImplementOf,
+  MAX_DRAFTS, MAX_AGE_MS, CLAIM_MS, RESTARTED,
+}

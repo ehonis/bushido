@@ -43,7 +43,7 @@
 import { useRef, useState } from 'react'
 import {
   implementsFor, weightLabelOf, weightModeOf, liftsIn, liftSummary, liftsLine, liftMeasure,
-  addLift, removeLift, patchLift, addLiftSet, removeLiftSet, setLiftSet, moveLift,
+  addLift, removeLift, patchLift, addLiftSet, removeLiftSet, setLiftSet, moveLift, fillLift,
   LIFT_FIELD, blankSet,
 } from './lib/lifts.js'
 import { removalWords } from './lib/removal.js'
@@ -97,7 +97,7 @@ function asItem(field, lift) {
 const hintFor = (theirs, lift) => theirs.find(l => l.uid === lift.uid && l.key === lift.key)
   || theirs.find(l => l.key === lift.key) || null
 
-export function LiftLog({ field, out, entries = [], entryId = null, onSave, hints = null }) {
+export function LiftLog({ field, out, entries = [], entryId = null, onSave, hints = null, grow = false }) {
   const list = liftsIn(out)
   // The out as of the latest render: an Undo lands seconds later, over whatever was logged since.
   const outNow = useRef(out)
@@ -152,7 +152,8 @@ export function LiftLog({ field, out, entries = [], entryId = null, onSave, hint
         note={field.hint}
         onPatch={(uid, patch) => write(patchLift(field, list, uid, patch))}
         onPatchSet={(uid, setId, patch) => write(setLiftSet(list, uid, Number(setId), patch))}
-        onFill={(uid, fills) => write(fills.reduce((l, f) => setLiftSet(l, uid, Number(f.setId), f.patch), list))}
+        onFill={(uid, fills) => write(fillLift(list, uid, fills))}
+        growFill={grow}
         onAddSet={(uid) => write(addLiftSet(list, uid))}
         onRemoveSet={(uid, setId) => remove(removeLiftSet(list, uid, Number(setId)),
           removalWords(liftOf(uid), Number(setId), { lastTakesItem: false }))}

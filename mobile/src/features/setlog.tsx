@@ -36,7 +36,7 @@ import {
   routeLadder, routeSystem, setRouteSystem, ROUTE_SYSTEMS, labelOn, scaleOfExercise,
   climbCount, detailOn, dropClimb, putClimb, climbSaid, saidIn,
   outcomesFor, outcomeOf, outcomeLabel, withOutcome, MAX_CLIMBS,
-  climbsCounted, climbTotals, nearRungs,
+  climbsCounted, climbTotals, nearRungs, anyTold,
 } from '../lib/grades.js'
 
 const FIELD_META: Record<string, { label: string; width?: number; step?: number; kind?: string }> = {
@@ -271,7 +271,7 @@ export function climbWords(c: any) {
  * grade per lap; `onDrop(i)` where a climb can be taken out (the set log, with
  * Undo); workout mode moves the count with its own stepper.
  */
-export function ClimbLog({ count, values, spec, onChange, onMore, onDrop, what = 'climb', where = '', omitGrade = false, initialCurrent = null }: any) {
+export function ClimbLog({ count, values, spec, onChange, onMore, onDrop, what = 'climb', where = '', omitGrade = false, initialCurrent = null, toldElsewhere = false }: any) {
   const [system] = useRouteSystem()
   const scale = spec?.scale === 'v' ? 'v' : 'yds'
   const ladder = ladderFor(scale, system)
@@ -290,7 +290,8 @@ export function ClimbLog({ count, values, spec, onChange, onMore, onDrop, what =
   const untold = current >= 0 ? climbs.filter((c, k) => k > current && !climbSaid(c)).length : 0
   // Once one climb is described the described ones are the count (lib/grades.js
   // `climbsCounted`, #97): the line says the blanks after them do not count.
-  const anySaid = climbs.some((c) => climbSaid(c))
+  // Another set of this exercise described counts too (`anyTold`, #111).
+  const anySaid = climbs.some((c) => climbSaid(c)) || toldElsewhere
   const next = nextBlank >= 0
     ? { label: `Next ${what}`, go: () => setPicked(nextBlank) }
     : onMore ? { label: `Add ${what}`, go: () => { setPicked(count); onMore() } } : null
@@ -510,6 +511,7 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null }: any
     <ClimbLog count={climbCount(r.reps)} values={r[CLIMB_FIELD]}
       spec={exercise.climbLog} what={what} omitGrade={perRep}
       where={rows.length > 1 ? `set ${i + 1} ` : ''}
+      toldElsewhere={anyTold(rows.filter((_: any, j: number) => j !== i))}
       onChange={(list: any) => setList(i, CLIMB_FIELD, list)}
       onDrop={(k: number) => removeClimb(i, k)}
       onMore={climbCount(r.reps) < MAX_CLIMBS ? () => bump(i, 1) : undefined} />
@@ -554,7 +556,7 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null }: any
                     {/* While the detail is on, the climb list IS the count: shown, not typed. */}
                     {f === 'reps' && Array.isArray(r[CLIMB_FIELD]) ? (
                       <View style={[st.numBox, { width: TAP }]} accessibilityLabel={`set ${i + 1} ${colLabel(f)}`}>
-                        <T size={font.input} dim tabular align="center">{String(climbsCounted(r))}</T>
+                        <T size={font.input} dim tabular align="center">{String(climbsCounted(r, rows))}</T>
                       </View>
                     ) : (
                       <NumInput
@@ -589,7 +591,9 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null }: any
       {detailed ? <Btn kind="quiet" title="Count only" onPress={askOff} style={{ alignSelf: 'flex-start' }} /> : null}
 
       <View style={st.foot}>
-        <Btn kind="secondary" icon="Plus" title="Add set" onPress={addSet} />
+        {/* A day of routes is one list (#111, E F2): a card that says `addSets: false`
+            has Add route and no second door that starts "Set 2" at route 1. */}
+        {exercise.addSets !== false ? <Btn kind="secondary" icon="Plus" title="Add set" onPress={addSet} /> : null}
         {/* Off the number row on purpose: the set comes back with Undo. */}
         {/* Any set, picked from a system sheet (the web asks in its foot, #97 F9d);
             the swipe on a row does the same. Every removal comes back with Undo. */}
@@ -665,8 +669,8 @@ export function signedLoad(row: any, sign: string) {
 /** Total completed reps across every exercise; a row with the detail on counts what it counts (#97). */
 export function totalReps(out: any): number {
   return (Object.values(out?.sets || {}) as any[])
-    .flat()
-    .reduce((s: number, r: any) => s + (Array.isArray(r?.[CLIMB_FIELD]) ? climbsCounted(r) : (Number(r?.reps) || 0)), 0)
+    .reduce((s: number, rows: any) => s + (Array.isArray(rows) ? rows : [])
+      .reduce((n: number, r: any) => n + (Array.isArray(r?.[CLIMB_FIELD]) ? climbsCounted(r, rows) : (Number(r?.reps) || 0)), 0), 0)
 }
 
 /**

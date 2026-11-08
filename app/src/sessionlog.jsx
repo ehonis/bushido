@@ -26,6 +26,7 @@ import { GearPicker } from './gearpicker.jsx'
 import { WhoopWorkouts } from './whoop.jsx'
 import { StravaActivities } from './strava.jsx'
 import { dayWords } from './lib/dates.js'
+import { isSharedEntry } from './lib/shared.js'
 
 
 /* --------------------------------------------------------------- notes --- */
@@ -633,7 +634,7 @@ export function SessionLog({
             if (f.type === 'lifts') {
               return (
                 <LiftLog key={f.key} field={f} out={out} entries={entries} entryId={entry?.id}
-                  onSave={onSave} hints={hints} />
+                  onSave={onSave} hints={hints} grow={!isSharedEntry(entry)} />
               )
             }
             // A number the app can work out gets it as a PLACEHOLDER — average

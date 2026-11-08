@@ -21,6 +21,8 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const { act, useState } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { Modal, FullScreen, Popover, EDIT_SETTLE_MS } = await import('./src/modal.jsx')
+const { NumInput } = await import('./src/numinput.jsx')
+const { TimeInput, Stepper } = await import('./src/exercises.jsx')
 
 const tests = []
 const test = (name, fn) => tests.push([name, fn])
@@ -105,6 +107,46 @@ test('both layers: a box still focused after the change keeps the footer hidden'
   await wait(EDIT_SETTLE_MS + 150)
   assert.equal(host.querySelector('.modal-foot'), null, 'the footer came back under a box still being typed in')
   await done()
+})
+
+test('#111 B F2: a tap on a number box selects it, so typing replaces the number (as the phone does)', async () => {
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  let got = null
+  let focused = 0
+  function Boxes() {
+    const [v, setV] = useState(0)
+    got = v
+    return (
+      <>
+        <NumInput aria-label="rest" value={v} onChange={setV} onFocus={() => { focused += 1 }} />
+        <TimeInput aria-label="time" value={90} onChange={() => {}} />
+        <Stepper label="lb" value={95} step={5} onChange={() => {}} />
+      </>
+    )
+  }
+  await act(async () => root.render(<Boxes />))
+  for (const label of ['rest', 'time', 'lb']) {
+    const box = host.querySelector(`input[aria-label="${label}"]`)
+    await act(async () => { box.focus() })
+    await wait(5)
+    assert.equal(box.selectionStart, 0, `${label}: the caret is not at the start`)
+    assert.equal(box.selectionEnd, box.value.length, `${label}: "${box.value}" is not selected, so typing appends to it`)
+  }
+  assert.equal(focused, 1, 'the box\'s own onFocus no longer runs')
+  // "0", tapped, then 2: the box holds 2, not 20.
+  const rest = host.querySelector('input[aria-label="rest"]')
+  await act(async () => { rest.focus() })
+  await wait(5)
+  await act(async () => {
+    const v = rest.value.slice(0, rest.selectionStart) + '2' + rest.value.slice(rest.selectionEnd)
+    Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, 'value').set.call(rest, v)
+    rest.dispatchEvent(new win.Event('input', { bubbles: true }))
+  })
+  assert.equal(got, 2, 'tapping 0 and typing 2 stored 20')
+  await act(() => root.unmount())
+  host.remove()
 })
 
 let failed = 0

@@ -214,26 +214,6 @@
   font-size: var(--fs-label); color: var(--ink-dim); line-height: 1; text-align: center;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-/* What a lift's weight means, switched on its own label (#58): now only the
-   runner's (`BigStepper`, a full 44px pill on its own line below). The card's is
-   `.modeswitch`, once per exercise (#93): in a set's cell it was the cell's
-   biggest target and a tap aimed at the number flipped what it meant. */
-.stepper-swap {
-  position: relative; display: inline-block; max-width: 64px;
-  padding: var(--sp-1) var(--sp-1); margin-top: 2px;
-  background: var(--panel-3); border: 1px solid var(--line-strong); border-radius: var(--r-control);
-  color: var(--ink-dim); font: inherit; font-size: var(--fs-label); line-height: 1.2;
-  text-align: center; cursor: pointer;
-}
-.stepper-swap-end { white-space: nowrap; }
-.stepper-swap svg { vertical-align: -1px; margin-left: 2px; }
-.stepper-swap::after { content: ''; position: absolute; inset: -2px -10px -12px; }
-.stepper-swap:hover, .stepper-swap:active { color: var(--ink); }
-.bigstep .stepper-swap {
-  max-width: none; min-height: var(--tap); padding: 0 var(--sp-4); border-radius: var(--r-pill);
-  font-size: var(--fs-label); white-space: nowrap;
-}
-.bigstep .stepper-swap::after { display: none; }
 
 .expick { border: 1px solid var(--line); border-radius: var(--r-control); overflow: hidden; }
 .expick-head { display: flex; gap: var(--sp-2); padding: var(--sp-2); border-bottom: 1px solid var(--line); }
@@ -366,9 +346,12 @@
 /* Reps and weight still share one row at 390px with 44px boxes: reps is two
    digits and keeps its basis, the weight takes the spare width. */
 .presc-sets.doing .presc-set { gap: var(--sp-4); }
-/* 44 + 16 + 134 + 2 + 134 = 330, a 390 phone's whole row: the pair is two
-   steppers, so 2px between them is a seam inside one control. */
-.presc-sets.doing .presc-setfields { gap: 2px; }
+/* The reps' + and the weight's −, the two most-pressed controls, 8px apart
+   (#111): at 2px they read as one strip, and a slip did the opposite thing to the
+   other number. The number boxes give the width for it, not the ✓'s 16:
+   44 + 16 + 130 + 8 + 130 = 328 of a 390 phone's 330, the weight's box taking the
+   last 2 (reps 40 wide, weight 42; both 44 tall, between two 44px buttons). */
+.presc-sets.doing .presc-setfields { gap: var(--sp-2); }
 /* Copy down (#93): its own quiet line under the set it copies, at the row's right
    edge, 16px clear of every stepper above and below (the grid's 8 and its own 8),
    and nowhere near a ✓. At the steppers' left it sat 9px from two reps' +: a low
@@ -377,7 +360,8 @@
   justify-self: end; min-height: var(--tap); padding: 0 var(--sp-3); margin: var(--sp-2) 0;
   font-size: var(--fs-label); color: var(--ink-dim);
 }
-.presc-sets.doing .presc-setfields > .stepper { flex-basis: calc(3 * var(--tap) + 2px); }
+.presc-sets.doing .presc-setfields > .stepper { flex-basis: calc(3 * var(--tap) - 2px); }
+.presc-sets.doing .presc-setfields > .stepper .stepper-mid { min-width: calc(var(--tap) - 4px); }
 .presc-sets.doing .presc-setfields > .stepper:first-child:not(:last-child) { flex-grow: 0; }
 .presc-tick {
   flex: 0 0 auto; width: var(--tap); height: var(--tap); display: grid; place-items: center;
@@ -385,6 +369,8 @@
   color: var(--ink-dim); font: inherit; font-size: var(--fs-label); font-variant-numeric: tabular-nums; cursor: pointer;
 }
 .presc-tick.on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--ink); }
+/* Edited (#111): a number typed or stepped is logged (D11) but not ticked; a tap ticks it. */
+.presc-tick.edited { border: 2px solid var(--accent-line); color: var(--ink); }
 .presc-tickn { line-height: 1; }
 .presc-tick.locked { cursor: default; border-style: dashed; }
 /* Not `.empty`: that is the empty-state component, whose padding made a blank set's ✓ 50×66 and wrapped its row (#93). */

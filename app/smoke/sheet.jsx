@@ -1324,6 +1324,16 @@ export default [
       if (/sess-about/.test(html)) throw new Error('a hangboard card folded its protocol')
       if (html.indexOf('class="sess ') > html.indexOf('class="setlog"')) throw new Error('the hangboard log moved above its protocol')
     }],
+  // A day of routes is one list (#111, E F2): the starter's climbing cards say
+  // `addSets: false`, so Add route is the one door; a card of bouts keeps Add set.
+  ['SetLog(no Add set on a starter climbing card; a card of bouts keeps it)', null, () => {
+    for (const id of ['climb-bouldering', 'climb-routes']) {
+      const html = renderToString(<SetLog session={starter.dailyMenu.find(m => m.id === id)} out={{}} onSave={noop} />)
+      if (/Add set/.test(html)) throw new Error(`${id} offers Add set beside Add route`)
+    }
+    const bouts = renderToString(<SetLog session={plan.dailyMenu.find(m => m.id === 'fun-boulder')} out={{}} onSave={noop} />)
+    if (!/Add set/.test(bouts)) throw new Error('a card that does not say addSets: false lost Add set')
+  }],
   // "Pre-filled from the plan" only where the plan filled something in (#97 review):
   // the starter's Bouldering card has no default count and opens on an empty box.
   ['SetLog(the pre-filled note only when the plan pre-fills)', null, () => {

@@ -6,7 +6,7 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
-const { createDrafts, rememberedModes, keptIdsIn, RESTARTED, CLAIM_MS } = require('./drafts.js')
+const { createDrafts, rememberedModes, rememberedImplements, defaultImplementOf, liftFieldOf, keptIdsIn, RESTARTED, CLAIM_MS } = require('./drafts.js')
 
 let failed = 0
 const ok = (v, m) => { if (!v) throw new Error(m || 'expected truthy') }
@@ -165,6 +165,45 @@ const ASK = { picked: [{ key: 'legs', label: 'Legs', prompt: 'a leg day', catego
     eq(r.pres.blocks[0].items[0].sets, [{ reps: 10 }], 'the revision itself was lost')
     // On disk, so another device or a reopened page sees it.
     eq(JSON.parse(fs.readFileSync(path.join(dir, `${d.id}.json`), 'utf8')).pres.blocks[0].items.map(it => it.weightMode ?? null), [null, 'one', 'one'])
+  })
+
+  await step('a lift the model named no implement for starts where one added by hand does (#111, C F1)', async () => {
+    const field = liftFieldOf(JSON.parse(fs.readFileSync(path.join(__dirname, '../test/fixtures/plan.json'), 'utf8')))
+    const TODAY = '2026-11-08'
+    const squat = { id: 'sq', kind: 'daily', date: '2026-09-17', updatedAt: 'a', data: { out: { lifts: [{ uid: 'sq-1', key: 'back-squat', implement: 'barbell', weightMode: 'side', sets: [{ reps: 10, weight: 95 }] }] } } }
+    const entries = { [squat.id]: squat }
+    const dir = tmp(); const s = createDrafts(); const p = fakePlanner()
+    const d = s.create(dir, ASK, p.fn)
+    await tick()
+    const lift = (o) => ({ kind: 'lift', sets: [{ reps: 10 }], ...o })
+    p.calls[0].resolve({
+      ...PLAN({ blocks: [{ name: 'Main', items: [
+        lift({ name: 'Back squat', exercise: 'back-squat' }),
+        lift({ name: 'Pull-up', exercise: 'pull-up' }),
+        lift({ name: 'Bench press', exercise: 'bench-press' }),
+        lift({ name: 'Split squat', exercise: 'split-squat', implement: 'kettlebell' }),
+      ] }] }),
+      remembered: rememberedModes(entries, TODAY),
+      lifting: { field, last: rememberedImplements(entries, TODAY) },
+    })
+    await tick()
+    const items = s.read(dir, d.id).pres.blocks[0].items
+    eq(items.map(it => it.implement ?? null), ['barbell', 'bodyweight', null, 'kettlebell'],
+      'the squat did not start on the barbell it was last lifted with, the pull-up on its first declared implement, or a named one moved')
+    eq(items[0].weightMode, 'side', 'the remembered mode of the remembered implement was not applied')
+    // The server's rule is the app's, case for case.
+    const { defaultImplement } = await import('../app/src/lib/lifts.js')
+    const log = Object.values(entries)
+    for (const key of ['back-squat', 'pull-up', 'bench-press', 'split-squat', 'plank', 'no-such-exercise']) {
+      eq(defaultImplementOf(field, key, rememberedImplements(entries, TODAY)) || '', defaultImplement(field, key, { entries: log, today: TODAY }) || '', `the server and the app disagree on ${key}`)
+    }
+    // A revision keeps the implement a kept exercise had when the model drops it.
+    const mine = { ...s.read(dir, d.id).pres }
+    s.revise(dir, d.id, { message: 'harder', pres: mine }, p.fn)
+    await tick()
+    p.calls[1].resolve({ ...PLAN({ blocks: [{ name: 'Main', items: [lift({ name: 'Split squat', exercise: 'split-squat' })] }] }), remembered: new Map(), lifting: { field, last: new Map() } })
+    await tick()
+    eq(s.read(dir, d.id).pres.blocks[0].items[0].implement, 'kettlebell', 'a revision lost the implement the exercise had')
   })
 
   await step('weight-mode memory: the server reads a log exactly as the app does (#58)', async () => {

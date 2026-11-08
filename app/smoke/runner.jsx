@@ -66,18 +66,20 @@ export default [
         throw new Error('the weight box is not a text box, so a decimal point will not survive typing')
       }
     }],
-  /* The runner has the same switch, a full 44px, on the plan item (#58). */
-  ['WorkoutRunner(a dumbbell lift: the weight label is the switch)', <PlanProvider plan={plan}><WorkoutRunner session={PLANNED_CARD}
+  /* The runner has the sheet's switch (#111, B F1): beside the implement under
+     the name, worded and with Undo (`modeFlip`); the big weight says only "lb". */
+  ['WorkoutRunner(a dumbbell lift: the meaning switch is by the implement, never under the number)', <PlanProvider plan={plan}><WorkoutRunner session={PLANNED_CARD}
     entry={{ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, plan: normalizePrescription({
       title: 'Legs', blocks: [{ name: 'Main', items: [{ kind: 'lift', exercise: 'bulgarian-split-squat', implement: 'dumbbell',
         weightMode: 'one', sets: [{ reps: 8, weight: 25 }] }] }],
     }, { liftField: liftFieldOf(plan) }) } }}
     entries={rich} onRun={noop} onExit={noop} /></PlanProvider>,
     (html) => {
-      if (!/<button[^>]*class="bigstep-label stepper-swap"/.test(html)) throw new Error('the runner has no weight switch')
-      if (!/Switch to lb per hand/.test(html)) throw new Error('the runner switch does not say what a tap does')
-      const box = (html.match(/class="bigstep-label stepper-swap"[^>]*>(.*?)<\/button>/) || [])[1] || ''
-      if (box.replace(/<[^>]+>/g, '').replace(/<!--.*?-->/g, '').trim() !== '1 DB') throw new Error(`the runner's box says "${box.replace(/<[^>]+>/g, '').replace(/<!--.*?-->/g, '').trim()}"`)
+      const impl = (html.match(/<div class="run-impl">([\s\S]*?)<\/div>/) || [])[1] || ''
+      if (!/<button[^>]*class="modeswitch"[^>]*aria-label="Weight is lb · one dumbbell\. Switch to lb per hand"/.test(impl)) throw new Error('the runner has no meaning switch beside the implement')
+      if (/stepper-swap/.test(html)) throw new Error('the meaning switch is back under the big weight')
+      if ((html.match(/Switch to/g) || []).length !== 1) throw new Error('a second meaning switch is on the set screen')
+      if (!/<span class="bigstep-label">lb<\/span>/.test(html)) throw new Error('the big weight does not say its unit')
       if (!/25 lb · one dumbbell/.test(text(html))) throw new Error('the target does not say one dumbbell')
     }],
   ['WorkoutRunner(a machine lift: no switch)', <PlanProvider plan={plan}><WorkoutRunner session={PLANNED_CARD}

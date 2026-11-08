@@ -56,7 +56,7 @@ import { Icon } from '../lib/icons'
 import { onForeground } from '../lib/foreground'
 import { NumInput } from './numinput'
 import { CUES, primeAudio, resumeAudio, acquireWakeLock, releaseWakeLock } from '../lib/cues'
-import { lastLift, liftFieldOf } from '../lib/lifts.js'
+import { lastLift, liftFieldOf, weightUnit } from '../lib/lifts.js'
 import {
   isLogged, isSkipped, setLine, itemLine, setFieldsFor, measureOfItem, blockTimer, circuitOnly, circuitTiming,
 } from '../lib/prescription.js'
@@ -66,7 +66,7 @@ import { clock } from '../lib/workout.js'
 import { TimerRun, WorkHead, LeaveDialog, leaveActions, ControlRow, setsWord, KIND_COLOR } from './timer'
 import { timingWords } from './circuit'
 import * as trainerLib from '../lib/trainer.js'
-import { Stepper, boxFor, stepBox, TimeInput, weightSwitch, ExerciseSheet, type WeightSwap } from './exercises'
+import { Stepper, boxFor, stepBox, TimeInput, modeFlip, ModeSwitch, ExerciseSheet } from './exercises'
 import { ExerciseBody, musclesOf, muscleWords } from '../lib/bodymap'
 import { usePlan } from '../lib/planctx.jsx'
 import { dayPhrase } from '../lib/dates.js'
@@ -445,7 +445,12 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
     () => (item.exercise ? lastLift(entries, item.exercise, entryId, liftField, item.kind === 'lift' ? measureOfItem(item) : null) : null),
     [entries, item, entryId, liftField])
   const muscles = musclesOf(liftField, item.exercise)
-  const swap = weightSwitch(liftField, item, onPatchItem)
+  /* What the weight means (#111, B F1): the sheet's switch (`modeFlip`: a toast
+     with Undo, through the latest write), beside the implement under the name.
+     It was a pill under the big weight that flipped the meaning in silence. */
+  const patchNow = useRef(onPatchItem)
+  patchNow.current = onPatchItem
+  const flip = modeFlip(liftField, item, (p: any) => patchNow.current(p))
   const [about, setAbout] = useState(false)
 
   const target = setLine(step.set, item)
@@ -489,7 +494,15 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
           <T size={font.screen} weight={600} align="center" style={{ marginTop: space[3], marginBottom: 2 }}>{item.name}</T>
         )}
         {about ? <ExerciseSheet field={liftField} exercise={item.exercise} name={item.name} onClose={() => setAbout(false)} /> : null}
-        {item.implementLabel ? <T size={font.label} dim align="center">{item.implementLabel}</T> : null}
+        {item.implementLabel || flip ? (
+          <View style={st.impl}>
+            {item.implementLabel ? <T size={font.label} dim align="center">{item.implementLabel}</T> : null}
+            {flip ? (
+              <ModeSwitch words={flip.words} onSwitch={flip.onSwitch}
+                aria={`Weight is ${item.weightLabel || 'lb'}. Switch to ${flip.next}`} />
+            ) : null}
+          </View>
+        ) : null}
 
         {/* What it works. Bigger here than anywhere else, because this is the one
             screen the user is looking at while doing it. */}
@@ -509,11 +522,13 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
         {/* The same fields the editor shows, from the same function — a box the
             user can plan in and not record in is worse than no box. */}
         <View style={st.inputs}>
-          {fields.map((f: string) => (
-            <BigStepper key={f} {...boxFor(f, item, step.set)} value={draft?.[f]}
-              swap={f === 'weight' ? swap : null}
-              onChange={(v: any) => onPatch({ [f]: v })} />
-          ))}
+          {fields.map((f: string) => {
+            const b = boxFor(f, item, step.set)
+            return (
+              <BigStepper key={f} {...b} unit={f === 'weight' ? weightUnit(b.label) : null} value={draft?.[f]}
+                onChange={(v: any) => onPatch({ [f]: v })} />
+            )
+          })}
         </View>
 
         {briefing.map((b: any, i: number) => (
@@ -635,8 +650,9 @@ function RunBtn({ kind = 'primary', big, icon, iconSize = 16, label, a11y, onPre
  * length on the floor. Its 56pt number is one of the two sizes above
  * font.stat (the interval timer's clock is the other, docs/DESIGN.md "Type").
  */
-function BigStepper({ label, value, step = 1, min = null, onChange, swap = null, time = false }: {
-  swap?: WeightSwap
+function BigStepper({ label, unit = null, value, step = 1, min = null, onChange, time = false }: {
+  /** The unit said under the number ("lb"); what it means is the implement's switch (#111). */
+  unit?: string | null
   /** A piece's time: a minutes box (`boxFor`, #78), as in the editor. */
   time?: boolean
   label: string
@@ -664,13 +680,7 @@ function BigStepper({ label, value, step = 1, min = null, onChange, swap = null,
           <NumInput accessibilityLabel={label} placeholder="—" placeholderTextColor={colors.inkFaint}
             value={value} onChange={onChange} style={st.bigstepIn} selectTextOnFocus />
         )}
-        {swap ? (
-          <Press onPress={swap.onSwitch} style={st.swap}
-            accessibilityRole="button" accessibilityLabel={`Weight in ${label}. Switch to ${swap.next}`}>
-            <T size={font.label} dim>{swap.box}</T>
-            <Icon name="ArrowLeftRight" size={13} color={colors.inkDim} />
-          </Press>
-        ) : <T size={font.label} dim>{label}</T>}
+        <T size={font.label} dim>{unit ?? label}</T>
       </View>
       <Press onPress={() => bump(1)} style={st.bigstepBtn} accessibilityRole="button" accessibilityLabel={`more ${label}`}>
         <Icon name="Plus" size={26} color={colors.ink} />
@@ -893,6 +903,8 @@ const st = StyleSheet.create({
     minHeight: TAP, paddingHorizontal: space[3], marginVertical: -space[3], borderRadius: radius.pill,
   },
   bodyMap: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[2], marginTop: space[2], marginBottom: 2 },
+  // The web's .run-impl: the implement and its meaning switch under the name (#111).
+  impl: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: space[2] },
   target: { marginTop: space[4], marginBottom: space[2] },
   inputs: { gap: space[4], marginTop: space[3], marginBottom: space[2] },
   bigstep: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[3] },
@@ -901,11 +913,6 @@ const st = StyleSheet.create({
     backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.lineStrong,
   },
   bigstepMid: { flex: 1, maxWidth: 190, alignItems: 'center', gap: space[1] },
-  // The web's .bigstep .stepper-swap: the weight's meaning as a 44px pill (#58).
-  swap: {
-    flexDirection: 'row', alignItems: 'center', gap: space[1], minHeight: TAP, paddingHorizontal: space[4],
-    borderRadius: radius.pill, backgroundColor: colors.panel3, borderWidth: 1, borderColor: colors.lineStrong,
-  },
   bigstepIn: {
     width: '100%', padding: 0, paddingHorizontal: 0, paddingVertical: 0, minHeight: 58, textAlign: 'center',
     backgroundColor: 'transparent', borderWidth: 0, color: colors.ink,

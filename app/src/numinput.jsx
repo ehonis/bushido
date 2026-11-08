@@ -15,7 +15,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { acceptNumberText, numOrNull } from './lib/numtext.js'
 
-export function NumInput({ value, onChange, decimal = true, blank = null, ...rest }) {
+/**
+ * A tap on a number box selects what is in it (#111, B F2), as the phone's
+ * boxes do (`selectTextOnFocus`): tapping "0" and typing 2 stored 20, and 90 →
+ * 95 meant tap, delete, type. iOS Safari puts the caret back after focus, so
+ * the selection is made again once the tap has landed. The box's own `onFocus`
+ * still runs.
+ */
+export const selectOnFocus = (onFocus) => (e) => {
+  const el = e.currentTarget
+  el.select?.()
+  setTimeout(() => { if (el.ownerDocument?.activeElement === el) el.setSelectionRange?.(0, el.value.length) }, 0)
+  onFocus?.(e)
+}
+
+export function NumInput({ value, onChange, decimal = true, blank = null, onFocus, ...rest }) {
   const shown = value === '' || value === null || value === undefined ? '' : String(value)
   const [text, setText] = useState(shown)
   const last = useRef(numOrNull(value))
@@ -36,6 +50,6 @@ export function NumInput({ value, onChange, decimal = true, blank = null, ...res
 
   return (
     <input type="text" inputMode={decimal ? 'decimal' : 'numeric'} value={text}
-      onChange={change} onBlur={() => setText(shown)} {...rest} />
+      onChange={change} onBlur={() => setText(shown)} onFocus={selectOnFocus(onFocus)} {...rest} />
   )
 }

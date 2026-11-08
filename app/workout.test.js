@@ -1373,6 +1373,24 @@ check('with the detail on, the described climbs are the count, never the prefill
   eq(climbsCounted({ reps: 2, grades: [10.2, 10.1] }), 2, 'no detail: the laps are the count')
 })
 
+check('Add set never inflates the count: the described climbs count in every set of the exercise (#111, E F1)', () => {
+  // The regrade's repro: Rock climbing, 2 routes described (5.10 sent, 5.11 fell), Add set.
+  const one = detailOn({ reps: 2 })
+  one.climbs[0] = { ...blankClimb(), grade: 10.2, outcome: 'send' }
+  one.climbs[1] = { ...blankClimb(), grade: 11.2, outcome: 'fell' }
+  const added = detailOn({ reps: 2 })
+  const rows = [one, added]
+  eq(climbTotals(rows).count, 2, 'the copied count in set 2 read as climbs')
+  eq(climbTotals(rows).untold, 2, 'set 2\'s blanks are waiting, not climbed')
+  eq(climbsCounted(added, rows), 0)
+  eq(climbVolume(opt('fun-sport'), { sets: { routes: rows } }), 2, 'Climbs per week charted the copy')
+  eq(lengthsIn(rows), 2)
+  // Nothing described anywhere: every set's count stands, as with the detail off.
+  eq(climbTotals([detailOn({ reps: 4 }), detailOn({ reps: 3 })]).count, 7)
+  // A row without the detail keeps its count beside a described one.
+  eq(climbTotals([one, { reps: 5 }]).count, 7)
+})
+
 check('a blank rep count still offers one picker, and a silly one is capped', () => {
   eq(repCount(''), 1, 'no reps typed must not hide the grade input')
   eq(repCount(0), 1)

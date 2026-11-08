@@ -33,6 +33,7 @@
 
 import { localIso, dayWords } from './dates.js'
 import { isDone } from './store.js'
+import { before } from './order.js'
 
 export const LIFT_FIELD = 'lifts'
 
@@ -525,11 +526,18 @@ export function liftsDone(entry, today = localIso()) {
   for (const b of plan.blocks) {
     for (const it of Array.isArray(b?.items) ? b.items : []) {
       if (it?.kind !== 'lift') continue
-      // Only a row with a number stands for an item: a blank one hides nothing.
+      // A row with a number logged for an item is that item's log.
       const by = logged.find(l => !used.has(l) && (l?.sets || []).some(numbered) && standsFor(l, it))
       if (by) { used.add(by); rows.push(by); continue }
       const row = itemRow(b, it, typedOnly)
-      if (row) rows.push(row)
+      // A BLANK row for it (a circuit's counted exercise, written `{ reps: '' }`
+      // a round for them to fill in, §6.5) hides nothing the plan says, but it
+      // is still this item, never a second exercise (#111, D F2: 3 exercises × 2
+      // rounds read "4 exercises · 8 sets"). The item is read once: its sets
+      // where they count, else the blank row, as before.
+      const blankBy = logged.find(l => !used.has(l) && standsFor(l, it))
+      if (blankBy) used.add(blankBy)
+      if (row || blankBy) rows.push(row || blankBy)
     }
   }
   return [...rows, ...logged.filter(l => !used.has(l))]
@@ -847,13 +855,20 @@ export const liftedLine = (entry, field = null, today = localIso()) => liftsLine
  * as much as a logged row (D11). `measure` keeps a hold's last time to holds: sixty
  * reps of an old Plank is not a number to beat in seconds.
  *
+ * BEFORE the entry being edited (#111, D F3), by the rule "The last 5 times you
+ * did this" uses (lib/order.js `before`): a sheet opened on Nov 7 said "Last
+ * time · Today", and its Use filled Nov 7's blanks from Nov 8. An entry not in
+ * `entries` yet (nothing to compare) is not bounded, as there.
+ *
  * @param {any[]} entries @param {string} key @param {string | null} [excludeId] @param {any} [field]
  * @param {'reps' | 'time' | null} [measure] @param {string} [today]
  */
 export function lastLift(entries = [], key, excludeId = null, field = null, measure = null, today = localIso()) {
   const hits = []
+  const me = excludeId ? entries.find(e => e?.id === excludeId) : null
   for (const e of entries) {
     if (e?.deleted || e?.kind !== 'daily' || e.id === excludeId) continue
+    if (me?.date && !before(e, me)) continue
     for (const l of liftsDone(e, today)) {
       if (liftKeyOf(l) !== key) continue
       if (measure && liftMeasure(l, field) !== measure) continue
@@ -873,15 +888,24 @@ export const lastTimeWhen = (prior, today = localIso()) => (prior?.date ? dayWor
 /**
  * What "use last time" writes (#93): last time's numbers into this exercise's
  * BLANK boxes, set by set (set 3 takes last time's set 3, or its last set when
- * it had fewer), as `[{ setId, patch }]`. It never overwrites a number, never
- * adds a set, and fills the weight only when it means the same thing as last
- * time (the same implement in the same mode): 90 lb per side is not 90 lb on
- * the bar. Empty when there is nothing to fill, which is when the line stops
- * being a button.
+ * it had fewer), as `[{ setId, patch }]`. It never overwrites a number, and
+ * fills the weight only when it means the same thing as last time (the same
+ * implement in the same mode): 90 lb per side is not 90 lb on the bar. Empty
+ * when there is nothing to fill, which is when the line stops being a button.
+ *
+ * `grow` (#111, C F2): "Use" said "3 × 10 @ 95 lb" and wrote 1 × 10, because a
+ * new exercise has one blank set. On a card where nothing is filled in yet
+ * (no number, no mark on any set), it also adds the sets last time had more
+ * of, as `{ add: true, patch }` fills after the others, in order; writers lay
+ * them on with `withFills` (a plan) or `fillLift` (the log). The caller says
+ * when adding a set is its to do: never on a synced workout, where a set added
+ * is structure that crosses to the other person.
  *
  * `item` is the card's (exercises.jsx): `{ kind, implement, weightMode, sets: [{ id, … }] }`.
+ *
+ * @param {any} field @param {any} item @param {any} prior @param {{ grow?: boolean }} [opts]
  */
-export function lastTimeFill(field, item, prior) {
+export function lastTimeFill(field, item, prior, { grow = false } = {}) {
   const rows = (prior?.row?.sets || []).filter(r => num(r?.reps) !== null || num(r?.seconds) !== null || num(r?.weight) !== null)
   if (item?.kind !== 'lift' || !rows.length) return []
   const row = prior.row
@@ -889,13 +913,33 @@ export function lastTimeFill(field, item, prior) {
     && weightModeOf(field, item) === weightModeOf(field, row)
   const count = liftMeasure(row, field) === 'time' ? 'seconds' : 'reps'
   const blank = (v) => v === null || v === undefined || v === ''
-  return (item.sets || []).flatMap((s, i) => {
+  const sets = item.sets || []
+  const fills = sets.flatMap((s, i) => {
     const from = rows[i] || rows.at(-1)
     const patch = {}
     if (count in s && blank(s[count]) && num(from[count]) !== null) patch[count] = num(from[count])
     if ('weight' in s && blank(s.weight) && sameLoad && num(from.weight) !== null) patch.weight = num(from.weight)
     return Object.keys(patch).length ? [{ setId: s.id, patch }] : []
   })
+  const untouched = sets.length > 0 && sets.every(s => !holdsNumber(s) && s?.typed !== true && s?.ticked !== true)
+  if (!grow || !untouched || rows.length <= sets.length) return fills
+  const added = rows.slice(sets.length).flatMap(from => {
+    const patch = {}
+    if (num(from[count]) !== null) patch[count] = num(from[count])
+    if (sameLoad && num(from.weight) !== null) patch.weight = num(from.weight)
+    return Object.keys(patch).length ? [{ setId: null, add: true, patch }] : []
+  })
+  return [...fills, ...added]
+}
+
+/** "Use last time"'s fills (`lastTimeFill`) on a logged lift row (`out.lifts`), added sets included. */
+export function fillLift(list, uid, fills = []) {
+  return fills.reduce((l, f) => {
+    if (!f.add) return setLiftSet(l, uid, Number(f.setId), f.patch)
+    const grown = addLiftSet(l, uid)
+    const n = liftsIn({ [LIFT_FIELD]: grown }).find(x => x.uid === uid)?.sets?.length || 0
+    return setLiftSet(grown, uid, n - 1, f.patch)
+  }, list)
 }
 
 /**
@@ -905,12 +949,17 @@ export function lastTimeFill(field, item, prior) {
  * D11). Any old mark on it goes; a patch that says `typed` (an Undo putting a
  * set back exactly) keeps its own.
  */
-export const withFills = (sets = [], fills = []) => sets.map(s => {
-  const f = fills.find(x => x.setId === s.id)
-  if (!f) return s
-  const { typed: _t, ...rest } = s
-  return { ...rest, ...f.patch }
-})
+export const withFills = (sets = [], fills = []) => {
+  const now = sets.map(s => {
+    const f = fills.find(x => !x.add && x.setId === s.id)
+    if (!f) return s
+    const { typed: _t, ticked: _k, ...rest } = s
+    return { ...rest, ...f.patch }
+  })
+  // Sets "Use" adds (`grow`): the last set's shape, blank as it was, holding the patch; ids are the writer's.
+  const { id: _i, typed: _t, ticked: _k, ...shape } = sets.at(-1) || {}
+  return [...now, ...fills.filter(f => f.add).map(f => ({ ...shape, note: '', ...f.patch }))]
+}
 
 const COPIED = ['reps', 'seconds', 'weight', 'distance']
 const holdsNumber = (s) => COPIED.some(f => num(s?.[f]) !== null)
@@ -947,10 +996,11 @@ export const canCopyDown = (sets = [], i) => holdsNumber(sets[i]) && i + 1 < set
 export const unfills = (sets = [], fills = [], now = withFills(sets, fills)) => fills.flatMap(f => {
   const s = sets.find(x => x.id === f.setId)
   const cur = now.find(x => x.id === f.setId)
-  if (!s || !cur || cur.typed === true) return []
+  if (!s || !cur || cur.typed === true || cur.ticked === true) return []
   if (Object.keys(f.patch).some(k => num(cur[k]) !== num(f.patch[k]))) return []
   const patch = Object.fromEntries(Object.keys(f.patch).map(k => [k, s[k]]))
-  return [{ setId: f.setId, patch: s.typed === true ? { ...patch, typed: true } : patch }]
+  const marks = { ...(s.typed === true ? { typed: true } : {}), ...(s.ticked === true ? { ticked: true } : {}) }
+  return [{ setId: f.setId, patch: { ...patch, ...marks } }]
 })
 
 /**
