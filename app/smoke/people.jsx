@@ -12,10 +12,10 @@ import { WorkoutRunner } from '../src/runner.jsx'
 import { _setMe } from '../src/lib/whoami.js'
 import { normalizePrescription } from '../src/lib/prescription.js'
 import { LogTab } from '../src/log.jsx'
-import { TheirSide } from '../src/sharedwith.jsx'
+import { TheirSide, SharePanel, PersonSwitch, SharedNote, copyReady } from '../src/sharedwith.jsx'
 import { sharedCopy } from '../src/lib/shared.js'
 import {
-  SidesWorkout, PeopleDays, PersonDay, MyAbout, ForChoice, ForLine, SideSwitch, DayHead,
+  SidesWorkout, PeopleDays, PersonDay, MyAbout, ForChoice, ForLine, SideSwitch, DayHead, PersonDayRow, PersonEntryView,
 } from '../src/trainer.jsx'
 import { planPeople, FOR_ME, forWords } from '../src/lib/trainer.js'
 import { PlanProvider } from '../src/lib/planctx.jsx'
@@ -47,14 +47,32 @@ export default [
         onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop} onSaveEntry={noop} />)
     return [
       ['SessionSheet(no "With …" with one person, while acting as someone, or for anyone but the owner)', null, () => {
-        if (/withrow|Add Sam to this workout/.test(sheet({ ...ownerMe, people: [people[0]] }))) throw new Error('"With …" on a one-person install')
-        if (/withrow|to this workout/.test(sheet({ ...ownerMe, id: 'sam', acting: true }))) throw new Error('"With …" while acting as someone')
-        if (/withrow|to this workout/.test(sheet({ id: 'sam', acting: false, owner: false, real: { id: 'sam', name: 'Sam', admin: false }, people: [] }))) throw new Error('"With …" for someone who is not the owner')
+        if (/withrow|share-chip|Add Sam to this workout/.test(sheet({ ...ownerMe, people: [people[0]] }))) throw new Error('"With …" on a one-person install')
+        if (/withrow|share-chip|to this workout/.test(sheet({ ...ownerMe, id: 'sam', acting: true }))) throw new Error('"With …" while acting as someone')
+        if (/withrow|share-chip|to this workout/.test(sheet({ id: 'sam', acting: false, owner: false, real: { id: 'sam', name: 'Sam', admin: false }, people: [] }))) throw new Error('"With …" for someone who is not the owner')
       }],
-      ['SessionSheet("With …" for the owner when someone else is on the install)', null, () => {
+      /*
+       * #80: who is on a workout is ONE chip under the title, beside the done chip,
+       * and everything that changes it is in the panel it opens. Pinned from both
+       * sides: the chip in the header, no "With" section or sync card in the body.
+       */
+      ['SessionSheet(the sharing chip is under the title: "Add someone" for the owner when someone else is on the install)', null, () => {
         const html = sheet(ownerMe)
-        if (!/aria-label="Add Sam to this workout"/.test(html)) throw new Error('no way to add Sam')
-        if (/aria-label="Add Alex to this workout"/.test(html)) throw new Error('the owner was offered as someone to add')
+        const status = html.slice(html.indexOf('class="modal-status"'), html.indexOf('class="modal-body'))
+        if (!/class="share-chip"[^>]*aria-label="Add someone to this workout"/.test(status)) throw new Error('no "Add someone" chip under the title')
+        if (/class="withrow"|<h3>With<\/h3>/.test(html)) throw new Error('the old "With" section is back in the sheet')
+        const panel = renderToString(<SharePanel entry={entry} on={[]} people={[people[1]]} onAdd={noop} onRemove={noop} onSync={noop} onClose={noop} />)
+        if (!/aria-label="Add Sam to this workout"/.test(panel)) throw new Error('the panel has no way to add Sam')
+        if (/Add Alex/.test(panel)) throw new Error('the owner was offered as someone to add')
+      }],
+      ['SessionSheet(on a shared workout the chip says who and whether in sync, in the header, before the person bar)', null, () => {
+        const html = sheet(ownerMe, syncedEntry)
+        const chip = html.indexOf('class="share-chip on"')
+        if (chip < 0 || chip > html.indexOf('class="modal-body')) throw new Error('the sharing chip is not in the header')
+        if (!/with Sam<span class="share-chip-sync"> · in sync<\/span>/.test(html)) throw new Error('the chip does not say "with Sam · in sync"')
+        if (!/ · not in sync/.test(sheet(ownerMe, sharedEntry))) throw new Error('an older share does not say it is not in sync')
+        // The done chip and the sharing chip share one row under the title.
+        if (!/class="sheet-status"><button type="button" class="done-chip/.test(html)) throw new Error('the done chip is not first under the title')
       }],
       ['SessionSheet(the person switcher only on a shared entry)', null, () => {
         if (/personbar/.test(sheet(ownerMe))) throw new Error('a switcher on a workout nobody shares')
@@ -62,9 +80,12 @@ export default [
         if (!/personbar/.test(html)) throw new Error('no switcher on a shared workout')
         const t = text(html)
         if (!/You/.test(t) || !/Sam/.test(t)) throw new Error('the switcher does not name both logs')
-        if (!/aria-label="Take Sam off this workout"/.test(html)) throw new Error('no way to take Sam off')
+        // Taking someone off moved into the panel (#80): never a × beside the workout.
+        if (/Take Sam off/.test(html)) throw new Error('taking Sam off is back on the sheet itself')
+        const panel = renderToString(<SharePanel entry={sharedEntry} on={[{ ...people[1], tone: 1 }]} people={[people[1]]} onAdd={noop} onRemove={noop} onSync={noop} onClose={noop} />)
+        if (!/Take Sam off this workout/.test(text(panel))) throw new Error('no way to take Sam off')
         // And never for anyone else, even on an entry that names someone.
-        if (/personbar/.test(sheet({ ...ownerMe, id: 'sam', acting: true }, sharedEntry))) throw new Error('a switcher while acting as someone')
+        if (/personbar|share-chip/.test(sheet({ ...ownerMe, id: 'sam', acting: true }, sharedEntry))) throw new Error('a switcher or sharing chip while acting as someone')
       }],
       ['SessionSheet(whose side it is stays pinned at the top: each person\'s initial and name, first thing in the sheet)', null, () => {
         const html = sheet(ownerMe, syncedEntry)
@@ -96,16 +117,68 @@ export default [
           if (onSide(sheet(ownerMe, syncedEntry)) !== 'You') throw new Error('reopened on someone no longer on the workout')
         } finally { globalThis.localStorage = prev }
       }],
-      ['SessionSheet(one plain switch: "Sync exercises with Sam", on when added, off on an older share)', null, () => {
-        const on = sheet(ownerMe, syncedEntry)
+      ['SharePanel(one plain switch per person: "Keep exercises in step", on when added, off on an older share; none on the sheet)', null, () => {
+        const panel = (e) => renderToString(<SharePanel entry={e} on={[{ ...people[1], tone: 1 }]} people={[people[1]]} onAdd={noop} onRemove={noop} onSync={noop} onCopy={noop} onClose={noop} />)
+        const on = panel(syncedEntry)
         const toggles = [...on.matchAll(/class="synctoggle"/g)].length
         if (toggles !== 1) throw new Error(`${toggles} sync switches`)
-        if (!/Sync exercises with Sam/.test(text(on))) throw new Error('the switch does not say what it does')
-        if (!/Exercises and sets stay the same on both sides; your numbers stay yours/.test(text(on))) throw new Error('the switch does not say that numbers stay each person\'s own')
+        if (!/Keep exercises in step/.test(text(on))) throw new Error('the switch does not say what it does')
+        if (!/Numbers stay each person.s own/.test(text(on))) throw new Error('the switch does not say that numbers stay each person\'s own')
         if (!/role="switch"[^>]*checked=""/.test(on)) throw new Error('sync is off on a workout someone was just added to')
-        if (/role="switch"[^>]*checked=""/.test(sheet(ownerMe, sharedEntry))) throw new Error('an older share reads as synced')
-        if (/synctoggle/.test(sheet(ownerMe))) throw new Error('a sync switch on a workout nobody shares')
-        if (/synctoggle/.test(sheet({ ...ownerMe, id: 'sam', acting: true }, syncedEntry))) throw new Error('a sync switch while acting as someone')
+        if (/role="switch"[^>]*checked=""/.test(panel(sharedEntry))) throw new Error('an older share reads as synced')
+        // The sync card above the workout is gone (#80): pinned absent from the sheet.
+        if (/synctoggle|Sync exercises with/.test(sheet(ownerMe, syncedEntry))) throw new Error('the sync card is back above the workout')
+      }],
+      ['SessionSheet(the header counts follow the side on screen, never the owner\'s over Sam\'s)', null, () => {
+        const plannedOpt = plan.dailyMenu.find(m => m.id === 'planned')
+        const pres = { title: 'Pull', blocks: [{ id: 'b0', name: 'Pull', items: [
+          { id: 'b0i0', kind: 'lift', name: 'Row', sets: [{ id: 'b0i0s0', reps: 10, weight: 90 }] },
+          { id: 'b0i1', kind: 'lift', name: 'Curl', sets: [{ id: 'b0i1s0', reps: 10, weight: 30 }] }] }] }
+        const mine = { ...syncedEntry, data: { ...syncedEntry.data, optId: 'planned', plan: pres, out: {} } }
+        const draw = () => renderToString(<PlanProvider plan={plan}><SessionSheet opt={plannedOpt} entry={mine} tone="rec" entries={[]} isFuture={false} me={ownerMe}
+          onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop} onSaveEntry={noop} /></PlanProvider>)
+        const head = (html) => text(html.slice(html.indexOf('class="modal-sub'), html.indexOf('class="modal-status')))
+        if (!/2 exercises/.test(head(draw()))) throw new Error(`your side does not count your exercises: ${head(draw())}`)
+        // One fact, so the line fits beside three header buttons at 390px; the block head says the sets.
+        if (/sets/.test(head(draw()))) throw new Error(`the header carries the whole plan line again: ${head(draw())}`)
+        const prev = globalThis.localStorage
+        const saved = { 'bushido:shared-side': JSON.stringify({ [entry.id]: 'sam' }) }
+        globalThis.localStorage = { getItem: (k) => saved[k] ?? null, setItem: (k, v) => { saved[k] = v } }
+        try {
+          if (/exercises|sets/.test(head(draw()))) throw new Error(`Sam's side shows the owner's counts: ${head(draw())}`)
+        } finally { globalThis.localStorage = prev }
+      }],
+      ['SessionSheet("Ask the model" only while the model is on offer (#55, #80))', null, () => {
+        const plannedOpt = plan.dailyMenu.find(m => m.id === 'planned')
+        // A day still to come is planning, where the panel sits on the sheet (#79 puts it
+        // behind the pencil while doing); with the AI off it is nowhere, either way.
+        const mine = (date) => ({ ...entry, id: `daily-${date}`, date, data: { ...entry.data, optId: 'planned', plan: PRESCRIPTION, out: {} } })
+        const draw = (features, date = '2999-01-01') => text(renderToString(<PlanProvider plan={plan}><SessionSheet opt={plannedOpt} entry={mine(date)} tone="rec" entries={[]}
+          isFuture={date > TODAY} me={{ ...ownerMe, features }} onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop} onSaveEntry={noop} /></PlanProvider>))
+        for (const date of ['2999-01-01', TODAY]) {
+          if (/plantalk|Ask the model|Why this session/.test(draw({ ai: false }, date))) throw new Error(`the model panel with the AI off (${date})`)
+        }
+        if (!/Why this session/.test(draw({ ai: true }))) throw new Error('no model panel with the AI on')
+      }],
+      ['copyReady(Copy my exercises waits for THEIR copy: never the last side\'s, never another person\'s with the same entry id)', null, () => {
+        const sam = { id: 'sam', name: 'Sam', entryId: 'daily-x' }
+        const jo = { id: 'jo', name: 'Jo', entryId: 'daily-x' }
+        const copy = { id: 'daily-x', data: {} }
+        if (!copyReady(sam, 'sam', { entry: copy, loading: false, of: 'sam\ndaily-x' })) throw new Error('Sam\'s own copy, read, is not ready')
+        if (copyReady(sam, 'sam', { entry: copy, loading: false, of: 'jo\ndaily-x' })) throw new Error('Jo\'s copy under the same id was taken for Sam\'s')
+        if (copyReady(sam, 'sam', { entry: copy, loading: true, of: null })) throw new Error('ready while Sam\'s copy is still being read')
+        if (copyReady(jo, 'sam', { entry: copy, loading: false, of: 'sam\ndaily-x' })) throw new Error('ready for Jo on Sam\'s side')
+      }],
+      ['PersonSwitch(each side shows its own done state, with words, not colour alone)', null, () => {
+        const html = renderToString(<PersonSwitch on={[{ ...people[1], tone: 1 }]} side={null} onSide={noop} done={{ '': false, sam: true }} />)
+        if (!/aria-label="Sam: done"/.test(html) || !/aria-label="You: not done"/.test(html)) throw new Error('the tabs do not say each side\'s done state')
+        const sam = html.slice(html.indexOf('aria-label="Sam: done"'))
+        if (!/personbar-done/.test(sam.slice(0, sam.indexOf('</button>')))) throw new Error('no tick on Sam\'s tab')
+        const you = html.slice(html.indexOf('aria-label="You: not done"'))
+        if (/personbar-done/.test(you.slice(0, you.indexOf('</button>')))) throw new Error('a tick on a side that is not done')
+        if (/aria-label="Sam/.test(renderToString(<PersonSwitch on={[{ ...people[1], tone: 1 }]} side={null} onSide={noop} />))) {
+          throw new Error('a done state claimed with nothing read')
+        }
       }],
       ['SessionSheet(a shared copy in someone else\'s own log says who it was with)', null, () => {
         const hers = { ...entry, data: { ...entry.data, sharedFrom: { id: 'owner', name: 'Alex' } } }
@@ -136,24 +209,19 @@ export default [
         if (/value="55"/.test(html)) throw new Error('the owner\'s weight is in their plan')
         if (/Copy my exercises/.test(text(html))) throw new Error('a copy button with nothing to copy')
       }],
-      ['TheirSide(copying your exercises over is a button under their log, and says when there is nothing to copy)', null, () => {
-        const draw = (props) => text(renderToString(<PlanProvider plan={plan}>
-          <TheirSide session={plannedOpt()} copy={sharedCopy(entry, { owner: { id: 'owner', name: 'Alex' } })}
-            person={people[1]} ownerOut={{}} onSave={noop} {...props} />
+      ['SharePanel(copying your exercises over is in the panel, with sync off only; never under their log)', null, () => {
+        const plannedOpt = plan.dailyMenu.find(m => m.id === 'planned')
+        const pres = { title: 'Legs', blocks: [{ id: 'b0', items: [{ id: 'b0i0', kind: 'lift', name: 'Goblet squat', sets: [{ id: 'b0i0s0', reps: 10, weight: 55 }] }] }] }
+        const mine = (sync) => ({ ...entry, data: { ...entry.data, optId: 'planned', plan: pres, out: {}, sharedWith: [{ id: 'sam', entryId: entry.id, ...(sync ? { sync: true } : {}) }] } })
+        const panel = (e) => text(renderToString(<SharePanel entry={e} on={[{ ...people[1], tone: 1 }]} people={[people[1]]} onAdd={noop} onRemove={noop} onSync={noop} onCopy={noop} onClose={noop} />))
+        if (!/Copy my exercises to Sam/.test(panel(mine(false)))) throw new Error('no way to copy your exercises over with sync off')
+        if (/Copy my exercises/.test(panel(mine(true)))) throw new Error('a copy button while sync is on: the exercises are already the same')
+        const bare = { ...mine(false), data: { ...mine(false).data, plan: { title: 'Legs', blocks: [] } } }
+        if (/your exercises/i.test(panel(bare))) throw new Error('a workout with no exercises talks about copying them')
+        const theirs = text(renderToString(<PlanProvider plan={plan}>
+          <TheirSide session={plannedOpt} copy={sharedCopy(mine(false), { owner: { id: 'owner', name: 'Alex' } })} person={people[1]} ownerOut={{}} onSave={noop} />
         </PlanProvider>))
-        const plannedOpt = () => plan.dailyMenu.find(m => m.id === 'planned')
-        if (!/Copy my exercises to Sam/.test(draw({ onCopyMine: noop, ownerHasExercises: true }))) throw new Error('no way to copy your exercises over')
-        const done = draw({ onCopyMine: null, ownerHasExercises: true })
-        if (/Copy my exercises/.test(done) || !/Sam has all your exercises/.test(done)) throw new Error('nothing to copy still offers a copy')
-        if (/your exercises/i.test(draw({ onCopyMine: null, ownerHasExercises: false }))) throw new Error('a workout with no exercises talks about copying them')
-      }],
-      ['TheirSide(no "Copy my exercises" while synced: the exercises are already the same)', null, () => {
-        const draw = (props) => text(renderToString(<PlanProvider plan={plan}>
-          <TheirSide session={plan.dailyMenu.find(m => m.id === 'planned')} copy={sharedCopy(entry, { owner: { id: 'owner', name: 'Alex' } })}
-            person={people[1]} ownerOut={{}} onSave={noop} onCopyMine={noop} ownerHasExercises {...props} />
-        </PlanProvider>))
-        if (/Copy my exercises|has all your exercises/.test(draw({ synced: true }))) throw new Error('a copy button while sync is on')
-        if (!/Copy my exercises to Sam/.test(draw({ synced: false }))) throw new Error('no copy button with sync off')
+        if (/Copy my exercises|has all your exercises/.test(theirs)) throw new Error('the copy button is back under their log')
       }],
       ['TheirSide(each exercise shows THEIR last time, from their log, never yours)', null, () => {
         const lf = liftFieldOf(plan)
@@ -180,17 +248,13 @@ export default [
         if (/last \d+ sessions?|nothing written down/i.test(t)) throw new Error('the history header is back to "sessions"')
         if (/last time \(/.test(draw([]).replace(/<[^>]+>/g, ''))) throw new Error('a last time with no history')
       }],
-      ['SessionSheet("With" is a section head, and each person on the workout a person chip with their initial)', null, () => {
-        const html = sheet(ownerMe, syncedEntry)
-        const withRow = html.slice(html.indexOf('class="withrow"'))
-        if (!/^class="withrow"[^>]*><div class="section-head"><h3>With<\/h3>/.test(withRow)) throw new Error(`"With" is not a section head: ${withRow.slice(0, 200)}`)
-        if (!/class="chip personchip on" data-tone="1"><span class="avatar sm" data-tone="1"[^>]*>S<\/span><span class="personchip-name">Sam</.test(html)) {
-          throw new Error('Sam is not a person chip with an initial in Sam\'s colour')
-        }
-        // The old small "👥 With" lead in front of the chips is gone.
-        if (/withrow-lead/.test(html)) throw new Error('the old "With" lead is back')
-        const open = sheet(ownerMe)
-        if (!/class="chip ghost personchip"[^>]*aria-label="Add Sam to this workout"/.test(open)) throw new Error('adding Sam is not a dashed person chip')
+      ['SessionSheet(their own copy says it is in step with the owner\'s, and only while it is)', null, () => {
+        const samMe = { id: 'sam', owner: false, acting: false, real: { id: 'sam', name: 'Sam', admin: false }, people: [] }
+        const hers = (from) => ({ ...entry, data: { ...entry.data, sharedFrom: from } })
+        const t = text(sheet(samMe, hers({ id: 'owner', name: 'Alex', sync: true })))
+        if (!/with Alex/.test(t) || !/Exercises stay in step with Alex’s/.test(t)) throw new Error(`Sam is not told the copy is in step: ${t.slice(0, 300)}`)
+        if (/in step/.test(text(sheet(samMe, hers({ id: 'owner', name: 'Alex', sync: false }))))) throw new Error('"in step" on a copy whose sync is off')
+        if (/in step/.test(text(renderToString(<SharedNote entry={hers({ id: 'owner', name: 'Alex' })} />)))) throw new Error('"in step" on a copy shared before sync')
       }],
       ['SessionSheet(the person bar is a segmented control: the side on screen raised in its person\'s colour, the rule under the bar in it too)', null, () => {
         const html = sheet(ownerMe, syncedEntry)
@@ -394,11 +458,35 @@ export default [
         if (/Nothing|Today/.test(head({}))) throw new Error('a day with something on it has a note')
         if (/Nothing on today/.test(readFileSync(new URL('../src/trainer.jsx', import.meta.url), 'utf8'))) throw new Error('the separate "Nothing on today." line is back')
       }],
-      ['WithControl(the × that takes someone off is a 44px target)', null, () => {
+      ['ShareChip(32px to look at, a 44px target, like the done chip)', null, () => {
         const css = readFileSync(new URL('../src/css/people.css', import.meta.url), 'utf8')
-        const x = (css.match(/\.personchip-x \{[^}]*\}/) || [''])[0]
-        if (!/width: var\(--tap\)/.test(x) || !/height: var\(--tap\)/.test(x)) throw new Error(`the × is smaller than 44px: ${x}`)
-        if (!/\.withrow \.personchip\.on \{[^}]*min-height: var\(--tap\)/.test(css)) throw new Error('the chip does not grow to hold a 44px ×')
+        const chip = (css.match(/\.share-chip \{[^}]*\}/) || [''])[0]
+        if (!/min-height: 32px/.test(chip)) throw new Error(`the chip is not 32px: ${chip}`)
+        if (!/\.share-chip::after \{[^}]*inset: -6px/.test(css)) throw new Error('the chip\'s hit area is not grown to 44px')
+        if (/personchip-x|\.withrow \{/.test(css)) throw new Error('the old "With" chips\' rules are back')
+      }],
+      ['PersonDayRow("Sam\'s day" says each session\'s done state, in words and a tick)', null, () => {
+        const rows = [{ id: 'a', name: 'Pull', done: true }, { id: 'b', name: 'Core & hips', done: false }]
+        const html = renderToString(<PersonDayRow person={people[1]} tone={1} date={TODAY} plan={plan} onOpen={noop} initial={rows} />)
+        if (!/aria-label="Sam&#x27;s day: Pull, done; Core &amp; hips, not done yet"/.test(html)) throw new Error(`the row does not say what is done: ${html.slice(0, 400)}`)
+        if (!/class="peopleday-item done"/.test(html) || !/class="peopleday-item"/.test(html)) throw new Error('no done state on each session')
+      }],
+      ['PersonEntryView(someone\'s session wears the owner\'s sheet parts: done chip under the title, Start or no footer)', null, () => {
+        const opt = plan.dailyMenu.find(m => m.id === 'log-workout')
+        const done = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+          data: { optId: opt.id, name: 'Ride', done: true, out: { activity: 'bike' }, sharedFrom: { id: 'owner', name: 'Alex' } } }
+        const draw = (props) => renderToString(<PlanProvider plan={plan}>
+          <PersonEntryView person={{ id: 'sam', name: 'Sam', tone: 1 }} entry={done} opt={opt} onFlip={noop} onSave={noop} onClose={noop} today={TODAY} me={ownerMe} {...props} />
+        </PlanProvider>)
+        const html = draw({})
+        const status = html.slice(html.indexOf('class="modal-status"'), html.indexOf('class="modal-body'))
+        if (!/class="done-chip on" role="switch" aria-checked="true" aria-label="Sam: Done"/.test(status)) throw new Error('no done chip under the title')
+        if (/Mark undone|Mark done for/.test(text(html).replace(/<[^>]+>/g, ' ')) || /aria-pressed/.test(html)) throw new Error('the old done button is back')
+        if (/modal-foot|sheet-foot/.test(html)) throw new Error('a footer with nothing to start')
+        const started = draw({ onStart: noop })
+        if (!/class="sheet-foot"><button type="button" class="btn">.*Start for Sam/.test(started)) throw new Error('Start is not the one footer action')
+        const later = { ...done, date: '2999-01-01' }
+        if (/done-chip/.test(draw({ entry: later }))) throw new Error('a done chip on a day still to come')
       }],
       ['people.css(no small capitals, and every font size on the type scale)', null, () => {
         const css = readFileSync(new URL('../src/css/people.css', import.meta.url), 'utf8')

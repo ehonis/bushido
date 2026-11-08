@@ -453,7 +453,7 @@ async function waitFor(fn, label, ms = 8000) {
     eq(r.status, 200)
     const { entry } = await r.json()
     // Planning is not completing; sharedFrom is the server's, not the request's.
-    eq([entry.data.done, entry.data.sharedFrom], [false, { id: 'owner', name: 'Alex' }])
+    eq([entry.data.done, entry.data.sharedFrom], [false, { id: 'owner', name: 'Alex', sync: false }], 'a copy before any link names it is not in step')
     eq(samFile().state.entries[shared.id].data.out.distance, 12)
     ok(fs.readdirSync(path.join(two.dataDir, 'users', 'sam', 'backups')).length > backupsBefore, 'no backup before the write')
     eq(ownerFile(), ownerBefore, 'a write for Sam touched the owner\'s log')
@@ -760,7 +760,10 @@ async function waitFor(fn, label, ms = 8000) {
   })
 
   await step('sync: X1, a deadlift set Sam logged offline survives the owner removing Deadlift, on Sam\'s side only', async () => {
-    const { id } = await freshShare('2026-10-24', { sync: true })
+    // A day still to come: an untouched plan there reads as nothing lifted (lib/lifts.js
+    // `liftsDone`), so the owner's removal reaches it. On a done day gone by, its sets
+    // with a number read as lifted and stay (#80; the step after the next one).
+    const { id } = await freshShare('2099-10-24', { sync: true })
     // Sam's phone holds the synced copy (with its base), goes offline, logs 140 on Deadlift.
     const held = theirsOn(id)
     const dl = itemsIn(held).findIndex(i => i.name === 'Deadlift')
@@ -894,6 +897,71 @@ async function waitFor(fn, label, ms = 8000) {
     eq(puts, 2)
     eq((await share2()).map(x => x.status), ['logged'])
     eq(puts, 2, 'the retry after a lost reply wrote again')
+  })
+
+  /*
+   * #80: Sam's weights on a copy, typed before sets got the `typed` mark (the seed's
+   * Hip thrust 50 lb and Leg press 90 lb), are Sam's log. The owner removing the
+   * exercise, then Undo putting it back, must leave them exactly where they were.
+   */
+  await step('sync: Sam\'s unmarked weights survive the owner\'s removal and its Undo, on both logs', async () => {
+    const { id } = await freshShare('2026-10-31', { sync: true })
+    const c = theirsOn(id)
+    const weighed = replan(c, bs => { bs[0].items = bs[0].items.map((i, n) => ({ ...i, sets: i.sets.map(x => ({ ...x, weight: n ? 90 : 50 })) })); return bs })
+    eq((await saveSams(weighed)).status, 200)
+    eq(itemsIn(theirsOn(id)).map(i => i.sets.map(x => [x.weight, x.typed ?? null])), [[[50, null], [50, null]], [[90, null]]], 'the setup did not land unmarked')
+    const before = ownOn(id)
+    eq((await saveOwn(replan(ownOn(id), bs => { bs[0].items = bs[0].items.filter(i => i.name !== 'Squat'); return bs }))).status, 200)
+    eq(namesIn(ownOn(id)), ['Deadlift'], 'the owner\'s removal did not land')
+    eq(namesIn(theirsOn(id)), ['Squat', 'Deadlift'], 'the owner\'s removal took an exercise Sam had put weights on')
+    eq(itemsIn(theirsOn(id))[0].sets.map(x => x.weight), [50, 50], 'Sam\'s weights were lost')
+    // The removal's Undo on the owner's sheet puts the owner's side back exactly.
+    eq((await saveOwn({ ...ownOn(id), data: { ...ownOn(id).data, plan: before.data.plan } })).status, 200)
+    eq(namesIn(ownOn(id)), ['Squat', 'Deadlift'])
+    const samLog = (await (await get(`${two.base}/api/state`, samSays)).json()).state.entries[id]
+    const ownerLog = (await (await get(`${two.base}/api/state`, owns())).json()).state.entries[id]
+    eq(itemsIn(samLog).map(i => i.sets.map(x => x.weight)), [[50, 50], [90]], 'after the Undo Sam\'s copy lost, doubled or moved a set')
+    eq(itemsIn(ownerLog).map(i => i.sets.map(x => x.weight)), [[100, 100], [100]], 'after the Undo the owner\'s side changed')
+    eq(itemsIn(samLog).map(i => i.uid), itemsIn(ownerLog).map(i => i.uid), 'the two sides no longer name the same exercises')
+  })
+
+  /*
+   * #80, the mirror of the step above: the owner's sets on a done day carry no `typed`
+   * mark, and Sam's phone removing the exercise took them. What the app reads as lifted
+   * there (lib/lifts.js liftsDone) is the owner's log, and a carry never removes it.
+   */
+  await step('sync: Sam\'s phone removing an exercise never takes the owner\'s lifted sets on a done day', async () => {
+    const { id } = await freshShare('2026-11-02', { sync: true })
+    eq(itemsIn(ownOn(id)).find(i => i.name === 'Deadlift').sets.map(x => [x.weight, x.typed ?? null]), [[100, null]], 'the setup is not an unmarked set')
+    eq((await saveSams(replan(theirsOn(id), bs => { bs[0].items = bs[0].items.filter(i => i.name !== 'Deadlift'); return bs }))).status, 200)
+    eq(namesIn(theirsOn(id)), ['Squat'], 'Sam\'s own removal did not land on Sam\'s side')
+    eq(namesIn(ownOn(id)), ['Squat', 'Deadlift'], 'Sam\'s removal took the owner\'s lifted Deadlift')
+    eq(itemsIn(ownOn(id)).find(i => i.name === 'Deadlift').sets.map(x => x.weight), [100], 'the owner\'s weights changed')
+    // A set fewer over there leaves the owner's lifted sets as they are.
+    eq((await saveSams(replan(theirsOn(id), bs => { bs[0].items[0] = { ...bs[0].items[0], sets: bs[0].items[0].sets.slice(0, 1) }; return bs }))).status, 200)
+    eq(itemsIn(ownOn(id))[0].sets.map(x => x.weight), [100, 100], 'Sam\'s set removal took a lifted set of the owner\'s')
+  })
+
+  await step('sync: Sam\'s copy says whether it is in step with the owner\'s, and only the server says so (#80)', async () => {
+    const { id } = await freshShare('2026-11-01', { sync: true })
+    eq(theirsOn(id).data.sharedFrom.sync, true, 'a copy shared with sync on does not say it is in step')
+    const was = theirsOn(id).updatedAt
+    eq((await saveOwn({ ...ownOn(id), data: { ...ownOn(id).data, sharedWith: [{ id: 'sam', entryId: id }] } })).status, 200)
+    eq(theirsOn(id).data.sharedFrom.sync, false, 'sync switched off, the copy still says it is in step')
+    ok(theirsOn(id).updatedAt > was, 'the flag changed without a newer stamp, so Sam\'s phone keeps the old one')
+    // Sam's stale phone still holds the copy from before, flag and all, and saves it.
+    const stale = { ...theirsOn(id), data: { ...theirsOn(id).data, sharedFrom: { id: 'owner', name: 'Someone else', sync: true }, out: { rpe: 6 } } }
+    eq((await saveSams(stale)).status, 200)
+    eq([theirsOn(id).data.sharedFrom, theirsOn(id).data.out.rpe], [{ id: 'owner', name: 'Alex', sync: false }, 6], 'a device\'s word replaced the server\'s')
+    // The owner writing Sam's side through the people route gets the same answer.
+    eq((await post('sam', { ...theirsOn(id), updatedAt: tick(), data: { ...theirsOn(id).data, out: { rpe: 7 } } })).status, 200)
+    eq(theirsOn(id).data.sharedFrom.sync, false)
+    eq((await saveOwn({ ...ownOn(id), data: { ...ownOn(id).data, sharedWith: [{ id: 'sam', entryId: id, sync: true }] } })).status, 200)
+    eq(theirsOn(id).data.sharedFrom.sync, true, 'sync switched back on, the copy does not say so')
+    // Taken off (the copy kept, because Sam logged on it): no longer in step.
+    eq((await saveOwn({ ...ownOn(id), data: { ...ownOn(id).data, sharedWith: [] } })).status, 200)
+    eq(theirsOn(id).data.sharedFrom.sync, false, 'taken off, the copy still says it is in step')
+    eq(ownOn(id).data.sharedFrom, undefined, 'the owner\'s own entry was flagged')
   })
 
   /* ------------------------------------------ the owner as trainer (peopleRoute) */
@@ -1492,7 +1560,7 @@ process.stdin.on('end', () => {
     eq(ownerSide.data.plan.draftId, ready.id, 'the owner\'s entry lost the draft id')
     const samSide = samFileNow()[id]
     ok(samSide && !samSide.deleted, 'Sam has no copy')
-    eq([samSide.data.done, samSide.data.sharedFrom, samSide.data.plan.draftId], [false, { id: 'owner', name: 'Alex' }, undefined])
+    eq([samSide.data.done, samSide.data.sharedFrom, samSide.data.plan.draftId], [false, { id: 'owner', name: 'Alex', sync: true }, undefined])
     const uids = (e) => e.data.plan.blocks.flatMap(b => b.items).map(i => i.uid)
     ok(uids(ownerSide).every(Boolean), 'the owner\'s exercises have no uids')
     eq(uids(samSide), uids(ownerSide), 'the two sides are not one synced structure')

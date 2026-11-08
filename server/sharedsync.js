@@ -54,7 +54,13 @@
  * For a carry, "logged on" includes a lift's set someone typed a number into on
  * the sheet (`typed`, marked by the editor): most sets are filled in there, never
  * through the runner, and the other person's edit must not take them. A target
- * the plan arrived with is not typed, so an untouched set still goes.
+ * the plan arrived with is not typed, so an untouched set still goes. On a
+ * shared copy a weight counts with or without the mark (`ownWeight`): nothing
+ * but its own person ever puts one there. And on EITHER side, whatever the app
+ * reads as lifted there (lib/lifts.js `liftsDone`, D11: a done workout's sets
+ * with a number, from the day after; its typed sets on the day) is logged
+ * (`liftedOf`): the owner's sets on a done day carry no mark, and Sam's phone
+ * removing an exercise took them.
  *
  * A RECEIPT FOR EVERY WRITE (`acks` from `onWrite`). A device that goes on
  * editing while its write is on the way keeps its own copy, and with it the
@@ -66,6 +72,9 @@
  * Pure: no fs, no clock except `bump`, no I/O. server.js wires it to the writes.
  */
 'use strict'
+
+// The server's word-for-word copy of the app's `isDone` (app/done.test.js keeps them equal).
+const { isDone } = require('./notify-facts.js')
 
 const BLOCK_KEYS = ['name', 'note', 'category', 'activity']
 // What an exercise IS. The implement is each person's own (one on a barbell,
@@ -290,6 +299,83 @@ function indexPlan(shape) {
  */
 const typedOn = (it, s) => it.kind === 'lift' && isObj(s) && s.typed === true && (!blank(s.reps) || !blank(s.weight) || !blank(s.seconds))
 
+/*
+ * A weight on a lift's set in a SHARED COPY (an entry with `sharedFrom`): that
+ * person's own number, mark or no mark. A share never copies the owner's weights
+ * (lib/shared.js `theirSet`, `noLoads`), and a set or exercise that arrives over
+ * the sync arrives blank (`newPlanSet`, `freshItem`), so nothing but the person
+ * whose log it is puts a weight there. Numbers typed before the editor marked
+ * sets (`typed`, #72) carry no mark, and an owner's removal used to take them,
+ * and Undo brought the sets back empty. Reps and a hold's seconds are not
+ * enough on their own: the share copies those as the targets (`theirSet`), so
+ * an untouched copy must still follow a removal. The owner's own entry keeps the
+ * `typed` rule: its weights may be targets the planner wrote.
+ */
+const ownWeight = (it, s) => it.kind === 'lift' && isObj(s) && !blank(s.weight)
+
+/*
+ * WHAT THE APP READS AS LIFTED IS LOGGED (#80, D11). app/src/lib/lifts.js
+ * `liftsDone` is the one reader of what was lifted on an entry: on a planned
+ * workout that is done and dated on or before today, each lift item's sets with
+ * a number (only the typed ones on its own day), or the logged row that stands
+ * for it. A carry must never remove what that reader counts: the owner's sets on
+ * a done day carry no `typed` mark (they were typed before the mark, or done as
+ * written), and Sam's phone removing an exercise deleted them. `liftedOf` is
+ * that reading, here because the server has no app imports; server/sharedsync.test.js
+ * holds it equal to `liftsDone`. A plan for today nobody has touched, or for a
+ * later day, reads as nothing lifted, so it still follows every removal.
+ */
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
+const numOf = (v) => {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+const numbered = (s) => isObj(s) && (numOf(s.reps) !== null || numOf(s.seconds) !== null || numOf(s.weight) !== null)
+const hasUid = (l) => l?.uid !== undefined && l?.uid !== null && l?.uid !== ''
+const standsFor = (l, it) => (hasUid(l) ? l.uid === it.id || (Boolean(it.uid) && l.uid === it.uid) : Boolean(l?.key) && l.key === it.exercise)
+/** A circuit item counts once a round, by its one timing set (lifts.js `itemRow`). */
+const circuitCounts = (b, it, typedOnly) => {
+  const s0 = isObj(it.sets?.[0]) ? it.sets[0] : {}
+  if (typedOnly && s0.typed !== true) return false
+  const reps = numOf(s0.reps)
+  return numOf(s0.seconds) > 0 || reps > 0 || numOf(b.circuit?.work) > 0
+}
+
+/**
+ * item uid → indexes of its sets the app reads as lifted on `entry` (`{ date,
+ * data }`) as of `today`. Empty unless it is a done plan dated on or before today.
+ */
+function liftedOf(entry, today) {
+  const out = new Map()
+  const data = entry?.data
+  if (!hasPlan(data) || !ISO_DAY.test(String(entry?.date || '')) || !(entry.date <= today) || !isDone(entry, today)) return out
+  const typedOnly = entry.date === today
+  const logged = liftsOf(data) || []
+  const used = new Set()
+  for (const b of blocksOf(data.plan)) {
+    for (const it of itemsOf(b)) {
+      if (it.kind !== 'lift') continue
+      const idx = new Set()
+      const by = logged.find(l => !used.has(l) && setsOf(l).some(numbered) && standsFor(l, it))
+      if (by) {
+        used.add(by)
+        const n = Math.min(setsOf(by).filter(numbered).length, setsOf(it).length)
+        for (let i = 0; i < Math.max(1, n); i++) idx.add(i)
+      } else if (b.circuit) {
+        if (circuitCounts(b, it, typedOnly)) idx.add(0)
+      } else {
+        setsOf(it).forEach((x, i) => { if (numbered(x) && (!typedOnly || x.typed === true)) idx.add(i) })
+      }
+      if (idx.size && it.uid) out.set(it.uid, idx)
+    }
+  }
+  return out
+}
+
+/** Today as the server's caller gave it, else the UTC date (the pure module has no timezone). */
+const todayOr = (today) => (typeof today === 'string' && ISO_DAY.test(today) ? today : new Date().toISOString().slice(0, 10))
+
 /**
  * item uid → indexes of its sets this side has logged on: marked in its run,
  * and with `typed` also any lift set with a number in it (`typedOn`). A carry
@@ -299,14 +385,25 @@ const typedOn = (it, s) => it.kind === 'lift' && isObj(s) && s.typed === true &&
  * circuit (one here, or `inCircuit`: item uids in a circuit over there, which
  * covers a block switched to one and an exercise moved into one): an exercise's
  * one set there says how it is timed, and the rounds are the circuit's.
+ * `copy` (a carry onto a shared copy) adds every lift set with a weight on it
+ * (`ownWeight`), under the same circuit rule. `lifted` (`liftedOf`, a carry onto
+ * either side) adds what the app reads as lifted; an exercise in a circuit
+ * there or here keeps only its first set by it, so it stays and the rounds
+ * are still the circuit's.
  */
-function loggedOf(plan, run, typed = false, inCircuit = new Set()) {
+function loggedOf(plan, run, typed = false, inCircuit = new Set(), copy = false, lifted = null) {
   const marked = new Set(Object.keys(run?.sets || {}))
   const out = new Map()
   for (const b of blocksOf(plan)) for (const it of itemsOf(b)) {
     const typing = typed && !b.circuit && !inCircuit.has(it.uid)
     const idx = new Set()
-    setsOf(it).forEach((s, i) => { if ((s?.id && marked.has(s.id)) || (typing && typedOn(it, s))) idx.add(i) })
+    setsOf(it).forEach((s, i) => {
+      if ((s?.id && marked.has(s.id)) || (typing && (typedOn(it, s) || (copy && ownWeight(it, s))))) idx.add(i)
+    })
+    for (const i of lifted?.get(it.uid) || []) {
+      if (b.circuit || inCircuit.has(it.uid)) { idx.add(0); break }
+      idx.add(i)
+    }
     if (idx.size) out.set(it.uid, idx)
   }
   return out
@@ -496,8 +593,8 @@ function applyLifts(target, base, next, src, protect) {
  * (lib/shared.js `SHARED_OUT_KEYS`, #74) files under nothing until it does.
  * Never on its own write, and never over a kind that side chose.
  */
-function carry(target, before, after) {
-  const next = carryShape(target, before, after)
+function carry(target, before, after, at = null) {
+  const next = carryShape(target, before, after, at)
   return next === target ? target : withKind(next, after)
 }
 
@@ -509,7 +606,12 @@ function withKind(data, from) {
   return Object.keys(kind).length ? { ...data, out: { ...out, ...kind } } : data
 }
 
-function carryShape(target, before, after) {
+/**
+ * `at` is `{ date, today }`: the receiving entry's day and the server's today,
+ * for what the app reads as lifted there (`liftedOf`). Without a date nothing
+ * is read as lifted (an entry with no day is no day's workout).
+ */
+function carryShape(target, before, after, at = null) {
   const next = shapeOf(after)
   if (!isObj(target) || !next) return target
   if (next.plan) {
@@ -521,7 +623,8 @@ function carryShape(target, before, after) {
     const tPlan = hasPlan(target) ? target.plan : { ...meta, why: '', notes: [], blocks: [] }
     const base = hasPlan(target) ? (before?.plan || []) : []
     const inCircuit = new Set(next.plan.filter(b => b.circuit).flatMap(b => b.items.map(i => i.uid)))
-    const plan = reindex(applyPlan(tPlan, base, next.plan, after.plan, loggedOf(tPlan, target.run, true, inCircuit)))
+    const lifted = at?.date ? liftedOf({ date: at.date, data: target }, todayOr(at.today)) : null
+    const plan = reindex(applyPlan(tPlan, base, next.plan, after.plan, loggedOf(tPlan, target.run, true, inCircuit, isObj(target.sharedFrom), lifted)))
     if (same(plan, target.plan)) return target
     const data = { ...target, plan }
     if (target.run) data.run = remapRun(target.run, tPlan, plan)
@@ -671,7 +774,7 @@ function keepStructure(stored, incoming) {
  * exercise and set of the owner's it lacks. Only adds, like "Copy my
  * exercises", which sync replaces; from then on changes travel both ways.
  */
-function align(owner, copy) {
+function align(owner, copy, at = null) {
   const o = shapeOf(owner)
   if (!o || !isObj(copy)) return copy
   if (o.plan) {
@@ -681,12 +784,12 @@ function align(owner, copy) {
     const count = new Map(cs.flatMap(b => b.items.map(i => [i.uid, i.sets])))
     const base = o.plan.filter(b => blocks.has(b.uid))
       .map(b => ({ ...b, items: b.items.filter(i => count.has(i.uid)).map(i => ({ ...i, sets: Math.min(i.sets, count.get(i.uid)) })) }))
-    return carry(c, { plan: base }, owner)
+    return carry(c, { plan: base }, owner, at)
   }
   const cs = shapeOf(copy)?.lifts || []
   const count = new Map(cs.map(l => [l.uid, l.sets]))
   const base = o.lifts.filter(l => count.has(l.uid)).map(l => ({ ...l, sets: Math.min(l.sets, count.get(l.uid)) }))
-  return carry(copy, { lifts: base }, owner)
+  return carry(copy, { lifts: base }, owner, at)
 }
 
 /* ----------------------------------------------------- whole-log writes */
@@ -817,7 +920,9 @@ function ackFor(id, sent, stored, intent) {
 function receive(state, entryId, c, accept) {
   const e = state.entries?.[entryId]
   if (!e || e.deleted || e.kind !== 'daily' || !isObj(e.data) || !accept(e)) return state
-  const data = c.align ? align(c.after, e.data) : carry(stampData(e.data, c.after), c.before, c.after)
+  // Only synced links carry, so a copy that receives one is in step (`flagged`).
+  const at = { date: e.date, today: c.today }
+  const data = flagged(c.align ? align(c.after, e.data, at) : carry(stampData(e.data, c.after), c.before, c.after, at), true)
   const base = nextBase(entryId, e.data.syncBase, data)
   const out = { ...data }
   if (base) out.syncBase = base
@@ -826,4 +931,67 @@ function receive(state, entryId, c, accept) {
   return { ...state, entries: { ...state.entries, [entryId]: { ...e, data: out, updatedAt: bump(e.updatedAt) } } }
 }
 
-module.exports = { shapeOf, stampData, carry, rebase, intentOf, nextBase, align, syncedLinks, onWrite, receive, bump }
+/* ------------------------------------------- the copy says it is in step */
+
+/*
+ * THE OTHER SIDE IS TOLD (#80). Sync lives on the owner's link, which the other
+ * person cannot read, so their own sheet could not say that adding or removing
+ * an exercise there changes the owner's workout too. The server keeps the answer
+ * on the copy: `sharedFrom.sync`, true while a synced link names it and false
+ * otherwise. Like `sharedFrom` itself it is the server's word, never the
+ * request's: it is set on every write to a copy (`flagged`), on a carry into
+ * one, and on the copy whose link the owner switched (`flagChanges`). A copy
+ * written before #80 has no flag; the app reads its `syncBase` instead (only
+ * sync ever writes one), lib/shared.js `inStep`.
+ */
+
+/**
+ * `data` with `sharedFrom.sync` saying `synced`, and with `stamp` (`{ id, name }`,
+ * the owner from users.json) over whatever a device sent for who it came from;
+ * the same object when it already says so, or is no copy.
+ */
+function flagged(data, synced, stamp = null) {
+  const from = data?.sharedFrom
+  if (!isObj(from)) return data
+  const next = { ...from, ...(stamp ? { id: stamp.id, name: stamp.name } : {}), sync: Boolean(synced) }
+  return same(next, from) ? data : { ...data, sharedFrom: next }
+}
+
+/** Every link on an owner's entry with its sync flag: `[{ id, entryId, sync }]`. */
+function allLinks(entry) {
+  const raw = entry && !entry.deleted && Array.isArray(entry.data?.sharedWith) ? entry.data.sharedWith : []
+  return raw.filter(r => isObj(r) && r.id).map(r => ({ id: String(r.id), entryId: String(r.entryId || entry.id), sync: r.sync === true }))
+}
+
+/**
+ * The copies whose flag an owner's write changed (`prev` → `next`, the ids it
+ * carried): sync switched, someone added or taken off, the entry removed.
+ * `[{ personId, entryId, sync }]`.
+ */
+function flagChanges(prev, next, ids) {
+  const out = []
+  for (const id of ids) {
+    const was = new Map(allLinks(prev.entries?.[id]).map(l => [`${l.id}\n${l.entryId}`, l.sync]))
+    const now = new Map(allLinks(next.entries?.[id]).map(l => [`${l.id}\n${l.entryId}`, l.sync]))
+    for (const key of new Set([...was.keys(), ...now.keys()])) {
+      if (Boolean(was.get(key)) === Boolean(now.get(key))) continue
+      const [personId, entryId] = key.split('\n')
+      out.push({ personId, entryId, sync: Boolean(now.get(key)) })
+    }
+  }
+  return out
+}
+
+/** A copy in `state` flagged, stamped a millisecond past its own time; `state` unchanged if nothing moves. */
+function flagCopy(state, entryId, synced) {
+  const e = state.entries?.[entryId]
+  if (!e || e.deleted || !isObj(e.data)) return state
+  const data = flagged(e.data, synced)
+  if (data === e.data) return state
+  return { ...state, entries: { ...state.entries, [entryId]: { ...e, data, updatedAt: bump(e.updatedAt) } } }
+}
+
+module.exports = {
+  shapeOf, stampData, carry, rebase, intentOf, nextBase, align, syncedLinks, onWrite, receive, bump,
+  flagged, flagChanges, flagCopy, liftedOf,
+}

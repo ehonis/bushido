@@ -74,13 +74,54 @@ export function sharedPeopleOn(entry, people = []) {
   return sharedWithOf(entry).map(s => ({ ...s, name: people.find(p => p.id === s.id)?.name || s.id }))
 }
 
+/** "Sam", "Sam and Robin", "Sam, Robin and Jo". */
+const namesWords = (names) => (names.length <= 1 ? names.join('')
+  : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`)
+
 /** "with Sam", "with Sam and Robin": small, for a row or a sheet. Null when it is nobody's but yours. */
 export function withLine(entry, people = []) {
   const from = entry?.data?.sharedFrom
   const names = from?.name ? [String(from.name)] : sharedPeopleOn(entry, people).map(p => p.name)
   if (!names.length) return null
-  if (names.length === 1) return `with ${names[0]}`
-  return `with ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+  return `with ${namesWords(names)}`
+}
+
+/**
+ * Is this copy's structure kept in step with the owner's workout? The server's
+ * word (`sharedFrom.sync`, server/sharedsync.js `flagged`, #80), since the link
+ * that says so is on the owner's entry, which this person cannot read. A copy
+ * written before #80 carries no flag: it is in step if the sync ever stamped it
+ * (`syncBase`, which nothing else writes).
+ */
+export function inStep(entry) {
+  const from = entry?.data?.sharedFrom
+  if (!from || typeof from !== 'object') return false
+  if (typeof from.sync === 'boolean') return from.sync
+  return Number.isInteger(entry?.data?.syncBase?.rev) && entry.data.syncBase.rev > 0
+}
+
+/**
+ * The line the other person reads on their own copy, under "with Alex", so they
+ * know that an exercise they add or take off changes the owner's workout too
+ * (#80). Null on a copy that is not in step, and on anything that is no copy.
+ */
+export function inStepLine(entry) {
+  if (!inStep(entry)) return null
+  const name = String(entry.data.sharedFrom.name || '').trim()
+  return name ? `Exercises stay in step with ${name}\u2019s` : 'Exercises stay in step with the workout it was shared from'
+}
+
+/**
+ * The owner's one row about who is on a workout (#80, folded from the "With"
+ * chips and one Sync card per person): "Add someone" with nobody on it,
+ * "with Sam · in sync", "with Sam · not in sync", or, with sync differing,
+ * "with Sam and Jo · Sam in sync". `on` is `sharedPeopleOn(entry, people)`.
+ */
+export function shareSummary(entry, on = []) {
+  if (!on.length) return { title: 'Add someone', sync: null }
+  const synced = on.filter(p => isSynced(entry, p.id)).map(p => p.name)
+  const sync = synced.length === on.length ? 'in sync' : !synced.length ? 'not in sync' : `${namesWords(synced)} in sync`
+  return { title: `with ${namesWords(on.map(p => p.name))}`, sync }
 }
 
 /** The parts of an `out` both people did: the session's identity field plus SHARED_OUT_KEYS. */
@@ -97,8 +138,9 @@ export function hasOwnMarks(entry, session = null) {
   if (!entry || entry.deleted) return false
   if (entry.data?.done === true) return true
   if (entry.data?.run?.startedAt) return true
-  // A number they typed into their plan's sets is their log too (D11).
-  if (planTyped(entry.data?.plan)) return true
+  // A number they typed into their plan's sets is their log too (D11), and on a copy
+  // so is any weight, typed mark or not: a share never copies the owner's (#80).
+  if (planTyped(entry.data?.plan) || (entry.data?.sharedFrom && planWeighed(entry.data?.plan))) return true
   const keys = new Set(SHARED_OUT_KEYS)
   if (session?.nameFrom) keys.add(session.nameFrom)
   for (const [k, v] of Object.entries(entry.data?.out || {})) {
@@ -118,6 +160,10 @@ const blank = (v) => v === undefined || v === null || v === ''
 /** Have they typed a number into any of their plan's sets (`typed`, prescription.js `patchSet`)? */
 const planTyped = (plan) => (plan?.blocks || []).some(b => (b?.items || []).some(it => (it?.sets || [])
   .some(s => s?.typed === true && (!blank(s.reps) || !blank(s.seconds) || !blank(s.weight)))))
+
+/** A weight on any lift set of the plan, marked or not (server/sharedsync.js `ownWeight`). */
+const planWeighed = (plan) => (plan?.blocks || []).some(b => (b?.items || []).some(it => it?.kind === 'lift'
+  && (it?.sets || []).some(s => !blank(s?.weight))))
 
 /** Have they put a number on any of these logged lifts? */
 export const liftsMarked = (lifts) => Array.isArray(lifts)

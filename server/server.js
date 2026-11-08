@@ -1582,12 +1582,43 @@ async function commitSynced(space, ids, merge) {
     const r = sharedSync.onWrite(base, next, ids, syncLinksFor(space))
     carries = r.carries
     acks = r.acks
-    return r.state
+    return space.owner ? r.state : flagWritten(space, r.state, ids)
   })
   for (const c of carries) {
     try { await carryShared(space, c) } catch (err) { console.error('[bushido] shared workout sync failed:', err.message) }
   }
+  // The owner switched sync, added or took someone off: their copy says so (sharedsync.js `flagChanges`).
+  if (space.owner) {
+    for (const f of sharedSync.flagChanges(before, doc.state, ids)) {
+      const person = users.get(f.personId)
+      try {
+        if (person) await commit(spaceFor(person), st => (isCopy(st.entries?.[f.entryId] || {}) ? sharedSync.flagCopy(st, f.entryId, f.sync) : st))
+      } catch (err) { console.error('[bushido] shared workout flag failed:', err.message) }
+    }
+  }
   return { doc, before, acks }
+}
+
+/**
+ * A write to someone's log: every copy it touched says, from the owner's log,
+ * whether its exercises are kept in step (`sharedFrom.sync`), and who it came
+ * from (the owner in users.json, as the people route stamps it), whatever the
+ * device sent. A stale phone cannot say "in step" over a link switched off, or
+ * rename who it was shared by.
+ */
+function flagWritten(space, state, ids) {
+  let ownerLog = null
+  let out = state
+  const owner = users.owner()
+  const stamp = { id: owner.id, name: owner.name }
+  for (const id of ids) {
+    const e = out.entries?.[id]
+    if (!e || e.deleted || !isCopy(e)) continue
+    ownerLog = ownerLog || readStateSync(OWNER_SPACE).state.entries || {}
+    const data = sharedSync.flagged(e.data, Boolean(ownerEntryLinking(ownerLog, space.id, e)), stamp)
+    if (data !== e.data) out = { ...out, entries: { ...out.entries, [id]: { ...e, data } } }
+  }
+  return out
 }
 
 /** A response with the write's receipts, when it has any (sharedsync.js `ackFor`). */
@@ -1595,7 +1626,9 @@ const withAcks = (doc, acks) => (Object.keys(acks || {}).length ? { ...doc, acks
 
 const isCopy = (e) => Boolean(e.data?.sharedFrom)
 
-async function carryShared(from, c) {
+async function carryShared(from, carried) {
+  // The receiving side's today, in the configured timezone, for what it reads as lifted (sharedsync.js `liftedOf`).
+  const c = { ...carried, today: todayKey() }
   if (from.owner) {
     const person = users.get(c.personId)
     if (person) await commit(spaceFor(person), st => sharedSync.receive(st, c.entryId, c, isCopy))

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import {
   sharePeople, sharedWithOf, sharedPeopleOn, withLine, sharedOut, hasOwnMarks, copyIdFor,
   sharedCopy, withSharedPerson, addPerson, removePerson, copyExercises, hasExercises,
-  isSynced, withSync, openSide,
+  isSynced, withSync, openSide, inStep, inStepLine, shareSummary,
 } from './src/lib/shared.js'
 import { withAck, adoptAcks } from './src/lib/store.js'
 import { createCopyQueue, openedCopy } from './src/lib/copyqueue.js'
@@ -495,6 +495,36 @@ test('copying the owner\'s extra sets copies their own last set\'s numbers, not 
   assert.equal(more.length, 2)
   assert.equal(more[0].typed, true, 'their own set lost its mark')
   assert.deepEqual([more[1].reps, more[1].weight, 'typed' in more[1]], [8, 40, false], 'the copied set reads as typed into')
+})
+
+test('a copy says it is in step from the server\'s flag, else from a sync base (#80)', () => {
+  const copy = (from, extra = {}) => ({ id: 'c', data: { sharedFrom: from, ...extra } })
+  assert.equal(inStep(copy({ id: 'owner', name: 'Alex', sync: true })), true)
+  assert.equal(inStep(copy({ id: 'owner', name: 'Alex', sync: false }, { syncBase: { of: 'c', rev: 3, plan: [] } })), false, 'the flag must beat an old base')
+  assert.equal(inStep(copy({ id: 'owner', name: 'Alex' }, { syncBase: { of: 'c', rev: 3, plan: [] } })), true, 'a copy from before the flag, stamped by sync')
+  assert.equal(inStep(copy({ id: 'owner', name: 'Alex' })), false, 'a copy shared before sync existed')
+  assert.equal(inStep({ id: 'o', data: { syncBase: { of: 'o', rev: 2, plan: [] } } }), false, 'the owner\'s own entry is no copy')
+  assert.equal(inStepLine(copy({ id: 'owner', name: 'Alex', sync: true })), 'Exercises stay in step with Alex\u2019s')
+  assert.equal(inStepLine(copy({ id: 'owner', name: 'Alex', sync: false })), null)
+})
+
+test('the owner\'s one sharing row: who, and whether they are in sync (#80)', () => {
+  const e = (links) => ({ id: 'o', data: { sharedWith: links } })
+  assert.deepEqual(shareSummary(e([]), []), { title: 'Add someone', sync: null })
+  const sam = [{ id: 'sam', name: 'Sam' }]
+  assert.deepEqual(shareSummary(e([{ id: 'sam', sync: true }]), sam), { title: 'with Sam', sync: 'in sync' })
+  assert.deepEqual(shareSummary(e([{ id: 'sam' }]), sam), { title: 'with Sam', sync: 'not in sync' })
+  const two = [{ id: 'sam', name: 'Sam' }, { id: 'jo', name: 'Jo' }]
+  assert.deepEqual(shareSummary(e([{ id: 'sam', sync: true }, { id: 'jo' }]), two), { title: 'with Sam and Jo', sync: 'Sam in sync' })
+})
+
+test('a weight on their copy is their mark, typed or not: taking them off asks first (#80)', () => {
+  const plan = (sets) => ({ blocks: [{ id: 'b0', items: [{ id: 'b0i0', kind: 'lift', name: 'Hip thrust', sets }] }] })
+  const copy = (sets) => ({ id: 'daily-2026-11-04', data: { optId: 'planned', done: false, sharedFrom: { id: 'owner' }, plan: plan(sets), out: {} } })
+  assert.equal(hasOwnMarks(copy([{ reps: 10, weight: null }])), false, 'the share\'s target reps are not theirs')
+  assert.equal(hasOwnMarks(copy([{ reps: 10, weight: 50 }])), true, 'Sam\'s weight, typed before the mark, is not a mark')
+  const own = { id: 'x', data: { optId: 'planned', done: false, plan: plan([{ reps: 10, weight: 50 }]), out: {} } }
+  assert.equal(hasOwnMarks(own), false, 'an unmarked weight on an entry that is no copy may be a target')
 })
 
 for (const [name, fn] of tests) {

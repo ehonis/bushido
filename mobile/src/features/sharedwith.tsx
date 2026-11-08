@@ -1,7 +1,14 @@
 /*
- * SHARED WORKOUTS, on the sheet: "With …", the person switcher, and the other
- * person's side of the form. `app/src/sharedwith.jsx`, one to one; the rules are
- * in lib/shared.js and the server's half is `peopleRoute` in server.js.
+ * SHARED WORKOUTS, on the sheet: the sharing chip and its panel, the person
+ * switcher, and the other person's side of the form. `app/src/sharedwith.jsx`,
+ * one to one; the rules are in lib/shared.js and the server's half is
+ * `peopleRoute` in server.js.
+ *
+ * ONE ROW, NOT A SETUP SECTION (#80): who is on a workout is one chip under the
+ * title beside the done chip ("with Sam · in sync ›", or "Add someone"), opening
+ * `SharePanel` (a page sheet) with the sync switch, Copy my exercises (sync off),
+ * Take Sam off and Add Jo. The "With" chips and the Sync card no longer sit
+ * between the title and the workout.
  *
  * Owner-only, on the owner's own log: `sharePeople(me)` is empty for anyone
  * else, while acting as someone and on a one-person install. The other person's
@@ -17,21 +24,30 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { AppState, StyleSheet, View } from 'react-native'
+import { AppState, ScrollView, StyleSheet, View } from 'react-native'
 import { colors, font, mix, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
-import { Btn, Press, SectionHeader, Spinner, Toggle, s as kit } from '../ui/kit'
+import { Btn, IconBtn, Press, Spinner, Toggle, s as kit } from '../ui/kit'
+import { Popover } from '../ui/Sheet'
+import { confirm } from '../ui/menu'
 import { toneColor } from '../ui/Person'
-import { tap } from '../ui/haptics'
+import { success, tap } from '../ui/haptics'
 import { Icon } from '../lib/icons'
+import { pushToast } from '../lib/toast'
 import { SessionLog } from './sessionlog'
-import { withLine, openSide } from '../lib/shared.js'
+import * as sharedLib from '../lib/shared.js'
+import * as peopleApi from '../lib/peopleapi.js'
 import { getPersonEntry, putPersonEntry, sendPersonEntry } from '../lib/peopleapi.js'
 import { createCopyQueue, openedCopy } from '../lib/copyqueue.js'
-import { withAck } from '../lib/store.js'
+import { withAck, isDone } from '../lib/store.js'
 import * as trainerLib from '../lib/trainer.js'
 
 type Person = { id: string; name: string; entryId?: string; tone?: number }
+
+const {
+  withLine, inStepLine, openSide, shareSummary, isSynced, addPerson, removePerson, withSharedPerson,
+  withSync, copyExercises, hasExercises,
+} = sharedLib as any
 
 /** How often an open side re-reads their copy, for changes made on their own phone. */
 const REREAD_MS = 10000
@@ -44,45 +60,197 @@ export const toneSoft = (tone?: number | null) => mix(toneColor(tone), 16, color
 export const toneLine = (tone?: number | null) => mix(toneColor(tone), 70, colors.line)
 
 /**
- * Who else is on this workout, and the way to add or take off someone: a section
- * head, then one person chip each (× to take them off) and a dashed chip for
- * everyone who could be added.
+ * The owner's one row about who is on this workout, under the title beside the
+ * done chip: "with Sam · in sync ›", or "Add someone" when nobody is. 32pt to
+ * look at, 44 to hit, like the done chip; it opens `SharePanel`. Nothing for
+ * anyone but the owner (`people` is empty).
  */
-export function WithControl({ on = [], people = [], busy = null, error = null, onAdd, onRemove }: {
+export function ShareChip({ entry, on = [], people = [], onOpen }: {
+  entry: any; on?: Person[]; people?: Person[]; onOpen: () => void
+}) {
+  if (!people.length) return null
+  const { title, sync } = shareSummary(entry, on)
+  return (
+    <Press haptic onPress={onOpen} hitSlop={6} accessibilityRole="button"
+      accessibilityLabel={on.length ? `Who is on this workout: ${title}${sync ? `, ${sync}` : ''}` : 'Add someone to this workout'}
+      style={[st.shareChip, { flexShrink: 1 }]}>
+      <Icon name={on.length ? 'Users' : 'UserPlus'} size={16} color={colors.inkFaint} />
+      <T size={font.small} weight={500} color={on.length ? colors.ink : colors.inkDim} numberOfLines={1} style={{ flexShrink: 1 }}>
+        {title}{sync ? <T size={font.small} dim>{` · ${sync}`}</T> : null}
+      </T>
+      <Icon name="ChevronRight" size={14} color={colors.inkFaint} />
+    </Press>
+  )
+}
+
+/**
+ * Everything that changes who is on a workout, and how, behind the sharing chip:
+ * per person their sync switch, "Copy my exercises to Sam" while sync is off,
+ * and "Take Sam off this workout" (which asks first when they have logged on
+ * their copy); then a row for everyone who could be added. A page sheet over
+ * the session sheet, like the exercise sheet.
+ */
+export function SharePanel({ entry, on = [], people = [], busy = null, error = null, onAdd, onRemove, onSync, onCopy = null, onClose }: {
+  entry: any
   on?: Person[]
   people?: Person[]
   busy?: string | null
   error?: string | null
   onAdd: (p: Person) => void
   onRemove: (p: Person) => void
+  onSync: (p: Person, v: boolean) => void
+  onCopy?: ((p: Person) => void) | null
+  onClose: () => void
 }) {
-  if (!people.length) return null
   const free = people.filter((p) => !on.some((o) => o.id === p.id))
   return (
-    <View style={st.with} accessibilityLabel="Who else did this workout">
-      <SectionHeader title="With" right={busy || undefined} style={{ marginTop: space[4] }} />
-      <View style={st.chips}>
-        {on.map((p) => (
-          <View key={p.id} style={[kit.chip, st.personChip, st.onChip, { backgroundColor: toneSoft(p.tone ?? 1), borderColor: toneLine(p.tone ?? 1) }]}>
-            <Avatar name={p.name} tone={p.tone ?? 1} size={22} />
-            <T size={font.small} numberOfLines={1} style={{ flexShrink: 1 }}>{p.name}</T>
-            <Press onPress={() => onRemove(p)} disabled={Boolean(busy)} style={st.x}
-              accessibilityRole="button" accessibilityLabel={`Take ${p.name} off this workout`}>
-              <Icon name="X" size={14} color={colors.inkDim} />
-            </Press>
-          </View>
-        ))}
-        {free.map((p) => (
-          <Press key={p.id} haptic disabled={Boolean(busy)} onPress={() => onAdd(p)} accessibilityRole="button"
-            accessibilityLabel={`Add ${p.name} to this workout`} style={[kit.chip, st.ghostChip]}>
-            <Icon name="Plus" size={14} color={colors.inkFaint} />
-            <T size={font.small} dim>{p.name}</T>
-          </Press>
-        ))}
+    <Popover label="Who is on this workout" onClose={onClose}>
+      <View style={st.panelHead}>
+        <T size={font.title} weight={600} style={{ flex: 1 }}>{on.length ? 'Who is on this workout' : 'Add someone'}</T>
+        <IconBtn icon="X" label="Close" onPress={onClose} size={20} />
       </View>
-      {error ? <T size={font.small} color={colors.bad} style={{ marginTop: space[2] }}>{error}</T> : null}
-    </View>
+      <ScrollView contentContainerStyle={st.panelBody}>
+        {on.map((p, i) => {
+          const synced = isSynced(entry, p.id)
+          return (
+            <View key={p.id} style={[st.panelPerson, i > 0 && st.panelDivider]} accessibilityLabel={p.name}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
+                <Avatar name={p.name} tone={p.tone ?? 1} />
+                <T size={font.body} weight={600}>{p.name}</T>
+              </View>
+              <SyncToggle person={p} on={synced} onChange={(v) => onSync(p, v)} />
+              {!synced && onCopy && hasExercises(entry) ? (
+                <Btn kind="ghost" icon="Copy" title={`Copy my exercises to ${p.name}`} disabled={Boolean(busy)} onPress={() => onCopy(p)} />
+              ) : null}
+              <Btn kind="quiet" icon="UserMinus" title={`Take ${p.name} off this workout`} disabled={Boolean(busy)} onPress={() => onRemove(p)} />
+            </View>
+          )
+        })}
+        {free.length ? (
+          <View style={on.length ? st.panelDivider : null}>
+            {free.map((p) => (
+              <Press key={p.id} haptic disabled={Boolean(busy)} onPress={() => onAdd(p)} accessibilityRole="button"
+                accessibilityLabel={`Add ${p.name} to this workout`} style={kit.row}>
+                <Icon name="UserPlus" size={20} color={colors.inkDim} />
+                <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                  <T size={font.body} weight={500}>{`Add ${p.name}`}</T>
+                  <T size={font.small} dim>{`It goes in ${p.name}’s log; ${p.name} logs their own numbers`}</T>
+                </View>
+              </Press>
+            ))}
+          </View>
+        ) : null}
+        {busy ? <T size={font.small} dim>{busy}</T> : null}
+        {error ? <T size={font.small} color={colors.bad}>{error}</T> : null}
+      </ScrollView>
+    </Popover>
   )
+}
+
+/**
+ * The sharing chip's writes, out of the sheet (#80): add someone, take someone
+ * off, switch sync, copy the owner's exercises over. "Copy my exercises" writes
+ * through the ONE queue a side has, so for someone not on screen it opens their
+ * side first and copies once their copy is read. The panel closes before a
+ * removal asks: a system alert cannot show over a page sheet on its way out.
+ */
+/** Whose copy a person on the workout is, as `usePersonCopy` names the one it holds (`of`). */
+export const copyOf = (person: Person | null) => (person ? `${person.id}\n${person.entryId}` : null)
+
+/**
+ * May "Copy my exercises to `person`" write now? Only on their side, with THEIR
+ * copy read: right after a switch the copy on screen is still the last side's,
+ * and with three people two copies can share an entry id.
+ */
+export const copyReady = (person: Person | null, side: string | null, theirs: any) => Boolean(person && side === person.id
+  && theirs?.entry && !theirs.loading && theirs.of === copyOf(person))
+
+export function useSharing({ entry, opt, me, onSaveEntry, side, setSide, theirs, touch = () => {} }: {
+  entry: any; opt: any; me: any; onSaveEntry?: ((e: any) => void) | null
+  side: string | null; setSide: (id: string | null) => void; theirs: any; touch?: () => void
+}) {
+  const [state, setState] = useState<{ isOpen: boolean; busy: string | null; error: string | null }>({ isOpen: false, busy: null, error: null })
+  const [copyFor, setCopyFor] = useState<Person | null>(null)
+  // The entry as of the latest render: an add or a removal awaits the server.
+  const latest = useRef(entry)
+  latest.current = entry
+  const run = async (verb: string, person: Person, fn: () => Promise<boolean | void>) => {
+    setState((s) => ({ ...s, busy: `${verb} ${person.name}…`, error: null }))
+    try {
+      if (await fn()) success()
+      setState((s) => ({ ...s, busy: null, error: null }))
+    } catch (err: any) {
+      setState((s) => ({ ...s, busy: null, error: `${person.name}: ${err.message}` }))
+    }
+  }
+  const add = (person: Person) => run('Adding', person, async () => {
+    const { copy } = await addPerson({ ownerEntry: latest.current, person, session: opt,
+      owner: { id: me.real.id, name: me.real.name }, api: peopleApi })
+    onSaveEntry?.(withSharedPerson(latest.current, person.id, copy.id))
+    return true
+  })
+  const remove = (person: Person) => {
+    setState((s) => ({ ...s, isOpen: false }))
+    void run('Taking off', person, async () => {
+      const next = await removePerson({ ownerEntry: latest.current, person, session: opt, api: peopleApi,
+        confirmFn: (q: string) => confirm(q, { confirmLabel: 'Take it out' }) })
+      if (!next) return false
+      if (side === person.id) setSide(null)
+      onSaveEntry?.(withSharedPerson(latest.current, person.id, null, { remove: true }))
+      return true
+    })
+  }
+  /* Sync lives on the owner's link; the server does the keeping-the-same (server/sharedsync.js). */
+  const sync = (person: Person, v: boolean) => onSaveEntry?.(withSync(latest.current, person.id, v))
+  const copy = (person: Person) => {
+    touch()
+    setState((s) => ({ ...s, isOpen: false }))
+    setCopyFor(person)
+    if (side !== person.id) setSide(person.id)
+  }
+  // Their side is open and their copy is read: copy now, through its queue, once.
+  useEffect(() => {
+    // Only once the copy on screen IS theirs: right after a switch it is still the last side's.
+    if (!copyFor || !copyReady(copyFor, side, theirs)) return
+    const person: Person = copyFor
+    setCopyFor(null)
+    if (copyExercises(theirs.entry, latest.current) === theirs.entry) { pushToast(`${person.name} has all your exercises`, 'info'); return }
+    // Said once it landed: a write that did not is the copy's own Retry toast.
+    void theirs.update((cur: any) => copyExercises(cur, latest.current)).then((landed: boolean) => {
+      if (!landed) return
+      success()
+      pushToast(`Copied your exercises to ${person.name}`, 'info')
+    })
+  }, [copyFor, side, theirs.entry, theirs.loading, theirs.of]) // eslint-disable-line react-hooks/exhaustive-deps
+  return {
+    ...state,
+    open: () => setState((s) => ({ ...s, isOpen: true, error: null })),
+    close: () => setState((s) => ({ ...s, isOpen: false })),
+    add, remove, sync, copy,
+  }
+}
+
+/**
+ * Each side's done state, for the person switch: the side on screen from what
+ * its copy last read (`server`), everyone else's read once as the sheet opens
+ * and again on every switch. `{ [personId]: boolean }`.
+ */
+export function useSidesDone(on: Person[] = [], sideId: string | null = null, sideServer: any = null) {
+  const [read, setRead] = useState<Record<string, boolean>>({})
+  const key = on.map((p) => `${p.id}:${p.entryId}`).join(',')
+  useEffect(() => {
+    let live = true
+    for (const p of on) {
+      if (p.id === sideId) continue
+      getPersonEntry(p.id, p.entryId)
+        .then((e: any) => { if (live) setRead((r) => ({ ...r, [p.id]: Boolean(e && !e.deleted && isDone(e)) })) })
+        .catch(() => { /* offline: no tick, rather than a wrong one */ })
+    }
+    return () => { live = false }
+  }, [key, sideId]) // eslint-disable-line react-hooks/exhaustive-deps
+  const out: Record<string, boolean> = { ...read }
+  if (sideId && sideServer) out[sideId] = Boolean(!sideServer.deleted && isDone(sideServer))
+  return out
 }
 
 /**
@@ -128,12 +296,13 @@ export function PersonChip({ person, tone = 1, on = false, onPress, tall = false
  * side switcher. The side on screen is raised in that person's colour with their
  * initial filled; the others are outlined. `status` is what each side is doing.
  */
-export function PersonSegmented({ people, side, onSide, label, status = {}, style }: {
+export function PersonSegmented({ people, side, onSide, label, status = {}, done = null, style }: {
   people: { id: string | null; name: string; tone?: number }[]
   side: string | null
   onSide: (id: string | null) => void
   label: string
   status?: Record<string, string>
+  done?: Record<string, boolean> | null
   style?: any
 }) {
   return (
@@ -142,13 +311,17 @@ export function PersonSegmented({ people, side, onSide, label, status = {}, styl
         const sel = (p.id || null) === (side || null)
         const tone = p.tone ?? 1
         const stt = status[p.id || '']
+        // Each side's done state on its own tab (#80), a tick beside the name.
+        const d = done ? done[p.id || ''] : undefined
         return (
           <Press key={p.id || 'you'} accessibilityRole="tab" accessibilityState={{ selected: sel }}
+            accessibilityLabel={d === undefined ? undefined : `${p.name}: ${d ? 'done' : 'not done'}`}
             onPress={() => { if (!sel) { tap(); onSide(p.id || null) } }}
             style={[kit.seg, { flex: 1, minHeight: TAP, gap: space[2] },
               sel && { backgroundColor: toneSoft(tone), borderWidth: 1, borderColor: toneLine(tone) }]}>
             <Avatar name={p.name} tone={tone} outline={!sel} />
             <T size={font.body} weight={sel ? 600 : 400} color={sel ? colors.ink : colors.inkDim} numberOfLines={1} style={{ flexShrink: 1 }}>{p.name}</T>
+            {d === true ? <Icon name="CircleCheck" size={16} color={sel ? colors.ink : colors.inkDim} /> : null}
             {stt ? <T size={font.caption} dim tabular>{stt}</T> : null}
           </Press>
         )
@@ -161,30 +334,32 @@ export function PersonSegmented({ people, side, onSide, label, status = {}, styl
  * You / Sam, at the top of a shared workout's sheet, with a rule in the picked
  * person's colour under it. Nothing without someone on it. `on` people carry `tone`.
  */
-export function PersonSwitch({ on = [], side = null, onSide }: {
+export function PersonSwitch({ on = [], side = null, onSide, done = null }: {
   on?: Person[]
   side?: string | null
   onSide: (id: string | null) => void
+  done?: Record<string, boolean> | null
 }) {
   if (!on.length) return null
   const who = [{ id: null as string | null, name: 'You', tone: 0 }, ...on.map((p) => ({ id: p.id as string | null, name: p.name, tone: p.tone ?? 1 }))]
   const current = who.find((p) => (p.id || null) === (side || null)) || who[0]
   return (
     <View style={{ marginTop: 10 }}>
-      <PersonSegmented people={who} side={side || null} onSide={onSide} label="Whose log this is" />
+      <PersonSegmented people={who} side={side || null} onSide={onSide} label="Whose log this is" done={done} />
       <View style={[st.rule, { backgroundColor: toneColor(current.tone) }]} />
     </View>
   )
 }
 
-/** "Sync exercises with Sam": one switch per person on the workout. */
+/** "Keep exercises in step": one switch per person, in the sharing panel. */
 export function SyncToggle({ person, on, onChange }: { person: Person; on: boolean; onChange: (v: boolean) => void }) {
   return (
     <View style={st.sync}>
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-        <T size={font.body} weight={600}>{`Sync exercises with ${person.name}`}</T>
+        <T size={font.body} weight={600}>Keep exercises in step</T>
         <T size={font.small} dim>
-          {on ? 'Exercises and sets stay the same on both sides; your numbers stay yours.' : 'Off: changes stay on the side you make them.'}
+          {on ? `Exercises and sets added or removed on your side or ${person.name}’s show on both. Numbers stay each person’s own.`
+            : 'Off: changes stay on the side you make them.'}
         </T>
       </View>
       <Toggle value={on} onChange={onChange} />
@@ -219,10 +394,21 @@ export function useSide(entryId: string | null | undefined, on: Person[] = []): 
 export function SharedNote({ entry, people = [] }: { entry: any; people?: Person[] }) {
   const line = withLine(entry, people)
   if (!line) return null
+  // On a copy in step with the owner's (#80): say so, so an exercise added or
+  // taken off here is known to change the owner's workout too.
+  const step = inStepLine(entry)
   return (
-    <View style={st.note}>
-      <Icon name="Users" size={12} color={colors.inkFaint} />
-      <T size={font.caption} faint>{line}</T>
+    <View style={{ marginBottom: space[3], gap: space[1] }}>
+      <View style={[st.note, { marginBottom: 0 }]}>
+        <Icon name="Users" size={12} color={colors.inkFaint} />
+        <T size={font.caption} faint>{line}</T>
+      </View>
+      {step ? (
+        <View style={[st.note, { marginBottom: 0 }]}>
+          <Icon name="Repeat" size={12} color={colors.inkFaint} />
+          <T size={font.caption} faint>{step}</T>
+        </View>
+      ) : null}
     </View>
   )
 }
@@ -238,8 +424,10 @@ export function usePersonCopy(personId?: string | null, entryId?: string | null,
   // `server` is what the server last said, apart from `entry`, which may hold a
   // write still on its way (or one that never landed): a side's "done" and a
   // circuit done together read `server`.
-  const [state, setState] = useState<{ entry: any; server: any; loading: boolean; error: string | null }>(
-    () => ({ entry: null, server: null, loading: Boolean(personId && entryId), error: null }))
+  // `of` is whose copy `entry` is ("<person>\n<entry id>"): entry ids repeat across
+  // people (`daily-<date>`), and for a render after a switch `entry` is still the last one's.
+  const [state, setState] = useState<{ entry: any; server: any; loading: boolean; error: string | null; of: string | null }>(
+    () => ({ entry: null, server: null, loading: Boolean(personId && entryId), error: null, of: null }))
   const latest = useRef<any>(null)
   // Who the copy on screen belongs to, for answers that land after the sheet switched sides.
   const owner = useRef<string | null>(null)
@@ -270,9 +458,9 @@ export function usePersonCopy(personId?: string | null, entryId?: string | null,
   useEffect(() => {
     latest.current = null
     early.current = null
-    if (!personId || !entryId) { setState({ entry: null, server: null, loading: false, error: null }); return undefined }
+    if (!personId || !entryId) { setState({ entry: null, server: null, loading: false, error: null, of: null }); return undefined }
     let live = true
-    setState({ entry: null, server: null, loading: true, error: null })
+    setState({ entry: null, server: null, loading: true, error: null, of: null })
     getPersonEntry(personId, entryId)
       .then((e: any) => {
         if (!live) return
@@ -280,9 +468,9 @@ export function usePersonCopy(personId?: string | null, entryId?: string | null,
         const mine = openedCopy(e, queue.current.newest(personId, entryId), early.current)
         early.current = null
         latest.current = mine
-        setState({ entry: mine, server: e, loading: false, error: null })
+        setState({ entry: mine, server: e, loading: false, error: null, of: `${personId}\n${entryId}` })
       })
-      .catch((err: any) => { if (live) setState({ entry: null, server: null, loading: false, error: `Could not open ${name || 'their'} log: ${err.message}` }) })
+      .catch((err: any) => { if (live) setState({ entry: null, server: null, loading: false, of: null, error: `Could not open ${name || 'their'} log: ${err.message}` }) })
     // Re-read while open (and in the foreground), never over an edit still on its way.
     const iv = setInterval(() => {
       if (queue.current.busy || AppState.currentState !== 'active') return
@@ -363,8 +551,7 @@ export function TogetherPending({ entry, session = null }: { entry: any; session
  * on there is nothing to copy.
  */
 export function TheirSide({
-  session, copy, loading = false, error = null, person, ownerOut, entries = [], onSave,
-  plan = null, onCopyMine = null, ownerHasExercises = false, synced = false,
+  session, copy, loading = false, error = null, person, ownerOut, entries = [], onSave, plan = null,
 }: {
   session: any
   copy: any
@@ -375,9 +562,6 @@ export function TheirSide({
   entries?: any[]
   onSave: (out: any) => void
   plan?: React.ReactNode
-  onCopyMine?: (() => void) | null
-  ownerHasExercises?: boolean
-  synced?: boolean
 }) {
   if (loading) return <Spinner label={`Opening ${person.name}’s log…`} />
   if (!copy || copy.deleted) {
@@ -390,29 +574,29 @@ export function TheirSide({
       {plan}
       <SessionLog session={session} entry={copy} entries={entries} onSave={onSave}
         hints={ownerOut || null} measured={false} defaultOpen whose={person.name} />
-      {/* With sync off: the owner's exercises, copied over when asked, never their numbers (lib/shared.js copyExercises). */}
-      {synced ? null : onCopyMine ? (
-        <Btn title={`Copy my exercises to ${person.name}`} icon="Copy" kind="ghost" onPress={onCopyMine} />
-      ) : ownerHasExercises ? (
-        <T size={font.small} dim>{`${person.name} has all your exercises.`}</T>
-      ) : null}
     </View>
   )
 }
 
 const st = StyleSheet.create({
-  with: { marginBottom: space[4] },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
   personChip: { paddingLeft: 5 },
-  ghostChip: { borderStyle: 'dashed', backgroundColor: 'transparent' },
-  // The × takes someone off: a destructive tap, so a full 44pt target. The chip grows to hold it.
-  onChip: { minHeight: TAP },
-  x: { width: TAP, height: TAP, marginVertical: -1, marginLeft: -4, marginRight: -space[3] - 1, alignItems: 'center', justifyContent: 'center' },
+  // "with Sam · in sync ›": the done chip's shape (sheetparts.tsx), quiet.
+  shareChip: {
+    flexDirection: 'row', alignItems: 'center', gap: space[1] + 2, minHeight: 32, paddingLeft: space[3], paddingRight: space[2],
+    borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel2,
+  },
+  panelHead: {
+    flexDirection: 'row', alignItems: 'center', gap: space[3], paddingLeft: space[4], paddingRight: space[2], paddingVertical: space[3],
+    borderBottomWidth: 1, borderBottomColor: colors.line,
+  },
+  panelBody: { padding: space[4], gap: space[4] },
+  panelPerson: { gap: space[2] },
+  panelDivider: { paddingTop: space[4], borderTopWidth: 1, borderTopColor: colors.line },
   note: { flexDirection: 'row', alignItems: 'center', gap: space[1], marginBottom: space[3] },
   avatar: { alignItems: 'center', justifyContent: 'center' },
   rule: { height: 2, marginTop: space[2], borderRadius: 1 },
   sync: {
-    flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: TAP, marginBottom: space[3], padding: space[3],
+    flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: TAP, padding: space[3],
     borderRadius: radius.card, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel2,
   },
 })

@@ -106,7 +106,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Unlogged workouts | `app/src/lib/unlogged.js`, `app/src/unlogged.jsx` | What WHOOP/Strava saw that the log lacks; `pairUp`, `mergeTargets`, `outWith()`. |
 | Session sheet / edit panel | `app/src/sessionlog.jsx` | `SessionLog`, `SessionDetails`, `DetailsSheet`, `NameField`. |
 | Writing a logged workout | `app/src/lib/sessionops.js` | `sessionOps({ plan, entries, upsertEntry, deleteEntry, toast })`: save (`applyOut` + the test result), remove (+ result, Undo), "just miles", done, run, plan. Today and the Log both write through it, on both platforms (#76); a sheet never builds its own entry write. |
-| The session sheet | `app/src/sheet.jsx` | `SessionSheet` (header, body, footer) and `runnable`; Today (`tabs.jsx`) opens it. The row meta line both use is `app/src/metaline.jsx`. Twin: `mobile/src/features/sheet.tsx`. |
+| The session sheet | `app/src/sheet.jsx`, `app/src/sheetparts.jsx` | `SessionSheet` (header, body, footer) and `runnable`; Today (`tabs.jsx`) opens it. `sheetparts.jsx` is what every sheet of a workout shares (#80): `DoneChip`, `useDoneFlip` (the flip and its Undo toast) and `SheetStart` (the one footer action), used by the owner's sheet and `PersonEntrySheet`. The row meta line both use is `app/src/metaline.jsx`. Twins: `mobile/src/features/sheet.tsx`, `sheetparts.tsx`. |
 | Prescription editor | `app/src/editor.jsx` | `PrescriptionEditor` (`doing` on the sheet, #79), its blocks and items, `BlockMenu` (a block's ⋯), `blockTag`, `PieceAdder`, `BlockQuota`: the one editor Plan a workout and the sheet share. Block operations are `addBlock`, `renameBlock`, `noteBlock`, `removeBlock`, `moveBlock` in `lib/prescription.js`. Twin: `mobile/src/features/editor.tsx` (the ⋯ is the system action sheet). |
 | Day switcher | `app/src/tabs.jsx` (`DaySwitcher`; `dayWords`, `isoShift` in `lib/dates.js`) | ‹ day › in words; Today's title and the rest day's date (§10.9). The phone's is `mobile/src/ui/DayStepper.tsx`. |
 | Session history | `app/src/lib/history.js` | `priorSessions`: which earlier entries are THIS workout ("The last 5 times you did this"). A card by its ids (`aka`, `priorIds`); a planned workout by its title or mostly the same exercises; a free-form one by its activity (#74). |
@@ -123,7 +123,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Notifications client | `app/src/lib/push.js`, `app/src/notifications.jsx` | |
 | Device screen probe | `app/src/screeninfo.jsx` | Measures the iOS safe-area bug on the device (§10.5). |
 | Whose log this is | `app/src/lib/whoami.js` | Decided before the store mounts; per-person cache key; `X-Bushido-User` on every API call (§3). |
-| Shared workouts | `app/src/lib/shared.js`, `app/src/sharedwith.jsx`, `app/src/lib/copyqueue.js` | "With …" on the sheet; someone's copy through the people endpoints, one write at a time (§3). |
+| Shared workouts | `app/src/lib/shared.js`, `app/src/sharedwith.jsx`, `app/src/lib/copyqueue.js` | The sharing chip under the title ("with Sam · in sync ›") and its panel (`ShareChip`, `SharePanel`, `useSharing`); someone's copy through the people endpoints, one write at a time (§3). The states in one table: `docs/DESIGN.md`, "Shared workouts as states". |
 | The owner as trainer | `app/src/lib/trainer.js`, `app/src/trainer.jsx` | "For: You / Sam" in Plan a workout, the workout side switcher, "Sam's day", About you (§3). `placeEntries` is the one place day ids are minted for a batch, for anyone's log. |
 
 ---
@@ -307,7 +307,7 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
   else. The `bushido_as` cookie is honoured only when the real requester is the owner.
 - **Shared workouts** (`lib/shared.js`, `sharedwith.jsx`, `server/sharedsync.js`,
   `peopleRoute` in `server.js`): the owner adds someone to one workout from the sheet
-  ("With …") without acting as them. Their copy is an ordinary entry in THEIR log (same
+  (the sharing chip under the title, #80) without acting as them. Their copy is an ordinary entry in THEIR log (same
   derivable id unless they logged something of their own there, then an `extraEntryId`
   extra), `done: false` (done by §4 once they do something on it or its day has passed,
   never their own tick, which is what `hasOwnMarks` reads, along with any set they typed
@@ -315,10 +315,18 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
   is, `activity` and `category`, since #74, then its name, time and distance) and the
   owner's EXERCISES, never the owner's numbers: reps, weights, effort, feel, notes, gear and
   WHOOP/Strava show only as placeholders on their side. The owner's entry names them in
-  `data.sharedWith: [{ id, entryId, sync }]`; the copy carries `data.sharedFrom: { id, name }`,
-  stamped by the server.
-  - **Sync** ("Sync exercises with Sam", one switch per person, `sync: true` on the link,
-    on when someone is added). While on, the workout's STRUCTURE is one thing seen from two
+  `data.sharedWith: [{ id, entryId, sync }]`; the copy carries `data.sharedFrom: { id, name, sync }`,
+  stamped by the server. `sync` (#80) is the server's word on whether the copy is in step,
+  because the link that says so is on the owner's entry, which the other person cannot read:
+  set from the owner's log on every write to a copy (whatever the device sent, `name`
+  included: it is pinned to the owner in users.json as the people route stamps it), on a carry
+  into it, and on the copy whose link the owner switches, adds or takes off
+  (`flagged`, `flagChanges`, `flagCopy` in `server/sharedsync.js`; `flagWritten` in
+  `server.js`). A copy written before #80 has no flag and reads as in step if the sync ever
+  stamped it (`inStep` in `lib/shared.js`). Their own sheet says it under "with Alex":
+  "Exercises stay in step with Alex's" (`inStepLine`).
+  - **Sync** ("Keep exercises in step", one switch per person in the sharing panel,
+    `sync: true` on the link, on when someone is added). While on, the workout's STRUCTURE is one thing seen from two
     logs: exercises and blocks added, removed, renamed or reordered, and set counts, on
     EITHER side reach the other. Numbers never cross: reps, weights, times, the run
     (`data.run`), `out`, `done`/`undone`/`doneAt` (§4) and WHOOP/Strava stay in the log
@@ -332,9 +340,9 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     own** (#63): an exercise arrives counted the way the sender has it, and after that the
     "sec ⇆" / "reps ⇆" switch on either side changes that side only, like the implement. A
     writer that sends no `measure` key (an app from before holds) keeps the stored one.
-    Off, each side stays as it is, and **Copy my exercises to …**
-    (`copyExercises`, add-only) is the way to bring the owner's over; it is hidden while
-    sync is on. A link without the flag (shared before sync existed) is off; turning sync
+    Off, each side stays as it is, and **Copy my exercises to …** in the sharing panel
+    (`copyExercises`, add-only; it opens their side and copies through that side's one
+    queue) is the way to bring the owner's over; it is hidden while sync is on. A link without the flag (shared before sync existed) is off; turning sync
     on aligns the two by name once and adds what their side lacks.
   - **Numbers typed on the sheet are the log too.** Sets are mostly filled in straight on the
     sheet, never through the runner, so for a change arriving from the OTHER side "logged on"
@@ -352,7 +360,20 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     device stays removed. Kept sets leave one side above the other, so when both sides ADDED,
     `wantSets` takes the larger, not the sum; any other mix is the difference, so a removal
     is never undone by an add on the other side. Numbers typed before the mark existed
-    carry none.
+    carry none, so **on a shared copy (`sharedFrom`) a weight counts as logged, mark or
+    not** (#80, `ownWeight`): a share nulls the owner's weights and anything that arrives
+    over the sync is blank, so nothing but its own person ever puts a weight there.
+    (Without it the owner's removal took Sam's 50 lb Hip thrust, and Undo brought the sets
+    back empty.) Reps and a hold's seconds alone are not enough: the share copies those as
+    targets. And on EITHER side, **what the app reads as lifted on the receiving entry is
+    logged** (#80, `liftedOf` in `server/sharedsync.js`, held equal to `liftsDone` in
+    lib/lifts.js by `sharedsync.test.js`): on a done workout dated before today every set
+    with a number (done as written), on its own day the typed sets, or the logged row that
+    stands for the item. The owner's sets on a done day carry no mark, and Sam's phone
+    removing Hip adduction took the owner's 85, 85, 100. A plan for today nobody touched,
+    or for a later day, reads as nothing lifted and still follows every removal. In a
+    circuit (here, or the one it moves into over there) it keeps the exercise, one set.
+    `hasOwnMarks` counts a weight on a copy too.
   - **The merge runs on the server**, because only it sees every write (the owner's
     devices, the other person's own phone, and the owner writing their side through
     `/api/people/:id/entry`) and only it can write both logs (`commitSynced` in
@@ -403,10 +424,16 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     owner one way and matched exercises by NAME, and was dropped because the owner had no
     say over when their side changed; the switch and uids are what answer that. Do not
     move the merge into a client.
+  - **The sheet** (#80): under the title, the done chip and then ONE sharing chip ("with Sam
+    · in sync ›", "Add someone"), which opens the sharing panel (per person: the sync
+    switch, Copy my exercises while sync is off, Take Sam off; then Add Jo). Nothing about
+    who is on it sits between the title and the workout. The header's title, time and
+    counts follow the side on screen, never the owner's over Sam's exercises.
   - **Their side** of the sheet: the You / Sam bar (each person's initial and name in their
-    colour) is pinned to the top while the sheet scrolls (`position: sticky` on the web,
-    the sheet header on the phone), and the sheet reopens on the side last viewed on this
-    device (`bushido:shared-side`, per entry id; also set from a running workout). Every
+    colour, and a tick on each side that is done) is pinned to the top while the sheet
+    scrolls (`position: sticky` on the web, the sheet header on the phone), and the sheet
+    reopens on the side last viewed on this device (`bushido:shared-side`, per entry id;
+    also set from a running workout). Every
     exercise's "last time" and the session history come from THEIR log
     (`/api/people/:id/state`), labelled with their name. Their copy is re-read every few
     seconds while open, so the other phone's changes appear. Their side of a planned
@@ -420,8 +447,8 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     only if they have marked nothing (`hasOwnMarks`; copied lifts with nothing marked on
     them are not marks), otherwise it asks. WHOOP/Strava stay off on their side.
   - Pinned by `server/sharedsync.test.js`, the `shared workouts:` and `sync:` steps in
-    `server/http.test.js`, `app/shared.test.js`, and the `SessionSheet(… "With …" …)`,
-    person bar, sync switch and `TheirSide` smoke cases.
+    `server/http.test.js`, `app/shared.test.js`, and the `SessionSheet(… sharing chip …)`,
+    `SharePanel(…)`, person bar, `PersonSwitch(…)` and `TheirSide` smoke cases.
 - **The owner as trainer** (`lib/trainer.js`, `trainer.jsx`, the same `peopleRoute`):
   without acting as anyone, the owner plans for someone else, sees their week and runs a
   workout from their side. All of it is owner-only, needs someone else on the install and
@@ -447,11 +474,11 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     (`groupContext`) and sent as context. The prompt asks for one structure and no loads,
     and the server strips any `weight` the model wrote anyway (`noLoads`, planner.js).
     **You and others**: keeping it places it in the owner's log as always, then shares
-    each entry with each of them, sync on, through `addPerson` (exactly "With …" on the
+    each entry with each of them, sync on, through `addPerson` (exactly the sharing chip on the
     sheet; no second sharing path). **Others only**: `keepPlanFor` once per person,
     independent copies. The last screen is worded from who it actually landed for; a
     person it missed is named, with "Try again for <name>" (others only, `keepForEach`)
-    or "With …" on the sheet (you and others). The retry is safe to repeat: each part is
+    or the sharing chip on the sheet (you and others). The retry is safe to repeat: each part is
     stamped `data.keepKey` (`<draft id or key>:<part>`) and `keepPlanFor` skips a part their
     day already has, so a keep that failed part-way, or whose answer was lost, is never
     written twice. It lives on that last screen only: the server retires the draft once its
@@ -510,8 +537,10 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
        "for you and Sam" over a miss.
     One write per side at most, so the owner's push fires once and nobody else's at all.
   - **"Sam's day"** (`PeopleDays` under the day list on Today, `PersonDay`) is a read-only
-    week of their log from `/api/people/:id/state`; a session opens in `PersonEntrySheet`
-    (their form without WHOOP/Strava, done, and Start, which runs it from their side). It
+    week of their log from `/api/people/:id/state`; Today's row lists each session with its
+    done state. A session opens in `PersonEntrySheet` (their form without WHOOP/Strava, and
+    the owner's sheet parts, #80: the done chip with Undo, and Start, which runs it from
+    their side, as the one footer action). It
     never touches the owner's store or cache. Act-as stays exactly as it was.
   - Pinned by the `trainer:`/`ai for everyone:` steps in `server/http.test.js`,
     `server/agentflags.test.js`, `server/prompts.test.js`, `app/trainer.test.js`, and the
@@ -1622,6 +1651,28 @@ pinned in `app/smoke/sheet.jsx` and `app/smoke/editor.jsx`:
   started from history.
 - **Implements** lead with what the exercise declares (`implementChoices`), then Other….
 - A run under way or finished says **Carry on**, not Start.
+
+### 10.12 Two people, one workout (#80, 2026-11-08)
+
+The grading's finding: a shared sheet put a person bar, a Sync card, a "With" section and the
+model panel above the first exercise (about 1,150px down), its header counted the owner's
+sets over Sam's side, and someone's session opened from their week had a third style of
+footer. Web and native, pinned in `app/smoke/people.jsx`:
+
+- **One sharing chip under the title**, beside the done chip; the panel behind it holds the
+  sync switch, Copy my exercises and Take off / Add. Pinned absent: the "With" section, the
+  × chips, the Sync card, and the copy button under their log.
+- **The header follows the side on screen**, and the You | Sam switch says each side's done
+  state. Sam's day rows say it per session.
+- **The other side is told.** `sharedFrom.sync` (§3) makes "Exercises stay in step with
+  Alex's" possible on Sam's own sheet.
+- **One set of sheet parts** (`sheetparts.jsx`): `PersonEntrySheet` uses the owner's done
+  chip, Undo toast and Start footer.
+- **The model panel only while the model is on offer** (`aiOffered`, as §3 / #55 say).
+- **The piece button is worded from its block** (`pieceWords` in `editor.jsx`): a lift block
+  adds a hold, a ride an interval, a swim a swim set.
+- **Data safety, first**: a weight on a shared copy is that person's log, typed mark or not
+  (§3, `ownWeight`).
 
 ## 11. Before you finish
 

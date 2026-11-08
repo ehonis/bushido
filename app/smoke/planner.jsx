@@ -216,7 +216,9 @@ export default [
         if (!t.includes(name)) throw new Error(`the ${name} block is not on the screen`)
       }
       if (!/Add an exercise here/.test(t)) throw new Error('no way into the exercise catalogue')
-      if (!/Add a swim set, interval or hold/.test(t)) throw new Error('no way to add work that is not a lift')
+      // Worded from each block's category (#80): a lift block's piece is a hold, a ride's an interval.
+      if (!/Add a hold or timed exercise/.test(t) || !/Add an interval/.test(t)) throw new Error('no way to add work that is not a lift, in the block\'s words')
+      if (/Add a swim set/.test(t)) throw new Error('a lift and a ride offer a swim set')
       if (/Add a piece|its own workout:/.test(t)) throw new Error('the planner\u2019s jargon is back ("a piece", "its own workout:")')
       if (!/A separate .*workout|Part of the workout beside it/.test(t)) throw new Error('a block does not say whether it is its own workout')
       if (!/Put it on today/.test(t)) throw new Error('no way to keep it')

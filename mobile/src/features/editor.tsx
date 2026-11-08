@@ -41,7 +41,19 @@ function ImplChip({ label, icon, on, onPress }: { label: string; icon?: string; 
  * the one moment the answer is available. Folded behind a button of its own —
  * on a lift day it is never the answer.
  */
-function PieceAdder({ unit, onAdd }: { unit: string; onAdd: (name: string, by: string, unit: string) => void }) {
+/**
+ * The piece button's words, from what the block is (#80): a Pull block offered
+ * "Add a swim set, interval or hold". The web's `pieceWords`, word for word.
+ */
+export function pieceWords(block: any) {
+  const kind = `${block?.category || ''} ${block?.activity || ''}`.toLowerCase()
+  if (/swim/.test(kind)) return 'Add a swim set'
+  if (/run|bike|ride|row|ski|cardio|endurance/.test(kind)) return 'Add an interval'
+  if (/lift|support|strength|core|mobility|climb/.test(kind)) return 'Add a hold or timed exercise'
+  return 'Add a swim set, interval or hold'
+}
+
+function PieceAdder({ unit, onAdd, label = pieceWords(null) }: { unit: string; onAdd: (name: string, by: string, unit: string) => void; label?: string }) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [by, setBy] = useState('time')
@@ -59,7 +71,7 @@ function PieceAdder({ unit, onAdd }: { unit: string; onAdd: (name: string, by: s
     return (
       <Press haptic onPress={() => setOpen(true)} style={st.addPiece}>
         <Icon name="Timer" size={15} color={colors.inkFaint} />
-        <T size={font.small} faint>Add a swim set, interval or hold</T>
+        <T size={font.small} faint>{label}</T>
       </Press>
     )
   }
@@ -325,7 +337,7 @@ export function PrescriptionEditor({
           /* The hand-built route only. A session the model wrote already has its
              intervals in it, and the place to change one is the card. */
           foot={onAddPiece
-            ? <PieceAdder unit={distanceUnitFor(b)}
+            ? <PieceAdder unit={distanceUnitFor(b)} label={pieceWords(b)}
                 onAdd={(name, by, unit) => onAddPiece(b.id, name, by, unit)} />
             : null}
           onPatch={(id: string, patch: any) => onChange((patchItem as any)(pres, id, patch))}

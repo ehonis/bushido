@@ -1,7 +1,17 @@
 /*
- * SHARED WORKOUTS, on the sheet: "With …", the person switcher, and the other
- * person's side of the form. The rules are in lib/shared.js; the server's half is
- * `peopleRoute` in server.js.
+ * SHARED WORKOUTS, on the sheet: the sharing chip and its panel, the person
+ * switcher, and the other person's side of the form. The rules are in
+ * lib/shared.js; the server's half is `peopleRoute` in server.js.
+ *
+ * ONE ROW, NOT A SETUP SECTION (#80). Who is on a workout used to be a "With"
+ * section of person chips plus one "Sync exercises with Sam" card per person,
+ * all of it above the first exercise (the first set started about 1,150px down
+ * on the owner's side). Now it is one chip under the title, beside the done
+ * chip: "with Sam · in sync ›", or "Add someone" on a workout nobody shares.
+ * It opens `SharePanel`, which holds everything that changes who is on it and
+ * how: the sync switch, Copy my exercises (sync off), Take Sam off, Add Jo. Those
+ * are decisions made once, not things done mid-set, so they live one tap away
+ * and never between the title and the workout.
  *
  * Owner-only, and only on the owner's own log: `sharePeople(me)` is empty for
  * anyone else, while acting as someone, and on an install with one person, and
@@ -19,12 +29,19 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
+import { Popover } from './modal.jsx'
 import { SessionLog } from './sessionlog.jsx'
-import { withLine, openSide } from './lib/shared.js'
-import { getPersonEntry, putPersonEntry, sendPersonEntry } from './lib/peopleapi.js'
+import {
+  withLine, inStepLine, openSide, shareSummary, isSynced, addPerson, removePerson, withSharedPerson,
+  withSync, copyExercises, hasExercises,
+} from './lib/shared.js'
+import * as peopleApi from './lib/peopleapi.js'
 import { createCopyQueue, openedCopy } from './lib/copyqueue.js'
-import { withAck } from './lib/store.js'
+import { withAck, isDone } from './lib/store.js'
+import { pushToast } from './lib/toast.js'
 import { pendingFor, retryPending, andWords } from './lib/trainer.js'
+
+const { getPersonEntry, putPersonEntry, sendPersonEntry } = peopleApi
 
 /** How often an open side re-reads their copy, for changes made on their own phone. */
 const REREAD_MS = 10000
@@ -33,41 +50,179 @@ const SIDE_KEY = 'bushido:shared-side'
 const SIDES_KEPT = 50
 
 /**
- * Who else is on this workout, and the way to add or take off someone: a
- * section head, then one person chip each (their initial and name in their
- * colour, × to take them off) and a dashed chip for everyone who could be added.
- * `on` is `sharedPeopleOn(entry, people)` (with `tone`); `people` is `sharePeople(me)`.
+ * The owner's one row about who is on this workout, under the title beside the
+ * done chip: "with Sam · in sync ›", or "Add someone" when nobody is. A chip,
+ * 32px to look at and 44px to hit, like the done chip; it opens `SharePanel`.
+ * `on` is `sharedPeopleOn(entry, people)`; `people` is `sharePeople(me)`, empty
+ * for anyone but the owner, and then nothing renders.
  */
-export function WithControl({ on = [], people = [], busy = null, error = null, onAdd, onRemove }) {
+export function ShareChip({ entry, on = [], people = [], onOpen }) {
   if (!people.length) return null
+  const { title, sync } = shareSummary(entry, on)
+  return (
+    <button type="button" className={on.length ? 'share-chip on' : 'share-chip'} onClick={onOpen} aria-haspopup="dialog"
+      aria-label={on.length ? `Who is on this workout: ${title}${sync ? `, ${sync}` : ''}` : 'Add someone to this workout'}>
+      <Icon name={on.length ? 'Users' : 'UserPlus'} size={16} />
+      <span className="share-chip-text">{title}{sync && <span className="share-chip-sync">{` · ${sync}`}</span>}</span>
+      <Icon name="ChevronRight" size={14} />
+    </button>
+  )
+}
+
+/**
+ * Everything that changes who is on a workout, and how, behind the sharing chip:
+ * per person their sync switch, "Copy my exercises to Sam" while sync is off,
+ * and "Take Sam off this workout"; then a row for everyone who could be added.
+ * Taking someone off asks first when they have logged on their copy
+ * (lib/shared.js `removePerson`).
+ */
+export function SharePanel({ entry, on = [], people = [], busy = null, error = null, onAdd, onRemove, onSync, onCopy = null, onClose }) {
   const free = people.filter(p => !on.some(o => o.id === p.id))
   return (
-    <section className="withrow" role="group" aria-label="Who else did this workout">
-      <div className="section-head">
-        <h3>With</h3>
-        {busy && <span className="sub">{busy}</span>}
+    <Popover label="Who is on this workout" onClose={onClose} over>
+      <div className="pop-head">
+        <div className="pop-who"><strong>{on.length ? 'Who is on this workout' : 'Add someone'}</strong></div>
+        <button type="button" className="pop-x" onClick={onClose} aria-label="Close"><Icon name="X" size={20} /></button>
       </div>
-      <div className="personchips">
-        {on.map(p => (
-          <span key={p.id} className="chip personchip on" data-tone={p.tone ?? 1}>
-            <Avatar name={p.name} tone={p.tone ?? 1} small />
-            <span className="personchip-name">{p.name}</span>
-            <button type="button" className="personchip-x" disabled={Boolean(busy)}
-              onClick={() => onRemove(p)} aria-label={`Take ${p.name} off this workout`}>
-              <Icon name="X" size={14} />
-            </button>
-          </span>
-        ))}
-        {free.map(p => (
-          <button key={p.id} type="button" className="chip ghost personchip" disabled={Boolean(busy)}
-            onClick={() => onAdd(p)} aria-label={`Add ${p.name} to this workout`}>
-            <Icon name="Plus" size={14} /> {p.name}
-          </button>
-        ))}
+      <div className="sharepanel">
+        {on.map(p => {
+          const synced = isSynced(entry, p.id)
+          return (
+            <section key={p.id} className="sharepanel-person" data-tone={p.tone ?? 1} aria-label={p.name}>
+              <div className="sharepanel-who">
+                <Avatar name={p.name} tone={p.tone ?? 1} />
+                <span className="sharepanel-name">{p.name}</span>
+              </div>
+              <SyncToggle person={p} on={synced} onChange={(v) => onSync(p, v)} />
+              {!synced && onCopy && hasExercises(entry) && (
+                <button type="button" className="btn ghost" disabled={Boolean(busy)} onClick={() => onCopy(p)}>
+                  <Icon name="Copy" size={16} /> Copy my exercises to {p.name}
+                </button>
+              )}
+              <button type="button" className="btn quiet sharepanel-off" disabled={Boolean(busy)} onClick={() => onRemove(p)}>
+                <Icon name="UserMinus" size={16} /> Take {p.name} off this workout
+              </button>
+            </section>
+          )
+        })}
+        {free.length > 0 && (
+          <div className="list sharepanel-add">
+            {free.map(p => (
+              <button key={p.id} type="button" className="list-row" disabled={Boolean(busy)} onClick={() => onAdd(p)}
+                aria-label={`Add ${p.name} to this workout`}>
+                <Icon name="UserPlus" size={20} />
+                <span className="list-row-main">
+                  <span className="list-row-title">Add {p.name}</span>
+                  <span className="list-row-meta">It goes in {p.name}&rsquo;s log; {p.name} logs their own numbers</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+        {busy && <p className="sub" role="status">{busy}</p>}
+        {error && <p className="withrow-err">{error}</p>}
       </div>
-      {error && <p className="withrow-err">{error}</p>}
-    </section>
+    </Popover>
   )
+}
+
+/**
+ * The sharing chip's writes, out of the sheet (#80): add someone, take someone
+ * off, switch sync, and copy the owner's exercises over. `entry` is the owner's
+ * entry as of this render; `side`/`setSide` the side on screen; `theirs` the
+ * copy on screen (`usePersonCopy`); `touch` marks the sheet as edited.
+ * "Copy my exercises" writes through the ONE queue a side has, so for someone
+ * not on screen it opens their side first and copies once their copy is read.
+ */
+/** Whose copy a person on the workout is, as `usePersonCopy` names the one it holds (`of`). */
+export const copyOf = (person) => (person ? `${person.id}\n${person.entryId}` : null)
+
+/**
+ * May "Copy my exercises to `person`" write now? Only on their side, with THEIR
+ * copy read: right after a switch the copy on screen is still the last side's,
+ * and with three people two copies can share an entry id.
+ */
+export const copyReady = (person, side, theirs) => Boolean(person && side === person.id && theirs?.entry
+  && !theirs.loading && theirs.of === copyOf(person))
+
+export function useSharing({ entry, opt, me, onSaveEntry, side, setSide, theirs, touch = () => {} }) {
+  const [state, setState] = useState({ isOpen: false, busy: null, error: null })
+  const [copyFor, setCopyFor] = useState(null)
+  // The entry as of the latest render: an add or a removal awaits the server, and
+  // must name the person on what the entry is THEN, not on what it was when tapped.
+  const latest = useRef(entry)
+  latest.current = entry
+  const run = async (verb, person, fn) => {
+    setState(s => ({ ...s, busy: `${verb} ${person.name}…`, error: null }))
+    try {
+      await fn()
+      setState(s => ({ ...s, busy: null, error: null }))
+    } catch (err) {
+      setState(s => ({ ...s, busy: null, error: `${person.name}: ${err.message}` }))
+    }
+  }
+  const add = (person) => run('Adding', person, async () => {
+    const { copy } = await addPerson({ ownerEntry: latest.current, person, session: opt,
+      owner: { id: me.real.id, name: me.real.name }, api: peopleApi })
+    onSaveEntry(withSharedPerson(latest.current, person.id, copy.id))
+  })
+  const remove = (person) => run('Taking off', person, async () => {
+    const next = await removePerson({ ownerEntry: latest.current, person, session: opt, api: peopleApi,
+      confirmFn: async (q) => typeof window !== 'undefined' && window.confirm(q) })
+    if (!next) return
+    if (side === person.id) setSide(null)
+    onSaveEntry(withSharedPerson(latest.current, person.id, null, { remove: true }))
+  })
+  /* Sync lives on the owner's link; the server does the keeping-the-same (server/sharedsync.js). */
+  const sync = (person, v) => onSaveEntry(withSync(latest.current, person.id, v))
+  const copy = (person) => {
+    touch()
+    setState(s => ({ ...s, isOpen: false }))
+    setCopyFor(person)
+    if (side !== person.id) setSide(person.id)
+  }
+  // Their side is open and their copy is read: copy now, through its queue, once.
+  useEffect(() => {
+    // Only once the copy on screen IS theirs: right after a switch it is still the last side's.
+    if (!copyReady(copyFor, side, theirs)) return
+    const person = copyFor
+    setCopyFor(null)
+    if (copyExercises(theirs.entry, latest.current) === theirs.entry) { pushToast(`${person.name} has all your exercises`, 'info'); return }
+    // Said once it landed: a write that did not is the copy's own Retry toast.
+    theirs.update(cur => copyExercises(cur, latest.current)).then(landed => {
+      if (landed) pushToast(`Copied your exercises to ${person.name}`, 'info')
+    })
+  }, [copyFor, side, theirs.entry, theirs.loading, theirs.of]) // eslint-disable-line react-hooks/exhaustive-deps
+  return {
+    ...state,
+    open: () => setState(s => ({ ...s, isOpen: true, error: null })),
+    close: () => setState(s => ({ ...s, isOpen: false })),
+    add, remove, sync, copy,
+  }
+}
+
+/**
+ * Each side's done state, for the person switch: the side on screen from what
+ * its copy last read (`server`, never an edit still on its way), everyone
+ * else's read once as the sheet opens and again on every switch, so a tick
+ * given on one side shows when you come back. `{ [personId]: boolean }`.
+ */
+export function useSidesDone(on = [], sideId = null, sideServer = null) {
+  const [read, setRead] = useState({})
+  const key = on.map(p => `${p.id}:${p.entryId}`).join(',')
+  useEffect(() => {
+    let live = true
+    for (const p of on) {
+      if (p.id === sideId) continue
+      getPersonEntry(p.id, p.entryId)
+        .then(e => { if (live) setRead(r => ({ ...r, [p.id]: Boolean(e && !e.deleted && isDone(e)) })) })
+        .catch(() => { /* offline: no tick, rather than a wrong one */ })
+    }
+    return () => { live = false }
+  }, [key, sideId]) // eslint-disable-line react-hooks/exhaustive-deps
+  const out = { ...read }
+  if (sideId && sideServer) out[sideId] = Boolean(!sideServer.deleted && isDone(sideServer))
+  return out
 }
 
 /** A person's initial in their colour. `small` inside a chip or a line of text. */
@@ -100,7 +255,7 @@ export function PersonChip({ person, tone = 1, on = false, onClick, label = null
  * raised in that person's colour, with a rule in it under the bar. Nothing
  * without someone on it. `on` people carry `tone`.
  */
-export function PersonSwitch({ on = [], side = null, onSide }) {
+export function PersonSwitch({ on = [], side = null, onSide, done = null }) {
   if (!on.length) return null
   const who = [{ id: null, name: 'You', tone: 0 }, ...on]
   const current = who.find(p => (p.id || null) === (side || null)) || who[0]
@@ -109,11 +264,16 @@ export function PersonSwitch({ on = [], side = null, onSide }) {
       <div className="seg whoseg" role="tablist" aria-label="Whose log this is">
         {who.map(p => {
           const sel = (p.id || null) === (side || null)
+          // Each side's done state on its own tab (#80), a tick beside the name, so
+          // switching is never the way to find out whether Sam's is logged.
+          const d = done ? done[p.id || ''] : undefined
           return (
             <button key={p.id || 'you'} type="button" role="tab" aria-selected={sel} data-tone={p.tone ?? 1}
-              className={sel ? 'personbar-btn on' : 'personbar-btn'} onClick={() => onSide(p.id || null)}>
+              className={sel ? 'personbar-btn on' : 'personbar-btn'} onClick={() => onSide(p.id || null)}
+              aria-label={d === undefined ? undefined : `${p.name}: ${d ? 'done' : 'not done'}`}>
               <Avatar name={p.name} tone={p.tone ?? 1} />
               <span className="personbar-name">{p.name}</span>
+              {d === true && <Icon name="CircleCheck" size={16} className="personbar-done" />}
             </button>
           )
         })}
@@ -122,14 +282,15 @@ export function PersonSwitch({ on = [], side = null, onSide }) {
   )
 }
 
-/** "Sync exercises with Sam": one switch per person on the workout. */
+/** "Keep exercises in step": one switch per person, in the sharing panel. */
 export function SyncToggle({ person, on, onChange }) {
   return (
     <label className="synctoggle">
       <span className="synctoggle-text">
-        <span className="synctoggle-label">Sync exercises with {person.name}</span>
+        <span className="synctoggle-label">Keep exercises in step</span>
         <span className="synctoggle-sub">
-          {on ? 'Exercises and sets stay the same on both sides; your numbers stay yours.' : 'Off: changes stay on the side you make them.'}
+          {on ? `Exercises and sets added or removed on your side or ${person.name}’s show on both. Numbers stay each person’s own.`
+            : 'Off: changes stay on the side you make them.'}
         </span>
       </span>
       <input type="checkbox" role="switch" className="switch" checked={on} onChange={e => onChange(e.target.checked)} />
@@ -164,11 +325,22 @@ export function rememberSide(entryId, id) {
   } catch { /* storage full or off: the sheet just opens on yours */ }
 }
 
-/** "with Alex": who a shared workout was done with, where nothing can be changed about it. */
+/**
+ * "with Alex": who a shared workout was done with, where nothing can be changed
+ * about it. On a copy in step with the owner's (#80) a second line says so, so
+ * the person filling it in knows that an exercise they add or take off changes
+ * the owner's workout too (lib/shared.js `inStepLine`).
+ */
 export function SharedNote({ entry, people = [] }) {
   const line = withLine(entry, people)
   if (!line) return null
-  return <p className="sharednote"><Icon name="Users" size={12} /> {line}</p>
+  const step = inStepLine(entry)
+  return (
+    <>
+      <p className="sharednote"><Icon name="Users" size={12} /> {line}</p>
+      {step && <p className="sharednote instep"><Icon name="Repeat" size={12} /> {step}</p>}
+    </>
+  )
 }
 
 /**
@@ -184,7 +356,9 @@ export function usePersonCopy(personId, entryId, name = '') {
   // `server` is what the server last said, apart from `entry`, which may hold a
   // write still on its way (or one that never landed): whatever must not be
   // fooled by that (a side's "done", a circuit done together) reads `server`.
-  const [state, setState] = useState(() => ({ entry: null, server: null, loading: Boolean(personId && entryId), error: null }))
+  // `of` is whose copy `entry` is ("<person>\n<entry id>"): entry ids repeat across
+  // people (`daily-<date>`), and for a render after a switch `entry` is still the last one's.
+  const [state, setState] = useState(() => ({ entry: null, server: null, loading: Boolean(personId && entryId), error: null, of: null }))
   const latest = useRef(null)
   // Who the copy on screen belongs to, for answers that land after the sheet switched sides.
   const owner = useRef(null)
@@ -215,9 +389,9 @@ export function usePersonCopy(personId, entryId, name = '') {
   useEffect(() => {
     latest.current = null
     early.current = null
-    if (!personId || !entryId) { setState({ entry: null, server: null, loading: false, error: null }); return undefined }
+    if (!personId || !entryId) { setState({ entry: null, server: null, loading: false, error: null, of: null }); return undefined }
     let live = true
-    setState({ entry: null, server: null, loading: true, error: null })
+    setState({ entry: null, server: null, loading: true, error: null, of: null })
     getPersonEntry(personId, entryId)
       .then(e => {
         if (!live) return
@@ -225,9 +399,9 @@ export function usePersonCopy(personId, entryId, name = '') {
         const mine = openedCopy(e, queue.current.newest(personId, entryId), early.current)
         early.current = null
         latest.current = mine
-        setState({ entry: mine, server: e, loading: false, error: null })
+        setState({ entry: mine, server: e, loading: false, error: null, of: `${personId}\n${entryId}` })
       })
-      .catch(err => { if (live) setState({ entry: null, server: null, loading: false, error: `Could not open ${name || 'their'} log: ${err.message}` }) })
+      .catch(err => { if (live) setState({ entry: null, server: null, loading: false, of: null, error: `Could not open ${name || 'their'} log: ${err.message}` }) })
     /*
      * Re-read while open, so an exercise they add on their own phone (or one
      * synced in from the owner's side) appears without closing the sheet. Never
@@ -279,11 +453,10 @@ export function usePersonCopy(personId, entryId, name = '') {
 /**
  * The other person's side of the sheet: their form, with the owner's numbers as
  * placeholders, and no WHOOP or Strava (the owner's accounts). `entries` is
- * THEIR log, so "last time" is theirs. With sync on there is nothing to copy:
- * the exercises are already the same. Pure render, so the smoke suite can draw
- * it without a server.
+ * THEIR log, so "last time" is theirs. "Copy my exercises" moved to the sharing
+ * panel (#80). Pure render, so the smoke suite can draw it without a server.
  */
-export function TheirSide({ session, copy, loading = false, error = null, person, ownerOut, entries = [], onSave, plan = null, onCopyMine = null, ownerHasExercises = false, synced = false }) {
+export function TheirSide({ session, copy, loading = false, error = null, person, ownerOut, entries = [], onSave, plan = null }) {
   if (loading) return <p className="sub theirside-wait">Opening {person.name}&rsquo;s log…</p>
   if (!copy || copy.deleted) {
     return (
@@ -301,14 +474,6 @@ export function TheirSide({ session, copy, loading = false, error = null, person
       {plan}
       <SessionLog session={session} entry={copy} entries={entries} onSave={onSave}
         hints={ownerOut || null} measured={false} defaultOpen whose={person.name} />
-      {/* With sync off: the owner's exercises, copied over when asked, never their numbers (lib/shared.js copyExercises). */}
-      {synced ? null : onCopyMine ? (
-        <button className="btn ghost theirside-copy" onClick={onCopyMine}>
-          <Icon name="Copy" size={16} /> Copy my exercises to {person.name}
-        </button>
-      ) : ownerHasExercises ? (
-        <p className="sub theirside-copied">{person.name} has all your exercises.</p>
-      ) : null}
     </div>
   )
 }
