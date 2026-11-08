@@ -23,6 +23,7 @@ import { T } from '../ui/Text'
 import { Empty, Press } from '../ui/kit'
 import { tap } from '../ui/haptics'
 import { localIso } from './dates.js'
+import { timeX, dateWords, needsYear } from './vizscale.js'
 
 /** The categorical series, as real colours (the web names them var(--series-n)). */
 export const SERIES: string[] = [...THEME_SERIES]
@@ -200,8 +201,12 @@ export function LineChart({ points, label, help, unit = '', height = 190, color 
   const padL = padFor(ticks.map(fmtTick), 42)
   const innerW = Math.max(W - padL - padR, 10)
 
-  const xAt = (i: number) => padL + (data.length === 1 ? innerW / 2 : (i / (data.length - 1)) * innerW)
+  // Spaced by TIME (lib/vizscale.js): a month off is a month of axis, not one step.
+  const xAt = (timeX as any)(data.map((d) => d.x), padL, innerW) as (i: number) => number
   const yAt = (v: number) => padT + innerH - ((v - lo) / (hi - lo || 1)) * innerH
+  // The year is said when it is not obvious: the series crosses one, or is not this year's.
+  const withYear = (needsYear as any)(data.map((d) => d.x))
+  const day = (x: string) => (dateWords as any)(x, { withYear }) as string
 
   const path = data.map((d, i) => `${i ? 'L' : 'M'}${xAt(i).toFixed(1)},${yAt(d.y).toFixed(1)}`).join('')
   const last = data[data.length - 1]
@@ -222,8 +227,8 @@ export function LineChart({ points, label, help, unit = '', height = 190, color 
       <T size={font.small} weight={real ? 500 : 400} style={tone}>
         {delta > 0 ? '▲' : '▼'}{' '}
         {fmtY
-          ? `${fmt(first.y)} → ${fmt(last.y)} since ${fmtDate(first.x)}`
-          : `${Math.abs(Number(delta.toFixed(1)))}${unit} since ${fmtDate(first.x)}`}
+          ? `${fmt(first.y)} → ${fmt(last.y)} since ${day(first.x)}`
+          : `${Math.abs(Number(delta.toFixed(1)))}${unit} since ${day(first.x)}`}
         {noisePct && !real ? ' · inside noise' : ''}
       </T>
     )
@@ -242,7 +247,7 @@ export function LineChart({ points, label, help, unit = '', height = 190, color 
       {showTable ? (
         <Table
           head={['Date', label]}
-          rows={[...data].reverse().map((d) => ({ key: d.x, a: fmtDate(d.x), b: fmt(d.y), aNum: true }))}
+          rows={[...data].reverse().map((d) => ({ key: d.x, a: day(d.x), b: fmt(d.y), aNum: true }))}
         />
       ) : (
         <View
@@ -291,15 +296,15 @@ export function LineChart({ points, label, help, unit = '', height = 190, color 
                   stroke={colors.vizAxis} strokeWidth={1} />
               )}
 
-              <SvgText x={xAt(0)} y={height - 8} textAnchor="start" {...TICK}>{fmtDate(first.x)}</SvgText>
+              <SvgText x={xAt(0)} y={height - 8} textAnchor="start" {...TICK}>{day(first.x)}</SvgText>
               {data.length > 1 && (
-                <SvgText x={xAt(data.length - 1)} y={height - 8} textAnchor="end" {...TICK}>{fmtDate(last.x)}</SvgText>
+                <SvgText x={xAt(data.length - 1)} y={height - 8} textAnchor="end" {...TICK}>{day(last.x)}</SvgText>
               )}
 
               {hover != null && (
                 <G transform={`translate(${tipX}, ${padT + 6})`}>
                   <Rect x={-46} y={-4} width={92} height={34} rx={6} fill={colors.panel2} stroke={colors.line} />
-                  <SvgText x={0} y={9} textAnchor="middle" {...TIP_SM}>{fmtDate(data[hover].x)}</SvgText>
+                  <SvgText x={0} y={9} textAnchor="middle" {...TIP_SM}>{day(data[hover].x)}</SvgText>
                   <SvgText x={0} y={24} textAnchor="middle" {...TIP}>{fmt(data[hover].y)}</SvgText>
                 </G>
               )}
@@ -497,6 +502,84 @@ export function BarChart({ bars, label, help, unit = '', height = 170, refLine, 
           ? `${weekly ? `Week of ${fmtX(data[hover].x)}` : fmtX(data[hover].x)}: ${data[hover].y}${unit}`
           : (refLabel || ' ')}
       </T>
+    </View>
+  )
+}
+
+/* ---------------------------------------------------------------- pyramid */
+
+/**
+ * rows: [{ label, sent, tried }], HARDEST FIRST — the grade pyramid (D12, #81).
+ * (app/src/lib/viz.jsx `Pyramid`)
+ *
+ * One horizontal bar per grade: the climbs TRIED are the outlined bar, the ones
+ * SENT fill it from the left, in the one series colour at two strengths. The
+ * count is written at the end of every row and the table lists both numbers, so
+ * nothing is carried by the fill alone.
+ */
+export function Pyramid({ rows, label, help, color = SERIES[0] }: {
+  rows: any[]; label: string; help?: string | null; color?: string
+}) {
+  const [onLayout, w] = useWidth()
+  const [showTable, setShowTable] = useState(false)
+  const fill = cssColor(color, colors.series1)
+  const data = (rows || []).filter((r) => r.tried > 0)
+  if (!data.length) return <Empty>{`Nothing graded for ${label.toLowerCase()} yet.`}</Empty>
+
+  const sent = data.reduce((n, r) => n + r.sent, 0)
+  const tried = data.reduce((n, r) => n + r.tried, 0)
+  const W = Math.max(w, 240)
+  const rowH = 26, gap = 6, padT = 2
+  const padL = padFor(data.map((r) => r.label), 44)
+  const countW = 52
+  const innerW = Math.max(W - padL - countW, 10)
+  const max = Math.max(...data.map((r) => r.tried))
+  const H = padT + data.length * (rowH + gap)
+
+  return (
+    <View onLayout={onLayout} style={st.viz}>
+      <VizHead label={label} help={help} showTable={showTable} onTable={() => setShowTable((t) => !t)} hero={<>
+        <T size={font.heading} weight={600} lineHeight={28} tabular>{String(sent)}</T>
+        <T size={font.small} dim>{`sent of ${tried} tried`}</T>
+      </>} />
+      {showTable ? (
+        <View style={st.table}>
+          <View style={st.tr}>
+            {['Grade', 'Sent', 'Tried'].map((h) => <T key={h} size={12} weight={500} faint style={st.th}>{h}</T>)}
+          </View>
+          {data.map((r) => (
+            <View key={r.label} style={[st.tr, st.trBody]}>
+              <T size={14} tabular style={st.td}>{r.label}</T>
+              <T size={14} tabular style={st.td}>{String(r.sent)}</T>
+              <T size={14} tabular style={st.td}>{String(r.tried)}</T>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <View accessible accessibilityRole="image"
+          accessibilityLabel={`${label}: ${data.map((r) => `${r.label} ${r.sent} of ${r.tried}`).join(', ')}`}>
+          <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`}>
+            {data.map((r, i) => {
+              const y = padT + i * (rowH + gap)
+              const tw = Math.max((r.tried / max) * innerW, 4)
+              const sw = (r.sent / max) * innerW
+              return (
+                <G key={r.label}>
+                  <SvgText x={padL - 8} y={y + rowH / 2 + 5} textAnchor="end" fill={colors.ink}
+                    fontSize={font.body} fontWeight="500">{r.label}</SvgText>
+                  <Rect x={padL + 0.5} y={y + 0.5} width={tw - 1} height={rowH - 1} rx={4}
+                    fill={fill} fillOpacity={0.16} stroke={fill} strokeOpacity={0.7} strokeWidth={1} />
+                  {sw > 0 ? <Rect x={padL} y={y} width={sw} height={rowH} rx={4} fill={fill} /> : null}
+                  <SvgText x={padL + tw + 8} y={y + rowH / 2 + 5} fill={colors.inkDim} fontSize={font.small}>
+                    {`${r.sent} / ${r.tried}`}
+                  </SvgText>
+                </G>
+              )
+            })}
+          </Svg>
+        </View>
+      )}
+      <T size={font.caption} dim style={st.tipline}>Filled: sent. Outline: everything tried.</T>
     </View>
   )
 }

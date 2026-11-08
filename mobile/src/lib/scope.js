@@ -12,7 +12,7 @@
  * A SCOPE is the filter, and it is deliberately a plain object rather than a
  * component's state, so the whole thing can be tested as arithmetic:
  *
- *   { category, session, exercise, weeks }
+ *   { activity, category, session, exercise, band, weeks }
  *
  * Every field is independent and every one is optional. Absent means "don't
  * narrow on this" rather than a default, so an empty scope is honestly "all of
@@ -36,8 +36,52 @@ import { categoryOf, disciplineOf } from './category.js'
 import { mondayOf, weekDays, shiftWeek } from './dates.js'
 import { loggedActivity } from './activities.js'
 import { liftsDone, liftKeyOf } from './lifts.js'
+import { bandsOf, bandLabel } from './grades.js'
 
-export const EMPTY_SCOPE = { category: null, session: null, exercise: null, weeks: 8 }
+export const EMPTY_SCOPE = { activity: null, category: null, session: null, exercise: null, band: null, weeks: 8 }
+
+/* ---------------------------------------------------- the activity, first */
+
+/*
+ * THE FIRST QUESTION is what kind of thing it was: climbing, a lift, a run, a
+ * ride, a swim, or something else (docs/DESIGN.md, the G-visual-ia contract,
+ * #81). The plan's categories (Power, Fingers, Fun, Endurance…) are the SECOND
+ * question, asked inside one of these: on its own "Endurance" does not say
+ * whether it means running or climbing, and a row mixing Bike with Fingers mixes
+ * a sport with a training intent. Log and Progress both read this one list, so
+ * the two screens ask the same first question in the same words.
+ *
+ * Derived from the entry's discipline (lib/category.js), never stored, and the
+ * fallback is Other, so a card or an activity nothing maps is still reachable.
+ */
+export const ACTIVITY_SCOPES = [
+  { key: 'climbing', name: 'Climbing', icon: 'Mountain' },
+  { key: 'lift', name: 'Lift', icon: 'Dumbbell' },
+  { key: 'run', name: 'Run', icon: 'Footprints' },
+  { key: 'bike', name: 'Bike', icon: 'Bike' },
+  { key: 'swim', name: 'Swim', icon: 'Waves' },
+  { key: 'other', name: 'Other', icon: 'Sparkles' },
+]
+const CLIMBING = new Set(['climbing', 'bouldering', 'rock-climbing'])
+const SPORTS = new Set(['lift', 'run', 'bike', 'swim'])
+
+/**
+ * Which first-level activity an entry is: its discipline, else (a planned
+ * workout that names only a category) the discipline its category declares.
+ */
+export function activityScopeOf(entry, plan) {
+  const menu = plan?.dailyMenu || []
+  let d = disciplineOf(entry, menu)
+  if (!d) {
+    const cat = categoryOf(entry, menu)
+    d = (plan?.quotaCategories || []).find(c => c.key === cat)?.discipline || null
+  }
+  if (CLIMBING.has(d)) return 'climbing'
+  return SPORTS.has(d) ? d : 'other'
+}
+
+/** "Climbing", "Lift"… for a first-level key. */
+export const activityName = (key) => ACTIVITY_SCOPES.find(a => a.key === key)?.name || key
 
 /** Which lift exercises this entry recorded: logged, or done on its plan (`liftsDone`, D11). */
 function exercisesIn(entry) {
@@ -76,6 +120,8 @@ export function resolveScope({ plan, entries = [], scope = EMPTY_SCOPE, today = 
     const level = Number(e.data?.level) || 0
     if (level === 0 || opt?.role === 'rest') { rests.push(e); continue }
 
+    if (scope.activity && activityScopeOf(e, plan) !== scope.activity) continue
+
     const cat = categoryOf(e, menu)
     if (scope.category && cat !== scope.category) continue
 
@@ -89,6 +135,9 @@ export function resolveScope({ plan, entries = [], scope = EMPTY_SCOPE, today = 
     }
 
     if (scope.exercise && !exercisesIn(e).includes(scope.exercise)) continue
+
+    // A grade band ("V4", "5.10"): the sessions that touched it, sent or not.
+    if (scope.band && !(opt && bandsOf(opt, e.data?.out).includes(scope.band))) continue
 
     hits.push(e)
   }
@@ -128,21 +177,26 @@ export function resolveScope({ plan, entries = [], scope = EMPTY_SCOPE, today = 
  * nothing teaches you not to touch it. The counts ride along so each option can
  * say how much is behind it.
  */
-export function scopeOptions({ plan, entries = [], today = null, weeks = null }) {
+export function scopeOptions({ plan, entries = [], today = null, weeks = null, activity = null }) {
   const menu = plan?.dailyMenu || []
   const base = resolveScope({ plan, entries, scope: { ...EMPTY_SCOPE, weeks }, today })
 
   const count = (map, key) => { if (key) map.set(key, (map.get(key) || 0) + 1) }
-  const cats = new Map(); const sess = new Map(); const exs = new Map()
+  const acts = new Map(); const cats = new Map(); const sess = new Map(); const exs = new Map(); const bands = new Map()
 
   for (const e of base.entries) {
     const opt = optFor(menu, e.data?.optId)
-    count(cats, categoryOf(e, menu))
-    const act = opt ? loggedActivity(opt, e.data?.out) : null
+    const act = activityScopeOf(e, plan)
+    count(acts, act)
+    // The second level is the categories INSIDE the activity picked, so "Fun"
+    // and "Fingers" are offered under Climbing and not beside Bike.
+    if (!activity || act === activity) count(cats, categoryOf(e, menu))
+    if (act === 'climbing' && opt) for (const b of bandsOf(opt, e.data?.out)) count(bands, b)
+    const logged = opt ? loggedActivity(opt, e.data?.out) : null
     // One list, because the user does not think of them as two: the thing the user picks is
     // "mountain bike" or "max hangs", and which of those is a card and which is a
     // catalog activity is the app's problem.
-    count(sess, act?.key || opt?.id)
+    count(sess, logged?.key || opt?.id)
     for (const x of exercisesIn(e)) count(exs, x)
   }
 
@@ -159,7 +213,21 @@ export function scopeOptions({ plan, entries = [], today = null, weeks = null })
 
   const byCount = (a, b) => b.n - a.n || String(a.label).localeCompare(String(b.label))
 
+  // Bands read easiest first, boulders before routes: a grade list is a ladder,
+  // and a ladder sorted by how often each rung was touched is not one.
+  const bandSort = (a, b) => a.scale.localeCompare(b.scale) || a.band - b.band
   return {
+    activities: ACTIVITY_SCOPES
+      .filter(a => acts.has(a.key))
+      .map(a => ({ value: a.key, n: acts.get(a.key), label: a.name, icon: a.icon })),
+
+    bands: [...bands.entries()]
+      .map(([k, n]) => {
+        const [scale, b] = k.split(':')
+        return { value: k, n, scale, band: Number(b), label: bandLabel(scale, Number(b)) }
+      })
+      .sort(bandSort),
+
     categories: [...cats.entries()]
       .map(([k, n]) => ({
         value: k, n,
@@ -185,9 +253,11 @@ export function scopeOptions({ plan, entries = [], today = null, weeks = null })
 export function describeScope({ plan, scope, options }) {
   const bits = []
   const find = (list, v) => (list || []).find(o => o.value === v)?.label
+  if (scope.activity) bits.push(find(options?.activities, scope.activity) || activityName(scope.activity))
   if (scope.category) bits.push(find(options?.categories, scope.category) || scope.category)
   if (scope.session) bits.push(find(options?.sessions, scope.session) || scope.session)
   if (scope.exercise) bits.push(find(options?.exercises, scope.exercise) || scope.exercise)
+  if (scope.band) bits.push(find(options?.bands, scope.band) || scope.band)
   const what = bits.length ? bits.join(' · ') : 'Everything'
   const when = scope.weeks ? `last ${scope.weeks} weeks` : 'all time'
   return `${what} · ${when}`

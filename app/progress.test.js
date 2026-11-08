@@ -13,9 +13,13 @@
 
 import { readFileSync } from 'node:fs'
 import {
-  EMPTY_SCOPE, resolveScope, scopeOptions, describeScope, weeksIn,
+  EMPTY_SCOPE, resolveScope, scopeOptions, describeScope, weeksIn, activityScopeOf, ACTIVITY_SCOPES,
 } from './src/lib/scope.js'
-import { metricsFor, totalsFor, METRICS, declaredMetrics } from './src/lib/metrics.js'
+import {
+  metricsFor, totalsFor, METRICS, declaredMetrics, pyramidOf, bodyweightSeries,
+} from './src/lib/metrics.js'
+import { climbLine } from './src/lib/grades.js'
+import { timeX } from './src/lib/vizscale.js'
 
 const plan = JSON.parse(readFileSync(new URL('../test/fixtures/plan.json', import.meta.url), 'utf8'))
 
@@ -270,7 +274,8 @@ check('a declared chart with one point is not drawn either', () => {
 check('every metric in the registry is renderable', () => {
   for (const m of METRICS) {
     ok(m.key && m.label && m.group, `${m.key}: missing key, label or group`)
-    ok(['line', 'bar'].includes(m.kind), `${m.key}: unknown kind ${m.kind}`)
+    // 'pyramid' since #81: the grade pyramid, rows by whole grade.
+    ok(['line', 'bar', 'pyramid'].includes(m.kind), `${m.key}: unknown kind ${m.kind}`)
     ok(typeof m.applies === 'function' && typeof m.series === 'function', `${m.key}: not a metric`)
   }
   const keys = METRICS.map(m => m.key)
@@ -387,6 +392,199 @@ check('a shared copy with nothing in its out still files under its plan’s kind
   // Copies shared before #74 carried no activity; their plan says what they were.
   const copy = plannedLift('2026-09-10', 'bench-press', [{ reps: 8 }], {})
   eq(lres({ category: 'lift' }, [copy]).entries.length, 1, 'a copy with an empty out was not Lift')
+})
+
+
+/* ============================================ climbing and correctness (#81) === */
+
+const metric = (r, key) => metricsFor(plan, r).flatMap(g => g.metrics).find(m => m.key === key)
+const at = (entries, scope = {}) => resolveScope({ plan, entries, scope: { ...ALL, ...scope }, today: TODAY })
+
+check('F5: two hard workouts on ONE date are one hard finger day, in the week and the total', () => {
+  // A split night: max hangs, then repeaters. One exposure, not two.
+  const r = at([hangs('2026-09-02'), did('2026-09-02', 'repeaters', { rpe: 8, hardFingers: true }, { level: 4 })])
+  eq(totalsFor(plan, r).hardFingerDays, 1)
+  eq(metric(r, 'hardFingers').points.find(p => p.x === '2026-08-31').y, 1)
+})
+
+check('F5: hard workouts on two dates are two', () => {
+  const r = at([hangs('2026-09-02'), hangs('2026-09-03')])
+  eq(totalsFor(plan, r).hardFingerDays, 2)
+  eq(metric(r, 'hardFingers').points.find(p => p.x === '2026-08-31').y, 2)
+})
+
+check('F6: the doubled lead laps\' per-lap grades are routes on the chart', () => {
+  const laps = (date, grades) => did(date, 'lead-laps', { rpe: 6, sets: { doubles: [{ reps: grades.length, grades }] } })
+  const r = at([laps('2026-09-02', [10.1, 10.2]), laps('2026-09-09', [10.2, 10.3])])
+  const m = metric(r, 'hardestRoute')
+  ok(m, 'no hardest-route chart from lead laps')
+  eq(m.points.map(p => m.fmtY(p.y)), ['5.10', '5.10+'])
+})
+
+check('F6: an old integer route grade is not a boulder, and off-ladder is not plotted', () => {
+  // hardestYds is the route field whatever number is in it: a 10 typed before the
+  // ladder is an off-ladder route, never V10.
+  // And a per-climb route grade typed as an integer (8, 9) is an off-ladder ROUTE:
+  // the number guess read it as V8 and V9.
+  const oldClimbs = (date, grade) => did(date, 'fun-sport', { sets: { routes: [{ reps: 1, climbs: [{ grade }] }] } })
+  const r = at([
+    did('2026-09-02', 'fun-sport', { hardestYds: 10 }),
+    did('2026-09-09', 'fun-sport', { hardestYds: 10.4 }),
+    did('2026-09-12', 'fun-sport', { hardestYds: 10.45 }),
+    oldClimbs('2026-09-05', 8), oldClimbs('2026-09-06', 9),
+    did('2026-09-03', 'fun-boulder', { hardest: 4 }),
+    did('2026-09-10', 'fun-boulder', { hardest: 5 }),
+  ])
+  eq(metric(r, 'hardestBoulder').points.map(p => p.y), [4, 5], 'a route leaked into the boulders')
+  eq(metric(r, 'hardestRoute'), undefined, 'an off-ladder route was plotted as a rung')
+})
+
+check('hardest SENT: a fall or a down-climb only is not the hardest send', () => {
+  const sport = (date, climbs) => did(date, 'fun-sport', { sets: { routes: [{ reps: climbs.length, climbs }] } })
+  const r = at([
+    sport('2026-09-02', [{ grade: 10.3, fell: true }, { grade: 10.1 }]),
+    sport('2026-09-09', [{ grade: 11.2, outcome: 'fell' }, { grade: 10.25, outcome: 'send' }, { grade: 12.1, down: 'only' }]),
+  ])
+  const m = metric(r, 'hardestRoute')
+  eq(m.points.map(p => m.fmtY(p.y)), ['5.10−', '5.10c'])
+})
+
+check('the route axis is the ladder the log is written on', () => {
+  // A plus/minus log's axis steps 5.10 → 5.10+ with no letter rung between
+  // (the full ladder labelled its ticks 5.10c, 5.12b on a log that never used them).
+  const sport = (date, grade) => did(date, 'fun-sport', { sets: { routes: [{ reps: 1, climbs: [{ grade }] }] } })
+  const pm = metric(at([sport('2026-09-02', 10.2), sport('2026-09-09', 10.3)]), 'hardestRoute')
+  eq(pm.points[1].y - pm.points[0].y, 1, 'one rung apart')
+  eq(pm.points.map(p => pm.fmtY(p.y)), ['5.10', '5.10+'])
+  ok(![0, 1, 2, 30].map(pm.fmtY).some(l => /[a-d]$/.test(l)), 'a letter tick on a plus/minus log')
+  const letters = metric(at([sport('2026-09-02', 10.15), sport('2026-09-09', 11.05)]), 'hardestRoute')
+  eq(letters.points.map(p => letters.fmtY(p.y)), ['5.10b', '5.11a'])
+  eq(letters.points[1].y - letters.points[0].y, 3, '5.10b, c, d, 5.11a')
+})
+
+check('F7: a legacy typed correction is the time, not the card\'s estimate', () => {
+  // fun-sport's card says 120 minutes; this one was corrected to 12 before minutesSpent existed.
+  const e = did('2026-09-02', 'fun-sport', { rpe: 5 }, { minutes: 12, minutesSource: 'typed' })
+  const r = at([e])
+  eq(totalsFor(plan, r).minutes, 12)
+  eq(totalsFor(plan, r).load, 60, 'effort is RPE × the corrected minutes')
+  eq(metric(r, 'minutes').points.find(p => p.y > 0).y, 0.2)
+})
+
+check('F7: a time chart says when it leans on the card\'s estimate', () => {
+  const guessed = did('2026-09-02', 'fun-sport', { rpe: 5 }, { minutes: undefined })
+  const typed = did('2026-09-03', 'fun-sport', { rpe: 5, minutesSpent: 40 })
+  ok(/1 workout uses the card's estimate/.test(metric(at([guessed, typed]), 'minutes').help || ''), 'no estimate note')
+  eq(metric(at([typed]), 'minutes').help, undefined, 'a note over measured time')
+})
+
+check('F9: a run and a ride are not one speed line', () => {
+  const r6 = did('2026-09-02', 'log-workout', { activity: 'run', distance: 3, speed: 6 })
+  const b16 = did('2026-09-09', 'log-workout', { activity: 'bike', distance: 20, speed: 16 })
+  eq(metric(at([r6, b16]), 'speed'), undefined, 'a sport switch drawn as a speed trend')
+  ok(metric(at([ride('2026-09-01', 10), ride('2026-09-08', 12)]), 'speed'), 'two rides should still chart')
+})
+
+check('F9: the top set compares one implement and one weight meaning', () => {
+  const row = (date, implement, weight, extra = {}) => did(date, 'log-workout', { activity: 'lift',
+    lifts: [{ key: 'bench-press', name: 'Bench', implement, implementLabel: implement === 'db' ? 'Dumbbell' : 'Barbell', ...extra, sets: [{ reps: 8, weight }] }] })
+  const r = at([row('2026-09-01', 'db', 50), row('2026-09-04', 'barbell', 135), row('2026-09-08', 'barbell', 145)],
+    { exercise: 'bench-press' })
+  const m = metric(r, 'topLoad')
+  eq(m.points.map(p => p.y), [135, 145], 'the dumbbell set was compared with the bar')
+  ok(/On the barbell/.test(m.help), `the chart does not say what it compares: ${m.help}`)
+})
+
+check('F9: a hold gets its seconds, and no weight × reps', () => {
+  const plank = (date, seconds) => did(date, 'log-workout', { activity: 'lift',
+    lifts: [{ key: 'plank', name: 'Plank', sets: [{ seconds, weight: '' }] }] })
+  const r = at([plank('2026-09-01', 45), plank('2026-09-08', 60)], { exercise: 'plank' })
+  eq(metric(r, 'exHold').points.map(p => p.y), [45, 60])
+  eq(metric(r, 'exVolume'), undefined)
+})
+
+check('F10: two sessions on one date are one point, the better of the two', () => {
+  const r = at([ride('2026-09-01', 10), did('2026-09-01', 'log-workout', { activity: 'bike', distance: 5, speed: 18 }), ride('2026-09-08', 12)])
+  eq(metric(r, 'speed').points, [{ x: '2026-09-01', y: 18 }, { x: '2026-09-08', y: 15 }])
+})
+
+check('F10: a date line is spaced by time, not by record', () => {
+  // Nov 1, Nov 2 and Dec 2: the third point is a month away, not one step.
+  const xs = ['2026-11-01', '2026-11-02', '2026-12-02']
+  const x = timeX(xs, 0, 310)
+  eq(Math.round(x(0)), 0)
+  eq(Math.round(x(2)), 310)
+  ok(x(1) < 20, `Nov 2 sits ${x(1)} along, as if it were halfway`)
+  eq(timeX(['2026-11-01'], 0, 100)(0), 50, 'one point is centred')
+  eq(timeX(['a', 'b', 'c'], 0, 100)(1), 50, 'non-dates are still spaced by order')
+})
+
+check('F17: bodyweight keeps to the period', () => {
+  const bw = (date, lb) => ({ id: `bw-${date}`, kind: 'bodyweight', date, data: { lb } })
+  const all = [bw('2026-08-03', 186), bw('2026-09-08', 184), bw('2026-09-14', 183), bw('2026-09-14', 182)]
+  eq(bodyweightSeries(all, '2026-09-07'), [{ x: '2026-09-08', y: 184 }, { x: '2026-09-14', y: 182 }])
+  eq(bodyweightSeries(all, null).length, 3, 'all time is all of it, one point per date')
+})
+
+check('the pyramid: sends and tries per whole grade, letters and plus/minus in one row', () => {
+  const sport = (date, climbs) => did(date, 'fun-sport', { sets: { routes: [{ reps: climbs.length, climbs }] } })
+  const r = at([
+    sport('2026-09-02', [{ grade: 10.05 }, { grade: 10.3, outcome: 'fell' }, { grade: 11.15, outcome: 'flash' }]),
+    sport('2026-09-09', [{ grade: 10.1, fell: true }, { grade: 10.45 }]),
+    did('2026-09-10', 'fun-sport', { hardestYds: 10.2 }),
+  ])
+  eq(pyramidOf(r, plan, 'yds'), [
+    { band: 11, label: '5.11', sent: 1, tried: 1 },
+    { band: 10, label: '5.10', sent: 2, tried: 4 },
+  ])
+  eq(pyramidOf(r, plan, 'v'), [], 'no boulders, no boulder rows')
+  ok(metric(r, 'routePyramid'), 'no route pyramid drawn')
+  eq(metric(r, 'boulderPyramid'), undefined, 'an empty pyramid was drawn')
+})
+
+check('climbing charts come last, the pyramid among them', () => {
+  const r = at([...LOG, did('2026-09-03', 'fun-boulder', { hardest: 4, sets: { problems: [{ reps: 6 }] } })])
+  const names = metricsFor(plan, r).map(g => g.name)
+  eq(names.filter(n => n !== 'This session').at(-1), 'Climbing')
+  const climbing = metricsFor(plan, r).find(g => g.name === 'Climbing').metrics.map(m => m.key)
+  ok(climbing.includes('boulderPyramid') && climbing.includes('climbs'), `climbing charts: ${climbing}`)
+  eq(metric(r, 'climbs').points.find(p => p.x === '2026-08-31').y, 6)
+})
+
+check('the first question is the activity: climbing, lift, run, bike, swim, other', () => {
+  eq(ACTIVITY_SCOPES.map(a => a.key), ['climbing', 'lift', 'run', 'bike', 'swim', 'other'])
+  eq(activityScopeOf(hangs('2026-09-02'), plan), 'climbing', 'a hangboard card is climbing')
+  eq(activityScopeOf(ride('2026-09-02', 3), plan), 'bike')
+  eq(activityScopeOf(lift('2026-09-02', 'bench-press', []), plan), 'lift')
+  eq(activityScopeOf(did('2026-09-02', 'log-workout', { activity: 'kayak' }), plan), 'other')
+  eq(activityScopeOf(did('2026-09-02', 'core', {}), plan), 'other', 'support work is not a sport of its own')
+  // A planned workout that names only its category files by that category's discipline.
+  eq(activityScopeOf(did('2026-09-02', 'planned', { category: 'lift' }), plan), 'lift')
+})
+
+check('the categories are the SECOND question, inside the activity picked', () => {
+  const all = scopeOptions({ plan, entries: LOG, today: TODAY, weeks: null })
+  eq(all.activities.map(a => a.value), ['climbing', 'lift', 'run', 'bike'])
+  const climbing = scopeOptions({ plan, entries: LOG, today: TODAY, weeks: null, activity: 'climbing' })
+  eq(climbing.categories.map(c => c.value).sort(), ['fingers', 'pe'], 'Bike offered beside Fingers')
+  eq(res({ activity: 'climbing' }).entries.length, 4)
+  eq(res({ activity: 'climbing', category: 'pe' }).entries.length, 1)
+})
+
+check('a grade band narrows to the sessions that touched it', () => {
+  const sport = (date, climbs) => did(date, 'fun-sport', { sets: { routes: [{ reps: climbs.length, climbs }] } })
+  const entries = [sport('2026-09-02', [{ grade: 10.05 }]), sport('2026-09-09', [{ grade: 11.3 }]), did('2026-09-10', 'fun-boulder', { hardest: 4 })]
+  const o = scopeOptions({ plan, entries, today: TODAY, weeks: null })
+  // Boulders, then routes, each easiest first: a ladder, not a popularity list.
+  eq(o.bands.map(b => b.label), ['V4', '5.10', '5.11'])
+  eq(o.bands.map(b => b.value), ['v:4', 'yds:10', 'yds:11'])
+  eq(at(entries, { band: 'yds:10' }).entries.length, 1)
+  eq(describeScope({ plan, scope: { ...ALL, band: 'v:4' }, options: o }), 'V4 · all time')
+})
+
+check('a climbing row reads as its climbs: "8 routes · hardest 5.10+"', () => {
+  const opt = plan.dailyMenu.find(m => m.id === 'fun-sport')
+  eq(climbLine(opt, { sets: { routes: [{ reps: 8 }] }, hardestYds: 10.3 }), '8 routes · hardest 5.10+')
 })
 
 console.log(failed ? `\n${failed} progress test(s) failed` : '\nall progress tests pass')

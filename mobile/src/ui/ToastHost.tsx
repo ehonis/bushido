@@ -3,7 +3,7 @@
 // peeking behind; tap to spread, which holds them). Reads lib/toast.ts, so any
 // module that calls pushError() just works: the native screens use it for a
 // failed request the web would have shown inline or swallowed.
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react'
 import { View, StyleSheet, Pressable } from 'react-native'
 import Animated, { FadeInUp, FadeOut, cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -79,7 +79,53 @@ function Item({ t, index, open, offset, frontHeight, onHeight }: {
   )
 }
 
-export default function ToastHost() {
+/*
+ * ONE VISIBLE HOST, THE TOPMOST (#77). iOS draws a presented page sheet or full
+ * screen above the root view, so a host mounted once at the root drew every
+ * toast BEHIND an open sheet: the Undo after a removal or a done flip was
+ * invisible. So each presented layer (`Modal`, `FullScreen`, `Popover` in
+ * Sheet.tsx) mounts its own host inside its native modal, and only the most
+ * recently mounted live one renders; the root's takes over again when the
+ * last sheet goes. The toasts themselves live in lib/toast.ts, so moving
+ * between hosts loses none. A layer that is mounted but not shown (a Popover
+ * with visible={false}) does not take the toasts.
+ *
+ * Chosen over react-native-screens' FullWindowOverlay (installed, iOS only):
+ * that is a separate UIWindow with its own touch and layout-animation story
+ * that cannot be tried here without a device; this is the same Pressable and
+ * Reanimated code the root already runs, inside the window the user sees.
+ */
+const hosts: number[] = []
+let nextHost = 0
+const hostSubs = new Set<() => void>()
+const hostTop = () => (hosts.length ? hosts[hosts.length - 1] : -1)
+const onHosts = (fn: () => void) => { hostSubs.add(fn); return () => { hostSubs.delete(fn) } }
+const hostsChanged = () => hostSubs.forEach((fn) => fn())
+
+function useTopHost(active: boolean) {
+  const [id] = useState(() => ++nextHost)
+  const top = useSyncExternalStore(onHosts, hostTop, hostTop)
+  useLayoutEffect(() => {
+    if (!active) return undefined
+    hosts.push(id)
+    hostsChanged()
+    return () => {
+      const i = hosts.lastIndexOf(id)
+      if (i >= 0) hosts.splice(i, 1)
+      hostsChanged()
+    }
+  }, [active, id])
+  return active && top === id
+}
+
+/** `top`: where the deck starts in this layer (a sheet passes its header's height). */
+export default function ToastHost({ active = true, top = null }: { active?: boolean; top?: number | null } = {}) {
+  const mine = useTopHost(active)
+  if (!mine) return null
+  return <Deck top={top} />
+}
+
+function Deck({ top }: { top: number | null }) {
   const toasts = useToasts()
   const insets = useSafeAreaInsets()
   const [open, setOpen] = useState(false)
@@ -97,7 +143,7 @@ export default function ToastHost() {
   const toggle = () => { if (shown.length < 2) return; tap(); setOpen(!open); holdToasts(!open) }
 
   return (
-    <View pointerEvents="box-none" style={[st.wrap, { top: insets.top + 52, height }]}>
+    <View pointerEvents="box-none" style={[st.wrap, { top: top ?? insets.top + 52, height }]}>
       <Pressable onPress={toggle} style={StyleSheet.absoluteFill} accessibilityLabel={open ? 'Stack notifications' : 'Show all notifications'}>
         {shown.map((t, i) => (
           <Item key={t.id} t={t} index={i} open={open} offset={offsets[i]} frontHeight={frontHeight} onHeight={onHeight} />

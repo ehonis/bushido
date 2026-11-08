@@ -10,9 +10,11 @@
  * Now there is one door. The plan's cards sit inside it as folders, the way the
  * user thinks about them: by the climbing, not by the plan. A card declares
  * `sched.discipline` as `"bouldering"` or `"rock-climbing"` (hangboard and support
- * work go under rock climbing). A card that declares neither lands in "From the
- * plan", so a plan with no climbing in it (the example's runs) is not filed under
- * a sport it is not, and a card nobody tagged is still reachable.
+ * work go under rock climbing), or, on an older plan that never declared it, is
+ * filed by what it says about itself (`folderOf`, below). A card that is not
+ * climbing lands in "From the plan", so a plan with no climbing in it (the
+ * example's runs) is not filed under a sport it is not, and a card nobody tagged
+ * is still reachable.
  *
  * THE FOLDERS ARE NOT CATALOG ACTIVITIES, and that is the point. Climbing must
  * never be one-tap logged as a generic workout, because the hard-finger question
@@ -27,10 +29,70 @@ export const FOLDERS = [
   { key: 'plan', name: 'From the plan', icon: 'Layers' },
 ]
 
-/** Which folder a card belongs in. Undeclared is "From the plan", never nowhere. */
-export function folderOf(opt) {
-  const d = opt?.sched?.discipline
-  return FOLDERS.some(f => f.key === d) ? d : 'plan'
+/*
+ * A CARD THAT NEVER SAID WHICH FOLDER (issue #81). `sched.discipline` arrived on
+ * 2026-10-14, and a plan written before it, the owner's own included, has none on
+ * any card: every climbing card then sat in one "From the plan" folder after the
+ * ninety sports, and the Bouldering and Rock climbing doors did not exist. So an
+ * undeclared card is filed by what it already says about itself, in this order:
+ *
+ *   1. Is it climbing at all? Its own `discipline: "climbing"`, its category's
+ *      discipline in `quotaCategories`, or `sched.whoopSport: "climbing"`. A card
+ *      that says none of these is not guessed into climbing: it stays in "From the
+ *      plan", which is still a door (the example's runs, a support circuit).
+ *   2. Bouldering if it grades on the V scale and nothing else (every exercise
+ *      that logs climbs says `climbLog.scale: "v"`), or calls itself bouldering in
+ *      its name. Everything else that is climbing (routes, laps, the hangboard and
+ *      the load-cell tests) is Rock climbing, which is where a declared plan puts
+ *      hangboard work too.
+ *
+ * A declared `sched.discipline` always wins, so a plan that says is never second-
+ * guessed. Read, never written: the plan file is the owner's, outside the repo.
+ */
+const declared = (opt) => (FOLDERS.some(f => f.key === opt?.sched?.discipline) ? opt.sched.discipline : null)
+
+/** Does a card say, anywhere, that it is climbing? */
+export function isClimbingCard(opt, plan = null) {
+  if (!opt) return false
+  if (declared(opt) === 'bouldering' || declared(opt) === 'rock-climbing') return true
+  if (opt.discipline === 'climbing') return true
+  if (opt.sched?.whoopSport === 'climbing') return true
+  const cat = (plan?.quotaCategories || []).find(c => c.key === opt.category)
+  return cat?.discipline === 'climbing'
+}
+
+const BOULDER_WORDS = /\bboulder/i
+
+function inferredFolder(opt, plan) {
+  if (!isClimbingCard(opt, plan)) return 'plan'
+  const scales = (opt.logSpec?.exercises || []).map(ex => ex?.climbLog?.scale).filter(Boolean)
+  if (scales.length && scales.every(s => s === 'v')) return 'bouldering'
+  if (!scales.length && BOULDER_WORDS.test(opt.name || '')) return 'bouldering'
+  return 'rock-climbing'
+}
+
+/**
+ * Which folder a card belongs in: what it declares, else what it says about
+ * itself (above). Undeclared and not climbing is "From the plan", never nowhere.
+ * `plan` lets a card's category speak for it; without it the card alone decides.
+ */
+export function folderOf(opt, plan = null) {
+  return declared(opt) || inferredFolder(opt, plan)
+}
+
+/** Is this folder one of the climbing ones (not the catch-all)? */
+export const isClimbingFolder = (key) => key === 'bouldering' || key === 'rock-climbing'
+
+/**
+ * What a card is found by when the search box is used, beyond its own name and
+ * dose: the folder's words, so "boulder", "climb" or "route" reaches every
+ * climbing card without the user knowing what the plan called it.
+ */
+export function folderSearchWords(opt, plan = null) {
+  const f = folderOf(opt, plan)
+  if (f === 'bouldering') return 'climbing climb bouldering boulder problems'
+  if (f === 'rock-climbing') return 'climbing climb rock routes sport lead top rope'
+  return ''
 }
 
 /**
@@ -74,7 +136,7 @@ export function climbingFolders(plan) {
   const cards = folderCards(plan)
   return FOLDERS
     .map(f => {
-      const mine = cards.filter(m => folderOf(m) === f.key)
+      const mine = cards.filter(m => folderOf(m, plan) === f.key)
       return { ...f, count: mine.length, groups: groupedSessions(plan, mine) }
     })
     .filter(f => f.count > 0)

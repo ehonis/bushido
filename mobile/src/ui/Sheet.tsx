@@ -1,11 +1,21 @@
 // modal.jsx on a phone: the same three layers with the same props, as the
 // platform's own presentations.
 //
-//   Modal       the web's bottom sheet (.modal) -> an iOS page sheet. Swipe down
-//               to close, unless `dismissable` is false (the web locks its scrim
-//               the same way once data is being entered). Header, scrolling
-//               body, footer; the delete confirmation replaces the body, as on
-//               the web, rather than stacking an alert on top.
+//   Modal       the web's bottom sheet (.modal) -> an iOS page sheet. Header,
+//               scrolling body, footer; the delete confirmation replaces the
+//               body, as on the web, rather than stacking an alert on top.
+//
+// THE SHEET OWNS ITS DISMISS POLICY (#77). The header X always closes: it is
+// the one exit, at the top, away from every input. Everything else that could
+// close a sheet by accident stops once something is being entered: swipe-down
+// is off while the keyboard is up, from the first edit in this sheet (kit's
+// Input reports it through `SheetDirty`), and whenever the caller says the
+// sheet is dirty (`dismissable`). And
+// WHILE THE KEYBOARD IS UP THERE IS NO FOOTER AT ALL: the footer used to ride
+// the KeyboardAvoidingView up onto the keypad, so the lime Close sat on the
+// keys' top row and "I'm done typing" was a tap on Close. The keyboard's own
+// bar (KeyboardBar.tsx: ‹ › Done editing) is the only thing above the keys; the
+// footer comes back once the keys have gone (`keyboardDidHide`).
 //   FullScreen  .fs, "doing is a page": a full-screen modal with a back chevron
 //               and the optional section tabs.
 //   Popover     reference, anchored on desktop and a bottom sheet on a phone:
@@ -19,7 +29,7 @@
 // swipeable set row or a slider inside a sheet silently does nothing. Context
 // (the store, the plan, WHOOP, Strava) still flows through, since a Modal is
 // in the same React tree.
-import React, { useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import { Dimensions, KeyboardAvoidingView, Modal as RNModal, Platform, ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -28,6 +38,9 @@ import { Icon } from '../lib/icons'
 import { T } from './Text'
 import { Btn, IconBtn, Press } from './kit'
 import { warn } from './haptics'
+import { useKeyboardShown } from './KeyboardBar'
+import ToastHost from './ToastHost'
+import { SheetDirty } from './sheetDirty'
 
 /** The tones the CSS gives .modal.t-* / .fs.t-*: which colour the icon and the edge take. */
 export const TONES: Record<string, string> = {
@@ -49,12 +62,14 @@ function TitleIcon({ icon, tone }: { icon: string; tone?: string }) {
 }
 
 export function Modal({
-  title, sub, icon, tone, onClose, onRename = null, onDelete = null,
+  title, sub, status = null, icon, tone, onClose, onRename = null, onDelete = null,
   deleteLabel = 'Remove this session', deleteBody = null,
   dismissable = true, footer, children, scroll = true, bodyStyle,
 }: {
   title: string
   sub?: React.ReactNode
+  /** A state you can flip, under the title: the session sheet's done chip. Far from every input. */
+  status?: React.ReactNode
   icon?: string | null
   tone?: string
   onClose: () => void
@@ -75,6 +90,15 @@ export function Modal({
   // footer and the last field stay that far under the keyboard.
   const [sheetTop, setSheetTop] = useState(0)
   const insets = useSafeAreaInsets()
+  const typing = useKeyboardShown()
+  // Changed once an input in it reports an edit (kit's Input, through SheetDirty);
+  // focusing a box is not a change. While the keyboard is up the swipe waits too.
+  const [touched, setTouched] = useState(false)
+  const markDirty = useCallback(() => setTouched(true), [])
+  // The toasts sit under this sheet's header, so they never cover its X.
+  const [headH, setHeadH] = useState(0)
+  const canSwipe = dismissable && !touched && !typing
+  const showFoot = Boolean(footer) && !confirming && !typing
   const body = confirming ? (
     <View style={st.confirm}>
       <Icon name="TriangleAlert" size={34} color={colors.vizCrit} />
@@ -94,36 +118,44 @@ export function Modal({
       visible
       animationType="slide"
       presentationStyle="pageSheet"
-      allowSwipeDismissal={dismissable}
-      onRequestClose={() => { if (dismissable) onClose() }}
+      allowSwipeDismissal={canSwipe}
+      onRequestClose={() => { if (canSwipe) onClose() }}
     >
+      <SheetDirty.Provider value={markDirty}>
       <GestureHandlerRootView style={{ flex: 1 }} onLayout={(e) => setSheetTop(Math.max(0, Dimensions.get('window').height - e.nativeEvent.layout.height))}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={sheetTop} style={st.sheet}>
-        <View style={[st.head, tone && TONES[tone] ? { borderTopWidth: 3, borderTopColor: TONES[tone] } : null]}>
+        <View onLayout={(e) => setHeadH(Math.round(e.nativeEvent.layout.height))}
+          style={[st.head, tone && TONES[tone] ? { borderTopWidth: 3, borderTopColor: TONES[tone] } : null]}>
           {icon ? <TitleIcon icon={icon} tone={tone} /> : null}
           <View style={{ flex: 1, minWidth: 0 }}>
             <T size={font.title} weight={600} lineHeight={22} numberOfLines={2}>{title}</T>
             {sub ? (typeof sub === 'string' ? <T size={font.small} dim style={{ marginTop: 2 }}>{sub}</T> : sub) : null}
+            {status && !confirming ? <View style={st.status}>{status}</View> : null}
           </View>
-          {onRename ? <IconBtn icon="Pencil" size={16} label="Edit this workout" onPress={onRename} /> : null}
+          {/* The bin first and the pencil between it and the X, so the destructive
+              one is never beside the exit (it asks first anyway). */}
           {onDelete ? <IconBtn icon="Trash2" size={16} label={deleteLabel} onPress={() => { warn(); setConfirming(true) }} /> : null}
+          {onRename ? <IconBtn icon="Pencil" size={16} label="Edit this workout" onPress={onRename} /> : null}
           <IconBtn icon="X" label="Close" onPress={onClose} />
         </View>
         {scroll || confirming ? (
           <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={[{ padding: 16, paddingBottom: footer ? 16 : insets.bottom + 24 }, bodyStyle]}
+            contentContainerStyle={[{ padding: 16, paddingBottom: showFoot ? 16 : typing ? 24 : insets.bottom + 24 }, bodyStyle]}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
           >
             {body}
           </ScrollView>
         ) : <View style={[{ flex: 1 }, bodyStyle]}>{body}</View>}
-        {footer && !confirming ? (
+        {showFoot ? (
           <View style={[st.foot, { paddingBottom: Math.max(12, insets.bottom) }]}>{footer}</View>
         ) : null}
       </KeyboardAvoidingView>
+      {/* This sheet's own toasts: iOS draws it above the root, and the root's host. */}
+      <ToastHost top={headH + space[2]} />
       </GestureHandlerRootView>
+      </SheetDirty.Provider>
     </RNModal>
   )
 }
@@ -178,6 +210,7 @@ export function FullScreen({ title, sub, icon, tone, onBack, tabs, active, onTab
           </ScrollView>
         ) : <View style={{ flex: 1 }}>{children}</View>}
       </KeyboardAvoidingView>
+      <ToastHost />
       </GestureHandlerRootView>
     </RNModal>
   )
@@ -192,6 +225,7 @@ export function Popover({ label, onClose, children, visible = true, onDismiss }:
     <RNModal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose} onDismiss={onDismiss} accessibilityLabel={label}>
       <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={st.sheet}>{children}</View>
+      <ToastHost active={visible} top={space[3]} />
       </GestureHandlerRootView>
     </RNModal>
   )
@@ -211,6 +245,7 @@ const st = StyleSheet.create({
     flexDirection: 'row', gap: space[2], paddingHorizontal: space[4], paddingTop: space[3],
     borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.panel,
   },
+  status: { flexDirection: 'row', marginTop: space[2] },
   confirm: { paddingTop: 18, paddingHorizontal: 4, paddingBottom: 8, alignItems: 'center' },
   fs: { flex: 1, backgroundColor: colors.bg },
   fsHead: {

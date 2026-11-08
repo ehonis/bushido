@@ -42,6 +42,8 @@ import {
 import { ExerciseBody, BodyMap, musclesOf, muscleWords } from './lib/bodymap.jsx'
 import { HowBody } from './howto.jsx'
 import { Popover } from './modal.jsx'
+import { Undo2 } from 'lucide-react'
+import { pushToast, dismissToast } from './lib/toast.js'
 
 /**
  * What each field is called and how far one press moves it.
@@ -354,6 +356,72 @@ export function ExercisePicker({ field, onPick, onClose }) {
   )
 }
 
+/* ------------------------------------------------------ removing, undoably */
+
+const blankish = (v) => v === '' || v === null || v === undefined
+
+/** How long an Undo stays offered: the session's own Remove toast's six seconds. */
+export const UNDO_MS = 6000
+
+/**
+ * A REMOVAL YOU CAN TAKE BACK (#77). Removing an exercise or a set threw away
+ * what was typed on it with no confirm and no undo. Now every removal goes
+ * through `remove`, which writes it and shows a toast with Undo; Undo writes
+ * back the value exactly as it was before. Any other edit made through
+ * `change` withdraws the offer, because the old value is no longer the one to
+ * go back to (an Undo then would also undo that edit); so does leaving.
+ * The parent owns the value, so this wraps the parent's own write.
+ */
+/**
+ * The same, without React, so it can be tested: `latest()` reads the value
+ * now, `emit` writes one, `toast` is the toast store (the app's own by default).
+ */
+export function undoControl(latest, emit, toast = { push: pushToast, dismiss: dismissToast }) {
+  let pending = null
+  const drop = () => {
+    if (pending != null) toast.dismiss(pending)
+    pending = null
+  }
+  return {
+    drop,
+    change: (next) => { drop(); emit(next) },
+    remove: (next, words) => {
+      drop()
+      const before = latest()
+      emit(next)
+      pending = toast.push(words, 'info', {
+        duration: UNDO_MS,
+        action: { label: 'Undo', icon: Undo2, onClick: () => { pending = null; emit(before) } },
+      })
+    },
+  }
+}
+
+export function useUndoable(value, emit) {
+  const latest = useRef(value)
+  latest.current = value
+  // The parent's write as of the latest render, so an Undo seconds later writes through today's closure.
+  const write = useRef(emit)
+  write.current = emit
+  const ctl = useRef(null)
+  if (!ctl.current) ctl.current = undoControl(() => latest.current, (v) => write.current(v))
+  useEffect(() => ctl.current.drop, [])
+  return ctl.current
+}
+
+/**
+ * "10 reps · 90 lb on the bar", "20 min": one set, read back, where it is
+ * removed rather than typed. Each number in the words its box uses (`boxFor`):
+ * a piece's time in minutes ("1:40 min"), a hold's in seconds.
+ */
+export function setWords(item, s) {
+  return setFieldsFor(item, s).map(f => {
+    const box = boxFor(f, item, s)
+    if (blankish(s[f])) return `— ${box.label}`
+    return `${box.time ? minutesText(s[f]) : s[f]} ${box.label}`
+  }).join(' · ')
+}
+
 /* --------------------------------------------------------------- one card */
 
 /**
@@ -366,11 +434,13 @@ export function ExercisePicker({ field, onPick, onClose }) {
  * tap and a type away.
  */
 export function ExerciseCard({
-  item, liftField, entries = [], entryId = null, defaultOpen = false, blank = null,
+  item, liftField, entries = [], entryId = null, defaultOpen = false, defaultEditing = false, blank = null,
   onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove,
 }) {
   const [open, setOpen] = useState(defaultOpen)
   const [about, setAbout] = useState(false)
+  // Removing is its own mode (#77): never a ✕ beside a stepper.
+  const [editing, setEditing] = useState(defaultEditing)
   const offered = liftField && item.exercise ? implementsFor(liftField, item.exercise) : []
   const muscles = musclesOf(liftField, item.exercise)
   /*
@@ -464,35 +534,71 @@ export function ExerciseCard({
             </div>
           )}
 
-          <div className="presc-sets">
-            {item.sets.map((s, i) => (
-              <div key={s.id} className="presc-set">
-                <span className="presc-setn">{i + 1}</span>
-                {setFieldsFor(item, s).map(f => (
-                  <Stepper key={f} {...boxFor(f, item, s)} value={s[f]} blank={blank}
-                    placeholder={s.hint?.[f] != null && s.hint[f] !== '' ? String(s.hint[f]) : '—'}
-                    swap={f === 'weight' ? swap : (f === 'reps' || f === 'seconds') ? count : null}
-                    onChange={v => onPatchSet(s.id, { [f]: v })} />
-                ))}
-                {/* Lifting has no programmed rest — see `normalizeSet`. An
-                    interval piece keeps it: the rest at the wall IS the set. */}
-                {item.kind === 'interval' && (
-                  <Stepper label="rest" value={s.restSec ?? 0} step={15} min={0} suffix=" sec" quiet
-                    onChange={v => onPatchSet(s.id, { restSec: v })} />
-                )}
-                <button className="presc-setx" onClick={() => onRemoveSet(s.id)}
-                  aria-label={`remove set ${i + 1}`}><Icon name="X" size={14} /></button>
+          {/*
+            * THE SET ROW HAS NOTHING BUT NUMBERS (#77). Its ✕ (32px, under the
+            * 44px rule) wrapped onto a line of its own under the reps stepper at
+            * 390px, so stepping reps down deleted the set, and on an empty set it
+            * sat at the right instead: the control moved with the content. A set
+            * is now its number and its steppers, sharing the row (the number box
+            * is the big target) and wrapping as a pair under the first when they
+            * cannot fit. Removing a set or the exercise is Edit's, and has Undo.
+            */}
+          {editing ? (
+            <div className="presc-sets presc-edit">
+              {item.sets.map((s, i) => (
+                <div key={s.id} className="presc-editrow">
+                  <span className="presc-setn">{i + 1}</span>
+                  <span className="presc-editwhat">{setWords(item, s)}</span>
+                  <button type="button" className="btn quiet presc-rm" onClick={() => onRemoveSet(s.id)}
+                    aria-label={`Remove set ${i + 1}`}><Icon name="Trash2" size={16} /> Remove</button>
+                </div>
+              ))}
+              <div className="presc-editrow">
+                <span className="presc-editwhat presc-editall">The whole exercise</span>
+                <button type="button" className="btn quiet presc-rm" onClick={onRemove}
+                  aria-label={`Remove ${item.name}`}><Icon name="Trash2" size={16} /> Remove</button>
               </div>
-            ))}
-          </div>
+            </div>
+          ) : (
+            <div className="presc-sets">
+              {item.sets.map((s, i) => (
+                <div key={s.id} className="presc-set">
+                  <span className="presc-setn">{i + 1}</span>
+                  <span className="presc-setfields">
+                    {setFieldsFor(item, s).map(f => (
+                      <Stepper key={f} {...boxFor(f, item, s)} value={s[f]} blank={blank}
+                        placeholder={s.hint?.[f] != null && s.hint[f] !== '' ? String(s.hint[f]) : '—'}
+                        swap={f === 'weight' ? swap : (f === 'reps' || f === 'seconds') ? count : null}
+                        onChange={v => onPatchSet(s.id, { [f]: v })} />
+                    ))}
+                    {/* Lifting has no programmed rest — see `normalizeSet`. An
+                        interval piece keeps it: the rest at the wall IS the set. */}
+                    {item.kind === 'interval' && (
+                      <Stepper label="rest" value={s.restSec ?? 0} step={15} min={0} suffix=" sec" quiet
+                        onChange={v => onPatchSet(s.id, { restSec: v })} />
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
 
-          {/* Remove sits on the RIGHT, away from the thumb that is adding sets —
-              they were side by side and they do opposite things. */}
+          {/* Add on the left; Edit (where removing lives) on the far right, and in
+              Edit nothing destructive takes Add's place: Done editing comes back
+              where Edit was. */}
           <div className="presc-itemfoot">
-            <button className="btn quiet" onClick={onAddSet}><Icon name="Plus" size={16} /> Add a set</button>
-            <button className="btn quiet presc-itemrm" onClick={onRemove}>
-              <Icon name="Trash2" size={16} /> Remove
-            </button>
+            {editing ? (
+              <button type="button" className="btn quiet presc-itemedit" onClick={() => setEditing(false)}>
+                <Icon name="Check" size={16} /> Done editing
+              </button>
+            ) : (
+              <>
+                <button type="button" className="btn quiet" onClick={onAddSet}><Icon name="Plus" size={16} /> Add a set</button>
+                <button type="button" className="btn quiet presc-itemedit" onClick={() => setEditing(true)}>
+                  <Icon name="Pencil" size={16} /> Edit
+                </button>
+              </>
+            )}
           </div>
         </>
       )}

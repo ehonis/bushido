@@ -46,7 +46,7 @@ for (const [name, el, assert] of cases) {
     if (/\)\}|\}\)/.test(text(html))) throw new Error('stray JSX brackets rendered as text')
     // Some cases care about WHAT rendered, not just that something did — a
     // training load that silently renders the wrong number still renders.
-    if (assert) assert(html)
+    if (assert) await assert(html)
     console.log(`  PASS  ${name.padEnd(20)} ${el == null ? 'checked' : `${html.length} chars`}`)
   } catch (err) {
     failed++

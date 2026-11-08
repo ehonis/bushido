@@ -16,7 +16,8 @@ import {
   prescriptionSteps, itemLine, setLine, patchSet, addSet, removeSet, removeItem, patchItem,
   patchBlock, appendLift, moveItem, setCircuit, setTiming, circuitTiming,
 } from '../lib/prescription.js'
-import { ExerciseSection } from './exercises'
+import { removalWords } from '../lib/removal.js'
+import { ExerciseSection, useUndoable } from './exercises'
 import { CircuitSteppers, CircuitList, SecondsRow } from './circuit'
 
 /* ------------------------------------------------------------- the editor */
@@ -159,7 +160,7 @@ const loadOf = (it: any) => {
   return w !== null && w !== undefined && w !== '' ? `${w} ${it.weightLabel || 'lb'}` : null
 }
 
-function CircuitBlock({ block: b, pres, onChange, liftField, entries, entryId, open, onToggle, extra }: any) {
+function CircuitBlock({ block: b, pres, onChange, onDrop, liftField, entries, entryId, open, onToggle, extra }: any) {
   const [more, setMore] = useState(false)
   const c = b.circuit
   const items = b.items.map((it: any) => ({ id: it.id, key: it.exercise, name: it.name, timing: (circuitTiming as any)(it), load: loadOf(it) }))
@@ -186,7 +187,7 @@ function CircuitBlock({ block: b, pres, onChange, liftField, entries, entryId, o
           ) : null}
           <CircuitList items={items} work={c.work} liftField={liftField}
             onTiming={(i, t) => onChange((setTiming as any)(pres, items[i].id, t))}
-            onRemove={(i) => onChange((removeItem as any)(pres, items[i].id))}
+            onRemove={(i) => onDrop(items[i].id)}
             onMove={(i, dir) => onChange((moveItem as any)(pres, items[i].id, dir).pres)}
             onAdd={(key) => onChange((appendLift as any)(pres, liftField, key, { blockId: b.id, entries, excludeId: entryId }))} />
         </>
@@ -215,9 +216,18 @@ export function addedId(before: any, next: any, blockId: string): string | null 
  * where a session splits. Shared by the review step and the session sheet.
  */
 export function PrescriptionEditor({
-  pres, onChange, liftField, entries = [], entryId = null, categories = [], compact = false,
-  canReorder = true, onAddPiece = null,
+  pres, onChange: emit, liftField, entries = [], entryId = null, categories = [], compact = false,
+  canReorder = true, onAddPiece = null, syncedWith = null,
 }: any) {
+  // Every write goes through `onChange`; a removal through `remove`, which offers Undo (#77).
+  // `syncedWith`: the other sides of a synced workout, for the toast's line (lib/removal.js).
+  const { change: onChange, remove } = useUndoable(pres, emit)
+  const itemOf = (id: string) => (pres?.blocks || []).flatMap((b: any) => b.items || []).find((it: any) => it.id === id)
+  const dropSet = (id: string, setId: string) => {
+    const it = itemOf(id)
+    remove((removeSet as any)(pres, id, setId), removalWords(it, (it?.sets || []).findIndex((s: any) => s.id === setId), { syncedWith }))
+  }
+  const dropItem = (id: string) => remove((removeItem as any)(pres, id), removalWords(itemOf(id), null, { syncedWith }))
   const [shut, setShut] = useState<Set<string>>(() => new Set())  // blockIds folded away
 
   const total = (prescriptionSteps as any)(pres).length
@@ -234,7 +244,7 @@ export function PrescriptionEditor({
   return (
     <View style={compact ? { gap: 0 } : null}>
       {(pres.blocks || []).map((b: any) => (b.circuit ? (
-        <CircuitBlock key={b.id} block={b} pres={pres} onChange={onChange} liftField={liftField}
+        <CircuitBlock key={b.id} block={b} pres={pres} onChange={onChange} onDrop={dropItem} liftField={liftField}
           entries={entries} entryId={entryId}
           open={!shut.has(b.id)} onToggle={() => toggleBlock(b.id)}
           extra={<>
@@ -264,8 +274,8 @@ export function PrescriptionEditor({
           onPatch={(id: string, patch: any) => onChange((patchItem as any)(pres, id, patch))}
           onPatchSet={(id: string, setId: string, patch: any) => onChange((patchSet as any)(pres, id, setId, patch))}
           onAddSet={(id: string) => onChange((addSet as any)(pres, id))}
-          onRemoveSet={(id: string, setId: string) => onChange((removeSet as any)(pres, id, setId))}
-          onRemove={(id: string) => onChange((removeItem as any)(pres, id))}
+          onRemoveSet={dropSet}
+          onRemove={dropItem}
           onMove={canReorder ? (id: string, dir: number) => {
             const r: any = (moveItem as any)(pres, id, dir)
             onChange(r.pres)

@@ -30,8 +30,9 @@ import { colors, font, mix, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
 import { Btn, IconBtn, Input, Press } from '../ui/kit'
 import { Popover } from '../ui/Sheet'
-import { impact, success, tap } from '../ui/haptics'
+import { impact, success, tap, warn } from '../ui/haptics'
 import { Icon } from '../lib/icons'
+import { pushToast, dismissToast } from '../lib/toast'
 import { NumInput } from './numinput'
 import { setFieldsFor, measureOfItem, timeBox, bumpTime } from '../lib/prescription.js'
 import { acceptMinutesText, minutesText, numOrNull } from '../lib/numtext.js'
@@ -206,11 +207,13 @@ export function countSwitch(liftField: any, item: any, onPatch: (patch: any) => 
  */
 export function Stepper({
   label, value, step = 1, min = null, max = null, suffix = '', quiet = false,
-  blank = null, placeholder = '—', onChange, swap = null, time = false,
+  blank = null, placeholder = '—', onChange, swap = null, time = false, grow = false,
 }: {
   swap?: WeightSwap
   /** A minutes box over seconds (`boxFor`), stepped by `bumpTime`. */
   time?: boolean
+  /** In a set row: take the row's spare width, so the number box is the big target. */
+  grow?: boolean
   label: string
   value: any
   placeholder?: string
@@ -225,21 +228,21 @@ export function Stepper({
   const n = Number(value) || 0
   const bump = (d: number) => { tap(); onChange(stepBox({ step, min, max, time }, value, d)) }
   return (
-    <View style={[st.stepper, quiet && st.stepperQuiet]}>
+    <View style={[st.stepper, quiet && st.stepperQuiet, grow && st.stepperGrow]}>
       <Press onPress={() => bump(-1)} disabled={min !== null && n <= min} style={st.stepperBtn}
         accessibilityRole="button" accessibilityLabel={`less ${label}`}>
         <Icon name="Minus" size={15} color={colors.inkDim} />
       </Press>
-      <View style={st.stepperMid}>
+      <View style={[st.stepperMid, grow && { flex: 1 }]}>
         {time ? (
           <TimeInput value={value} accessibilityLabel={label} placeholder={placeholder} blank={blank} onChange={onChange}
             placeholderTextColor={colors.inkFaint} keyboardAppearance="dark" selectionColor={colors.accent}
-            selectTextOnFocus style={st.stepperIn} />
+            selectTextOnFocus style={[st.stepperIn, grow && { width: '100%' }]} />
         ) : (
           <NumInput
             value={value} accessibilityLabel={label} placeholder={placeholder} blank={blank} onChange={onChange}
             placeholderTextColor={colors.inkFaint} keyboardAppearance="dark" selectionColor={colors.accent}
-            selectTextOnFocus style={st.stepperIn}
+            selectTextOnFocus style={[st.stepperIn, grow && { width: '100%' }]}
           />
         )}
         {swap ? (
@@ -422,6 +425,60 @@ export function ExercisePicker({ field, onPick, onClose }: any) {
 
 const blankish = (v: any) => v === '' || v === null || v === undefined
 
+/** How long an Undo stays offered: the session's own Remove toast's six seconds. */
+export const UNDO_MS = 6000
+
+/**
+ * The same, without React, so it can be tested: `latest()` reads the value
+ * now, `emit` writes one, `toast` is the toast store (the app's own by default).
+ */
+export function undoControl<V>(latest: () => V, emit: (next: V) => void,
+  toast: { push: typeof pushToast; dismiss: typeof dismissToast } = { push: pushToast, dismiss: dismissToast }) {
+  let pending: number | null = null
+  const drop = () => {
+    if (pending != null) toast.dismiss(pending)
+    pending = null
+  }
+  return {
+    drop,
+    change: (next: V) => { drop(); emit(next) },
+    remove: (next: V, words: string) => {
+      drop()
+      const before = latest()
+      emit(next)
+      pending = toast.push(words, 'info', {
+        duration: UNDO_MS,
+        action: { label: 'Undo', icon: null, onClick: () => { pending = null; emit(before) } },
+      })
+    },
+  }
+}
+
+export function useUndoable<V>(value: V, emit: (next: V) => void) {
+  const latest = useRef(value)
+  latest.current = value
+  // The parent's write as of the latest render, so an Undo seconds later writes through today's closure.
+  const write = useRef(emit)
+  write.current = emit
+  const ctl = useRef<ReturnType<typeof undoControl<V>> | null>(null)
+  if (!ctl.current) ctl.current = undoControl(() => latest.current, (v: V) => write.current(v))
+  useEffect(() => ctl.current!.drop, [])
+  return ctl.current
+}
+
+/**
+ * "10 reps · 90 lb on the bar", "20 min": one set, read back, where it is
+ * removed rather than typed. Each number in the words its box uses (`boxFor`):
+ * a piece's time in minutes ("1:40 min"), a hold's in seconds.
+ */
+function setWords(item: any, s: any) {
+  return setFieldsFor(item, s).map((f: string) => {
+    const box: any = boxFor(f, item, s)
+    if (blankish(s[f])) return `— ${box.label}`
+    return `${box.time ? minutesText(s[f]) : s[f]} ${box.label}`
+  }).join(' · ')
+}
+
 /**
  * Every set, editable, with thumbs in mind.
  *
@@ -431,11 +488,13 @@ const blankish = (v: any) => v === '' || v === null || v === undefined
  * number is one tap and a type away.
  */
 export function ExerciseCard({
-  item, liftField, entries = [], entryId = null, defaultOpen = false, blank = null,
+  item, liftField, entries = [], entryId = null, defaultOpen = false, defaultEditing = false, blank = null,
   onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove,
 }: any) {
   const [open, setOpen] = useState(defaultOpen)
   const [about, setAbout] = useState(false)
+  // Removing is its own mode (#77): never a ✕ beside a stepper.
+  const [editing, setEditing] = useState(defaultEditing)
   const offered: any[] = liftField && item.exercise ? implementsFor(liftField, item.exercise) : []
   const muscles = musclesOf(liftField, item.exercise)
   /*
@@ -529,37 +588,69 @@ export function ExerciseCard({
             </ScrollView>
           )}
 
-          <View style={st.sets}>
-            {item.sets.map((s: any, i: number) => (
-              <SwipeRemove key={s.id} label="Remove" onRemove={() => onRemoveSet(s.id)}>
-                <View style={st.set}>
+          {/*
+            * THE SET ROW HAS NOTHING BUT NUMBERS (#77). Its ✕ wrapped onto a line
+            * of its own under the reps stepper on a 390pt phone, so stepping reps
+            * down deleted the set. A set is now its number and its steppers, and
+            * the steppers share the row's width (the number box is the big
+            * target), wrapping as a pair under the first when they cannot fit.
+            * A set comes off by a swipe on its row (iOS's own gesture) or in
+            * Edit, and either way with Undo.
+            */}
+          {editing ? (
+            <View style={st.sets}>
+              {item.sets.map((s: any, i: number) => (
+                <View key={s.id} style={st.editRow}>
                   <T size={font.small} dim tabular align="center" style={{ width: 20 }}>{String(i + 1)}</T>
-                  {setFieldsFor(item, s).map((f: string) => (
-                    <Stepper key={f} {...boxFor(f, item, s)} value={s[f]} blank={blank}
-                      placeholder={s.hint?.[f] != null && s.hint[f] !== '' ? String(s.hint[f]) : '—'}
-                      swap={f === 'weight' ? swap : (f === 'reps' || f === 'seconds') ? count : null}
-                      onChange={(v) => patchSet(s, { [f]: v })} />
-                  ))}
-                  {/* Lifting has no programmed rest — see `normalizeSet`. An
-                      interval piece keeps it: the rest at the wall IS the set. */}
-                  {item.kind === 'interval' && (
-                    <Stepper label="rest" value={s.restSec ?? 0} step={15} min={0} suffix=" sec" quiet
-                      onChange={(v) => onPatchSet(s.id, { restSec: v })} />
-                  )}
-                  <Press onPress={() => { tap(); onRemoveSet(s.id) }} style={st.setx} hitSlop={4}
-                    accessibilityRole="button" accessibilityLabel={`remove set ${i + 1}`}>
-                    <Icon name="X" size={14} color={colors.inkFaint} />
-                  </Press>
+                  <T size={font.body} tabular numberOfLines={1} style={{ flex: 1 }}>{setWords(item, s)}</T>
+                  <RemoveBtn label="Remove" a11y={`Remove set ${i + 1}`} onPress={() => onRemoveSet(s.id)} />
                 </View>
-              </SwipeRemove>
-            ))}
-          </View>
+              ))}
+              <View style={st.editRow}>
+                <T size={font.body} dim numberOfLines={1} style={{ flex: 1, paddingLeft: 20 + space[2] }}>The whole exercise</T>
+                <RemoveBtn label="Remove" a11y={`Remove ${item.name}`} onPress={onRemove} />
+              </View>
+            </View>
+          ) : (
+            <View style={st.sets}>
+              {item.sets.map((s: any, i: number) => (
+                <SwipeRemove key={s.id} label="Remove" onRemove={() => onRemoveSet(s.id)}>
+                  <View style={st.set}>
+                    <T size={font.small} dim tabular align="center" style={{ width: 20 }}>{String(i + 1)}</T>
+                    <View style={st.setFields}>
+                      {setFieldsFor(item, s).map((f: string) => (
+                        <Stepper key={f} grow {...boxFor(f, item, s)} value={s[f]} blank={blank}
+                          placeholder={s.hint?.[f] != null && s.hint[f] !== '' ? String(s.hint[f]) : '—'}
+                          swap={f === 'weight' ? swap : (f === 'reps' || f === 'seconds') ? count : null}
+                          onChange={(v) => patchSet(s, { [f]: v })} />
+                      ))}
+                      {/* Lifting has no programmed rest — see `normalizeSet`. An
+                          interval piece keeps it: the rest at the wall IS the set. */}
+                      {item.kind === 'interval' && (
+                        <Stepper grow label="rest" value={s.restSec ?? 0} step={15} min={0} suffix=" sec" quiet
+                          onChange={(v) => onPatchSet(s.id, { restSec: v })} />
+                      )}
+                    </View>
+                  </View>
+                </SwipeRemove>
+              ))}
+            </View>
+          )}
 
-          {/* Remove sits on the RIGHT, away from the thumb that is adding sets —
-              they were side by side and they do opposite things. */}
+          {/* Add on the left; Edit (where removing lives) on the far right, and in
+              Edit nothing destructive takes Add's place: Done editing comes back
+              where Edit was. */}
           <View style={st.itemFoot}>
-            <Btn kind="quiet" icon="Plus" title="Add a set" style={st.footBtn} onPress={() => { impact(); onAddSet() }} />
-            <RemoveBtn onPress={() => { tap(); onRemove() }} />
+            {editing ? (
+              <Btn kind="quiet" icon="Check" title="Done editing" style={[st.footBtn, { marginLeft: 'auto' }]}
+                onPress={() => { tap(); setEditing(false) }} />
+            ) : (
+              <>
+                <Btn kind="quiet" icon="Plus" title="Add a set" style={st.footBtn} onPress={() => { impact(); onAddSet() }} />
+                <Btn kind="quiet" icon="Pencil" title="Edit" style={[st.footBtn, { marginLeft: 'auto' }]}
+                  onPress={() => { tap(); setEditing(true) }} />
+              </>
+            )}
           </View>
         </>
       )}
@@ -570,15 +661,13 @@ export function ExerciseCard({
   return open ? card : <SwipeRemove label="Remove" onRemove={onRemove}>{card}</SwipeRemove>
 }
 
-/** A quiet "Remove" that turns the bad colour under the thumb (the web's :hover). */
-function RemoveBtn({ onPress }: { onPress: () => void }) {
-  const [held, setHeld] = useState(false)
-  const fg = held ? colors.bad : colors.inkDim
+/** Edit's "Remove": in the bad colour, because in Edit it is the point. 44pt, with Undo after. */
+function RemoveBtn({ onPress, label = 'Remove', a11y }: { onPress: () => void; label?: string; a11y?: string }) {
   return (
-    <Press onPress={onPress} onPressIn={() => setHeld(true)} onPressOut={() => setHeld(false)}
-      accessibilityRole="button" style={[st.footBtn, st.footBtnRow, { marginLeft: 'auto' }]}>
-      <Icon name="Trash2" size={16} color={fg} />
-      <T size={font.body} weight={600} color={fg}>Remove</T>
+    <Press onPress={() => { warn(); onPress() }} accessibilityRole="button" accessibilityLabel={a11y || label}
+      style={st.removeBtn}>
+      <Icon name="Trash2" size={16} color={colors.bad} />
+      <T size={font.small} weight={600} color={colors.bad}>{label}</T>
     </Press>
   )
 }
@@ -743,12 +832,14 @@ const st = StyleSheet.create({
     backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.lineStrong, borderRadius: radius.control,
   },
   stepperQuiet: { backgroundColor: 'transparent', borderColor: colors.line },
-  stepperBtn: { width: 40, height: TAP, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center' },
+  stepperBtn: { width: TAP, height: TAP, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center' },
+  stepperGrow: { flexGrow: 1 },
   stepperMid: { alignItems: 'center', gap: 1, minWidth: 48, paddingVertical: 2 },
   // The web's .stepper-swap: a raised pill so the label reads as a control, at
-  // most 84 wide (two short lines), so reps and weight still share a row.
+  // most 64 wide (two short lines), so reps and weight still share a row on a
+  // 390pt phone with 44pt ± buttons; when they cannot, the pair wraps.
   swap: {
-    flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 2, maxWidth: 84,
+    flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 2, maxWidth: 64,
     paddingVertical: 3, paddingHorizontal: 5, borderRadius: 9,
     backgroundColor: colors.panel3, borderWidth: 1, borderColor: colors.lineStrong,
   },
@@ -790,13 +881,18 @@ const st = StyleSheet.create({
   prior: { flexDirection: 'row', gap: 6, alignItems: 'flex-start', marginTop: 6, marginBottom: 2 },
   impl: { marginVertical: 8, marginRight: -12, flexGrow: 0 },
   sets: { gap: 7, marginTop: 8 },
-  set: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, backgroundColor: colors.panel2 },
-  setx: { width: 32, height: TAP, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', marginLeft: 'auto' },
+  set: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.panel2 },
+  setFields: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  editRow: { flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: TAP },
+  removeBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[1] + 2,
+    minHeight: TAP, paddingHorizontal: space[3], borderRadius: radius.control,
+    borderWidth: 1, borderColor: colors.line,
+  },
   // Add on the left, Remove on the far right: they do opposite things.
   itemFoot: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 10 },
   // Quiet buttons whose text lines up with the card's edge: the padding is the tap target.
   footBtn: { paddingHorizontal: space[2], marginHorizontal: -space[2] },
-  footBtnRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[2], minHeight: TAP, borderRadius: radius.control },
   blockHead: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 },
   blockToggle: { flexDirection: 'row', alignItems: 'center', gap: 7, flexGrow: 1, flexShrink: 1, minWidth: 0, minHeight: TAP },
   blockMeta: { flexDirection: 'row', alignItems: 'center', gap: 10, marginLeft: 'auto' },

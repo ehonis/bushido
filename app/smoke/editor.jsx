@@ -6,7 +6,10 @@ import { renderToString } from 'react-dom/server'
 import { PrescriptionEditor } from '../src/editor.jsx'
 import { normalizePrescription, setCircuit } from '../src/lib/prescription.js'
 import { SessionLog } from '../src/sessionlog.jsx'
-import { ExercisePicker, ExerciseSheet, ExerciseCard, STEP } from '../src/exercises.jsx'
+import { readFileSync } from 'node:fs'
+import * as EXERCISES from '../src/exercises.jsx'
+import { ExercisePicker, ExerciseSheet, ExerciseCard, STEP, undoControl, UNDO_MS } from '../src/exercises.jsx'
+import { removalWords, syncLine } from '../src/lib/removal.js'
 import { searchExercises } from '../src/lib/lifts.js'
 import {
   plan, entries, noop, TODAY, back, text, LIFT_FIELD, SQUAT, PRESCRIPTION, TRIP,
@@ -252,5 +255,112 @@ export default [
     if (!/Add a set|aria-label="less reps"|1 set/.test(html.slice(html.indexOf('Finisher')))) throw new Error('the plain block lost its sets')
     // Switching a plain lift block on is the editor's own write (lib/prescription.js).
     if (!setCircuit(pres, 'b1', true).blocks[1].circuit) throw new Error('the switch does nothing')
+  }],
+  /*
+   * MIS-TAPS (#77). A set row is its number and its steppers: the remove-set ✕
+   * wrapped onto its own line under the reps stepper at 390px and stepping reps
+   * down deleted the set. Removing is Edit's: each set read back with its own
+   * Remove, then the whole exercise, and nothing destructive where Add a set was.
+   * Both addresses pinned: absent from the row, present in Edit.
+   */
+  ['ExerciseCard(a set row is numbers only; Remove lives in Edit, far from Add a set)', null, () => {
+    const item = { ...PRESCRIPTION.blocks[1].items[0], line: '3 × 8' }
+    const card = (props) => renderToString(<ExerciseCard item={item} liftField={LIFT_FIELD} defaultOpen
+      onPatch={noop} onPatchSet={noop} onAddSet={noop} onRemoveSet={noop} onRemove={noop} {...props} />)
+    const html = card({})
+    if (/presc-setx|aria-label="remove set|aria-label="Remove set/i.test(html)) throw new Error('a remove-set ✕ is back in the set row')
+    if ((html.match(/class="presc-setfields"/g) || []).length !== item.sets.length) throw new Error('the steppers are not in one wrapping group per set')
+    const foot = (h) => (h.match(/<div class="presc-itemfoot">([\s\S]*?)<\/div>/) || [])[1] || ''
+    if (!/Add a set/.test(foot(html)) || !/class="btn quiet presc-itemedit"[^>]*>.*Edit/.test(foot(html))) throw new Error('the foot is not Add a set … Edit')
+    if (/Remove/.test(text(foot(html)))) throw new Error('Remove is back beside Add a set')
+    const edit = card({ defaultEditing: true })
+    if (/class="stepper/.test(edit)) throw new Error('Edit still shows steppers beside the removes')
+    for (let i = 1; i <= item.sets.length; i++) {
+      if (!new RegExp(`aria-label="Remove set ${i}"`).test(edit)) throw new Error(`Edit has no Remove for set ${i}`)
+    }
+    if (!edit.includes(`aria-label="Remove ${item.name}"`)) throw new Error('Edit cannot remove the whole exercise')
+    if (/Add a set/.test(edit) || !/Done editing/.test(foot(edit))) throw new Error('Edit’s foot is not just Done editing')
+    if (!/8 reps · 135 lb/.test(text(edit))) throw new Error('a set is not read back in Edit')
+    // A piece's time reads in its box's words (#87's minutes box), never raw seconds.
+    const piece = renderToString(<ExerciseCard item={{ ...PRESCRIPTION.blocks[0].items[0], line: '10 min' }} liftField={LIFT_FIELD}
+      defaultOpen defaultEditing onPatch={noop} onPatchSet={noop} onAddSet={noop} onRemoveSet={noop} onRemove={noop} />)
+    const said = (piece.match(/<span class="presc-editwhat">([^<]*)<\/span>/) || [])[1] || ''
+    if (!/^10 min/.test(said) || /600|sec/.test(said)) throw new Error(`a ten-minute piece reads "${said}" in Edit`)
+  }],
+  /* Every removal is undoable (#77): written at once, Undo writes back exactly what was there. */
+  ['undoControl(a removal writes, Undo puts it back; any other edit withdraws the offer)', null, () => {
+    let value = { sets: [1, 2, 3] }
+    const toasts = new Map()
+    let nextId = 1
+    const toast = {
+      push: (text, kind, opts) => { const id = nextId++; toasts.set(id, { text, kind, ...opts }); return id },
+      dismiss: (id) => toasts.delete(id),
+    }
+    const ctl = undoControl(() => value, (next) => { value = next }, toast)
+    ctl.remove({ sets: [1, 3] }, 'Removed set 2 of squat')
+    if (value.sets.join() !== '1,3') throw new Error('the removal was not written')
+    const [id, t] = [...toasts][0] || []
+    if (!t || t.text !== 'Removed set 2 of squat' || t.action?.label !== 'Undo') throw new Error('no toast with Undo')
+    if (t.duration !== UNDO_MS || UNDO_MS < 5000) throw new Error('the Undo is gone before a thumb can reach it')
+    t.action.onClick()
+    if (value.sets.join() !== '1,2,3') throw new Error('Undo did not put the set back')
+    // A second removal, then an edit: the Undo would now take the edit too, so it goes.
+    ctl.remove({ sets: [1, 2] }, 'Removed set 3 of squat')
+    const second = [...toasts.keys()].at(-1)
+    ctl.change({ sets: [1, 9] })
+    if (toasts.has(second)) throw new Error('an edit after a removal left a stale Undo on screen')
+    if (value.sets.join() !== '1,9') throw new Error('the edit was not written')
+    void id
+  }],
+  /*
+   * THE RULE for a removal's words (#77, lib/removal.js): only what is certain.
+   * The server decides what happens on someone else's side (set counts adjusted,
+   * what they logged kept), from data this device does not have, so a toast never
+   * claims it. Plain words, and on a synced workout one static line stating the
+   * rule. lib/removal.js is the phone's too, byte for byte.
+   */
+  ['removalWords(neutral: what was removed; a synced entry adds only the static line, never a claim about the other side)', null, () => {
+    const item = { name: 'Hip adduction', sets: [{}, {}, {}] }
+    const plain = [
+      [removalWords(item), 'Removed Hip adduction'],
+      [removalWords(item, 1), 'Removed set 2 of Hip adduction'],
+      [removalWords({ ...item, sets: [{}] }, 0), 'Removed Hip adduction'],
+      [removalWords({ ...item, sets: [{}] }, 0, { lastTakesItem: false }), 'Removed set 1 of Hip adduction'],
+    ]
+    const synced = [
+      [removalWords(item, 1, { syncedWith: ['Sam'] }),
+        "Removed set 2 of Hip adduction. Exercises stay in step with Sam: what Sam has logged stays on Sam's side."],
+      [removalWords(item, null, { syncedWith: ['you'] }),
+        'Removed Hip adduction. Exercises stay in step with you: what you have logged stays on your side.'],
+      [removalWords(item, null, { syncedWith: ['Sam', 'Alex'] }),
+        'Removed Hip adduction. Exercises stay in step with Sam and Alex: what each of them has logged stays on their side.'],
+    ]
+    for (const [got, want] of [...plain, ...synced]) if (got !== want) throw new Error(`"${got}", not "${want}"`)
+    for (const [got] of plain) if (/step with|logged/.test(got)) throw new Error(`an unsynced removal talks about another side: "${got}"`)
+    for (const [got] of [...plain, ...synced]) {
+      if (/both workouts|all \d+ workouts|keeps it|keep it|comes back|blank|for you and/.test(got)) throw new Error(`a claim about the other side: "${got}"`)
+    }
+    if (syncLine(['Sam']) !== "Exercises stay in step with Sam: what Sam has logged stays on Sam's side.") throw new Error('the synced line changed')
+    // Gone on purpose: guessing the other side by set position was wrong both ways.
+    for (const k of ['loggedThere', 'removalToast', 'backWords']) if (k in EXERCISES) throw new Error(`${k} is back`)
+    // The phone says the same words: its lib/removal.js is this file.
+    const web = readFileSync(new URL('../src/lib/removal.js', import.meta.url), 'utf8')
+    const phone = readFileSync(new URL('../../mobile/src/lib/removal.js', import.meta.url), 'utf8')
+    if (web !== phone) throw new Error('mobile/src/lib/removal.js drifted from the web’s')
+    const native = readFileSync(new URL('../../mobile/src/features/exercises.tsx', import.meta.url), 'utf8')
+    if (/loggedThere|removalToast|backWords/.test(native)) throw new Error('the phone still guesses the other side')
+  }],
+  /*
+   * The geometry the CSS used to get wrong (#77): `.presc-itemfoot .btn.quiet`
+   * outranked `.presc-itemrm { margin-left: auto }`, so Remove sat flush against
+   * Add a set. The far-right button now has a rule that outranks it, after it.
+   */
+  ['editor.css(the far-right foot button outranks the foot’s quiet-button margin)', null, () => {
+    const css = readFileSync(new URL('../src/css/editor.css', import.meta.url), 'utf8')
+    const base = css.indexOf('.presc-itemfoot .btn.quiet {')
+    const far = css.search(/\.presc-itemfoot \.btn\.quiet\.presc-itemedit \{[^}]*margin-left: auto/)
+    if (base < 0 || far < base) throw new Error('nothing pushes Edit to the far right past `.presc-itemfoot .btn.quiet`')
+    if (/\.stepper-btn \{[^}]*width: 40px/.test(css)) throw new Error('the ± buttons are under 44px again')
+    if (/\.presc-setx/.test(css)) throw new Error('the set row’s ✕ is styled again')
   }],
 ]

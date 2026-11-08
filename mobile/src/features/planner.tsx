@@ -19,6 +19,7 @@ import { Icon } from '../lib/icons'
 import { T } from '../ui/Text'
 import { Btn, Card, Chip, IconBtn, Input, Press, SectionHeader } from '../ui/kit'
 import { FullScreen } from '../ui/Sheet'
+import { useKeyboardShown } from '../ui/KeyboardBar'
 import { PrescriptionEditor } from './editor'
 import { NumInput } from './numinput'
 import { impact, success, tap, warn } from '../ui/haptics'
@@ -49,6 +50,11 @@ const { FOR_ME, forWords, forSomeoneElse, namesOf } = trainerLib as any
  *
  * Sticky, because the ask and the review are both taller than a phone and the
  * button that ends the step should never be something you scroll to find.
+ * But NOT while typing (#77): the full screen's KeyboardAvoidingView lifted
+ * the bar onto the keypad, so "Put it on today" (it keeps the plan) and Redo
+ * sat where a thumb lands reaching for the keys. While the keyboard is up the
+ * bar is gone and the keyboard's own Done editing is the way out; it comes
+ * back once the keys have left.
  */
 export function StepPage({ children, foot = null, after = null }: {
   children?: React.ReactNode
@@ -57,18 +63,20 @@ export function StepPage({ children, foot = null, after = null }: {
   after?: React.ReactNode
 }) {
   const insets = useSafeAreaInsets()
+  const typing = useKeyboardShown()
+  const showFoot = Boolean(foot) && !typing
   return (
     <View style={{ flex: 1 }}>
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: space.gutter, paddingBottom: foot ? space[4] : space[6] + insets.bottom }}
+        contentContainerStyle={{ padding: space.gutter, paddingBottom: showFoot ? space[4] : typing ? space[6] : space[6] + insets.bottom }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
       >
         {children}
         {after}
       </ScrollView>
-      {foot ? (
+      {showFoot ? (
         <View style={[st.sticky, { paddingBottom: space[3] + insets.bottom }]}>{foot}</View>
       ) : null}
     </View>

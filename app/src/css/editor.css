@@ -130,25 +130,44 @@
 }
 .implchip.on { border-color: var(--accent-line); background: var(--accent-soft); color: var(--ink); }
 
-.presc-sets { display: grid; gap: 7px; margin-top: 8px; }
-.presc-set { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+/* A set row is its number and its steppers, nothing else (#77): the steppers
+   share the width so the number box is the big target, and wrap as a pair,
+   lined up under the first, when they cannot both fit. No ✕ in the row. */
+.presc-sets { display: grid; gap: var(--sp-2); margin-top: 8px; }
+.presc-set { display: flex; align-items: center; gap: 6px; }
 .presc-setn {
   flex: 0 0 auto; width: 20px; text-align: center;
   font-size: var(--fs-small); color: var(--ink-dim); font-variant-numeric: tabular-nums;
 }
-.presc-setx {
-  flex: 0 0 auto; width: 32px; height: var(--tap); display: grid; place-items: center;
-  background: transparent; border: 0; border-radius: var(--r-control);
-  color: var(--ink-faint); cursor: pointer;
-}
-.presc-setx:hover { color: var(--bad); background: var(--panel); }
+.presc-setfields { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+/* The basis is the stepper's own size (two 44px buttons and a 48px box): an
+   input's intrinsic width would otherwise push every pair onto two lines. */
+.presc-setfields > .stepper { flex: 1 1 calc(2 * var(--tap) + 50px); }
+.presc-setfields > .stepper .stepper-mid { flex: 1; }
+.presc-setfields > .stepper .stepper-mid input { width: 100%; }
 
-/* Add on the left, remove on the far right: they do opposite things and they
-   were a thumb's width apart. */
-.presc-itemfoot { display: flex; align-items: center; gap: 14px; margin-top: 10px; }
-.presc-itemrm { margin-left: auto; }
-.linkbtn.danger:hover, .btn.quiet.presc-itemrm:hover { color: var(--bad); }
+/* Edit: each set read back with its Remove, then the whole exercise. Removing
+   is a mode of its own so it is never beside an increment, and has Undo. */
+.presc-editrow { display: flex; align-items: center; gap: var(--sp-2); min-height: var(--tap); }
+.presc-editwhat {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.presc-editall { color: var(--ink-dim); padding-left: calc(20px + var(--sp-2)); }
+.btn.quiet.presc-rm {
+  flex: 0 0 auto; min-height: var(--tap); padding: 0 var(--sp-3);
+  border: 1px solid var(--line); color: var(--bad); font-size: var(--fs-small);
+}
+
+/* Add on the left, Edit on the far right: they do opposite things. The far
+   right is a selector that outranks `.presc-itemfoot .btn.quiet` below, which
+   used to cancel `margin-left: auto` and left Remove touching Add a set. */
+.presc-itemfoot { display: flex; align-items: center; gap: var(--sp-4); margin-top: 10px; }
 .presc-itemfoot .btn.quiet { padding: 0 var(--sp-2); margin: 0 calc(-1 * var(--sp-2)); }
+.presc-itemfoot .btn.quiet.presc-itemedit { margin-left: auto; }
+/* The circuit editor's exercise Remove (circuit.jsx) keeps its far-right place. */
+.presc-itemrm { margin-left: auto; }
+.btn.quiet.presc-itemrm:hover { color: var(--bad); }
 
 .presc-add {
   display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
@@ -169,7 +188,7 @@
 }
 .stepper.quiet { background: transparent; border-color: var(--line); }
 .stepper-btn {
-  width: 40px; height: var(--tap); display: grid; place-items: center;
+  width: var(--tap); height: var(--tap); display: grid; place-items: center;
   background: transparent; border: 0; border-radius: var(--r-control); color: var(--ink-dim); cursor: pointer;
 }
 .stepper-btn:disabled { opacity: 0.35; cursor: not-allowed; }
@@ -183,13 +202,13 @@
 .stepper-mid input:focus { outline: none; color: var(--accent); }
 .stepper-label { font-size: var(--fs-caption); color: var(--ink-dim); line-height: 1; }
 /* What a lift's weight means, switched on its own label (#58): the words are the
-   button, raised so they read as one. At most 84px wide, wrapping onto a second
+   button, raised so they read as one. At most 64px wide, wrapping onto a second
    line with the last word and the swap mark kept together, so reps, weight and
-   the set number still fit one row on a 390px phone. The tap area reaches past
+   the set number still fit one row on a 390px phone with 44px ± buttons. The tap area reaches past
    the pill to the sides and below, never up into the number box. The runner's is
    a full 44px on one line. */
 .stepper-swap {
-  position: relative; display: inline-block; max-width: 84px;
+  position: relative; display: inline-block; max-width: 64px;
   padding: 3px 5px; margin-top: 2px;
   background: var(--panel-3); border: 1px solid var(--line-strong); border-radius: 9px;
   color: var(--ink-dim); font: inherit; font-size: var(--fs-caption); line-height: 1.2;

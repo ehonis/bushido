@@ -4,15 +4,17 @@
 // .empty, .list-row. Screens compose these rather than restyling Pressables by
 // hand, so a tap target feels the same everywhere. Every one is at least 44pt
 // tall (filter chips 36 with a gap): the app is used one-handed, mid-session.
-import React from 'react'
+import React, { useId } from 'react'
 import {
-  ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, TextInput, View,
+  ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Switch, TextInput, View,
   type PressableProps, type StyleProp, type TextInputProps, type ViewStyle,
 } from 'react-native'
 import { colors, font, mix, radius, space, TAP } from '../theme'
 import { Icon } from '../lib/icons'
 import { T } from './Text'
 import { tap } from './haptics'
+import { KeyboardBar } from './KeyboardBar'
+import { useMarkDirty } from './sheetDirty'
 
 /** A Pressable that dims when held, the native stand-in for :hover/:active. */
 export function Press({ style, haptic, onPress, ...rest }: PressableProps & { style?: StyleProp<ViewStyle>; haptic?: boolean }) {
@@ -212,18 +214,35 @@ export function Segmented<V extends string>({ options, value, onChange, style, s
   return <View style={[s.segWrap, { flexDirection: 'row', gap: 4 }, style]}>{body}</View>
 }
 
-/** input / textarea: --panel-2, 16pt so nothing zooms, 44pt tall. */
-export const Input = React.forwardRef<TextInput, TextInputProps & { boxStyle?: StyleProp<ViewStyle> }>(function Input({ style, boxStyle, multiline, ...rest }, ref) {
+/**
+ * input / textarea: --panel-2, 16pt so nothing zooms, 44pt tall.
+ *
+ * Every one carries the keyboard bar (‹ › Done editing, ui/KeyboardBar.tsx,
+ * #77), so no keyboard in the app, the decimal pad included, is left without
+ * a way to put it away that is not an exit. An input of its own id per box:
+ * one accessory binds to one input on the new architecture.
+ */
+export const Input = React.forwardRef<TextInput, TextInputProps & { boxStyle?: StyleProp<ViewStyle> }>(function Input({ style, boxStyle, multiline, inputAccessoryViewID, onChangeText, ...rest }, ref) {
+  const own = `kbd${useId().replace(/[^a-zA-Z0-9]/g, '')}`
+  // Tells the sheet it is in that something was changed (ui/sheetDirty.ts).
+  const markDirty = useMarkDirty()
+  const bar = Platform.OS === 'ios' && !inputAccessoryViewID ? own : null
   return (
-    <TextInput
-      ref={ref}
-      placeholderTextColor={colors.inkFaint}
-      selectionColor={colors.accent}
-      keyboardAppearance="dark"
-      multiline={multiline}
-      {...rest}
-      style={[s.input, multiline && { minHeight: 76, textAlignVertical: 'top', paddingTop: 11 }, boxStyle as any, style]}
-    />
+    <>
+      <TextInput
+        ref={ref}
+        placeholderTextColor={colors.inkFaint}
+        selectionColor={colors.accent}
+        keyboardAppearance="dark"
+        multiline={multiline}
+        inputAccessoryViewID={inputAccessoryViewID || bar || undefined}
+        onChangeText={(t) => { markDirty?.(); onChangeText?.(t) }}
+        {...rest}
+        style={[s.input, multiline && { minHeight: 76, textAlignVertical: 'top', paddingTop: 11 }, boxStyle as any, style]}
+      />
+      {/* After the input, so the input is in the window when the bar looks for it. */}
+      {bar ? <KeyboardBar nativeID={bar} /> : null}
+    </>
   )
 })
 

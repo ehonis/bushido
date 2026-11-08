@@ -22,12 +22,15 @@
 
 import { optFor } from './menu.js'
 import { isTraining } from './store.js'
-import { categoryOf, disciplineOf } from './category.js'
 import { mondayOf } from './dates.js'
-import { minutesFor } from './minutes.js'
+import { resolveMinutes, minutesSourceOf } from './minutes.js'
 import { isHardEntry } from './fingers.js'
-import { gradeIndex, rungLabel, vRungLabel, hardestGrade, hardestClimbed } from './grades.js'
-import { liftsDone, liftKeyOf } from './lifts.js'
+import {
+  gradeIndex, rungLabel, vRungLabel, hardestSent, climbsOf, sessionGradesOf, climbVolume,
+  bandOf, bandLabel, axisLadder, indexOn,
+} from './grades.js'
+import { liftsDone, liftKeyOf, liftMeasure } from './lifts.js'
+import { loggedActivity } from './activities.js'
 import { weeksIn } from './scope.js'
 
 const num = (v) => {
@@ -36,17 +39,51 @@ const num = (v) => {
 }
 const pos = (v) => { const n = num(v); return n !== null && n > 0 ? n : null }
 
+const optOf = (plan, e) => optFor(plan?.dailyMenu || [], e.data?.optId)
+
+/* ---------------------------------------------------------------- minutes */
+
+/*
+ * An entry's minutes, the way the rest of the app reads them: typed or measured,
+ * and a correction stored before `out.minutesSpent` existed (`data.minutes` +
+ * `minutesSource: 'typed'`) still beating the card's estimate. Progress used to
+ * read `minutesFor(opt, out)`, which cannot see that correction, so a session
+ * corrected to 12 minutes counted as the card's 120 here while its row said 12
+ * (F7 of the 2026-11-08 grading).
+ */
+function entryMinutes(entry, plan) {
+  return pos(resolveMinutes(entry.data, optOf(plan, entry), entry.data?.out || {}))
+}
+
+/** Is this entry's time only the card's estimate: nothing typed, measured or corrected? */
+function estimated(entry, plan) {
+  if (entry.data?.minutesSource === 'typed') return false
+  return minutesSourceOf(optOf(plan, entry), entry.data?.out || {}) === 'estimate' &&
+    entryMinutes(entry, plan) !== null
+}
+
+/**
+ * "3 workouts use the card's estimate", under a chart that adds minutes up, so a
+ * total that is partly a plan does not pass for a measurement. Nothing when every
+ * minute was typed or measured.
+ */
+function estimateNote(r, plan) {
+  const n = r.entries.filter(e => isTraining(e) && estimated(e, plan)).length
+  return n ? `${n} workout${n === 1 ? ' uses' : 's use'} the card's estimate` : null
+}
+
 /** Session load: RPE × minutes. Foster's sRPE, and what the week chart is made of. */
 function sRPE(entry, plan) {
   // A commute is not load. It is miles and a streak day — see `isTraining` — but
   // telling the load chart that a short ride to work was training is how a
   // light week reads as a moderate one.
   if (!isTraining(entry)) return 0
-  const opt = optFor(plan?.dailyMenu || [], entry.data?.optId)
   const rpe = pos(entry.data?.out?.rpe) ?? ((Number(entry.data?.level) || 0) * 2)
-  const mins = pos(minutesFor(opt, entry.data?.out || {})) ?? 0
+  const mins = entryMinutes(entry, plan) ?? 0
   return rpe > 0 && mins > 0 ? rpe * mins : 0
 }
+
+/* ----------------------------------------------------------------- shapes */
 
 /** Bucket entries into the scope's weeks, summing whatever `value` returns. */
 function byWeek(resolved, plan, value, { includeRests = false } = {}) {
@@ -63,37 +100,158 @@ function byWeek(resolved, plan, value, { includeRests = false } = {}) {
   return weeks.map(w => ({ x: w, y: Math.round(totals.get(w) * 10) / 10 }))
 }
 
-/** One point per session, oldest first. */
+/**
+ * One point per DATE, oldest first. Two sessions on one day are one point, the
+ * higher of the two: every per-session series here is a best (the top set, the
+ * hardest send, the fastest ride), and two dots on one day drawn apart claimed a
+ * timeline the day did not have (F10).
+ */
 function perSession(resolved, value) {
-  return resolved.entries
-    .map(e => ({ e, y: value(e) }))
-    .filter(p => p.y !== null && p.y !== undefined)
-    .sort((a, b) => String(a.e.date).localeCompare(String(b.e.date)))
-    .map(p => ({ x: p.e.date, y: p.y }))
+  const best = new Map()
+  for (const e of resolved.entries) {
+    const y = value(e)
+    if (y === null || y === undefined || !Number.isFinite(y)) continue
+    if (!best.has(e.date) || y > best.get(e.date)) best.set(e.date, y)
+  }
+  return [...best.entries()]
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+    .map(([x, y]) => ({ x, y }))
 }
 
 const has = (set, ...keys) => keys.some(k => set.has(k))
 
-/*
- * Telling the two ladders apart, which the log does not do for us.
- *
- * A V-grade is stored as a small integer (V0-V10) and a route as a YDS decimal
- * (5.7 becomes 7, 5.12a becomes 12.1). They overlap between 7 and 10 — V8 and
- * 5.8 are both `8` — and nothing on the entry says which it is. What disambiguates
- * them is the FIELD: `hardest` on a bouldering card is a V-grade, `hardestYds` is
- * a route, and a per-climb `grade` is whichever its log is for.
- *
- * So these are a guard against the overlap rather than a classifier: a decimal is
- * unambiguously a route, and anything above the V ladder is too. The field itself
- * does the real work at the call sites above.
+/**
+ * The dates in scope that cost a hard finger exposure. A DAY is a hard finger
+ * day, not a session: a split night (max hangs, then repeaters) is one exposure,
+ * and counting sessions made it two (F5). `lib/fingers.js` `hardDates` is the
+ * same rule; this one keeps to the scope's entries, which are already done.
  */
-const isRoute = (v) => {
-  const n = num(v)
-  return n !== null && (n >= 7 && (n > 10 || !Number.isInteger(n)))
+function hardDays(resolved, plan) {
+  const menu = plan?.dailyMenu || []
+  return [...new Set(resolved.entries.filter(e => isHardEntry(e, menu)).map(e => e.date))].sort()
 }
-const isBoulder = (v) => {
-  const n = num(v)
-  return n !== null && Number.isInteger(n) && n >= 0 && n <= 10
+
+/* --------------------------------------------------- one exercise, compared */
+
+/** The rows of the scope's movement on one entry: what was lifted (liftsDone, D11). */
+const rowsOf = (e, key) => liftsDone(e).filter(l => liftKeyOf(l) === key)
+const isHold = (row) => liftMeasure(row) === 'time'
+
+/*
+ * COMPARABLE SETS ONLY (F9). A top set on a barbell and one on a pair of
+ * dumbbells are two numbers wearing one unit, and "per hand" against "on the
+ * bar" is another again (#58). So a strength line compares the sets done on the
+ * implement, and with the weight meaning, of the NEWEST row of the movement that
+ * names one. A row that names no implement (older rows, a quick log) is not a
+ * different implement but an unknown one, and is kept.
+ */
+function referenceRow(r) {
+  const newest = [...r.entries].sort((a, b) => String(b.date).localeCompare(String(a.date)))
+  for (const e of newest) {
+    const row = rowsOf(e, r.exercise).find(l => l.implement && !isHold(l))
+    if (row) return row
+  }
+  return null
+}
+const sameKind = (ref) => (row) => !ref || !row.implement ||
+  (row.implement === ref.implement && (row.weightMode || '') === (ref.weightMode || ''))
+
+/** "On the barbell" / "On the dumbbell, per hand": what the strength lines compare. */
+function kindWords(r) {
+  const ref = referenceRow(r)
+  if (!ref) return null
+  const what = String(ref.implementLabel || ref.implement).toLowerCase()
+  return `On the ${what}${ref.weightMode && ref.weightLabel ? `, ${ref.weightLabel}` : ''}`
+}
+
+/** Fold the comparable rep-counted sets of the scope's movement on one entry. */
+function overSets(r, e, fn, start) {
+  const ok = sameKind(referenceRow(r))
+  let acc = start
+  for (const row of rowsOf(e, r.exercise)) {
+    if (isHold(row) || !ok(row)) continue
+    for (const s of (row.sets || [])) acc = fn(acc, s)
+  }
+  return acc
+}
+
+/* ------------------------------------------------------------- one sport */
+
+/**
+ * Do the entries carrying this measurement all come from ONE sport? An average
+ * speed across a 6 mph run and a 16 mph ride is not a trend, and the first-to-
+ * last arrow drew a sport switch as improvement (F9).
+ */
+function oneSport(plan, entries) {
+  const sports = new Set(entries.map(e => {
+    const opt = optOf(plan, e)
+    return (opt && loggedActivity(opt, e.data?.out)?.key) || opt?.id || '?'
+  }))
+  return sports.size === 1
+}
+
+/* ------------------------------------------------------------- climbing */
+
+/**
+ * The grade pyramid for one ladder over the scope: one row per whole grade the
+ * climbs touched (5.10 a to d and − to + are one row, so a log written both ways
+ * reads as one), HARDEST FIRST, each `{ label, band, sent, tried }`. `tried` is
+ * every climb described at that grade, `sent` the ones that went clean (lib/
+ * grades.js `isClean`). A session's own "hardest" field is one send at its grade,
+ * counted only when the session described no climbs on that ladder, since then it
+ * is one of them. Off-ladder grades are left out, never rounded onto a rung.
+ */
+export function pyramidOf(resolved, plan, scale) {
+  const rows = new Map()
+  const bump = (band, clean) => {
+    const row = rows.get(band) || { band, label: bandLabel(scale, band), sent: 0, tried: 0 }
+    row.tried += 1
+    if (clean) row.sent += 1
+    rows.set(band, row)
+  }
+  for (const e of resolved.entries) {
+    const opt = optOf(plan, e)
+    if (!opt) continue
+    const out = e.data?.out || {}
+    const climbs = climbsOf(opt, out).filter(c => c.scale === scale && bandOf(scale, c.grade) !== null)
+    for (const c of climbs) bump(bandOf(scale, c.grade), c.clean)
+    if (climbs.length) continue
+    for (const g of sessionGradesOf(opt, out)) {
+      const b = g.scale === scale ? bandOf(scale, g.grade) : null
+      if (b !== null) bump(b, true)
+    }
+  }
+  return [...rows.values()].sort((a, b) => b.band - a.band)
+}
+
+/** The hardest send of one ladder per session, as a chart value (a rung index for routes). */
+/** The ladder the scope's route sends are written on (see axisLadder in grades.js). */
+const routeAxis = (r, plan) => axisLadder(r.entries.map(e => {
+  const opt = optOf(plan, e)
+  return opt ? hardestSent(opt, e.data?.out || {}, 'yds') : null
+}))
+
+const sentOn = (plan, scale) => (e) => {
+  const opt = optOf(plan, e)
+  const best = opt ? hardestSent(opt, e.data?.out || {}, scale) : null
+  if (best === null) return null
+  return scale === 'v' ? best : gradeIndex(best)
+}
+
+/* ---------------------------------------------------------------- the body */
+
+/**
+ * Bodyweight, inside the page's period (F17: the 8-week page drew its body graph
+ * from August). One point per date, the last weighed that day.
+ */
+export function bodyweightSeries(entries = [], from = null) {
+  const byDate = new Map()
+  for (const e of entries) {
+    if (e?.kind !== 'bodyweight' || e.deleted || !e.date || !(Number(e.data?.lb) > 0)) continue
+    if (from && e.date < from) continue
+    byDate.set(e.date, Number(e.data.lb))
+  }
+  return [...byDate.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([x, y]) => ({ x, y }))
 }
 
 /* ------------------------------------------------------------- the metrics */
@@ -120,18 +278,16 @@ export const METRICS = [
     kind: 'bar',
     unit: ' h',
     label: 'Time per week',
+    help: (r, plan) => estimateNote(r, plan),
     applies: () => true,
-    series: (r, plan) => byWeek(r, plan, (e) => {
-      const opt = optFor(plan?.dailyMenu || [], e.data?.optId)
-      return (pos(minutesFor(opt, e.data?.out || {})) || 0) / 60
-    }),
+    series: (r, plan) => byWeek(r, plan, e => (entryMinutes(e, plan) || 0) / 60),
   },
   {
     key: 'load',
     group: 'Training',
     kind: 'bar',
     label: 'Effort per week',
-    help: 'How hard it felt × minutes, added up',
+    help: (r, plan) => ['How hard it felt × minutes, added up', estimateNote(r, plan)].filter(Boolean).join(' · '),
     applies: () => true,
     series: (r, plan) => byWeek(r, plan, e => sRPE(e, plan)),
   },
@@ -171,7 +327,11 @@ export const METRICS = [
     kind: 'line',
     unit: ' mph',
     label: 'Average speed',
-    applies: (r) => r.entries.filter(e => pos(e.data?.out?.speed)).length >= 2,
+    // One sport at a time: the scope has to have narrowed the speeds to one.
+    applies: (r, plan) => {
+      const timed = r.entries.filter(e => pos(e.data?.out?.speed))
+      return timed.length >= 2 && oneSport(plan, timed)
+    },
     series: (r) => perSession(r, e => pos(e.data?.out?.speed)),
   },
   {
@@ -191,19 +351,12 @@ export const METRICS = [
     kind: 'line',
     unit: ' lb',
     label: 'Top set',
-    help: 'The heaviest set of it, each time',
+    help: (r) => ['The heaviest set of it, each time', kindWords(r)].filter(Boolean).join(' · '),
     applies: (r) => Boolean(r.exercise),
-    series: (r) => perSession(r, e => {
-      let top = null
-      for (const lift of liftsDone(e)) {
-        if (liftKeyOf(lift) !== r.exercise) continue
-        for (const s of (lift.sets || [])) {
-          const w = pos(s.weight)
-          if (w !== null && (top === null || w > top)) top = w
-        }
-      }
-      return top
-    }),
+    series: (r) => perSession(r, e => overSets(r, e, (top, s) => {
+      const w = pos(s.weight)
+      return w !== null && (top === null || w > top) ? w : top
+    }, null)),
   },
   {
     key: 'exVolume',
@@ -211,13 +364,10 @@ export const METRICS = [
     kind: 'line',
     unit: ' lb',
     label: 'Weight × reps',
+    help: (r) => kindWords(r),
     applies: (r) => Boolean(r.exercise),
     series: (r) => perSession(r, e => {
-      let v = 0
-      for (const lift of liftsDone(e)) {
-        if (liftKeyOf(lift) !== r.exercise) continue
-        for (const s of (lift.sets || [])) v += (pos(s.weight) || 0) * (pos(s.reps) || 0)
-      }
+      const v = overSets(r, e, (sum, s) => sum + (pos(s.weight) || 0) * (pos(s.reps) || 0), 0)
       return v > 0 ? v : null
     }),
   },
@@ -228,12 +378,29 @@ export const METRICS = [
     label: 'Reps',
     applies: (r) => Boolean(r.exercise),
     series: (r) => perSession(r, e => {
-      let n = 0
-      for (const lift of liftsDone(e)) {
-        if (liftKeyOf(lift) !== r.exercise) continue
-        for (const s of (lift.sets || [])) n += pos(s.reps) || 0
-      }
+      const n = overSets(r, e, (sum, s) => sum + (pos(s.reps) || 0), 0)
       return n > 0 ? n : null
+    }),
+  },
+  {
+    // A hold is counted in seconds (#63), and its weight×reps is nothing. Its line
+    // is the longest it was held, each time.
+    key: 'exHold',
+    group: 'Strength',
+    kind: 'line',
+    unit: ' s',
+    label: 'Longest hold',
+    applies: (r) => Boolean(r.exercise),
+    series: (r) => perSession(r, e => {
+      let top = null
+      for (const row of rowsOf(e, r.exercise)) {
+        if (!isHold(row)) continue
+        for (const s of (row.sets || [])) {
+          const sec = pos(s.seconds)
+          if (sec !== null && (top === null || sec > top)) top = sec
+        }
+      }
+      return top
     }),
   },
 
@@ -260,48 +427,88 @@ export const METRICS = [
     kind: 'bar',
     label: 'Hard finger days per week',
     applies: (r) => has(r.disciplines, 'climbing'),
-    series: (r, plan) => byWeek(r, plan, e => (isHardEntry(e, plan?.dailyMenu || []) ? 1 : 0)),
+    series: (r, plan) => {
+      const days = new Set(hardDays(r, plan))
+      // Each DATE once, in its week, however many sessions it held.
+      const firsts = new Set()
+      return byWeek(r, plan, e => {
+        if (!days.has(e.date) || firsts.has(e.date)) return 0
+        firsts.add(e.date)
+        return 1
+      })
+    },
   },
-  /*
-   * Hardest thing climbed, routes and boulders separately.
-   *
-   * These were THREE charts before 2026-09-15 — one for lead laps, one for fun
-   * bouldering, one for fun sport days — which is the same measurement split by
-   * which card happened to record it, and exactly the over-specificity the
-   * rebuild was for. Now the scope decides which sessions are in, and there are
-   * two charts because a V-grade and a YDS grade are two ladders.
-   *
-   * Both read the session-level field AND the per-climb detail, because a session
-   * can carry either: `hardest` is what the user typed on the card, and `sets.*.climbs`
-   * is what the user ticked per burn. Reading only one of them would make a chart that
-   * goes blank on exactly the days the user logged more carefully.
-   */
   {
-    key: 'hardestRoute',
+    key: 'climbs',
     group: 'Climbing',
-    kind: 'line',
-    label: 'Hardest route',
+    kind: 'bar',
+    label: 'Climbs per week',
+    help: 'Routes, problems and laps counted, described or not',
     applies: (r) => has(r.disciplines, 'climbing'),
-    fmtY: (v) => rungLabel(Math.round(v)),
-    series: (r) => perSession(r, e => {
-      const out = e.data?.out || {}
-      const fromSets = Object.values(out.sets || {}).map(hardestClimbed)
-      const best = hardestGrade([out.hardestYds, ...fromSets].filter(v => isRoute(v)))
-      return best === null ? null : gradeIndex(best)
+    series: (r, plan) => byWeek(r, plan, e => {
+      const opt = optOf(plan, e)
+      return opt ? climbVolume(opt, e.data?.out || {}) : 0
     }),
   },
+  /*
+   * D12: what was climbed, by grade. A pyramid per ladder (V and routes are two
+   * ladders), the sends solid and the climbs that did not go faint beside them,
+   * so attempts against sends is read off the same rows.
+   */
+  {
+    key: 'boulderPyramid',
+    group: 'Climbing',
+    kind: 'pyramid',
+    label: 'Boulders by grade',
+    help: 'Sent, of everything tried at each grade',
+    applies: (r) => has(r.disciplines, 'climbing'),
+    series: (r, plan) => pyramidOf(r, plan, 'v'),
+  },
+  /*
+   * Hardest SENT, routes and boulders separately: the hardest climb that went
+   * clean (topped, going up), from the per-climb detail, the doubled lead laps'
+   * per-lap grades and the card's own "hardest" field alike. Hardest TRIED is
+   * the pyramid's top row; the two are separate facts (F12).
+   */
   {
     key: 'hardestBoulder',
     group: 'Climbing',
     kind: 'line',
-    label: 'Hardest boulder',
+    label: 'Hardest boulder sent',
     applies: (r) => has(r.disciplines, 'climbing'),
     fmtY: (v) => vRungLabel(Math.round(v)),
-    series: (r) => perSession(r, e => {
-      const out = e.data?.out || {}
-      const fromSets = Object.values(out.sets || {}).map(hardestClimbed)
-      return hardestGrade([out.hardest, ...fromSets].filter(v => isBoulder(v)))
-    }),
+    series: (r, plan) => perSession(r, sentOn(plan, 'v')),
+  },
+  {
+    key: 'routePyramid',
+    group: 'Climbing',
+    kind: 'pyramid',
+    label: 'Routes by grade',
+    help: 'Sent, of everything tried at each grade',
+    applies: (r) => has(r.disciplines, 'climbing'),
+    series: (r, plan) => pyramidOf(r, plan, 'yds'),
+  },
+  {
+    key: 'hardestRoute',
+    group: 'Climbing',
+    kind: 'line',
+    label: 'Hardest route sent',
+    applies: (r) => has(r.disciplines, 'climbing'),
+    // The axis is the ladder the log is written on (axisLadder): a plus/minus
+    // log is not labelled with letter rungs it never used.
+    fmtY: (v) => rungLabel(Math.round(v)),
+    fmtYFor: (r, plan) => {
+      const ladder = routeAxis(r, plan)
+      return (v) => (Number.isInteger(v) ? ladder[v]?.label ?? '' : '')
+    },
+    series: (r, plan) => {
+      const ladder = routeAxis(r, plan)
+      return perSession(r, (e) => {
+        const opt = optOf(plan, e)
+        const best = opt ? hardestSent(opt, e.data?.out || {}, 'yds') : null
+        return best === null ? null : indexOn(ladder, best)
+      })
+    },
   },
 
   {
@@ -358,16 +565,24 @@ export function declaredMetrics(plan, resolved) {
 
 /* ----------------------------------------------------------------- render */
 
+/** How few points a kind needs before it is drawn: a line is a trend from two. */
+const FLOOR = { line: 2, bar: 1, pyramid: 1 }
+
 /** Everything worth drawing for this scope, grouped, in registry order. */
 export function metricsFor(plan, resolved) {
   const live = []
   for (const m of METRICS) {
-    if (!m.applies(resolved)) continue
+    if (!m.applies(resolved, plan)) continue
     const points = m.series(resolved, plan)
     // Two is the floor for a line. A bar chart of one week is still a fact.
-    if (!points || points.length < (m.kind === 'line' ? 2 : 1)) continue
+    if (!points || points.length < (FLOOR[m.kind] ?? 1)) continue
     if (m.kind === 'bar' && !points.some(p => p.y > 0)) continue
-    live.push({ ...m, points, ref: typeof m.ref === 'function' ? m.ref(plan) : m.ref })
+    live.push({
+      ...m, points,
+      help: (typeof m.help === 'function' ? m.help(resolved, plan) : m.help) || undefined,
+      fmtY: typeof m.fmtYFor === 'function' ? m.fmtYFor(resolved, plan) : m.fmtY,
+      ref: typeof m.ref === 'function' ? m.ref(plan) : m.ref,
+    })
   }
   live.push(...declaredMetrics(plan, resolved))
 
@@ -384,16 +599,13 @@ export function metricsFor(plan, resolved) {
 
 /** The headline numbers for a scope — what it adds up to, in one line each. */
 export function totalsFor(plan, resolved) {
-  const menu = plan?.dailyMenu || []
-  let minutes = 0; let miles = 0; let yards = 0; let load = 0; let hard = 0
+  let minutes = 0; let miles = 0; let yards = 0; let load = 0
   const days = new Set()
   for (const e of resolved.entries) {
-    const opt = optFor(menu, e.data?.optId)
-    minutes += pos(minutesFor(opt, e.data?.out || {})) || 0
+    minutes += entryMinutes(e, plan) || 0
     miles += pos(e.data?.out?.distance) || 0
     yards += pos(e.data?.out?.poolDistance) || 0
     load += sRPE(e, plan)
-    if (isHardEntry(e, menu)) hard += 1
     days.add(e.date)
   }
   return {
@@ -405,6 +617,6 @@ export function totalsFor(plan, resolved) {
     miles: Math.round(miles * 10) / 10,
     yards: Math.round(yards),
     load: Math.round(load),
-    hardFingerDays: hard,
+    hardFingerDays: hardDays(resolved, plan).length,
   }
 }

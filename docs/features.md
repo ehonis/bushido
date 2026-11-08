@@ -23,7 +23,7 @@ Everything gets onto the day through the **+ button**, bottom right:
 
 | | |
 |---|---|
-| **Log a workout** | The same three recent activities sit right under it in the menu, one tap each. Behind it: a search box, **Recent** (that same list), then all 91 activities under section heads (Running, Cycling, …); pick one and the card opens already the right shape. Last, the plan's own climbing cards as folders under **Climbing**: **Bouldering** (the board, 4×4s, limit bouldering) and **Rock climbing** (max hangs, ARC laps, the load-cell tests), each with protocol, cues and timer included. One search box reaches both. It lands on the day you are looking at on Today, so a workout you forgot can be logged on its own day. |
+| **Log a workout** | The same three recent activities sit right under it in the menu, one tap each. Behind it: a search box, **Recent** (that same list), then all 91 activities under section heads (Running, Cycling, …); pick one and the card opens already the right shape. Right under Recent, one **Climbing** row opens every climbing card on one screen, under **Bouldering** and **Rock climbing**. The same cards are also last, as folders under **Climbing** after the sports: **Bouldering** (the board, 4×4s, limit bouldering) and **Rock climbing** (max hangs, ARC laps, the load-cell tests), each with protocol, cues and timer included. A plan written before cards said which folder they belong in is filed by what each card says about itself. One search box reaches both, and "boulder", "climb" or "route" finds the climbing cards. It lands on the day you are looking at on Today, so a workout you forgot can be logged on its own day. |
 | **Log a rest day** | A day off on purpose, with why (sick, travelling, planned recovery) and a note. |
 | **Plan a workout** | Build it yourself, or (when AI is set up) have it written for you. See below. |
 | **Interval timer** | Work, rest and rounds, for any workout or none; also on every workout's sheet. Add exercises and it is a **circuit** that logs itself. |
@@ -140,6 +140,17 @@ Each has their own log; one device never shows two.
   you were on. Their side shows what *they* did last time, from their log.
 - **Sam's day**, under your day on Today, is a read-only week of their log; a workout opens
   from their side, and Start runs it there.
+
+### Grades and how each climb went
+
+Every grade is picked off a ladder, never typed: routes **5.5 to 5.15**, written either
+with letters (5.10a–d) or with − and + (5.10−, 5.10, 5.10+), your choice, switched where you
+enter grades; boulders **V0 to V17**. Both ways of writing a route sit on one ladder, so a
+log written both ways still knows which climb was hardest. Each climb can say how it went
+(**Onsight**, **Flash**, **Sent**, **Fell**, and how many tries), and "hardest" means the
+hardest you sent; the rest is "tried". Grades logged before any of this read exactly as they
+did, including the odd hand-typed number that was never on the ladder, which is shown as it
+was typed and never charted as a grade.
 
 ### Hard finger days are what you SAY they were
 

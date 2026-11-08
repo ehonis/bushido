@@ -16,6 +16,9 @@ let failed = 0
 const results = []
 const ok = (v, m) => { if (!v) throw new Error(m || 'expected truthy') }
 const eq = (a, b, m) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${m || ''} expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`) }
+/** The same data, whatever order its keys were written in: "byte-identical" for an entry's data. */
+const canon = (v) => (Array.isArray(v) ? v.map(canon) : v && typeof v === 'object'
+  ? Object.fromEntries(Object.keys(v).sort().map(k => [k, canon(v[k])])) : v)
 
 async function step(name, fn) {
   try { await fn(); console.log('  ok   ', name) } catch (e) { failed++; console.log('  FAIL ', name, '\n         ', e.message) }
@@ -702,6 +705,27 @@ async function waitFor(fn, label, ms = 8000) {
   }
   const theirsOn = (id) => samFile().state.entries[id]
   const ownOn = (id) => ownerFile().state.entries[id]
+
+  /*
+   * The done chip's Undo (#77) on someone else's copy, written by the owner's sheet through
+   * /api/people/:id/entry: it puts back EXACTLY what the copy had. A copy is a bare
+   * `done: false`; over the stored `undone: true` the Undo sends `undone: false` (markDone
+   * with doneState), which keepUntick honours after a tap and does not store: the copy's
+   * data comes back identical, never re-marked.
+   */
+  await step('done chip: Mark undone then Undo on Sam\'s copy puts back exactly what it had', async () => {
+    const S = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'app', 'src', 'lib', 'store.js')).href)
+    const { id } = await freshShare('2026-10-21', { sync: false })
+    const before = theirsOn(id)
+    eq([before.data.done, before.data.undone ?? null], [false, null], 'the copy should start as a bare done: false')
+    ok(S.isDone(before, '2026-11-08'), 'a past copy nobody marked should read as done')
+    eq((await post('sam', { ...S.markDone(before, false), updatedAt: tick() })).status, 200)
+    eq(theirsOn(id).data.undone, true, 'the Mark undone did not land')
+    eq((await post('sam', { ...S.markDone(theirsOn(id), S.doneState(before)), updatedAt: tick() })).status, 200)
+    const after = theirsOn(id)
+    eq(canon(after.data), canon(before.data), 'the Undo did not leave Sam\'s copy exactly as it was (re-marked, or a key left behind)')
+    ok(S.isDone(after, '2026-11-08'), 'put back, Sam\'s copy does not read as done again')
+  })
 
   await step('sync: Sam\'s copy shared with sync off and edited offline; the owner adds Row and turns sync on; Sam\'s push keeps Row in BOTH logs and lands Sam\'s numbers', async () => {
     const { id } = await freshShare('2026-10-22', { sync: false })
@@ -1852,6 +1876,48 @@ process.stdin.on('end', () => {
         await postEntry({ id: later, kind: 'daily', date: T, updatedAt: at(6), data: { optId: 'planned', done: false, out: { notes: 'x' } } })
         const e = (await (await get(`${d.base}/api/state`)).json()).state.entries[later]
         eq('undone' in e.data, false, 'a plan was turned into an untick')
+      })
+      /*
+       * The done chip's Undo (#77): markDone with doneState puts back exactly the
+       * fields a tap replaced, and the server keeps them; an old client's bare
+       * done: false is still kept as an untick.
+       */
+      const S = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'app', 'src', 'lib', 'store.js')).href)
+      const entryOf = async (eid) => (await (await get(`${d.base}/api/state`)).json()).state.entries[eid]
+      await step('done chip: Mark undone then Undo on a done workout puts back exactly what was stored', async () => {
+        const cid = `daily-${T}-chip`
+        const was = { id: cid, kind: 'daily', date: T, updatedAt: at(7), data: { optId: 'log-workout', done: true, out: { activity: 'run', distance: 3 } } }
+        await postEntry(was)
+        const stored = await entryOf(cid)
+        const flipped = { ...S.markDone(stored, false), updatedAt: at(8) }
+        await postEntry(flipped)
+        eq((await entryOf(cid)).data.undone, true, 'the Mark undone did not land')
+        await postEntry({ ...S.markDone(flipped, S.doneState(stored)), updatedAt: at(9) })
+        const e = await entryOf(cid)
+        eq(canon(e.data), canon(stored.data), 'the Undo did not put back exactly what was stored')
+        // An OLD client echoing a copy that holds the key, with a bare untick: the key is
+        // honoured only over a tap's result, so this is an untick and is kept as one.
+        await putState([{ ...e, updatedAt: at(10), data: { ...e.data, done: false, undone: false } }])
+        const echoed = await entryOf(cid)
+        eq([echoed.data.done, echoed.data.undone], [false, true], 'an old client\'s echo with undone: false dropped its untick')
+      })
+      await step('done chip: Mark done then Undo on an untouched plan for today leaves it untouched; a typed set then makes it done', async () => {
+        const pid = `daily-${T}-plan77`
+        const plan = { title: 'Legs', blocks: [{ name: 'Main', items: [{ kind: 'lift', name: 'Squat', sets: [{ reps: 5, weight: 100 }] }] }] }
+        await postEntry({ id: pid, kind: 'daily', date: T, updatedAt: at(11), data: { optId: 'planned', done: false, plan } })
+        const kept = await entryOf(pid)
+        eq(S.isDone(kept, T), false, 'an untouched plan for today reads as done (D10)')
+        const ticked = { ...S.markDone(kept, true), updatedAt: at(12) }
+        await postEntry(ticked)
+        eq(S.isDone(await entryOf(pid), T), true, 'Mark done did not land')
+        await postEntry({ ...S.markDone(ticked, S.doneState(kept)), updatedAt: at(13) })
+        const back = await entryOf(pid)
+        eq(canon(back.data), canon(kept.data), 'the Undo was re-undone, kept the tap, or left a key behind')
+        eq(S.isDone(back, T), false, 'after the Undo the plan reads as done')
+        const typed = { ...back, updatedAt: at(14), data: { ...back.data, plan: { ...back.data.plan,
+          blocks: back.data.plan.blocks.map(b => ({ ...b, items: b.items.map(it => ({ ...it, sets: it.sets.map(x => ({ ...x, reps: 6, typed: true })) })) })) } } }
+        await postEntry(typed)
+        eq(S.isDone(await entryOf(pid), T), true, 'a set typed after the Undo does not make it done: it stayed undone')
       })
     } finally {
       await d.stop()

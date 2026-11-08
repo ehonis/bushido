@@ -7,6 +7,9 @@ import {
   plan, starter, entries, TODAY, back, rich, cfEntries, text, isoShift, LEGACY,
 } from './fixtures.jsx'
 
+/** The chart groups' titles, in page order. */
+const metricsGroups = (t) => [...t.matchAll(/<div class="card progcard"><h2>([^<]*)<\/h2>/g)].map(m => m[1])
+
 export default [
   ['ProgressView(critical force)', <ProgressView plan={plan} entries={[...rich, ...cfEntries]} />],
   ['ProgressView(legacy entries are not workouts)', <ProgressView plan={plan} entries={LEGACY} />,
@@ -26,11 +29,12 @@ export default [
        * off the stored decimal. A hero that says "10.2" is a chart asking them
        * to decode their own log.
        */
+      // "…sent" since #81: the hardest climb that went clean (F12).
       const hero = (title) => t.match(new RegExp(`${title}</h3>(?:<p class="viz-help">[^<]*</p>)?<div class="viz-hero">([^<]*)`))?.[1]
-      if (!/Hardest route/.test(t)) throw new Error('the route-grade chart is missing')
-      if (!/^5\.\d/.test(hero('Hardest route') || '')) throw new Error(`the route headline read "${hero('Hardest route')}", not a rung`)
-      if (!/Hardest boulder/.test(t)) throw new Error('the boulder-grade chart is missing')
-      if (!/^V\d/.test(hero('Hardest boulder') || '')) throw new Error(`the boulder headline read "${hero('Hardest boulder')}", not a V grade`)
+      if (!/Hardest route sent/.test(t)) throw new Error('the route-grade chart is missing')
+      if (!/^5\.\d/.test(hero('Hardest route sent') || '')) throw new Error(`the route headline read "${hero('Hardest route sent')}", not a rung`)
+      if (!/Hardest boulder sent/.test(t)) throw new Error('the boulder-grade chart is missing')
+      if (!/^V\d/.test(hero('Hardest boulder sent') || '')) throw new Error(`the boulder headline read "${hero('Hardest boulder sent')}", not a V grade`)
     }],
   /*
    * Wave 2 (issue #43): Progress LEADS with the answer. Workouts and time for the
@@ -64,12 +68,70 @@ export default [
       if (!/<select[^>]*aria-label="Just one thing"/.test(row)) throw new Error('the row opens no list')
       if (/scopesel/.test(html)) throw new Error('the old select is back')
     }],
-  ['ProgressView(category chips only when more than one is logged)', <ProgressView plan={plan} entries={rich} />,
+  /*
+   * #81: the first chip row is the KIND of thing (Climbing, Lift, Run, Bike…),
+   * the plan's categories are a second row under the activity picked. Pinned
+   * from both sides: the first row holds activities and no category, and the
+   * categories appear beneath Climbing once it is picked.
+   */
+  ['ProgressView(the first chips are activities, not categories)', <ProgressView plan={plan} entries={rich} />,
     (html) => {
-      const chips = [...text(html).matchAll(/<button type="button" class="chip[^"]*"[^>]*>([^<]*)<\/button>/g)].map(m => m[1])
-      if (chips[0] !== 'All' || chips.length < 3) throw new Error(`expected All and the categories: ${chips}`)
+      const t = text(html)
+      const row = t.match(/<div class="filters progacts"[^>]*>([^]*?)<\/div>/)?.[1] || ''
+      const chips = [...row.matchAll(/<button type="button" class="chip[^"]*"[^>]*>([^<]*)<\/button>/g)].map(m => m[1])
+      if (chips[0] !== 'All' || chips.length < 3) throw new Error(`expected All and the activities: ${chips}`)
       if (chips.some(c => /\d/.test(c))) throw new Error(`a count in a chip: ${chips}`)
+      const acts = ['Climbing', 'Lift', 'Run', 'Bike', 'Swim', 'Other']
+      for (const c of chips.slice(1)) if (!acts.includes(c)) throw new Error(`"${c}" is not an activity`)
+      if (!chips.includes('Climbing')) throw new Error('climbing is logged but not offered')
+      // Gone from the first level: a training intent beside a sport.
+      for (const cat of ['Fingers', 'Fun', 'Endurance', 'Power endurance']) {
+        if (chips.includes(cat)) throw new Error(`"${cat}" is back beside Bike at the first level`)
+      }
+      if (/class="filters progcats"/.test(t)) throw new Error('categories shown before an activity is picked')
     }],
+  ['ProgressView(under Climbing: its categories, and a grade)', <ProgressView plan={plan} entries={rich}
+    initialScope={{ activity: 'climbing', category: null, session: null, exercise: null, band: null, weeks: null }} />,
+    (html) => {
+      const t = text(html)
+      const cats = t.match(/<div class="filters progcats"[^>]*>([^]*?)<\/div>/)?.[1] || ''
+      const names = [...cats.matchAll(/>([^<]+)<\/button>/g)].map(m => m[1])
+      if (!names.includes('Fingers') || !names.includes('Fun')) throw new Error(`climbing's categories: ${names}`)
+      if (names.includes('Bike') || names.includes('Run')) throw new Error(`a sport among climbing's categories: ${names}`)
+      if (!/<select[^>]*aria-label="Grade"/.test(t)) throw new Error('no grade picker under Climbing')
+      if (!/<option value="v:5">V5<\/option>/.test(t) || !/<option value="yds:10">5\.10<\/option>/.test(t)) throw new Error('the grade list lacks a logged grade')
+      if (!/class="proghead-scope-what">Climbing</.test(t)) throw new Error('the headline does not say Climbing')
+    }],
+  ['ProgressView(no grade picker outside Climbing)', <ProgressView plan={plan} entries={rich} />,
+    (html) => { if (/aria-label="Grade"/.test(text(html))) throw new Error('a grade picker over the whole log') }],
+  // D12: climbing by grade, sends against everything tried, on the same rows.
+  ['ProgressView(the grade pyramids, sent of tried)', <ProgressView plan={plan} entries={rich}
+    initialScope={{ activity: 'climbing', category: null, session: null, exercise: null, band: null, weeks: null }} />,
+    (html) => {
+      const t = text(html)
+      for (const title of ['Boulders by grade', 'Routes by grade']) {
+        const at = t.indexOf(`>${title}</h3>`)
+        if (at < 0) throw new Error(`no "${title}" pyramid`)
+        const chart = t.slice(at, t.indexOf('</svg>', at))
+        if (!/sent of \d+ tried/.test(chart)) throw new Error(`${title} does not say sent of tried`)
+        if (!/class="viz-pyr-label">(V\d+|5\.\d+)</.test(chart)) throw new Error(`${title} rows are not grades`)
+        if (!/class="viz-pyr-count">\d+ \/ \d+</.test(chart)) throw new Error(`${title} rows do not say their numbers`)
+      }
+      // Rows hardest first: 5.10's row is the only one, V5 above V3.
+      const b = t.slice(t.indexOf('>Boulders by grade</h3>'))
+      if (b.indexOf('>V5<') > b.indexOf('>V3<')) throw new Error('the pyramid is not hardest first')
+      const names = metricsGroups(t)
+      // The plan's own declared charts ('This session') follow, as they always have.
+      if (names.filter(n => n !== 'This session').at(-1) !== 'Climbing') throw new Error(`climbing is not last: ${names}`)
+    }],
+  // F17: the body graph keeps to the period. Its two readings are in August; the
+  // 8-week page (from the newest date's week back) holds none of them.
+  ['ProgressView(bodyweight keeps to the period)', <ProgressView plan={plan} entries={[
+    { id: 'r8', kind: 'daily', date: TODAY, updatedAt: 'z', data: { optId: 'log-workout', level: 2, done: true, out: { activity: 'run', duration: 30 } } },
+    { id: 'bwA', kind: 'bodyweight', date: isoShift(TODAY, -200), updatedAt: 'z', data: { lb: 186 } },
+    { id: 'bwB', kind: 'bodyweight', date: isoShift(TODAY, -190), updatedAt: 'z', data: { lb: 185 } },
+  ]} />,
+    (html) => { if (/>Bodyweight</.test(text(html))) throw new Error('the body graph ignored the 8-week period') }],
   ['ProgressView(one category, no chips)', <ProgressView plan={plan} entries={[
     { id: 'p1', kind: 'daily', date: isoShift(TODAY, -2), updatedAt: 'z', data: { optId: 'log-workout', level: 2, done: true, out: { activity: 'run', duration: 30, distance: 3, rpe: 5 } } },
     { id: 'p2', kind: 'daily', date: isoShift(TODAY, -9), updatedAt: 'z', data: { optId: 'log-workout', level: 2, done: true, out: { activity: 'run', duration: 45, distance: 5, rpe: 6 } } },

@@ -10,6 +10,17 @@
  * moment you start entering numbers it locks to the X button only: logging a
  * set on a phone means fat fingers near the edge of a sheet, and losing the
  * form to a stray tap is the single most annoying thing a log app can do.
+ *
+ * THE SHELL OWNS THAT POLICY (#77), so no caller can forget it. The sheet
+ * counts as touched from the first keystroke, whatever the caller passes as
+ * `dismissable`, and the scrim and Escape also wait while a box has focus. And WHILE A BOX HAS FOCUS THERE
+ * IS NO FOOTER AT ALL, on a sheet or a full screen's sticky bar: the footer
+ * sat directly under the set being edited, and on a phone with the keyboard
+ * up it was the strip a thumb crosses between the number and the keys, so the
+ * owner closed the sheet mid-workout over and over. The footer comes back a
+ * moment after the last box lets go (`EDIT_SETTLE_MS`), so a tap that blurred
+ * the box lands on what was under the finger, not on a footer that slid in.
+ * Escape while typing ends the typing; it does not close.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -41,6 +52,68 @@ import { Icon } from './lib/icons.jsx'
  */
 let openLayers = 0
 let savedScrollY = 0
+
+/** Box types that bring up no keyboard: focusing one is not typing. */
+const NOT_TYPED = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file', 'image', 'hidden'])
+
+/** Is this element a box being typed into? (A switch or a button is not.) */
+export function isTextEntry(el) {
+  if (!el || typeof el !== 'object') return false
+  if (el.disabled || el.readOnly) return false
+  const tag = String(el.tagName || '').toUpperCase()
+  if (tag === 'TEXTAREA') return true
+  if (tag === 'INPUT') return !NOT_TYPED.has(String(el.type || 'text').toLowerCase())
+  return el.isContentEditable === true
+}
+
+/** How long after the last box lets go before a hidden footer comes back. */
+export const EDIT_SETTLE_MS = 400
+
+/** A finger, not a mouse: where a footer under the box being typed in is a hazard. */
+const touchScreen = () => typeof window !== 'undefined' && Boolean(window.matchMedia?.('(pointer: coarse)').matches)
+
+/**
+ * Whether a box inside this layer has focus, for the footer policy above.
+ * Spread `bind` on the layer's root: React's focus events bubble. Moving from
+ * one box straight to another never shows the footer in between. Touch screens
+ * only: with a mouse there is no keyboard rising under a thumb, and hiding the
+ * footer would only cost a click ("Write it for me" after typing the ask).
+ */
+export function useEditing() {
+  const [editing, setEditing] = useState(false)
+  const timer = useRef(null)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  const bind = {
+    onFocus: (e) => {
+      if (!isTextEntry(e.target) || !touchScreen()) return
+      clearTimeout(timer.current)
+      setEditing(true)
+    },
+    onBlur: (e) => {
+      if (!isTextEntry(e.target) || isTextEntry(e.relatedTarget)) return
+      clearTimeout(timer.current)
+      timer.current = setTimeout(() => setEditing(false), EDIT_SETTLE_MS)
+    },
+  }
+  return { editing, bind }
+}
+
+/** Whether a sheet shows its footer: never over its delete confirmation, never while typing. */
+export const footerShown = ({ footer, confirming = false, editing = false }) => Boolean(footer) && !confirming && !editing
+
+/**
+ * Whether the scrim and Escape may close a sheet: not once something was typed in
+ * it (`touched`), and not while a box has focus. Focusing a box is not a change,
+ * so once it lets go of the box an untouched sheet closes the fast way again.
+ */
+export const sheetDismissable = ({ dismissable = true, touched = false, editing = false }) => dismissable && !touched && !editing
+
+/** Escape while typing puts the typing down; it never takes the layer with it. */
+function endTyping() {
+  const el = typeof document !== 'undefined' ? document.activeElement : null
+  if (isTextEntry(el)) { el.blur(); return true }
+  return false
+}
 
 export function useModalLayer(active = true) {
   useEffect(() => {
@@ -87,14 +160,24 @@ export function useModalLayer(active = true) {
  * there is exactly one thing on screen to answer.
  */
 export function Modal({
-  title, sub, icon, tone, onClose, onRename = null, onDelete = null,
+  title, sub, status = null, icon, tone, onClose, onRename = null, onDelete = null,
   deleteLabel = 'Remove this session', deleteBody = null,
   dismissable = true, footer, children,
 }) {
   const [confirming, setConfirming] = useState(false)
+  const { editing, bind } = useEditing()
+  // Touched once anything is actually typed (focusing a box is not a change):
+  // from then on the X is the exit. While a box has focus the scrim and Escape
+  // wait too, without that counting as a change.
+  const [touched, setTouched] = useState(false)
+  const canDismiss = sheetDismissable({ dismissable, touched, editing })
   useModalLayer()
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape' && dismissable) onClose() }
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return
+      if (endTyping()) return
+      if (canDismiss) onClose()
+    }
     document.addEventListener('keydown', onKey)
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -102,27 +185,32 @@ export function Modal({
       document.removeEventListener('keydown', onKey)
       document.body.style.overflow = prev
     }
-  }, [onClose, dismissable])
+  }, [onClose, canDismiss])
 
   return (
-    <div className="modal-scrim" onClick={() => dismissable && onClose()} role="presentation">
+    <div className="modal-scrim" onClick={() => canDismiss && onClose()} role="presentation">
       <div className={`modal ${tone ? `t-${tone}` : ''}`} role="dialog" aria-modal="true" aria-label={title}
-        onClick={(e) => e.stopPropagation()}>
+        data-editing={editing ? '' : undefined}
+        onClick={(e) => e.stopPropagation()} onInput={() => setTouched(true)} {...bind}>
         <header className="modal-head">
           {icon && <span className="modal-ico"><Icon name={icon} size={20} /></span>}
           <div className="modal-titles">
             <div className="modal-title">{title}</div>
             {sub && <div className="modal-sub">{sub}</div>}
+            {/* A state you can flip (the session's done chip): at the top, far from every input. */}
+            {status && !confirming && <div className="modal-status">{status}</div>}
           </div>
-          {onRename && (
-            <button className="modal-btn" onClick={onRename} aria-label="Edit this workout" title="Edit">
-              <Icon name="Pencil" size={16} />
-            </button>
-          )}
+          {/* The bin first and the pencil between it and the X, so the destructive
+              one is never beside the exit (it asks first anyway). */}
           {onDelete && (
             <button className="modal-btn danger" onClick={() => setConfirming(true)}
               aria-label={deleteLabel} title={deleteLabel}>
               <Icon name="Trash2" size={16} />
+            </button>
+          )}
+          {onRename && (
+            <button className="modal-btn" onClick={onRename} aria-label="Edit this workout" title="Edit">
+              <Icon name="Pencil" size={16} />
             </button>
           )}
           <button className="modal-btn close" onClick={onClose} aria-label="Close">
@@ -153,7 +241,7 @@ export function Modal({
           <div className="modal-body">{children}</div>
         )}
 
-        {footer && !confirming && <footer className="modal-foot">{footer}</footer>}
+        {footerShown({ footer, confirming, editing }) && <footer className="modal-foot">{footer}</footer>}
       </div>
     </div>
   )
@@ -165,9 +253,15 @@ export function Modal({
  * twelve-step block without scrolling past the numbers you're typing.
  */
 export function FullScreen({ title, sub, icon, tone, onBack, tabs, active, onTab, children }) {
+  // A full screen's footer is the planner's sticky bar, hidden while typing by
+  // `.fs[data-editing]` in styles.css: the same policy as the sheet's.
+  const { editing, bind } = useEditing()
   useModalLayer()
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onBack() }
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return
+      if (!endTyping()) onBack()
+    }
     document.addEventListener('keydown', onKey)
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -178,7 +272,8 @@ export function FullScreen({ title, sub, icon, tone, onBack, tabs, active, onTab
   }, [onBack])
 
   return (
-    <div className={`fs ${tone ? `t-${tone}` : ''}`} role="dialog" aria-modal="true" aria-label={title}>
+    <div className={`fs ${tone ? `t-${tone}` : ''}`} role="dialog" aria-modal="true" aria-label={title}
+      data-editing={editing ? '' : undefined} {...bind}>
       <header className="fs-head">
         <button className="modal-btn" onClick={onBack} aria-label="Back">
           <Icon name="ChevronLeft" size={19} />

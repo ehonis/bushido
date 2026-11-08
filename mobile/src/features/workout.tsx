@@ -37,6 +37,7 @@ import { colors, font, mix, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
 import { Empty, Press, SectionHeader, Toggle, s as kit } from '../ui/kit'
 import { impact, success, tap, warn } from '../ui/haptics'
+import { confirm } from '../ui/menu'
 import { Icon } from '../lib/icons'
 import { onForeground } from '../lib/foreground'
 import { Figure } from '../lib/figures'
@@ -51,7 +52,7 @@ import { WorkHead, LeaveDialog, ControlRow } from './timer'
 import { totalSets, totalReps, GradeLaps, ClimbLog } from './setlog'
 import {
   GRADE_FIELD, hasGrades, fitGrades, repCount,
-  CLIMB_FIELD, fitClimbs, stepClimbs, fallsIn,
+  CLIMB_FIELD, fitClimbs, stepClimbs, fallsIn, climbCount, detailOn, saidIn, MAX_CLIMBS,
 } from '../lib/grades.js'
 
 const FIELD_LABEL: Record<string, string> = { reps: 'reps', seconds: 'secs', weight: 'lb' }
@@ -648,13 +649,19 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }: any) {
   const setDetail = (on: boolean) => {
     tap()
     if (!on) {
-      const { [CLIMB_FIELD]: _dropped, ...rest } = draft
-      onDraft(rest)
+      // Switching the detail off strips the list (#81): ask first when anything was said on it.
+      const drop = () => { const { [CLIMB_FIELD]: _dropped, ...rest } = draft; onDraft(rest) }
+      const said = saidIn([draft])
+      if (!said) return drop()
+      warn()
+      void confirm(`Remove what you logged for ${said} ${what}${said === 1 ? '' : 's'}?`, { confirmLabel: 'Remove' })
+        .then((yes: boolean) => { if (yes) drop() })
       return
     }
     // Reps is normalised on the way in, because from here the list is the source
     // of truth and the box only displays it.
-    onDraft({ ...draft, reps: repCount(draft.reps), [CLIMB_FIELD]: fitClimbs(draft[CLIMB_FIELD], draft.reps) })
+    // detailOn keeps the count as it was (#81: 25 problems used to become 20).
+    onDraft(detailOn(draft))
   }
   // While the detail is on, the count moves one at a time and only from here —
   // typing "12" over a 10 passes through "1", and that refit used to delete the
@@ -702,7 +709,7 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }: any) {
                   <T size={19} dim>−</T>
                 </Press>
                 <View style={[st.fieldBox, { flex: 1, paddingHorizontal: 4 }]}>
-                  <T size={26} weight={600} dim tabular align="center">{String(repCount(draft.reps))}</T>
+                  <T size={26} weight={600} dim tabular align="center">{String(climbCount(draft.reps))}</T>
                 </View>
                 <Press onPress={() => bump(1)} style={st.repstepB} accessibilityRole="button" accessibilityLabel={`one more ${what}`}>
                   <T size={19} dim>+</T>
@@ -722,11 +729,11 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }: any) {
         <View style={st.climbs}>
           <T size={font.small} dim>{`each ${what}${falls > 0 ? ` · fell on ${falls}` : ''}`}</T>
           <View style={{ width: '100%', maxWidth: 340 }}>
-            <ClimbLog count={repCount(draft.reps)} values={draft[CLIMB_FIELD]}
+            <ClimbLog count={climbCount(draft.reps)} values={draft[CLIMB_FIELD]}
               spec={step.climbLog} what={what} omitGrade={perRep}
               where={`set ${step.setIndex + 1} `}
               onChange={(list: any) => onDraft({ ...draft, [CLIMB_FIELD]: list })}
-              onMore={repCount(draft.reps) < 20 ? () => bump(1) : undefined} />
+              onMore={climbCount(draft.reps) < MAX_CLIMBS ? () => bump(1) : undefined} />
           </View>
         </View>
       ) : null}

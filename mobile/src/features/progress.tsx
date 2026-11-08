@@ -13,6 +13,10 @@
  * when there is more than one; "Just one thing" is a row that opens a list. The
  * paragraph explaining why these charts and not others went.
  *
+ * Two questions since #81: what kind of thing (lib/scope.js `ACTIVITY_SCOPES`,
+ * the Log's row too), then the plan's categories inside it; under Climbing, a
+ * whole grade. One row used to mix Bike with Fingers, a sport beside an intent.
+ *
  * Everything here is presentation. The filter is `lib/scope.js` and the charts
  * are `lib/metrics.js`, both pure and tested as arithmetic on the web.
  */
@@ -22,10 +26,10 @@ import { colors, font, space } from '../theme'
 import { T } from '../ui/Text'
 import { Btn, Card, Chip, Divider, Empty, H2, Row, Segmented } from '../ui/kit'
 import { showMenu } from '../ui/menu'
-import { LineChart, BarChart, SERIES } from '../lib/viz'
+import { LineChart, BarChart, Pyramid, SERIES } from '../lib/viz'
 import { localIso } from '../lib/dates.js'
 import { EMPTY_SCOPE, resolveScope, scopeOptions } from '../lib/scope.js'
-import { metricsFor, totalsFor } from '../lib/metrics.js'
+import { metricsFor, totalsFor, bodyweightSeries } from '../lib/metrics.js'
 
 const RANGES = [
   { weeks: 4, label: '4 wk' },
@@ -53,8 +57,8 @@ export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }: any)
    * and the control you just used disappears under your finger.
    */
   const options = useMemo(
-    () => (scopeOptions as any)({ plan, entries, today, weeks: null }),
-    [plan, entries, today])
+    () => (scopeOptions as any)({ plan, entries, today, weeks: null, activity: scope.activity }),
+    [plan, entries, today, scope.activity])
 
   const resolved = useMemo(
     () => (resolveScope as any)({ plan, entries, scope, today }),
@@ -64,24 +68,34 @@ export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }: any)
   const totals = useMemo(() => (totalsFor as any)(plan, resolved), [plan, resolved])
 
   const set = (patch: any) => setScope((sc: any) => ({ ...sc, ...patch }))
-  const narrowed = Boolean(scope.category || scope.session || scope.exercise)
+  const narrowed = Boolean(scope.activity || scope.category || scope.session || scope.exercise || scope.band)
   const clear = () => setScope((sc: any) => ({ ...EMPTY_SCOPE, weeks: sc.weeks }))
   // What the numbers are OF, in words, whenever it is not everything, beside the
   // way back, so a page narrowed from a row further down never passes for the whole log.
   const named = (list: any[], v: any) => (list || []).find((o: any) => o.value === v)?.label || v
   const narrowedTo = [
+    scope.activity && named(options.activities, scope.activity),
     scope.category && named(options.categories, scope.category),
     scope.session && named(options.sessions, scope.session),
     scope.exercise && named(options.exercises, scope.exercise),
+    scope.band && named(options.bands, scope.band),
   ].filter(Boolean).join(' · ')
   const loggedAny = options.sessions.length > 0
 
+  // The categories are the second question: under the activity picked, or, when
+  // only one kind of thing is logged, under that one.
+  const oneActivity = options.activities.length === 1 ? options.activities[0].value : null
+  const within = scope.activity || oneActivity
+  const showCats = Boolean(within) && options.categories.length > 1
+  // A whole grade, offered only inside Climbing and only once something was graded.
+  const showBands = within === 'climbing' && options.bands.length > 0
+  const pickActivity = (v: string) => setScope((sc: any) => ({
+    ...EMPTY_SCOPE, weeks: sc.weeks, activity: sc.activity === v ? null : v,
+  }))
+
   // Bodyweight is not a workout, so it is not in the scope — but it is the one
-  // series worth seeing next to the volume, and it belongs to no filter.
-  const bw = useMemo(() => entries
-    .filter((e: any) => e.kind === 'bodyweight' && !e.deleted && e.date && Number(e.data?.lb) > 0)
-    .map((e: any) => ({ x: e.date, y: Number(e.data.lb) }))
-    .sort((a: any, b: any) => String(a.x).localeCompare(String(b.x))), [entries])
+  // series worth seeing next to the volume. It keeps to the page's period (F17).
+  const bw = useMemo(() => (bodyweightSeries as any)(entries, resolved.from), [entries, resolved.from])
 
   if (!loggedAny) {
     return (
@@ -129,10 +143,19 @@ export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }: any)
         />
       </Card>
 
-      {options.categories.length > 1 && (
+      {options.activities.length > 1 && (
         <View style={st.cats}>
           {/* "All" is lit only when nothing is narrowed. */}
           <Chip small label="All" on={!narrowed} onPress={clear} />
+          {options.activities.map((o: any) => (
+            <Chip key={o.value} small label={o.label} on={scope.activity === o.value}
+              onPress={() => pickActivity(o.value)} />
+          ))}
+        </View>
+      )}
+
+      {showCats && (
+        <View style={st.cats}>
           {options.categories.map((o: any) => (
             <Chip key={o.value} small label={o.label} on={scope.category === o.value}
               onPress={() => set({ category: scope.category === o.value ? null : o.value, session: null, exercise: null })} />
@@ -143,6 +166,13 @@ export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }: any)
       <Card style={st.picks}>
         <ScopePick label="Just one thing" options={options.sessions} value={scope.session}
           onPick={(v: any) => set({ session: v, exercise: null })} all="Any workout" />
+        {showBands && (
+          <>
+            <Divider />
+            <ScopePick label="Grade" options={options.bands} value={scope.band}
+              onPick={(v: any) => set({ band: v })} all="Any grade" />
+          </>
+        )}
         {options.exercises.length > 0 && (
           <>
             <Divider />
@@ -167,7 +197,9 @@ export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }: any)
               <View key={m.key} style={i > 0 ? st.metricNext : null}>
                 {/* One series per chart, so one colour: a colour that changed from
                     chart to chart would claim a difference that is not there. */}
-                {m.kind === 'bar'
+                {m.kind === 'pyramid'
+                  ? <Pyramid rows={m.points} label={m.label} help={m.help} color={SERIES[0]} />
+                  : m.kind === 'bar'
                   ? <BarChart bars={m.points} label={m.label} help={m.help} unit={m.unit || ''}
                       refLine={m.ref} refLabel={m.refLabel} color={SERIES[0]} />
                   : <LineChart points={m.points} label={m.label} help={m.help} unit={m.unit || ''}
