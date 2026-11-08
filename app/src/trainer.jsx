@@ -21,6 +21,7 @@ import { WorkoutRunner } from './runner.jsx'
 import { WorkoutMode } from './workout.jsx'
 import { SessionLog } from './sessionlog.jsx'
 import { usePersonCopy, Avatar, PersonChip } from './sharedwith.jsx'
+import { DoneChip, useDoneFlip, SheetStart } from './sheetparts.jsx'
 import * as peopleApi from './lib/peopleapi.js'
 import { optFor } from './lib/menu.js'
 import {
@@ -382,25 +383,36 @@ export function PeopleDays({ people = [], date, plan }) {
 
 /**
  * One person's row: their initial, "Sam's day", and what is on it, read from
- * their log on the server. Until that answers (and during SSR) the row is just
- * the door; a failed read leaves it that way.
+ * their log on the server, each session with its done state (#80: a Pull that
+ * was undone read the same as one that was done). Until that answers (and
+ * during SSR) the row is just the door; a failed read leaves it that way.
+ * `initial` is a day already read (the smoke suite draws it without a server).
  */
-function PersonDayRow({ person, tone, date, plan, seen, onOpen }) {
-  const [names, setNames] = useState(null)
+export function PersonDayRow({ person, tone, date, plan, seen = 0, onOpen, initial = null }) {
+  const [rows, setRows] = useState(initial)
   useEffect(() => {
     let live = true
-    setNames(null)
     peopleApi.getPersonDay(person.id, date)
-      .then(entries => { if (live) setNames(dayOf(entries, date).map(e => dayRow(e, plan?.dailyMenu || []).name)) })
+      .then(entries => { if (live) setRows(dayOf(entries, date).map(e => dayRow(e, plan?.dailyMenu || []))) })
       .catch(() => { /* offline or refused: the row is still the way in */ })
     return () => { live = false }
   }, [person.id, date, plan, seen])
+  const said = rows?.length ? rows.map(r => `${r.name}, ${r.done ? 'done' : 'not done yet'}`).join('; ') : null
   return (
-    <button type="button" className="list-row peopleday" data-tone={tone} onClick={onOpen}>
+    <button type="button" className="list-row peopleday" data-tone={tone} onClick={onOpen}
+      aria-label={said ? `${person.name}'s day: ${said}` : undefined}>
       <Avatar name={person.name} tone={tone} />
       <span className="list-row-main">
         <span className="list-row-title">{person.name}&rsquo;s day</span>
-        {names && <span className="list-row-meta">{names.length ? names.join(' · ') : 'Nothing on it yet'}</span>}
+        {rows && (
+          <span className="list-row-meta peopleday-meta">
+            {rows.length ? rows.map(r => (
+              <span key={r.id} className={r.done ? 'peopleday-item done' : 'peopleday-item'}>
+                <Icon name={r.done ? 'CircleCheck' : 'Circle'} size={13} /> {r.name}
+              </span>
+            )) : 'Nothing on it yet'}
+          </span>
+        )}
       </span>
       <Icon name="ChevronRight" size={16} className="list-row-chev" />
     </button>
@@ -504,53 +516,57 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
  * One of someone's sessions, opened by the owner: whose log it is (their
  * initial, in their colour), the plan, their form (no WHOOP or Strava; those are
  * the owner's accounts), and Start, which runs it from their side. Every write
- * goes to that one entry in their log. Done is the default once its day arrives
- * (AGENTS.md §4), so the footer offers the exception: Mark undone, or Mark done
- * on one that was undone.
+ * goes to that one entry in their log. The same sheet parts as the owner's own
+ * sheet (#80, sheetparts.jsx): done is the chip under the title, with Undo and
+ * whose it was; the footer is Start or nothing. It had a footer of its own
+ * ("Start for Sam" beside "Mark done for Sam", the lime primary when there was
+ * nothing to start), the third style of footer for one workout.
  */
 export function PersonEntrySheet({ person, entryId, menu = [], entries = [], onClose }) {
   const copy = usePersonCopy(person.id, entryId, person.name)
   const [running, setRunning] = useState(false)
-  const me = currentMe()
+  // Written through this sheet's queue, so the toast goes with the sheet (sheetparts.jsx).
+  const flip = useDoneFlip({ read: () => copy.entry, whose: person.name, write: (v) => copy.update(cur => applyDone(cur, v)) })
   const e = copy.entry
   const opt = e ? optFor(menu, e.data?.optId) : null
   const kind = e && opt ? runKind(e, opt) : null
-  const tone = person.tone ?? 1
 
   if (running && e && opt && kind) {
     return (
-      <SidesWorkout kind={kind} session={opt} sides={[{ id: person.id, name: person.name, entryId, tone }]}
+      <SidesWorkout kind={kind} session={opt} sides={[{ id: person.id, name: person.name, entryId, tone: person.tone ?? 1 }]}
         onExit={() => setRunning(false)} />
     )
   }
+  return (
+    <PersonEntryView person={person} entry={e} opt={opt} entries={entries} loading={copy.loading} error={copy.error}
+      onFlip={flip} onStart={kind ? () => setRunning(true) : null} onClose={onClose}
+      onSave={(out) => copy.update(cur => applyOut(cur, opt, out))} />
+  )
+}
 
-  const done = isDone(e)
+/**
+ * `PersonEntrySheet` as drawn, from an entry already read: pure, so the smoke
+ * suite can pin its header and footer without a server. `onStart` is null when
+ * there is nothing to run.
+ */
+export function PersonEntryView({ person, entry: e, opt, entries = [], loading = false, error = null, onFlip, onStart = null, onSave, onClose, today = localIso(), me = currentMe() }) {
+  const tone = person.tone ?? 1
+  const live = Boolean(e && !e.deleted)
   const pres = e?.data?.plan || null
-  const start = Boolean(kind && e && canStart(e))
+  const start = Boolean(live && onStart && canStart(e))
   const by = e ? plannedLine(e, me) : null
   return (
     <Modal title={e?.data?.name || opt?.name || 'Session'} sub={e?.date ? dayWords(e.date) : `${person.name}’s log`} icon="Users" onClose={onClose}
-      footer={e && !e.deleted ? (
-        <div className="sheet-actions">
-          {start && (
-            <button className="btn" onClick={() => setRunning(true)}>
-              <Icon name="Play" size={16} /> Start for {person.name}
-            </button>
-          )}
-          <button className={done ? 'btn quiet' : start ? 'btn secondary' : 'btn'} aria-pressed={done}
-            onClick={() => copy.update(cur => applyDone(cur, !done))}>
-            <Icon name={done ? 'CircleCheck' : 'Circle'} size={16} />
-            {done ? 'Mark undone' : `Mark done for ${person.name}`}
-          </button>
-        </div>
-      ) : null}>
+      /* A day still to come has no done state to flip, as on the owner's sheet. */
+      status={live && e.date <= today ? <DoneChip done={isDone(e)} whose={person.name} onToggle={onFlip} /> : null}
+      footer={start ? <SheetStart label={`Start for ${person.name}`} onStart={onStart} /> : null}>
       <p className="forline" data-tone={tone}>
         <Avatar name={person.name} tone={tone} small />
         <span><strong>{person.name}&rsquo;s log</strong>{by ? ` · ${by}` : ''}</span>
       </p>
-      {copy.loading && <p className="sub">Opening {person.name}&rsquo;s log…</p>}
-      {copy.error && <p className="withrow-err">{copy.error}</p>}
-      {e && !e.deleted && (
+      {loading && <p className="sub">Opening {person.name}&rsquo;s log…</p>}
+      {error && <p className="withrow-err">{error}</p>}
+      {live && (
         <>
           {pres && (
             <div className="pday-plan">
@@ -564,10 +580,7 @@ export function PersonEntrySheet({ person, entryId, menu = [], entries = [], onC
               ))}
             </div>
           )}
-          {opt && (
-            <SessionLog session={opt} entry={e} entries={entries} measured={false} defaultOpen
-              onSave={(out) => copy.update(cur => applyOut(cur, opt, out))} />
-          )}
+          {opt && <SessionLog session={opt} entry={e} entries={entries} measured={false} defaultOpen onSave={onSave} />}
         </>
       )}
       {e?.deleted && <p className="sub">This session is not in {person.name}&rsquo;s log any more.</p>}

@@ -28,6 +28,7 @@ import { WorkoutRunner } from './runner'
 import { WorkoutMode } from './workout'
 import { SessionLog } from './sessionlog'
 import { usePersonCopy, Avatar, PersonChip, PersonSegmented } from './sharedwith'
+import { DoneChip, useDoneFlip, SheetStart } from './sheetparts'
 import * as peopleApi from '../lib/peopleapi.js'
 import { optFor } from '../lib/menu.js'
 import * as trainerLib from '../lib/trainer.js'
@@ -386,21 +387,34 @@ export function PeopleDays({ people = [], date, plan }: { people?: Person[]; dat
 function PersonDayRow({ person, tone, date, plan, seen, first, onOpen }: {
   person: Person; tone: number; date: string; plan: any; seen: number; first: boolean; onOpen: () => void
 }) {
-  const [names, setNames] = useState<string[] | null>(null)
+  // Each session with its done state (#80): a Pull that was undone read the same as one that was done.
+  const [rows, setRows] = useState<{ id: string; name: string; done: boolean }[] | null>(null)
   useEffect(() => {
     let live = true
-    setNames(null)
     peopleApi.getPersonDay(person.id, date)
-      .then((entries: any[]) => { if (live) setNames(dayOf(entries, date).map((e: any) => dayRow(e, plan?.dailyMenu || []).name)) })
+      .then((entries: any[]) => { if (live) setRows(dayOf(entries, date).map((e: any) => dayRow(e, plan?.dailyMenu || []))) })
       .catch(() => { /* offline or refused: the row is still the way in */ })
     return () => { live = false }
   }, [person.id, date, plan, seen])
+  const said = rows?.length ? rows.map((r) => `${r.name}, ${r.done ? 'done' : 'not done yet'}`).join('; ') : null
   return (
-    <Press haptic onPress={onOpen} accessibilityRole="button" style={[kit.row, !first && st.divider]}>
+    <Press haptic onPress={onOpen} accessibilityRole="button" style={[kit.row, !first && st.divider]}
+      accessibilityLabel={said ? `${person.name}’s day: ${said}` : undefined}>
       <Avatar name={person.name} tone={tone} />
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         <T size={font.body} weight={500} numberOfLines={1}>{`${person.name}’s day`}</T>
-        {names ? <T size={font.small} dim numberOfLines={1}>{names.length ? names.join(' · ') : 'Nothing on it yet'}</T> : null}
+        {rows ? (
+          rows.length ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: space[3], rowGap: 2 }}>
+              {rows.map((r) => (
+                <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: space[1] }}>
+                  <Icon name={r.done ? 'CircleCheck' : 'Circle'} size={13} color={r.done ? toneColor(tone) : colors.inkFaint} />
+                  <T size={font.small} dim numberOfLines={1}>{r.name}</T>
+                </View>
+              ))}
+            </View>
+          ) : <T size={font.small} dim numberOfLines={1}>Nothing on it yet</T>
+        ) : null}
       </View>
       <Icon name="ChevronRight" size={16} color={colors.inkFaint} />
     </Press>
@@ -494,6 +508,8 @@ export function PersonEntrySheet({ person, entryId, menu = [], entries = [], onC
 }) {
   const copy = usePersonCopy(person.id, entryId, person.name)
   const [running, setRunning] = useState(false)
+  // Written through this sheet's queue, so the toast goes with the sheet (sheetparts.tsx).
+  const flip = useDoneFlip({ read: () => copy.entry, whose: person.name, write: (v: any) => { void copy.update((cur: any) => applyDone(cur, v)) } })
   const me = currentMe()
   const e = copy.entry
   const opt = e ? optFor(menu, e.data?.optId) : null
@@ -507,22 +523,18 @@ export function PersonEntrySheet({ person, entryId, menu = [], entries = [], onC
     )
   }
 
-  const done = isDone(e)
+  /* The same sheet parts as the owner's own sheet (#80, sheetparts.tsx): done is the
+     chip under the title, with Undo and whose it was; the footer is Start or nothing.
+     It had a footer of its own (Start for Sam beside Mark done for Sam), the third
+     style of footer for one workout. A day still to come has no done state to flip. */
+  const live = Boolean(e && !e.deleted)
   const pres = e?.data?.plan || null
-  const start = Boolean(kind && e && canStart(e))
+  const start = Boolean(live && kind && canStart(e))
   const by = e ? plannedLine(e, me) : null
   return (
     <Modal title={e?.data?.name || opt?.name || 'Session'} sub={e?.date ? dayWords(e.date) : `${person.name}’s log`} icon="Users" onClose={onClose}
-      footer={e && !e.deleted ? (
-        <View style={{ gap: space[2] }}>
-          {start ? (
-            <Btn icon="Play" title={`Start for ${person.name}`} onPress={() => { impact(); setRunning(true) }} />
-          ) : null}
-          <Btn kind={done ? 'quiet' : start ? 'secondary' : 'primary'} icon={done ? 'CircleCheck' : 'Circle'}
-            title={done ? 'Mark undone' : `Mark done for ${person.name}`}
-            onPress={() => { if (!done) success(); copy.update((cur: any) => applyDone(cur, !done)) }} />
-        </View>
-      ) : null}>
+      status={live && e.date <= localIso() ? <DoneChip done={isDone(e)} whose={person.name} onToggle={flip} /> : null}
+      footer={start ? <SheetStart label={`Start for ${person.name}`} onStart={() => setRunning(true)} /> : null}>
       <View style={[st.forLine, { borderLeftColor: toneColor(tone) }]}>
         <Avatar name={person.name} tone={tone} size={22} />
         <T size={font.small} dim style={{ flex: 1 }}>

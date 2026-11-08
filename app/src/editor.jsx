@@ -30,7 +30,21 @@ import { CircuitSteppers, CircuitList, SecondsRow } from './circuit.jsx'
  * sitting open under every block: on a lift day it is never the answer, and a
  * text box under each of six blocks is six text boxes the user is not going to use.
  */
-function PieceAdder({ unit, onAdd }) {
+/**
+ * The piece button's words, from what the block is (#80): a Pull block offered
+ * "Add a swim set, interval or hold". A swim block adds a swim set, a run or a
+ * ride an interval, a lift or support block a hold; a block that names no
+ * sport keeps the whole list. Read off the block's category, then its activity.
+ */
+export function pieceWords(block) {
+  const kind = `${block?.category || ''} ${block?.activity || ''}`.toLowerCase()
+  if (/swim/.test(kind)) return 'Add a swim set'
+  if (/run|bike|ride|row|ski|cardio|endurance/.test(kind)) return 'Add an interval'
+  if (/lift|support|strength|core|mobility|climb/.test(kind)) return 'Add a hold or timed exercise'
+  return 'Add a swim set, interval or hold'
+}
+
+function PieceAdder({ unit, onAdd, label = pieceWords(null) }) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [by, setBy] = useState('time')
@@ -46,7 +60,7 @@ function PieceAdder({ unit, onAdd }) {
   if (!open) {
     return (
       <button className="presc-add" onClick={() => setOpen(true)}>
-        <Icon name="Timer" size={15} /> <span>Add a swim set, interval or hold</span>
+        <Icon name="Timer" size={15} /> <span>{label}</span>
       </button>
     )
   }
@@ -459,7 +473,7 @@ export function PrescriptionEditor({
           /* The hand-built route only. A session the model wrote already has its
              intervals in it, and the place to change one is the card. */
           foot={onAddPiece
-            ? <PieceAdder unit={distanceUnitFor(b)}
+            ? <PieceAdder unit={distanceUnitFor(b)} label={pieceWords(b)}
                 onAdd={(name, by, unit) => onAddPiece(b.id, name, by, unit)} />
             : null}
           onPatch={(id, patch) => onChange(patchItem(pres, id, patch))}

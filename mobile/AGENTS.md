@@ -78,6 +78,11 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
   `features.ai` (true only while its CLI actually runs), less an `ai-not-configured` refusal
   since the app started. Plan a workout and the + menu's Plan line both read it; with it off,
   nothing mentions a model.
+- **One set of sheet parts (#80).** `features/sheetparts.tsx` is the web's `sheetparts.jsx`:
+  `DoneChip`, `useDoneFlip` (the flip and its Undo toast) and `SheetStart` (the footer's one
+  action), used by the session sheet and `PersonEntrySheet`. Who is on a shared workout is
+  `ShareChip` under the title, opening `SharePanel` (a `Popover`, so a page sheet over the
+  session sheet); taking someone off closes the panel before the system alert asks.
 - **A workout with more than one side** (`features/trainer.tsx` `SidesWorkout`) presents ONE
   full-screen modal and renders each side's runner or workout mode inside it with `embedded`,
   because iOS presents one modal at a time; the hidden sides stay mounted so their clocks run.

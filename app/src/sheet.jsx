@@ -13,13 +13,12 @@ import { SessionLog, PriorNote, DetailsSheet } from './sessionlog.jsx'
 import { liftFieldOf } from './lib/lifts.js'
 import { dayWords } from './lib/dates.js'
 import { MetaLine, metaParts } from './metaline.jsx'
-import { isDone, markDone, doneState } from './lib/store.js'
+import { isDone, markDone } from './lib/store.js'
 import { openTimer, timerRequestFor } from './timer.jsx'
 import { PrescriptionEditor } from './editor.jsx'
 import { PlanTalk } from './planner.jsx'
 import { usePlan } from './lib/planctx.jsx'
 import { prescriptionLine, isLiftOnly, runOf } from './lib/prescription.js'
-import { aiOffered } from './lib/plannerapi.js'
 import { localIso } from './lib/dates.js'
 import { hasWorkout } from './lib/workout.js'
 import { loggedMinutes } from './lib/minutes.js'
@@ -27,19 +26,17 @@ import { titleFor } from './lib/naming.js'
 import { loggedActivity } from './lib/activities.js'
 import { currentMe } from './lib/whoami.js'
 import { applyOut, applyPlan, canStart, plannedLine, toneFor } from './lib/trainer.js'
+import { sharePeople, sharedPeopleOn, isSynced } from './lib/shared.js'
+import { aiOffered } from './lib/plannerapi.js'
 import {
-  sharePeople, sharedPeopleOn, addPerson, removePerson, withSharedPerson, copyExercises,
-  hasExercises, isSynced, withSync,
-} from './lib/shared.js'
-import * as peopleApi from './lib/peopleapi.js'
-import {
-  WithControl, PersonSwitch, SyncToggle, SharedNote, TheirSide, usePersonCopy, useSide,
-  TogetherPending,
+  PersonSwitch, SharedNote, TheirSide, usePersonCopy, useSide, TogetherPending,
+  ShareChip, SharePanel, useSharing, useSidesDone,
 } from './sharedwith.jsx'
 import { usePersonLog } from './trainer.jsx'
-import { Undo2 } from 'lucide-react'
+import { DoneChip, useDoneFlip, SheetStart } from './sheetparts.jsx'
 import { pushToast, dismissToast } from './lib/toast.js'
-import { UNDO_MS } from './exercises.jsx'
+
+export { DoneChip }
 
 /* --------------------------------------------------------- session sheets */
 
@@ -72,24 +69,7 @@ export function runnable(opt, pres) {
   return hasWorkout(opt)
 }
 
-/**
- * DONE IS A STATE BY THE TITLE (#77), not a footer button. "Mark undone" sat
- * beside Close at the foot, directly under the set steppers, so a near miss took
- * a workout out of the streak with nothing on screen to say so (on someone
- * else's copy too). Now the chip says what is true ("Done" / "Not done") at the
- * top of the sheet, a flip says what it did in a toast with Undo, and a flip of
- * someone else's copy says whose.
- */
-export function DoneChip({ done, whose = null, onToggle }) {
-  const said = done ? 'Done' : 'Not done'
-  return (
-    <button type="button" className={`done-chip ${done ? 'on' : ''}`} role="switch" aria-checked={done}
-      aria-label={whose ? `${whose}: ${said}` : said} title={done ? 'Mark undone' : 'Mark done'} onClick={onToggle}>
-      <Icon name={done ? 'CircleCheck' : 'Circle'} size={16} />
-      <span>{said}</span>
-    </button>
-  )
-}
+/* The done chip, its flip with Undo and the footer's Start are sheetparts.jsx (#80). */
 
 /**
  * Where "Ask the model to change this" (PlanTalk) sits on a planned workout's
@@ -152,32 +132,13 @@ export function SessionSheet({
   const theirs = usePersonCopy(sidePerson?.id, sidePerson?.entryId, sidePerson?.name)
   const theirLog = usePersonLog(sidePerson?.id || null)
   const synced = Boolean(sidePerson && isSynced(entry, sidePerson.id))
-  const [sharing, setSharing] = useState({ busy: null, error: null })
-  // The entry as of the latest render: an add or a removal awaits the server, and
-  // must name the person on what the entry is THEN, not on what it was when tapped.
+  // The entry as of the latest render, for writes that land after a tap.
   const latestEntry = useRef(entry)
   latestEntry.current = entry
-  const share = async (verb, person, run) => {
-    setSharing({ busy: `${verb} ${person.name}…`, error: null })
-    try {
-      await run()
-      setSharing({ busy: null, error: null })
-    } catch (err) {
-      setSharing({ busy: null, error: `${person.name}: ${err.message}` })
-    }
-  }
-  const addSomeone = (person) => share('Adding', person, async () => {
-    const { copy } = await addPerson({ ownerEntry: latestEntry.current, person, session: opt,
-      owner: { id: me.real.id, name: me.real.name }, api: peopleApi })
-    onSaveEntry(withSharedPerson(latestEntry.current, person.id, copy.id))
-  })
-  const removeSomeone = (person) => share('Taking off', person, async () => {
-    const next = await removePerson({ ownerEntry: latestEntry.current, person, session: opt, api: peopleApi,
-      confirmFn: async (q) => typeof window !== 'undefined' && window.confirm(q) })
-    if (!next) return
-    if (side === person.id) setSide(null)
-    onSaveEntry(withSharedPerson(latestEntry.current, person.id, null, { remove: true }))
-  })
+  /* Who is on it, and how: one chip under the title and its panel (sharedwith.jsx, #80). */
+  const sharing = useSharing({ entry, opt, me, onSaveEntry, side: sidePerson?.id || null, setSide, theirs,
+    touch: () => setDirty(true) })
+  const sidesDone = useSidesDone(isFuture ? [] : on, sidePerson?.id || null, theirs.server)
   /* Their copy, written like `saveOutputs` writes the owner's: the out, and the
      name, level and minutes it implies. Never a test result: that is a separate
      entry, and their log is theirs to keep. */
@@ -185,38 +146,13 @@ export function SessionSheet({
   /* Their plan, edited from their side: the same write `savePlan` makes on the owner's. */
   const saveTheirPlan = (next) => { setDirty(true); theirs.update(cur => applyPlan(cur, opt, next)) }
   const theirPres = theirs.entry?.data?.plan || null
-  /* Your exercises onto their side, when you ask (sync off only): added, never their numbers replaced. */
-  const canCopy = Boolean(!synced && theirs.entry && copyExercises(theirs.entry, entry) !== theirs.entry)
-  /* Sync lives on the owner's link; the server does the keeping-the-same (server/sharedsync.js). */
-  const setSync = (person, v) => onSaveEntry(withSync(latestEntry.current, person.id, v))
-  const copyMine = () => { setDirty(true); theirs.update(cur => copyExercises(cur, latestEntry.current)) }
   const theirDone = Boolean(theirs.entry && isDone(theirs.entry))
-  /* A flip of their copy says whose it was, and Undo puts back exactly what it had.
-     Taken down with the sheet: their copy is written through this sheet's queue. */
-  const theirUndo = useRef(null)
-  useEffect(() => () => { if (theirUndo.current != null) dismissToast(theirUndo.current) }, [])
-  const flipTheirs = () => {
-    const before = theirs.entry
-    const v = !isDone(before)
-    setDirty(true)
-    theirs.update(cur => markDone(cur, v))
-    theirUndo.current = pushToast(`${v ? 'Marked done' : 'Marked undone'} for ${sidePerson?.name}`, 'info', {
-      duration: UNDO_MS,
-      action: { label: 'Undo', icon: Undo2, onClick: () => { theirUndo.current = null; theirs.update(cur => markDone(cur, doneState(before))) } },
-    })
-  }
-  /* The owner's own: the same toast. Undo puts back exactly the done fields the tap
-     replaced, through the same write (`markDone` with `doneState`). */
-  const flipMine = () => {
-    const before = latestEntry.current
-    const v = !isDone(before)
-    setDirty(true)
-    onSetDone(before, v)
-    pushToast(v ? 'Marked done' : 'Marked undone', 'info', {
-      duration: UNDO_MS,
-      action: { label: 'Undo', icon: Undo2, onClick: () => onSetDone(latestEntry.current, doneState(before)) },
-    })
-  }
+  /* A flip says what it did, with Undo (sheetparts.jsx). Their copy's names whose it
+     was and goes with the sheet: it is written through this sheet's queue. */
+  const flipTheirs = useDoneFlip({ read: () => theirs.entry, whose: sidePerson?.name,
+    write: (v) => { setDirty(true); theirs.update(cur => markDone(cur, v)) } })
+  const flipMine = useDoneFlip({ read: () => latestEntry.current, outlives: true,
+    write: (v) => { setDirty(true); onSetDone(latestEntry.current, v) } })
 
   /* A write to their log that did not land says so, with the way to send it again
      (the latest copy, as it stands: `update` re-sends it unchanged). It stays
@@ -236,11 +172,17 @@ export function SessionSheet({
    * card's own estimate or its tier ("any sport · counts anyway"): neither is
    * something the user said. A planned session not yet timed says what it holds.
    */
-  const mins = planned ? loggedMinutes(entry, opt) : null
+  // THE SIDE ON SCREEN (#80): on Sam's side the title, time and counts are Sam's
+  // copy's, never the owner's over Sam's exercises. Until it is read, the day only.
+  const shown = sidePerson ? theirs.entry : entry
+  const shownPres = sidePerson ? theirPres : pres
+  const mins = shown && !shown.deleted ? loggedMinutes(shown, opt) : null
   const timed = mins !== null ? `${mins} min` : null
   const subBits = [
     entry?.date ? dayWords(entry.date) : null,
-    timed || (pres ? prescriptionLine(pres) : null),
+    // Its first fact only ("6 exercises"): the whole line wrapped under the title at
+    // 390px, and the block's own head says the sets right below (#80).
+    timed || (shownPres ? prescriptionLine(shownPres).split(' · ')[0] || null : null),
   ]
   const sub = metaParts(subBits).length ? <MetaLine bits={subBits} /> : null
 
@@ -257,9 +199,7 @@ export function SessionSheet({
      on, not started: the runner opens where it was. */
   const startWords = (e) => (runOf(e)?.startedAt ? 'Carry on' : pres ? 'Start the workout' : 'Start workout')
   const start = (side = null) => (
-    <button type="button" className="btn" onClick={() => { setDirty(true); onStartWorkout(opt, side) }}>
-      <Icon name="Play" size={17} /> {startWords(side ? theirs.entry : entry)}
-    </button>
+    <SheetStart label={startWords(side ? theirs.entry : entry)} onStart={() => { setDirty(true); onStartWorkout(opt, side) }} />
   )
   let footer = null
   let status = null
@@ -268,7 +208,7 @@ export function SessionSheet({
     if (!isFuture && theirsLive) status = <DoneChip done={theirDone} whose={sidePerson.name} onToggle={flipTheirs} />
     /* Their side starts the same shared workout, on their side of the switcher. */
     if (!isFuture && theirsLive && onStartWorkout && pres && theirPres && runnable(opt, theirPres) && canStart(theirs.entry)) {
-      footer = <div className="sheet-foot">{start(sidePerson.id)}</div>
+      footer = start(sidePerson.id)
     }
   } else if (!planned && onLog && !isFuture) {
     // A card opened with nothing on the day yet: putting it there IS the action.
@@ -285,7 +225,7 @@ export function SessionSheet({
        Not "while not done": today's session is done before it starts. */
     const startable = !isFuture && planned && onStartWorkout && runnable(opt, pres) && canStart(entry)
     if (planned && !isFuture && onSetDone) status = <DoneChip done={done} onToggle={flipMine} />
-    if (startable) footer = <div className="sheet-foot">{start()}</div>
+    if (startable) footer = start()
   }
   /* The other sides of a synced workout, for a removal toast's one line about them
      (lib/removal.js: never a claim about what happened there). */
@@ -296,6 +236,11 @@ export function SessionSheet({
   const syncedWith = sidePerson
     ? (synced ? ['you'] : null)
     : (() => { const s = on.filter(p => isSynced(entry, p.id)).map(p => p.name); return s.length ? s : null })()
+  /* Under the title: the done chip, then who is on it ("with Sam · in sync ›", #80). */
+  const shareChip = <ShareChip entry={entry} on={on} people={people} onOpen={sharing.open} />
+  const statusRow = status || (people.length > 0)
+    ? <span className="sheet-status">{status}{shareChip}</span>
+    : null
 
   return (
     <Modal
@@ -304,13 +249,13 @@ export function SessionSheet({
        * titled by its plan; a card that names itself from what you picked
        * (`nameFrom`) is titled "Mountain bike" rather than "Log a workout".
        */
-      title={titleFor(opt, entry?.data?.out, pres)}
+      title={titleFor(opt, (shown || entry)?.data?.out, shownPres || pres)}
       sub={sub}
       // The activity's own icon (a run's footprints), as its row in the Log feed
       // shows it; the workout card's generic one only until an activity is picked.
       icon={loggedActivity(opt, entry?.data?.out)?.icon || opt.icon}
       tone={tone}
-      status={status}
+      status={statusRow}
       dismissable={!dirty}
       onClose={onClose}
       /* The name, one layer up: a rename is a thing you do TO the session you are
@@ -321,13 +266,13 @@ export function SessionSheet({
       footer={footer}
     >
       {/* Whose copy this sheet is filling in, pinned while the sheet scrolls. Only on a shared workout. */}
-      <PersonSwitch on={on} side={sidePerson?.id || null} onSide={setSide} />
-      {on.map(p => <SyncToggle key={p.id} person={p} on={isSynced(entry, p.id)} onChange={(v) => setSync(p, v)} />)}
-
-      {/* Who else is on it, and the way to add someone. Owner-only; see sharedwith.jsx. */}
-      {!sidePerson && (
-        <WithControl on={on} people={people} busy={sharing.busy} error={sharing.error}
-          onAdd={addSomeone} onRemove={removeSomeone} />
+      <PersonSwitch on={on} side={sidePerson?.id || null} onSide={setSide}
+        done={isFuture ? null : { '': done, ...sidesDone }} />
+      {/* Who is on it and how, behind the chip under the title. Owner-only; see sharedwith.jsx. */}
+      {sharing.isOpen && (
+        <SharePanel entry={entry} on={on} people={people} busy={sharing.busy} error={sharing.error}
+          onAdd={sharing.add} onRemove={sharing.remove} onSync={sharing.sync} onCopy={sharing.copy}
+          onClose={sharing.close} />
       )}
       {/* A circuit done together that has not reached someone yet (#68): until it has. */}
       {on.length > 0 && <TogetherPending entry={entry} session={opt} />}
@@ -342,7 +287,6 @@ export function SessionSheet({
       {sidePerson ? (
         <TheirSide session={opt} copy={theirs.entry} loading={theirs.loading} error={theirs.error}
           person={sidePerson} ownerOut={entry?.data?.out} onSave={saveTheirs} entries={theirLog.entries}
-          onCopyMine={canCopy ? copyMine : null} ownerHasExercises={hasExercises(entry)} synced={synced}
           /* A planned session is its plan, on their side as on the owner's: the same
              exercises, with their own numbers, and "last time" from THEIR log. */
           plan={theirPres && (

@@ -5,7 +5,7 @@
  *
  * server/http.test.js drives the same rules through a real server.
  */
-const { shapeOf, stampData, carry, rebase, intentOf, nextBase, align, syncedLinks, onWrite, receive } = require('./sharedsync.js')
+const { shapeOf, stampData, carry, rebase, intentOf, nextBase, align, syncedLinks, onWrite, receive, flagged, flagChanges, flagCopy, liftedOf } = require('./sharedsync.js')
 
 let failed = 0
 const check = (name, fn) => {
@@ -133,6 +133,126 @@ check('targets the plan arrived with are not typed: an untouched copy still foll
   const before = alex()
   eq(names(carry(untouched, shapeOf(before), edit(before, bs => { bs[0].items.pop(); return bs }))), ['Squat'])
   eq(itemNamed(carry(untouched, shapeOf(before), edit(before, bs => { bs[0].items[0].sets.pop(); return bs })), 'Squat').sets.length, 1)
+})
+
+check('a shared copy\'s own weights count as logged with no typed mark (#80): the owner\'s removal never takes them', () => {
+  // The seed's shape: Sam's copy has the share's target reps and Sam's own weights, typed
+  // before sets got the mark. The owner's removal of the exercise, or of a set, took them.
+  const legacy = { ...sam(), run: undefined, plan: planOf([{ uid: 'B1', name: 'Main', items: [
+    lift('SQ', 'Hip thrust', [set({ reps: 10, weight: 50 }), set({ reps: 10, weight: 50 }), set({ reps: 10, weight: 50 })]),
+    lift('DL', 'Leg press', [set({ reps: 10, weight: 90 })]),
+  ] }]) }
+  const before = alex()
+  const gone = edit(before, bs => { bs[0].items = []; return bs })
+  eq(names(carry(legacy, shapeOf(before), gone)), ['Hip thrust', 'Leg press'], 'an exercise with Sam\'s weights was removed')
+  const fewer = edit(before, bs => { bs[0].items[0].sets = [bs[0].items[0].sets[0]]; return bs })
+  eq(itemNamed(carry(legacy, shapeOf(before), fewer), 'Hip thrust').sets.map(x => x.weight), [50, 50, 50], 'a set with Sam\'s weight was dropped')
+  // A set with only the target reps still follows (the 'targets … untouched copy' case).
+  const half = edit(legacy, bs => { bs[0].items[0].sets[2] = set({ reps: 10 }); return bs })
+  eq(itemNamed(carry(half, shapeOf(before), fewer), 'Hip thrust').sets.map(x => x.weight), [50, 50], 'a target-only set was kept')
+  // The owner's own plan for today, untouched: an unmarked weight there is the planner's target.
+  const ownerSide = { ...alex(), done: false, run: undefined }
+  const samGone = edit(sam(), bs => { bs[0].items = []; return bs })
+  eq(names(carry(ownerSide, shapeOf(sam()), samGone, { date: '2026-11-08', today: '2026-11-08' })), [], 'an untouched plan for today kept the exercise')
+})
+
+/* #80, the mirror: what the app reads as lifted (lib/lifts.js liftsDone) is never removed by a carry. */
+const TODAY = '2026-11-08'
+const legDay = (sets) => ({ optId: 'planned', run: undefined, plan: planOf([{ uid: 'B1', name: 'Main', items: [
+  lift('LP', 'Leg press', sets(180)), lift('AD', 'Hip adduction', [set({ reps: 10, weight: 85 }), set({ reps: 10, weight: 85 }), set({ reps: 10, weight: 100 })]),
+] }]) })
+const three = (w) => [set({ reps: 10, weight: w }), set({ reps: 10, weight: w }), set({ reps: 10, weight: w })]
+
+check('the seed\'s mirror: Sam\'s phone removing Hip adduction never takes the owner\'s logged 85, 85, 100 (#80)', () => {
+  // The owner's done entry of a day gone by; its sets carry no typed mark.
+  const owner = { ...legDay(three), done: true, out: { activity: 'lift' } }
+  const samBefore = { ...legDay(three), sharedFrom: { id: 'owner', name: 'Alex' } }
+  const samAfter = edit(samBefore, bs => { bs[0].items = bs[0].items.filter(i => i.name !== 'Hip adduction'); return bs })
+  const at = { date: '2026-11-04', today: TODAY }
+  const kept = carry(owner, shapeOf(samBefore), samAfter, at)
+  eq(itemNamed(kept, 'Hip adduction').sets.map(x => x.weight), [85, 85, 100], 'the owner\'s logged sets were removed')
+  // Fewer sets over there: the owner's lifted sets stay too.
+  const fewer = edit(samBefore, bs => { bs[0].items[0].sets = [bs[0].items[0].sets[0]]; return bs })
+  eq(itemNamed(carry(owner, shapeOf(samBefore), fewer, at), 'Leg press').sets.length, 3, 'a lifted set of the owner\'s was dropped')
+  // Marked undone: nothing is read as lifted there, so the removal follows.
+  const undone = { ...owner, done: false, undone: true }
+  eq(names(carry(undone, shapeOf(samBefore), samAfter, at)), ['Leg press'], 'an undone entry kept an exercise nothing reads as lifted')
+})
+
+check('the seed both ways: the owner removing Hip thrust never takes Sam\'s 50s on a past copy (#80)', () => {
+  const copy = { ...legDay(() => three(90)), done: false, sharedFrom: { id: 'owner', name: 'Alex' } }
+  const ownerBefore = legDay(three)
+  const gone = edit(ownerBefore, bs => { bs[0].items = bs[0].items.filter(i => i.name !== 'Leg press'); return bs })
+  eq(itemNamed(carry(copy, shapeOf(ownerBefore), gone, { date: '2026-11-04', today: TODAY }), 'Leg press').sets.map(x => x.weight), [90, 90, 90])
+})
+
+check('an untouched plan for today, or for a later day, still follows every removal (#80)', () => {
+  const plan = { ...legDay(three), done: false }
+  const samBefore = { ...legDay(three), sharedFrom: { id: 'owner', name: 'Alex' } }
+  const samAfter = edit(samBefore, bs => { bs[0].items = bs[0].items.filter(i => i.name !== 'Hip adduction'); return bs })
+  eq(names(carry(plan, shapeOf(samBefore), samAfter, { date: TODAY, today: TODAY })), ['Leg press'], 'an untouched plan for today kept it')
+  eq(names(carry(plan, shapeOf(samBefore), samAfter, { date: '2026-11-20', today: TODAY })), ['Leg press'], 'a plan for a later day kept it')
+  // On its own day, only what was typed counts: one typed set keeps that exercise, one set of it.
+  const touched = edit(plan, bs => { bs[0].items[1].sets[0] = { ...bs[0].items[1].sets[0], typed: true }; return bs })
+  const fewer = edit(samBefore, bs => { bs[0].items[1].sets = [bs[0].items[1].sets[0]]; return bs })
+  eq(itemNamed(carry(touched, shapeOf(samBefore), fewer, { date: TODAY, today: TODAY }), 'Hip adduction').sets.length, 1)
+})
+
+/* liftedOf is the server's copy of lib/lifts.js liftsDone; held equal to it, as drafts.test.js holds rememberedModes. */
+const liftsEqual = (async () => {
+  const { liftsDone } = await import('../app/src/lib/lifts.js')
+  const entry = (id, date, data) => ({ id, kind: 'daily', date, data: { optId: 'planned', ...data } })
+  const items = [
+    lift('A', 'Squat', [set({ reps: 5, weight: 100 }), set({ reps: 5, weight: null }), set({ reps: null, weight: null })]),
+    lift('B', 'Row', [set({ reps: 8, weight: 60, typed: true }), set({ reps: 8, weight: 60 })]),
+    lift('C', 'Curl', [set()]),
+    { ...lift('D', 'Plank', [set({ seconds: 45 }), set({ seconds: 45, typed: true })]), measure: 'time' },
+  ]
+  const circuit = { uid: 'K', name: 'Finisher', circuit: { work: 30, rest: 15, rounds: 3 }, items: [lift('E', 'Burpee', [set({ reps: 10 })]), lift('F', 'Crunch', [set()])] }
+  const cases = [
+    entry('past', '2026-11-04', { done: true, plan: planOf([{ uid: 'B1', name: 'Main', items }, circuit]) }),
+    entry('pastPlanned', '2026-11-04', { done: false, plan: planOf([{ uid: 'B1', name: 'Main', items }]) }),
+    entry('undone', '2026-11-04', { done: false, undone: true, plan: planOf([{ uid: 'B1', name: 'Main', items }]) }),
+    entry('today', TODAY, { done: false, plan: planOf([{ uid: 'B1', name: 'Main', items }, circuit]) }),
+    entry('todayDone', TODAY, { done: true, plan: planOf([{ uid: 'B1', name: 'Main', items }, circuit]) }),
+    entry('later', '2026-11-20', { done: true, plan: planOf([{ uid: 'B1', name: 'Main', items }]) }),
+    entry('logged', '2026-11-04', { done: true, plan: planOf([{ uid: 'B1', name: 'Main', items }]),
+      out: { lifts: [{ uid: 'A', key: 'squat', name: 'Squat', sets: [{ reps: '5', weight: '110' }, { reps: '5', weight: '110' }, { reps: '5', weight: '110' }] }] } }),
+  ]
+  for (const e of cases) {
+    const rows = new Map(liftsDone(e, TODAY).filter(r => r.uid).map(r => [r.uid, r.sets.length]))
+    const server = liftedOf(e, TODAY)
+    const uidOf = new Map(e.data.plan.blocks.flatMap(b => b.items).map(it => [it.id, it.uid]))
+    const app = new Map([...rows].map(([u, n]) => [uidOf.get(u) || u, n]))
+    const circuitUids = new Set(e.data.plan.blocks.filter(b => b.circuit).flatMap(b => b.items.map(i => i.uid)))
+    const want = [...app].map(([u, n]) => [u, circuitUids.has(u) ? 1 : n]).sort()
+    const got = [...server].map(([u, idx]) => [u, idx.size]).sort()
+    eq(got, want, `${e.id}: the server reads a different lift than the app`)
+  }
+})()
+
+
+check('a copy says whether it is in step (#80): set on a carry, switched with the link, never on the owner\'s own entry', () => {
+  const copy = { ...sam(), sharedFrom: { id: 'owner', name: 'Alex' } }
+  eq(flagged(copy, true).sharedFrom, { id: 'owner', name: 'Alex', sync: true })
+  ok(flagged(flagged(copy, true), true).sharedFrom.sync === true, 'flagging twice changed it')
+  const own = alex()
+  ok(flagged(own, true) === own, 'the owner\'s entry was flagged')
+  const before = alex()
+  const after = edit(before, bs => { bs[0].items.push(lift('LU', 'Lunge', [set()])); return bs })
+  const st = receive({ entries: { d: { id: 'd', kind: 'daily', date: '2026-10-01', updatedAt: '2026-10-01T00:00:00.000Z', data: copy } } }, 'd',
+    { before: shapeOf(before), after }, e => Boolean(e.data.sharedFrom))
+  eq(st.entries.d.data.sharedFrom.sync, true, 'a carry into the copy did not say it is in step')
+  const entry = (links) => ({ id: 'o', kind: 'daily', date: '2026-10-01', data: { sharedWith: links } })
+  const prev = { entries: { o: entry([{ id: 'sam', entryId: 'c1', sync: true }, { id: 'jo', entryId: 'c2' }]) } }
+  const next = { entries: { o: entry([{ id: 'sam', entryId: 'c1' }, { id: 'kim', entryId: 'c3', sync: true }]) } }
+  eq(flagChanges(prev, next, ['o']), [{ personId: 'sam', entryId: 'c1', sync: false }, { personId: 'kim', entryId: 'c3', sync: true }])
+  eq(flagChanges(prev, prev, ['o']), [])
+  eq(flagChanges(prev, { entries: { o: { ...prev.entries.o, deleted: true } } }, ['o']), [{ personId: 'sam', entryId: 'c1', sync: false }])
+  const log = { entries: { c1: { id: 'c1', updatedAt: '2026-10-01T00:00:00.000Z', data: copy } } }
+  const f = flagCopy(log, 'c1', false)
+  eq([f.entries.c1.data.sharedFrom.sync, f.entries.c1.updatedAt], [false, '2026-10-01T00:00:00.001Z'])
+  ok(flagCopy(f, 'c1', false) === f, 'an unchanged flag wrote again')
 })
 
 check('a carry that changes something fills in what kind of workout it is on a side that names none (#74)', () => {
@@ -691,4 +811,6 @@ check('receive: lands on a shared copy just past its OWN instant, never the send
   ok(receive(own, 'd', c, e => Boolean(e.data.sharedFrom)) === own, 'wrote into an entry Sam logged themselves')
 })
 
-if (failed) { console.log(`\n${failed} failed`); process.exit(1) }
+liftsEqual.then(() => console.log('  ok    liftedOf reads what lib/lifts.js liftsDone reads, case for case (#80)'))
+  .catch(e => { failed++; console.log('  FAIL  liftedOf reads what lib/lifts.js liftsDone reads, case for case (#80)\n         ', e.message) })
+  .then(() => { if (failed) { console.log(`\n${failed} failed`); process.exit(1) } })

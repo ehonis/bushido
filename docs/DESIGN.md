@@ -38,6 +38,41 @@ contradict this file, say so in the issue before writing it.
 - Last-write-wins still applies per entry; structural merges must not drop the other side's
   numbers for exercises that still exist on both.
 
+### Shared workouts as states (#80)
+
+The rules for one workout in two logs, as states and the moves between them. The reasons and
+the incidents behind each are in `AGENTS.md` §3 and at the top of `server/sharedsync.js`;
+this is the map, kept short on purpose.
+
+**The link** (on the owner's entry, `data.sharedWith[]`; the copy mirrors it in
+`sharedFrom.sync`, written only by the server):
+
+| State | How it is entered | Structure | Numbers | The copy says |
+|---|---|---|---|---|
+| Not shared | — | — | — | — |
+| Shared, in step | Add someone (sync on by default); switch on (aligns once, add-only) | Carried both ways by uid | Never cross | "Exercises stay in step with Alex's" |
+| Shared, not in step | Switch off; a share from before sync | Stays where it is; Copy my exercises adds the owner's | Never cross | "with Alex" only |
+| Taken off | Take off (asks first if they logged anything) | The copy is tombstoned, or kept as theirs | Theirs | not in step |
+
+**A write to a synced entry** (`intentOf`): a device sends back the base it was given.
+
+| Base it sent | Reading | What it may do to structure |
+|---|---|---|
+| The stored one | current | Its structure is the structure |
+| An older one of this entry | stale | Its change since that base, three-way, onto what is stored |
+| None, another entry's, a future one | numbers | Nothing: its numbers land on the stored structure |
+
+**What a carry from the other side never removes** (`loggedOf`): a set marked in the run; a
+lift set with a typed number; on a copy, a lift set with a weight (#80); and whatever the app
+reads as lifted on the receiving entry (`liftedOf` = lib/lifts.js `liftsDone`: a done day gone
+by, every set with a number; its own day, the typed ones). An untouched plan for today or a
+later day still follows. In a circuit a lifted exercise stays with one set. The receiving
+side's done, run, out and numbers are never written.
+
+**A circuit done together** (§3, the together rule): offered to sides neither ended nor
+running a live clock; at its end each is re-read and only blanks are filled; a miss is kept on
+the device and retried while the run is still on the owner's entry.
+
 ### D2. Done once the day arrives
 
 - Creating an entry for **today or an earlier day** writes `done: true`. An entry dated in the

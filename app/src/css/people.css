@@ -36,21 +36,12 @@
 .personchip:not(.on) .avatar { background: transparent; color: var(--who); box-shadow: inset 0 0 0 1.5px var(--who); }
 
 /* Person chip: the chip, with their initial ahead of the name. Picked is their
-   own soft fill and edge (the accent's, for you). "With …" and "For: …" both. */
+   own soft fill and edge (the accent's, for you). "For: …". */
 .personchips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 .personchip { padding-left: 5px; }
 .personchip.ghost { padding-left: var(--sp-3); }
 .personchip.on { color: var(--ink); background: var(--who-soft); border-color: var(--who-line); }
 .personchip-name { overflow: hidden; text-overflow: ellipsis; }
-/* The × takes someone off: a destructive tap, so a full 44px target. The chip
-   grows to 44 to hold it, and the margins cover the chip's own 1px border. */
-.withrow .personchip.on { min-height: var(--tap); }
-.personchip-x {
-  display: inline-grid; place-items: center; width: var(--tap); height: var(--tap);
-  margin: -1px calc(-1 * var(--sp-3) - 1px) -1px -4px;
-  background: none; border: 0; border-radius: var(--r-pill); color: var(--ink-dim); cursor: pointer;
-}
-.personchip-x:hover { color: var(--ink); }
 
 /* Segmented, for people: the side being filled in is raised in its person's
    colour. The sheet's bar and the workout switcher are the same control. */
@@ -69,10 +60,42 @@
 }
 .personbar .seg { margin: 0; }
 .personbar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Each side's done state on its tab (#80): a tick, with the words in its label. */
+.personbar-done { flex: none; color: var(--ink-dim); }
+.personbar-btn.on .personbar-done { color: var(--ink); }
 
-/* "With": who else did this workout. A section head and person chips. */
-.withrow { margin: 0 0 var(--sp-4); }
-.withrow .section-head { margin-top: var(--sp-4); }
+/* Under the title (#80): the done chip, then who is on it. One row, wrapping. */
+.sheet-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+/* "with Sam · in sync ›": the done chip's shape, 32px to look at and 44 to hit,
+   opening the sharing panel. Quiet, because it is a setting, not the workout. */
+.share-chip {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+  min-height: 32px; padding: 0 var(--sp-2) 0 var(--sp-3); border-radius: var(--r-pill);
+  background: var(--panel-2); border: 1px solid var(--line);
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); font-weight: 500; cursor: pointer;
+}
+.share-chip svg { flex: none; color: var(--ink-faint); }
+.share-chip.on { color: var(--ink); }
+.share-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-chip-sync { color: var(--ink-dim); font-weight: 400; }
+.share-chip::after { content: ''; position: absolute; inset: -6px; }
+.share-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The sharing panel: one section per person on it, then who could be added. */
+.sharepanel {
+  display: grid; gap: var(--sp-4); padding: var(--sp-4) var(--sp-4) calc(var(--sp-4) + env(safe-area-inset-bottom));
+  min-height: 0; overflow-y: auto;
+}
+.sharepanel-person { display: grid; gap: var(--sp-2); }
+.sharepanel-person + .sharepanel-person { padding-top: var(--sp-4); border-top: 1px solid var(--line); }
+.sharepanel-who { display: flex; align-items: center; gap: var(--sp-2); }
+.sharepanel-name { font-size: var(--fs-body); font-weight: 600; color: var(--ink); }
+.sharepanel-person .synctoggle { margin: 0; }
+.sharepanel-person .btn { width: 100%; }
+.sharepanel-off { color: var(--ink-dim); }
+.sharepanel-person + .sharepanel-add { border-top: 1px solid var(--line); padding-top: var(--sp-2); }
+.sharepanel-add .list-row svg { color: var(--ink-dim); }
+
 .withrow-err { font-size: var(--fs-small); color: var(--bad); margin: var(--sp-2) 0 0; }
 .synctoggle {
   display: flex; align-items: center; gap: var(--sp-3); min-height: var(--tap); margin: 0 0 var(--sp-3); padding: var(--sp-3);
@@ -85,9 +108,9 @@
 /* A circuit done together that has not reached someone yet (#68): said plainly, with Try again. */
 .sharednote.together-pending { color: var(--ink); font-size: var(--fs-small); flex-wrap: wrap; }
 .sharednote.together-pending .btn.quiet { margin-left: auto; min-height: var(--tap); }
+/* On their own copy, under "with Alex" (#80): the copy is in step with Alex's. */
+.sharednote.instep { margin-top: calc(-1 * var(--sp-2)); }
 .theirside-lead { margin: 0 0 var(--sp-1); }
-.theirside-copy { width: 100%; margin-top: var(--sp-3); }
-.theirside-copied { margin: var(--sp-3) 0 0; }
 .out-yours { margin-left: var(--sp-2); font-size: var(--fs-caption); font-weight: 400; color: var(--ink-faint); }
 .liftlog-yours { width: 100%; margin-bottom: 10px; }
 .dl-with, .logcard-with {
@@ -132,6 +155,11 @@
 /* Someone's day, from Today: a card of rows, one per person. A door, not a second Today. */
 .peopledays { padding-block: var(--sp-1); }
 .peopleday .list-row-title { font-weight: 500; }
+/* Each session on their day with its done state (#80): the tick says it, not colour alone. */
+.peopleday-meta { display: flex; flex-wrap: wrap; gap: 2px var(--sp-3); }
+.peopleday-item { display: inline-flex; align-items: center; gap: var(--sp-1); }
+.peopleday-item svg { flex: none; color: var(--ink-faint); }
+.peopleday-item.done svg { color: var(--who, var(--ink-dim)); }
 
 /* Someone's week. */
 .pday-wrap { border-top: 3px solid var(--who, var(--line)); padding-top: var(--sp-2); }

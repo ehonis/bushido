@@ -35,6 +35,8 @@ import {
   ArrowLeftRight,
   // A block's own menu and its moves (#79).
   Ellipsis, ArrowUp, ArrowDown,
+  // Who is on a shared workout: add someone, take someone off (#80).
+  UserPlus, UserMinus,
   // Aliased: an unaliased `Infinity` import shadows the global inside this
   // module, which is a trap for whoever next edits it.
   Infinity as InfinityIcon,
@@ -59,6 +61,7 @@ const REGISTRY = {
   ChevronLeft, ChevronUp, Search,
   SkipBack, ArrowLeftRight,
   Ellipsis, ArrowUp, ArrowDown,
+  UserPlus, UserMinus,
   Infinity: InfinityIcon,
 }
 
