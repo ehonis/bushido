@@ -17,7 +17,7 @@ import {
   PRIOR_LIFTS, HELD_CARD, HELD_FIELD, HELD_ENTRY,
 } from './fixtures.jsx'
 
-import { removeItem, appendLift } from '../src/lib/prescription.js'
+import { removeItem, appendLift, planProgress } from '../src/lib/prescription.js'
 import { lastTimeFill } from '../src/lib/lifts.js'
 
 /* Walk a component's returned element tree (no render): what it hands its children. */
@@ -609,6 +609,24 @@ export default [
     if (!/implswitch/.test(meta) || !/modeswitch/.test(meta)) throw new Error('the meaning is not beside what it is done with')
     const css = readFileSync(new URL('../src/css/editor.css', import.meta.url), 'utf8')
     if (!/\.presc-sets\.doing \.presc-set \{ gap: var\(--sp-4\); \}/.test(css)) throw new Error('the ✓ is not 16px clear of the reps’ −')
+    // …and the row still fits 390's 330: ✓ 44 + 16 + two steppers of 130 + the 8px seam.
+    if (!/\.presc-sets\.doing \.presc-setfields > \.stepper \{ flex-basis: calc\(3 \* var\(--tap\) - 2px\); \}/.test(css)) throw new Error('the doing steppers grew: redo the 390 sum')
+    // The reps' + and the weight's − are two controls, 8px apart, not one strip (#111).
+    if (!/\.presc-sets\.doing \.presc-setfields \{ gap: var\(--sp-2\); \}/.test(css)) throw new Error('the reps’ + and the weight’s − are under 8px apart')
+  }],
+  // The card's head and the Today row count the same sets (#111 review): an edited
+  // set is in the log (D11), so set 1 stepped and set 2 ticked is "2 of 3 done".
+  ['ExerciseCard(doing: the head counts edited and ticked sets, as the Today row does)', null, () => {
+    const item = { id: 'b0i0', uid: 'u-row', kind: 'lift', name: 'Bent-over row', exercise: 'bent-over-row', implement: 'ez-bar',
+      weightLabel: 'lb on the bar', line: '3 × 10', sets: [
+        { id: 's0', reps: 10, weight: 95, typed: true },
+        { id: 's1', reps: 10, weight: 90, typed: true, ticked: true },
+        { id: 's2', reps: 10, weight: 90 }] }
+    const html = renderToString(<ExerciseCard item={item} liftField={LIFT_FIELD} defaultOpen doing onTick={noop}
+      onPatch={noop} onPatchSet={noop} onAddSet={noop} onRemoveSet={noop} onRemove={noop} />)
+    if (!/2 of 3 done/.test(html)) throw new Error('the card head does not count the edited set')
+    if (planProgress({ blocks: [{ items: [item] }] }).done !== 2) throw new Error('the Today row counts differently')
+    if (!/class="presc-tick edited"/.test(html) || !/class="presc-tick on"/.test(html)) throw new Error('the edited and ticked looks are not both drawn')
   }],
   ['modeFlip(one tap writes the next meaning and offers Undo, which writes the old one back)', null, () => {
     const item = { kind: 'lift', name: 'Bent-over row', implement: 'ez-bar', weightLabel: 'lb on the bar' }

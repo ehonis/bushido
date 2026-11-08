@@ -680,7 +680,12 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   of it, and every reader goes through it: `climbVolume` (Climbs per week, `climbLine`),
   `lengthsIn`, `totalReps`, and the set logs' foot (`climbTotals`). The form says the rest
   are "not described, so not counted". A read rule: nothing stored is rewritten, and a row
-  whose climbs are all described reads as it always did.
+  whose climbs are all described reads as it always did. The rule is per EXERCISE (#111):
+  once a climb in any of its sets is described, every set of it with the detail on counts
+  its described climbs (`anyTold`; callers pass the exercise's rows), or Add set's copied
+  count read as climbs ("2 described, Add set, 4 routes"). The starter's Bouldering and
+  Rock climbing exercises declare `addSets: false`: a day of routes is one list, and Add
+  route is its one door.
 - **One climbing line everywhere** (#97): Today's row, "Last time you did this" and the Log
   all say `climbLine` ("5 routes · hardest 5.10"), never "1 set". A card's typed "hardest"
   field is left out of the form while the session has graded climbs on its ladder
@@ -704,17 +709,36 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   plus, on a planned entry that `isDone` and is dated on or before today, each plan lift
   item that no logged row with a number stands for (by uid, else by exercise), as a row
   in the runner's shape (holds as seconds, a circuit item once a round). So a run left
-  after one exercise, or one lift added by hand, covers only what it logged. On the plan's
+  after one exercise, or one lift added by hand, covers only what it logged. A BLANK
+  logged row that stands for an item (a circuit's counted exercise, `{ reps: '' }` a
+  round) is that item, read once, never a second exercise (#111). On the plan's
   own day only the sets typed into count (a plan done by one set is not every target
   lifted); from the next day on, every set with a number (done as written). Read, never
   written. A row names its exercise by `key` (`liftKeyOf` also reads an older row's
   `exercise`). A control that says "did this set as planned" must write `typed`: the sheet's
   ✓ does (`tickSet`, #79), and on a done plan's earlier day the ✓s are read, not toggled,
   the way `liftsDone` reads it (`setTicked(s, asWritten)`).
+- **Edited is not ticked** (#111). A number typed or stepped writes `typed` (the log,
+  D11); a ✓ writes `typed` AND `ticked`. The ✓ shows `ticked` (`setTicked`); a set only
+  edited (`setEdited`) reads as logged everywhere (`setLogged`, `liftsDone`, the Today row's
+  "k of n sets") and is drawn with an accent ring, and a tap on it TICKS it. Only a tap on a
+  ticked set takes the tick off, with both marks ("I did not do this one"). Before, the two
+  were one mark, so "+5, lift, tap ✓" un-logged the set. A set ticked before the mark
+  existed carries `typed` alone and reads as edited. Doing mode folds an exercise and moves
+  on by ticks only (`itemTicked`), so tuning every weight first finishes nothing. Every
+  copy that drops `typed` drops `ticked` (`unmarked`, `withFills`, `crossingSet`, the
+  server's `newPlanSet`); `keepTyped` keeps both.
+- **What crosses to someone else's plan** is `crossingSet` (lib/shared.js, #111): never a
+  weight or a note, and a lift set the owner typed into or ticked crosses BLANK (it is the
+  owner's log, and as a target it read on their side as lifted the next day); an untouched
+  target crosses as written. The server's sync carries no lift numbers at all
+  (`freshItem`), which `sharedsync.test.js` pins.
 - **What a lift's weight means is switched once per exercise** (#58; moved off the set
   row in #93). On a card (lift log, planner editor, doing mode; web and phone) it is
   one switch beside the implement (`ModeSwitch`, "on the bar ⇆"), and every flip shows
-  a toast with Undo (`modeFlip`); the runner keeps its 44px pill under the big weight.
+  a toast with Undo (`modeFlip`); the runner's is the same switch beside the implement
+  under the exercise's name (#111: it was a pill 6px under the big weight that flipped in
+  silence), and the big weight says only "lb".
   In a set's cell the weight says only its unit (`weightUnit`: "lb"): the switch used
   to be the cell's biggest target, and a tap aimed at 90 made it 90 per side. Switched
   when the implement has more than one meaning: dumbbell and kettlebell "per hand" / "1 DB"
@@ -739,7 +763,11 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
       the lift log (`addLift`, or picking its implement), a new exercise in the
       editor (`appendLift`), each lift of a model's FIRST draft (`server/drafts.js`,
       which reads the person's own log as the answer lands, `rememberedModes`;
-      `server/drafts.test.js` holds it to the app's rule).
+      `server/drafts.test.js` holds it to the app's rule). A lift the model names no
+      implement for gets one first, as a lift added by hand does (#111): the one it had
+      on a revision, else `defaultImplement` (`defaultImplementOf` and
+      `rememberedImplements` on the server, held to the app's by the same test; the
+      sheet's own revise path, `reviseWeightModes`, too).
     - On a revision an exercise the model kept, on the same implement, keeps exactly
       what it had, a deliberate default included; only one new in the revision gets
       memory (`reviseWeightModes`; on a draft, `server/drafts.js`, so it is on the
@@ -781,11 +809,16 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   between the ±, its unit drawn inside it); in doing mode the ✓ is at the row's start,
   where the set's number is when planning, never beside the weight's +. "Last time" is
   in `dayWords` ("Fri, Nov 7") and, where this exercise has blank sets, a button that
-  fills them (`lastTimeFill`: blanks only, the weight only in the same meaning).
+  fills them (`lastTimeFill`: blanks only, the weight only in the same meaning; on a card
+  with nothing on it yet that is nobody else's, `grow` also adds the sets last time had
+  more of, so one tap rebuilds 3 × 10, #111). Last time is before the entry being shown
+  (`lastLift`, by lib/order.js `before`, the rule `priorSessions` uses), never a later day.
   **Copy down** (`copyDownFills`) fills the empty sets under a set with its numbers,
   from its own line at the row's right edge (16px clear of every stepper), with Undo
   ("Copied to 2 sets") that puts back only the sets still as it left them: anything
-  typed into or ticked since stays (`unfills`). The ✓ is 16px clear of the reps' −. Both are NUMBERS ONLY in one write
+  typed into or ticked since stays (`unfills`). The ✓ is 16px clear of the reps' −, and the
+  reps' + 8 from the weight's − (#111: at 2 they read as one strip); the number boxes gave
+  the width for it (40–42 wide, still 44 tall), so a set is still one row at 390. Copy down is NUMBERS ONLY in one write
   (`withFills`): no set added or removed, so a synced workout's structure and the other
   person's log are untouched, and a filled set is not `typed`: it is a target, lifted
   (D10, D11) only once its ✓ is ticked. A new exercise starts on `defaultImplement`
@@ -1469,8 +1502,9 @@ pinned in `app/smoke/sheet.jsx` and `app/smoke/editor.jsx`:
 - **Doing mode** (`PrescriptionEditor doing`): a planned workout on its day or after opens
   on the first exercise with a set still to do (`firstUnticked`), and the next opens as it is
   finished. Each card is the name, the implement as one small switch, last time, and per set
-  reps, weight and a ✓ (`SetTick`; it writes `typed`, so it is the log, D11, and touches a
-  plan for today, D10). A set with no number cannot be ticked (its ✓ goes to its first box),
+  reps, weight and a ✓ (`SetTick`; it writes `typed` and `ticked`, so it is the log, D11,
+  and touches a plan for today, D10; an edited set is a ring a tap ticks, #111). A set with
+  no number cannot be ticked (its ✓ goes to its first box),
   so a ✓ always means logged. A block note is stored when its box is left (`noteDraft`). A done plan's earlier day reads as done as written (`asWritten`). A
   day still to come is still planning and gets the planner's editor.
 - **Planning is one tap away, never above the sets.** A block's Circuit switch, where it

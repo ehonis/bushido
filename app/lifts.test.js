@@ -26,7 +26,7 @@ import {
   weightModesFor, weightModeOf, weightLabelOf, weightPatch, nextWeightMode, rememberedWeightMode,
   weightModeWords, liftFieldIn, weightBoxOf, liftMeasure, measureFor, muscleName, blankSet, canSwitchMeasure,
   liftsDone, planLifts, liftedLine, implementChoices,
-  lastTimeFill, lastTimeWhen, withFills, copyDownFills, canCopyDown, unfills, cardKey, cardIdentity, rememberedImplement, defaultImplement, weightUnit, weightMeaning, pickerGroupFor,
+  lastTimeFill, fillLift, lastTimeWhen, withFills, copyDownFills, canCopyDown, unfills, cardKey, cardIdentity, rememberedImplement, defaultImplement, weightUnit, weightMeaning, pickerGroupFor,
 } from './src/lib/lifts.js'
 import { isRepeatable, extraEntryId } from './src/lib/store.js'
 import { gateResolver, catalogOf as activityCatalog } from './src/lib/activities.js'
@@ -1104,6 +1104,58 @@ check('#93 copy down on a lift log row: the stored shape, nothing added', () => 
   eq(out[0].sets, [{ reps: 5, weight: 135 }, { reps: 5, weight: 135 }, { reps: 5, weight: 135 }])
   eq(fills.length, 2, 'both blank rows below set 1')
   eq(out[0].sets.length, 3, 'a row was added or removed')
+})
+
+check('#111 D F2: a circuit\'s counted exercise is one exercise in what was lifted, not two', () => {
+  const blank = (n) => Array.from({ length: n }, () => ({ reps: '', weight: '' }))
+  const e = { id: 'c', kind: 'daily', date: '2026-11-07', data: { done: true, plan: { blocks: [{ name: 'C', circuit: { work: 30, rest: 10, rounds: 2 }, items: [
+    { id: 'b0i0', uid: 'u0', kind: 'lift', name: 'Bench press', exercise: 'bench-press', sets: [{ id: 'b0i0s0', reps: 10 }] },
+    { id: 'b0i1', uid: 'u1', kind: 'lift', name: 'Plank', exercise: 'plank', sets: [{ id: 'b0i1s0', seconds: 30 }] },
+    { id: 'b0i2', uid: 'u2', kind: 'lift', name: 'Bent-over row', exercise: 'bent-over-row', sets: [{ id: 'b0i2s0', reps: 8 }] }] }] },
+  out: { lifts: [{ uid: 'b0i0', key: 'bench-press', name: 'Bench press', sets: blank(2) },
+    { uid: 'b0i1', key: 'plank', name: 'Plank', sets: [{ seconds: 30, weight: '' }, { seconds: 30, weight: '' }] },
+    { uid: 'b0i2', key: 'bent-over-row', name: 'Bent-over row', sets: blank(2) }] } } }
+  const rows = liftsDone(e, '2026-11-08')
+  eq(rows.map(r => r.key), ['bench-press', 'plank', 'bent-over-row'], 'a counted exercise was listed twice')
+  eq(rows.reduce((n, r) => n + r.sets.length, 0), 6, '3 exercises × 2 rounds is 6 sets')
+  eq(rows[0].sets[0].reps, 10, 'the plan\'s count is read, done as written, the next day')
+  // On its own day, untyped, the blank row is what there is: once, not dropped, not doubled.
+  const today = liftsDone({ ...e, date: '2026-11-08' }, '2026-11-08')
+  eq(today.filter(r => r.key === 'bench-press').length, 1)
+})
+
+check('#111 D F3: "last time" on an earlier day\'s sheet is never a later session', () => {
+  const lifted = (id, date, weight, extra = {}) => ({ id, kind: 'daily', date, ...extra, data: { done: true, out: { lifts: [{ uid: `${id}-1`, key: 'bent-over-row', name: 'Bent-over row', sets: [{ reps: 10, weight }] }] } } })
+  const entries = [lifted('nov8', '2026-11-08', 40), lifted('nov7', '2026-11-07', 90), lifted('nov5', '2026-11-05', 85)]
+  eq(lastLift(entries, 'bent-over-row', 'nov7', liftField, null, '2026-11-08').date, '2026-11-05', 'Nov 7 said last time was Nov 8')
+  eq(lastLift(entries, 'bent-over-row', 'nov8', liftField, null, '2026-11-08').date, '2026-11-07', 'today\'s last time is the newest before it')
+  eq(lastLift(entries, 'bent-over-row', null, liftField, null, '2026-11-08').date, '2026-11-08', 'no entry, no bound')
+  // The same day: the session that came first is the last time of the one after it, never the reverse.
+  const am = lifted('daily-2026-11-08', '2026-11-08', 50, {})
+  const pm = { ...lifted('daily-2026-11-08-planned', '2026-11-08', 60), data: { ...lifted('x', '2026-11-08', 60).data, slot: 'extra' } }
+  eq(lastLift([am, pm], 'bent-over-row', 'daily-2026-11-08', liftField, null, '2026-11-08'), null, 'the morning took the evening as its last time')
+  eq(lastLift([am, pm], 'bent-over-row', 'daily-2026-11-08-planned', liftField, null, '2026-11-08').date, '2026-11-08')
+})
+
+check('#111 C F2: "Use" on an untouched card rebuilds last time\'s sets, and only where it may add one', () => {
+  const prior = { date: '2026-11-01', row: { implement: 'barbell', sets: [{ reps: 10, weight: 95 }, { reps: 10, weight: 95 }, { reps: 8, weight: 100 }] } }
+  const card = (sets) => ({ kind: 'lift', implement: 'barbell', sets })
+  const blank = [{ id: 's0', reps: null, weight: null }]
+  eq(lastTimeFill(liftField, card(blank), prior).length, 1, 'without grow, a fill never adds a set (a synced workout)')
+  const fills = lastTimeFill(liftField, card(blank), prior, { grow: true })
+  eq(fills.map(f => [f.setId, Boolean(f.add), f.patch.reps, f.patch.weight]), [['s0', false, 10, 95], [null, true, 10, 95], [null, true, 8, 100]])
+  // Laid onto a plan's sets: three sets, the numbers as targets, no marks.
+  const sets = withFills([{ id: 's0', reps: null, weight: null, unit: null, note: '' }], fills)
+  eq(sets.map(x => [x.reps, x.weight, x.typed ?? null]), [[10, 95, null], [10, 95, null], [8, 100, null]])
+  eq(sets.slice(1).every(x => !('id' in x)), true, 'an added set took another set\'s id')
+  // Laid onto a logged row: three sets too.
+  const list = [{ uid: 'u1', key: 'back-squat', implement: 'barbell', sets: [{ reps: '', weight: '' }] }]
+  eq(fillLift(list, 'u1', fills.map((f, i) => (f.add ? f : { ...f, setId: String(i) })))[0].sets, [{ reps: 10, weight: 95 }, { reps: 10, weight: 95 }, { reps: 8, weight: 100 }])
+  // Anything already on the card: blanks only, no set added.
+  eq(lastTimeFill(liftField, card([{ id: 's0', reps: 12, weight: null }, { id: 's1', reps: null, weight: null }]), prior, { grow: true }).some(f => f.add), false)
+  eq(lastTimeFill(liftField, card([{ id: 's0', reps: null, weight: null, typed: true }]), prior, { grow: true }).some(f => f.add), false)
+  // As many sets as last time already: nothing to add.
+  eq(lastTimeFill(liftField, card([{ id: 'a' }, { id: 'b' }, { id: 'c' }].map(x => ({ ...x, reps: null, weight: null }))), prior, { grow: true }).some(f => f.add), false)
 })
 
 console.log(failed ? `\n${failed} lift/output test(s) failed` : '\nall lift and output tests pass')

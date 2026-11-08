@@ -56,7 +56,7 @@ const fsp = require('fs/promises')
 const path = require('path')
 const { spawn } = require('child_process')
 const planner = require('./planner.js')
-const { createDrafts, dirOf: draftsDir, keptIdsIn, rememberedModes } = require('./drafts.js')
+const { createDrafts, dirOf: draftsDir, keptIdsIn, rememberedModes, rememberedImplements, liftFieldOf } = require('./drafts.js')
 const { createBushidoNotify } = require('./notify.js')
 const notifyFacts = require('./notify-facts.js')
 const { createConfig } = require('./config.js')
@@ -2422,8 +2422,17 @@ const server = http.createServer(async (req, res) => {
           // space: with the owner in it, the owner's memory (the plan lands in the
           // owner's log; each copy is that person's own); without, the default, since
           // the owner's memory is not theirs (#59).
-          .then(r => ({ ...r, remembered: group && !group.some(p => p.owner) ? new Map()
-            : rememberedModes(readStateSync(target).state.entries, todayKey()) }))
+          // Which implement each exercise was last lifted with, the same way, and the
+          // catalog, for a lift the model named none for (#111).
+          .then(r => {
+            const mine = !(group && !group.some(p => p.owner))
+            const entries = mine ? readStateSync(target).state.entries : null
+            return {
+              ...r,
+              remembered: mine ? rememberedModes(entries, todayKey()) : new Map(),
+              lifting: { field: liftFieldOf(plan), last: mine ? rememberedImplements(entries, todayKey()) : new Map() },
+            }
+          })
       }
       const answer = (fn) => {
         try { return send(res, 200, { draft: fn() }) } catch (err) {

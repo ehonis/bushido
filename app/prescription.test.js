@@ -20,7 +20,7 @@ import {
   splitPrescription, moveItem, isLiftOnly,
   blankPrescription, appendPiece, dropEmptyBlocks, patchItem, reviseWeightModes, followWeightModes, patchRunItem,
   measureOfItem, addBlock, renameBlock, noteBlock, removeBlock, moveBlock, tickSet, setTicked, itemTicked, firstUnticked,
-  patchBlock, planProgress, doingMove,
+  patchBlock, planProgress, doingMove, setEdited, setLogged, keepTyped, itemProgress,
 } from './src/lib/prescription.js'
 import { liftVolume, liftsIn, liftSummary, rememberedWeightMode, liftsDone } from './src/lib/lifts.js'
 import { createRequire } from 'node:module'
@@ -796,6 +796,23 @@ t('weight mode: a finished run logs the mode with the lift', () => {
   assert.equal(liftsIn(runOutputs(switched, run))[0].weightMode, 'one')
 })
 
+t('#111 C F1: a lift the model names no implement for starts on the one last lifted with, and its mode', () => {
+  const logged = { id: 'daily-2026-09-17', kind: 'daily', date: '2026-09-17', updatedAt: 'a',
+    data: { out: { lifts: [{ uid: 'u1', key: 'back-squat', implement: 'barbell', weightMode: 'side', sets: [{ reps: 10, weight: 95 }] }] } } }
+  const opts = { today: '2026-11-08' }
+  const reply = normalizePrescription({ title: 'Legs', blocks: [{ name: 'Main', items: [
+    { kind: 'lift', exercise: 'back-squat', sets: [{ reps: 10 }] }] }] }, { liftField })
+  assert.equal(reply.blocks[0].items[0].implement || '', '', 'the fixture must leave the squat with no implement')
+  const got = reviseWeightModes(null, reply, liftField, [logged], opts).blocks[0].items[0]
+  assert.equal(got.implement, 'barbell', 'a written squat had no implement')
+  assert.equal(got.implementLabel, 'Barbell')
+  assert.equal(got.weightMode, 'side', 'the remembered mode did not follow')
+  // A kept exercise the model dropped the implement of keeps the one it had.
+  const mine = reviseWeightModes(null, normalizePrescription({ title: 'Legs', blocks: [{ name: 'Main', items: [
+    { kind: 'lift', exercise: 'back-squat', implement: 'trap-bar', sets: [{ reps: 5 }] }] }] }, { liftField }), liftField, [], opts)
+  assert.equal(reviseWeightModes(mine, reply, liftField, [logged], opts).blocks[0].items[0].implement, 'trap-bar')
+})
+
 t('weight mode, the rule: a revision keeps exactly what each kept exercise had; only new ones get memory', () => {
   const logged = { id: 'daily-2026-10-20', kind: 'daily', date: '2026-10-20', updatedAt: 'a',
     data: { out: { lifts: [{ uid: 'u1', key: BSS, implement: 'dumbbell', weightMode: 'one', weightLabel: 'lb · one dumbbell', sets: [{ reps: '8', weight: '25' }] }] } } }
@@ -1104,9 +1121,42 @@ t('tickSet marks a set done with the typed mark, and takes it off again; numbers
   assert.equal(on.blocks[1].items[0].sets[1].typed, undefined, 'the tick reached another set')
   const off = tickSet(on, 'b1i0', 'b1i0s0', false)
   assert.equal('typed' in off.blocks[1].items[0].sets[0], false)
+  assert.equal('ticked' in off.blocks[1].items[0].sets[0], false)
   assert.equal(off.blocks[1].items[0].sets[0].weight, 90)
-  // A number typed is ticked too: the same mark.
-  assert.ok(setTicked(patchSet(p, 'b1i0', 'b1i0s1', { weight: 95 }).blocks[1].items[0].sets[1]))
+  // A number typed is logged (typed) but not ticked: an edit is not a tick (#111).
+  const typed = patchSet(p, 'b1i0', 'b1i0s1', { weight: 95 }).blocks[1].items[0].sets[1]
+  assert.equal(setTicked(typed), false, 'stepping a weight lit the set\'s ✓')
+  assert.ok(setEdited(typed) && setLogged(typed), 'a typed number is the log (D11)')
+})
+
+t('#111 A F1: tune the weight, lift, tap ✓ — the set stays logged; only a tick comes off', () => {
+  const p = threeBlocks()
+  // +5 on set 1's weight, then the tap the ✓ makes (SetTick: onToggle(!on), on = setTicked).
+  const edited = patchSet(p, 'b1i0', 'b1i0s0', { weight: 95 })
+  const s0 = edited.blocks[1].items[0].sets[0]
+  const tapped = tickSet(edited, 'b1i0', 'b1i0s0', !setTicked(s0))
+  const s1 = tapped.blocks[1].items[0].sets[0]
+  assert.equal(s1.typed, true, 'the tap after an edit un-logged the set')
+  assert.equal(s1.ticked, true)
+  assert.equal(s1.weight, 95)
+  assert.ok(setTicked(s1) && setLogged(s1))
+  // A second tap is "I did not do this one": the tick and the log go, the numbers stay.
+  const off = tickSet(tapped, 'b1i0', 'b1i0s0', !setTicked(s1)).blocks[1].items[0].sets[0]
+  assert.equal(setLogged(off), false)
+  assert.equal(off.weight, 95)
+  // Tweaking every weight before lifting does not finish (and fold) the exercise.
+  const both = patchSet(edited, 'b1i0', 'b1i0s1', { weight: 95 })
+  assert.equal(itemTicked(both.blocks[1].items[0]), false, 'edits alone finished the exercise')
+  assert.equal(firstUnticked(both), 'b1i0')
+  assert.equal(planProgress(both).done, 2, 'the Today row must still count edited sets as logged (D11)')
+  // A set ticked before the mark existed (typed alone) reads edited: logged, and a tap ticks it.
+  const old = { id: 'x', reps: 10, weight: 90, typed: true }
+  assert.ok(setEdited(old) && !setTicked(old))
+  // Added sets and kept plans carry neither mark; a revision keeps the tick where it keeps the typing.
+  assert.equal('ticked' in addSet(tapped, 'b1i0').blocks[1].items[0].sets[2], false)
+  assert.equal('ticked' in dropEmptyBlocks(tapped).blocks[1].items[0].sets[0], false)
+  const revised = keepTyped(tapped, normalizePrescription(tapped, { liftField }))
+  assert.equal(revised.blocks[1].items[0].sets[0].ticked, true, 'a revision dropped the tick')
 })
 
 t('firstUnticked is the first exercise with a set to do; null once every set is ticked', () => {
@@ -1155,6 +1205,12 @@ t('planProgress counts ticked sets out of every set (the Today row: "4 of 18 set
   assert.equal(all.done, 0, 'nothing ticked yet')
   const one = planProgress(tickSet(p, 'b1i0', 'b1i0s0', true))
   assert.deepEqual(one, { done: 1, total: all.total })
+  assert.deepEqual(planProgress(patchSet(p, 'b1i0', 'b1i0s0', { weight: 95 })), { done: 1, total: all.total }, 'an edited set is logged')
+  // The card's "k of n done" is the same count, exercise by exercise (#111 review).
+  const mixed = tickSet(patchSet(patchSet(p, 'b1i0', 'b1i0s0', { weight: 95 }), 'b2i0', 'b2i0s0', { reps: 12 }), 'b1i0', 'b1i0s1', true)
+  const cards = mixed.blocks.flatMap(b => b.items).map(it => itemProgress(it))
+  assert.deepEqual(cards.map(c => c.done), [2, 1], 'the card counted ticks only, or edits only')
+  assert.equal(cards.reduce((n, c) => n + c.done, 0), planProgress(mixed).done, 'the card and the Today row disagree')
   assert.deepEqual(planProgress(null), { done: 0, total: 0 })
 })
 

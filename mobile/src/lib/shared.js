@@ -28,6 +28,7 @@
  */
 
 import { extraEntryId } from './store.js'
+import { localIso } from './dates.js'
 import { blankSet, liftMeasure } from './lifts.js'
 import { reindex, remapRun } from './prescription.js'
 
@@ -188,18 +189,35 @@ function keyed(pres) {
  */
 const noMode = ({ weightMode: _m, weightLabel: _l, ...rest }) => rest
 
-/** A copy of their own last set: its numbers as a start, but not typed until they type into it. */
-const untypedCopy = ({ typed: _t, ...s }) => ({ ...s, note: '' })
+/** A copy of their own last set: its numbers as a start, but not typed (or ticked) until they type into it. */
+const untypedCopy = ({ typed: _t, ticked: _k, ...s }) => ({ ...s, note: '' })
 
-/** One of the owner's sets on their side: the target, not the owner's weight, cue or anything they typed. */
-const theirSet = ({ typed: _t, ...s }) => ({ ...s, weight: null, note: '' })
+/**
+ * One of the owner's sets as it arrives on someone else's side (#111, D F1):
+ * the target, never the owner's weight, cue, or anything the owner did. On a
+ * workout dated today or earlier (`logged`), a lift set the owner typed into or
+ * ticked is the owner's LOG (D11), so it crosses blank, as every lift set the server's sync carries does (server/sharedsync.js
+ * `freshItem`, held to this by sharedsync.test.js): carried as a target, the
+ * owner's 10 reps read on their side, from the next day on, as reps they lifted.
+ * An untouched target crosses as the plan wrote it. On a plan for a later day
+ * nothing has been lifted yet: a number typed there is planning (`patchSet`
+ * marks every edit), a target like any other, and crosses as one. An
+ * interval's numbers are its shape, typed or not, as the server keeps them.
+ *
+ * @param {string | undefined} kind @param {any} s @param {{ logged?: boolean }} [opts]
+ */
+export function crossingSet(kind, s, { logged = true } = {}) {
+  const { typed, ticked: _k, ...rest } = s || {}
+  const owners = logged && kind === 'lift' && typed === true
+  return { ...rest, ...(owners ? { reps: null, seconds: null, distance: null } : {}), weight: null, note: '' }
+}
 
 /**
  * One of the owner's exercises on their side: the target, not the owner's
  * weight, what it meant, or the planner's note on it ("3x10 at 95 was RPE 6
  * last time", written from the owner's log).
  */
-const theirItem = (item) => ({ ...noMode(item), note: '', sets: (item.sets || []).map(theirSet) })
+const theirItem = (item, logged) => ({ ...noMode(item), note: '', sets: (item.sets || []).map(x => crossingSet(item.kind, x, { logged })) })
 
 /**
  * The owner's plan as the start of theirs: the exercises, never the owner's
@@ -208,9 +226,9 @@ const theirItem = (item) => ({ ...noMode(item), note: '', sets: (item.sets || []
  * the owner's conversation with the planner or its reasoning about the owner's
  * log (`thread`, `why`, `notes`, `changed`).
  */
-function theirPlan(mine) {
+function theirPlan(mine, logged) {
   const { draftId: _d, ...plan } = ownerWordsOff(mine)
-  return { ...plan, blocks: mine.blocks.map(b => ({ ...b, items: (b.items || []).map(theirItem) })) }
+  return { ...plan, blocks: mine.blocks.map(b => ({ ...b, items: (b.items || []).map(it => theirItem(it, logged)) })) }
 }
 
 /**
@@ -337,9 +355,9 @@ export function syncedSides(entry, on = [], side = null) {
 }
 
 /** Their plan with every exercise and set of the owner's that it lacks. Never takes anything out. */
-function copyPlan(theirs, mine) {
+function copyPlan(theirs, mine, logged) {
   if (!mine?.blocks?.length) return theirs
-  if (!theirs?.blocks?.length) return theirPlan(mine)
+  if (!theirs?.blocks?.length) return theirPlan(mine, logged)
   const have = new Map(keyed(theirs).map(x => [x.key, x.item]))
   const blocks = theirs.blocks.map(b => ({ ...b, items: [...(b.items || [])] }))
   let changed = false
@@ -348,12 +366,12 @@ function copyPlan(theirs, mine) {
     if (!t) {
       // A new exercise goes at the end of the same block (a block of the owner's if they have none there).
       while (blocks.length <= bi) blocks.push({ ...mine.blocks[blocks.length], items: [] })
-      blocks[bi].items.push(theirItem(item))
+      blocks[bi].items.push(theirItem(item, logged))
       changed = true
     } else if ((item.sets || []).length > (t.sets || []).length) {
       // More sets of the owner's: copies of their own last set, as adding a set does.
       const sets = [...(t.sets || [])]
-      while (sets.length < item.sets.length) sets.push(sets.length ? untypedCopy(sets.at(-1)) : theirSet(item.sets[sets.length]))
+      while (sets.length < item.sets.length) sets.push(sets.length ? untypedCopy(sets.at(-1)) : crossingSet(item.kind, item.sets[sets.length], { logged }))
       const b = blocks.find(x => x.items.includes(t))
       b.items = b.items.map(x => (x === t ? { ...t, sets } : x))
       changed = true
@@ -386,14 +404,19 @@ function copyLifts(theirs, mine) {
  * plan's exercises and set counts (with no weight; their logged sets kept across
  * the renumber), otherwise the logged lifts as blank rows. Only ever adds: their
  * numbers, their own exercises and anything they took out of a set count stay as
- * they are. The same object back when there is nothing to copy.
+ * they are. The same object back when there is nothing to copy. `today`
+ * decides whether the owner's typed numbers are a log or still a plan
+ * (`crossingSet`).
+ *
+ * @param {any} copy @param {any} ownerEntry @param {string} [today]
  */
-export function copyExercises(copy, ownerEntry) {
+export function copyExercises(copy, ownerEntry, today = localIso()) {
   const mine = ownerEntry?.data
   if (!copy?.data || copy.deleted || !mine || ownerEntry.deleted) return copy
   if (mine.plan) {
     const before = copy.data.plan
-    const plan = copyPlan(before, mine.plan)
+    const logged = !ownerEntry.date || String(ownerEntry.date) <= today
+    const plan = copyPlan(before, mine.plan, logged)
     if (plan === before) return copy
     const next = reindex(plan)
     const data = { ...copy.data, plan: next }
@@ -435,7 +458,7 @@ export function copyIdFor(ownerEntry, theirDay = []) {
  * the session, the shared facts and the owner's exercises without the owner's
  * weights; none of the owner's numbers, effort or notes.
  */
-export function sharedCopy(ownerEntry, { id, session = null, owner = null } = {}) {
+export function sharedCopy(ownerEntry, { id, session = null, owner = null, today = localIso() } = {}) {
   const d = ownerEntry?.data || {}
   const copyId = id || ownerEntry.id
   const data = {
@@ -449,11 +472,14 @@ export function sharedCopy(ownerEntry, { id, session = null, owner = null } = {}
   }
   if (d.minutes !== undefined) data.minutes = d.minutes
   if (d.training === false) data.training = false
-  return copyExercises({ id: copyId, kind: 'daily', date: ownerEntry.date, data }, ownerEntry)
+  return copyExercises({ id: copyId, kind: 'daily', date: ownerEntry.date, data }, ownerEntry, today)
 }
 
 /** Are this workout's exercises kept the same on this person's side? */
 export const isSynced = (entry, personId) => sharedWithOf(entry).some(s => s.id === personId && s.sync === true)
+
+/** Is anyone else on this workout: shared by its owner, or someone's copy? Then a set added may cross (#111). */
+export const isSharedEntry = (entry) => sharedWithOf(entry).length > 0 || Boolean(entry?.data?.sharedFrom)
 
 /** The owner's entry with someone added to it, synced (or, `remove`, taken off it). */
 export function withSharedPerson(ownerEntry, personId, entryId, { remove = false } = {}) {

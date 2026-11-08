@@ -302,7 +302,7 @@ const blankPlanSet = (unit = null) => ({ reps: null, weight: null, seconds: null
 function newPlanSet(item, sets) {
   const last = sets.at(-1)
   if (item.kind !== 'lift' && last) {
-    const { typed: _t, ...shape } = last
+    const { typed: _t, ticked: _k, ...shape } = last
     return { ...shape, note: '' }
   }
   return blankPlanSet(last?.unit ?? item.unit ?? null)

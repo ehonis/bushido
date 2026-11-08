@@ -1254,10 +1254,7 @@ export const patchSet = (pres, itemId, setId, patch) =>
 export const addSet = (pres, itemId) =>
   mapItem(pres, itemId, it => ({ ...it, sets: [...it.sets, untypedSet(it.sets.at(-1))] }))
 
-const untypedSet = (s) => {
-  const { typed: _t, ...rest } = s || {}
-  return rest
-}
+const untypedSet = (s) => unmarked(s)
 
 /**
  * One more set of this, from the RUNNER, copying what the user just did rather than
@@ -1497,7 +1494,8 @@ export function keepTyped(before, after) {
       items: (b.items || []).map(it => {
         const old = it.kind === 'lift' ? take(it) : null
         if (!old) return it
-        return { ...it, sets: (it.sets || []).map((x, i) => (old.sets?.[i]?.typed === true && same(old.sets[i], x) ? { ...x, typed: true } : x)) }
+        return { ...it, sets: (it.sets || []).map((x, i) => (old.sets?.[i]?.typed === true && same(old.sets[i], x)
+          ? { ...x, typed: true, ...(old.sets[i].ticked === true ? { ticked: true } : {}) } : x)) }
       }),
     })),
   }
@@ -1528,11 +1526,19 @@ export function reviseWeightModes(before, after, liftField, entries = [], { excl
     blocks: after.blocks.map(b => ({
       ...b,
       items: b.items.map(it => {
-        if (it.kind !== 'lift' || !it.exercise || !it.implement) return it
+        if (it.kind !== 'lift' || !it.exercise) return it
         const old = take(it)
-        const mode = old && old.implement === it.implement ? (old.weightMode || null)
-          : rememberedWeightMode(liftField, entries, it.exercise, it.implement, excludeId, today)
-        return inMode(it, liftField, mode)
+        // A lift the model named no implement for (#111, C F1: a catalog that
+        // declares none for Back squat leaves it nothing to name) keeps the one
+        // it had, else starts where one added by hand does (`defaultImplement`),
+        // so its weight means something and memory runs.
+        const implement = it.implement || old?.implement
+          || defaultImplement(liftField, it.exercise, { entries, excludeId, ...(today ? { today } : {}) })
+        if (!implement) return it
+        const was = it.implement ? it : { ...it, implement, implementLabel: implementLabel(liftField, implement) }
+        const mode = old && old.implement === implement ? (old.weightMode || null)
+          : rememberedWeightMode(liftField, entries, it.exercise, implement, excludeId, today)
+        return inMode(was, liftField, mode)
       }),
     })),
   }
@@ -1599,28 +1605,52 @@ export function moveBlock(pres, blockId, dir) {
  * says". That IS the log (D11, AGENTS.md §6.4 "Planned lifts are the log"), so
  * the tick writes the same mark a typed number leaves (`typed`), which is what
  * `liftsDone` reads on the plan's own day and what makes a plan for today
- * touched, and so done (D10). Taking the tick off takes the mark: the numbers
- * stay, as targets. A tick is never a number: nothing is copied anywhere, and a
- * set with no number cannot be ticked (`setHasNumber`), because the log would
- * hold nothing for it and a ✓ must always mean logged.
+ * touched, and so done (D10). A tick is never a number: nothing is copied
+ * anywhere, and a set with no number cannot be ticked (`setHasNumber`), because
+ * the log would hold nothing for it and a ✓ must always mean logged.
+ *
+ * EDITED IS NOT TICKED (#111, A F1). A tick also writes its own mark,
+ * `ticked`, because a number typed or stepped leaves `typed` too: with one mark
+ * for both, "+5 on the weight, lift, tap ✓" lit the ✓ on the +5 and the tap
+ * took it off, un-logging the set and putting today's plan back to Planned. So
+ * the ✓ shows `ticked` (`setTicked`); a set only edited (`setEdited`) still
+ * counts as logged for every reader (D11) and a tap on it TICKS it. Only a tap
+ * on a ticked set takes the tick off, and with it the mark the numbers left:
+ * "I did not do this one" (the numbers stay, as targets). Sets ticked before
+ * the mark existed carry `typed` alone and read as edited: still logged, one
+ * tap from ticked, never un-logged by a tap. Nothing stored is rewritten.
  */
 export const tickSet = (pres, itemId, setId, on) =>
   mapItem(pres, itemId, it => ({
     ...it,
     sets: it.sets.map(s => {
       if (s.id !== setId) return s
-      if (on) return setHasNumber(s) ? { ...s, typed: true } : s
-      const { typed: _t, ...rest } = s
-      return rest
+      if (on) return setHasNumber(s) ? { ...s, typed: true, ticked: true } : s
+      return unmarked(s)
     }),
   }))
 
+/** A set without either mark (`typed`, `ticked`): its numbers as targets. */
+export const unmarked = (s) => {
+  const { typed: _t, ticked: _k, ...rest } = s || {}
+  return rest
+}
+
 /**
- * Is this set done? Ticked (or typed into, the same mark) on the plan's own
- * day. `asWritten` is a done plan whose day has passed: there every set with a
- * number is the log, ticked or not, exactly as `liftsDone` reads it (lib/lifts.js).
+ * Is this set's ✓ on? Ticked on the plan's own day. `asWritten` is a done plan
+ * whose day has passed: there every set with a number is the log, ticked or
+ * not, exactly as `liftsDone` reads it (lib/lifts.js).
  */
-export const setTicked = (s, asWritten = false) => setHasNumber(s) && (asWritten || s?.typed === true)
+export const setTicked = (s, asWritten = false) => setHasNumber(s) && (asWritten || s?.ticked === true)
+
+/**
+ * A set whose number was typed or stepped but not ticked: logged (D11, it
+ * carries `typed`), shown as edited, and ticked by a tap on its ✓.
+ */
+export const setEdited = (s) => setHasNumber(s) && s?.typed === true && s?.ticked !== true
+
+/** Is this set in the log (D11): ticked, or edited (a number typed into it). */
+export const setLogged = (s, asWritten = false) => setTicked(s, asWritten) || setEdited(s)
 
 /** Does this set hold a number to log? A ✓ on one without is nothing logged. */
 export const setHasNumber = (s) => ['reps', 'weight', 'seconds', 'distance'].some(f => num(s?.[f]) !== null)
@@ -1653,8 +1683,19 @@ export function doingMove(before = {}, after = {}) {
  * logged so far ("1 exercise · 1 set · 900 lb" over a plan of six).
  */
 export function planProgress(pres, asWritten = false) {
-  const sets = (pres?.blocks || []).flatMap(b => b.items || []).flatMap(it => it.sets || [])
-  return { done: sets.filter(s => setTicked(s, asWritten)).length, total: sets.length }
+  return (pres?.blocks || []).flatMap(b => b.items || []).map(it => itemProgress(it, asWritten))
+    .reduce((a, p) => ({ done: a.done + p.done, total: a.total + p.total }), { done: 0, total: 0 })
+}
+
+/**
+ * How far one exercise has got: its sets in the log (`setLogged`: ticked or
+ * edited) out of its sets. The card's "2 of 3 done" and the Today row's
+ * "4 of 18 sets" (`planProgress`) are both this, so they never disagree (#111
+ * review). Whether the card is FINISHED (folds, moves on) is ticks only (`itemTicked`).
+ */
+export function itemProgress(it, asWritten = false) {
+  const sets = it?.sets || []
+  return { done: sets.filter(s => setLogged(s, asWritten)).length, total: sets.length }
 }
 
 /**
@@ -1815,6 +1856,6 @@ export const dropEmptyBlocks = (pres) => reindex({
     .map(({ wasCircuit: _w, ...b }) => ({ ...b, items: (b.items || []).map(untyped) })),
 })
 
-const untyped = (it) => ({ ...it, sets: (it.sets || []).map(({ typed: _t, ...s }) => s) })
+const untyped = (it) => ({ ...it, sets: (it.sets || []).map(unmarked) })
 
 export { catalogOf }

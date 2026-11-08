@@ -5191,6 +5191,7 @@
             "key": "problems",
             "name": "Problems climbed",
             "defaultSets": 1,
+            "addSets": false,
             "fields": [
               "reps"
             ],
@@ -5337,6 +5338,7 @@
             "key": "routes",
             "name": "Routes climbed",
             "defaultSets": 1,
+            "addSets": false,
             "fields": [
               "reps"
             ],

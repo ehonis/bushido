@@ -36,11 +36,11 @@ import { impact, success, tap, warn } from '../ui/haptics'
 import { Icon } from '../lib/icons'
 import { pushToast, dismissToast } from '../lib/toast'
 import { NumInput } from './numinput'
-import { setFieldsFor, measureOfItem, timeBox, bumpTime, setTicked, itemTicked, setHasNumber, doingMove } from '../lib/prescription.js'
+import { setFieldsFor, measureOfItem, timeBox, bumpTime, setTicked, setEdited, itemTicked, itemProgress, setHasNumber, doingMove } from '../lib/prescription.js'
 import { acceptMinutesText, minutesText, numOrNull } from '../lib/numtext.js'
 import {
   searchExercises, implementsFor, lastLift, catalogOf, exerciseOf, muscleName, measureFor,
-  weightModesFor, weightPatch, nextWeightMode, rememberedWeightMode, weightModeWords, weightBoxOf,
+  weightModesFor, weightPatch, nextWeightMode, rememberedWeightMode, weightModeWords,
   implementChoices, implementLabel, weightModeOf, weightMeaning, weightUnit, lastTimeFill, lastTimeWhen,
   pickerGroupFor, copyDownFills, canCopyDown, unfills, cardIdentity, cardKey,
 } from '../lib/lifts.js'
@@ -55,7 +55,7 @@ import { Explain } from './blurb'
  * are; one rep and five seconds because that is what those are. The weight's
  * label comes off the IMPLEMENT — "30 lb per hand" and "135 lb on the bar" are
  * different numbers and the box has to say which — and the mode the user
- * switched it to (`weightSwitch`).
+ * switched it to (`modeFlip`).
  */
 export const STEP: Record<string, (item?: any, set?: any) => { label: string; step: number; min: number }> = {
   reps: () => ({ label: 'reps', step: 1, min: 0 }),
@@ -155,19 +155,6 @@ const sw = StyleSheet.create({
   },
 })
 
-export type WeightSwap = { box: string; next: string; aria?: string; onSwitch: () => void } | null
-
-/**
- * The tap that changes what a lift's weight means (issue #58), or null where
- * its implement has one meaning: the runner's 44pt pill. The card's is
- * `modeFlip` (#93), once per exercise and with Undo.
- */
-export function weightSwitch(liftField: any, item: any, onPatch: (patch: any) => void): WeightSwap {
-  if (item?.kind !== 'lift' || weightModesFor(liftField, item.implement).length < 2) return null
-  const next = weightPatch(liftField, item.implement, nextWeightMode(liftField, item))
-  return { box: weightBoxOf(liftField, item), next: next.weightLabel, onSwitch: () => { tap(); onPatch(next) } }
-}
-
 /**
  * What tapping an implement chip writes: the implement, in the mode this
  * exercise was last logged in with it (lib/lifts.js). Null for the chip already
@@ -183,12 +170,15 @@ export function implementPick(liftField: any, item: any, impl: any, entries: any
   }
 }
 
+/** A card switch: the words its box shows, what a tap switches to, and the tap. */
+export type CardSwitch = { box: string; next: string; aria?: string; onSwitch: () => void } | null
+
 /**
  * The tap that counts a hold in reps instead, or back (issue #63 review), or
  * null. Offered on a movement the catalog calls a hold while nothing is counted
  * on it yet, under the count's own box, like the weight's meaning.
  */
-export function countSwitch(liftField: any, item: any, onPatch: (patch: any) => void): WeightSwap {
+export function countSwitch(liftField: any, item: any, onPatch: (patch: any) => void): CardSwitch {
   if (item?.kind !== 'lift' || !item.exercise || measureFor(liftField, item.exercise) !== 'time') return null
   const counted = (item.sets || []).some((s: any) => (s.reps !== null && s.reps !== undefined && s.reps !== '')
     || (s.seconds !== null && s.seconds !== undefined && s.seconds !== ''))
@@ -302,10 +292,10 @@ export function modeFlip(liftField: any, item: any, write: (patch: any) => void,
 /**
  * The card's one switch for what its weight means (#93; #58's switch, moved out
  * of every set's cell): "on the bar ⇆", once per exercise, beside what it is done
- * with. A hold's "seconds ⇆" sits here too. With one meaning the words are said,
- * not offered.
+ * with; the runner's too, under the name (#111). A hold's "seconds ⇆" sits here
+ * too. With one meaning the words are said, not offered.
  */
-function ModeSwitch({ words, aria, onSwitch }: { words: string; aria?: string; onSwitch?: () => void }) {
+export function ModeSwitch({ words, aria, onSwitch }: { words: string; aria?: string; onSwitch?: () => void }) {
   if (!onSwitch) return <T size={font.label} dim style={{ paddingHorizontal: space[1] }}>{words}</T>
   return (
     <Press onPress={onSwitch} style={st.modeSwitch} accessibilityRole="button" accessibilityLabel={aria}>
@@ -319,12 +309,14 @@ function ModeSwitch({ words, aria, onSwitch }: { words: string; aria?: string; o
  * The set row's widths (#93, F N1), named so `app/smoke/system.jsx` can add
  * them up for a 390pt phone: the ✓, the gap after it (16 clear of the reps' −,
  * so a left-thumb miss on − never ticks), each stepper's middle, and the seam
- * between the two steppers. 44 + 16 + 2 × (1 + 44 + 44 + 44 + 1) + 2 = 330,
- * inside the card's 332, so reps, weight and the ✓ are ONE row;
- * they wrapped onto two (each set about 100pt tall) when the meaning switch
- * widened the weight's middle.
+ * between the two steppers. 44 + 16 + 2 × (1 + 44 + 42 + 44 + 1) + 8 = 332, the
+ * card's 332, so reps, weight and the ✓ are ONE row; they wrapped onto two (each
+ * set about 100pt tall) when the meaning switch widened the weight's middle. The
+ * seam is 8 (#111): at 2 the reps' + and the weight's −, the two most-pressed
+ * controls, read as one strip and a slip did the opposite thing. The number
+ * boxes gave the width for it (42 wide, still 44 tall, between 44pt buttons).
  */
-export const SET_ROW = { tick: TAP, tickGap: space[4], mid: TAP, seam: 2 }
+export const SET_ROW = { tick: TAP, tickGap: space[4], mid: 42, seam: space[2] }
 
 /* ------------------------------------------------------- what the movement is */
 
@@ -604,11 +596,13 @@ function pickImplement(liftField: any, item: any, entries: any[], entryId: strin
 /**
  * A set's ✓ in doing mode (#79): "I did this set as it says" (the web's
  * `SetTick`). The set's number until it is ticked, a check on the accent tint
- * after; it writes `typed` (prescription.js `tickSet`), which is the log (D11).
- * 44pt at the row's end; ticking buzzes as a set logged does.
+ * after; it writes `typed` and `ticked` (prescription.js `tickSet`), which is the
+ * log (D11). 44pt at the row's end; ticking buzzes as a set logged does.
+ * `edited` (#111): a number typed or stepped, logged but not ticked, is an accent
+ * ring round the number, and a tap on it ticks it; only a ticked set comes off.
  */
-export function SetTick({ n, on, onToggle, locked = false, empty = false, onPrompt }: {
-  n: number; on: boolean; onToggle: (v: boolean) => void; locked?: boolean; empty?: boolean; onPrompt?: () => void
+export function SetTick({ n, on, onToggle, locked = false, empty = false, edited = false, onPrompt }: {
+  n: number; on: boolean; onToggle: (v: boolean) => void; locked?: boolean; empty?: boolean; edited?: boolean; onPrompt?: () => void
 }) {
   /* A done plan's earlier day (`asWritten`): its sets ARE the log as written, so
      the mark is read, not toggled; a number changed or a set removed corrects it. */
@@ -633,8 +627,9 @@ export function SetTick({ n, on, onToggle, locked = false, empty = false, onProm
   }
   return (
     <Press onPress={() => { if (!on) success(); else tap(); onToggle(!on) }}
-      accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={`Set ${n} done`}
-      style={[st.tick, on && st.tickOn]}>
+      accessibilityRole="checkbox" accessibilityState={{ checked: on ? true : edited ? 'mixed' : false }}
+      accessibilityLabel={!on && edited ? `Set ${n}: logged as typed. Tick it` : `Set ${n} done`}
+      style={[st.tick, on ? st.tickOn : edited && st.tickEdited]}>
       {on ? <Icon name="Check" size={20} color={colors.ink} />
         : <T size={font.label} dim tabular>{String(n)}</T>}
     </Press>
@@ -658,7 +653,7 @@ export function SetTick({ n, on, onToggle, locked = false, empty = false, onProm
 export function ExerciseCard({
   item, liftField, entries = [], entryId = null, defaultOpen = false, defaultEditing = false, blank = null,
   onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove, doing = false, onTick = null, focus = false,
-  asWritten = false, onFill = null,
+  asWritten = false, onFill = null, growFill = false,
 }: any) {
   const [open, setOpen] = useState(defaultOpen)
   const [about, setAbout] = useState(false)
@@ -705,12 +700,13 @@ export function ExerciseCard({
   // stays short enough not to squeeze the name on a phone.
   const modeWords = item.kind === 'lift' ? weightModeWords(liftField, item) : null
   const ticking = Boolean(doing && onTick)
-  const ticks = ticking ? item.sets.filter((s: any) => setTicked(s, asWritten)).length : 0
+  // In the log, ticked or edited: the Today row's count too (`itemProgress`, #111).
+  const ticks = ticking ? itemProgress(item, asWritten).done : 0
   const finished = ticking && itemTicked(item, asWritten)
   const line = ticking && ticks && !finished
     ? [`${ticks} of ${item.sets.length} done`, item.line].filter(Boolean).join(' · ')
     : item.line
-  const fill: any[] = onFill && prior && !asWritten ? lastTimeFill(liftField, item, prior) : []
+  const fill: any[] = onFill && prior && !asWritten ? lastTimeFill(liftField, item, prior, { grow: growFill }) : []
   const copyDown = onFill && !asWritten ? (s: any) => { impact(); copyDownWrite(item, s.id, (f) => fillNow.current?.(f), undefined, () => itemNow.current) } : null
   /* Doing mode moves on with the workout (#94, B F2, lib/prescription.js
      `doingMove`): finished, this card folds; next, it opens and the sheet scrolls to it. */
@@ -848,7 +844,7 @@ export function ExerciseCard({
                   <View style={[st.set, ticking && { gap: SET_ROW.tickGap }]}>
                     {ticking ? (
                       <SetTick n={i + 1} on={setTicked(s, asWritten)} locked={asWritten} onToggle={(v) => onTick(s.id, v)}
-                        empty={!setHasNumber(s)} onPrompt={() => setAsked({ id: s.id, n: (asked?.n || 0) + 1 })} />
+                        empty={!setHasNumber(s)} edited={setEdited(s)} onPrompt={() => setAsked({ id: s.id, n: (asked?.n || 0) + 1 })} />
                     ) : <T size={font.label} dim tabular align="center" style={{ width: 20 }}>{String(i + 1)}</T>}
                     <View style={[st.setFields, ticking && { gap: SET_ROW.seam }]}>
                       {setFieldsFor(item, s).map((f: string, fi: number) => {
@@ -1038,7 +1034,7 @@ export function ExerciseSection({
   title, count, items, liftField, entries = [], entryId = null,
   firstOpenId = null, blank = null, addLabel = 'Add an exercise here',
   open = true, onToggle = null,
-  onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove, onFill = null,
+  onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove, onFill = null, growFill = false,
   onMove = null, onAdd = null, extra = null, foot = null, note = null,
   menu = null, tag = null, lead = null, doing = false, onTick = null, focusId = null, asWritten = false,
 }: any) {
@@ -1119,7 +1115,7 @@ export function ExerciseSection({
                 onAddSet={() => onAddSet(it.id)}
                 onRemoveSet={(setId: any) => onRemoveSet(it.id, setId)}
                 onRemove={() => onRemove(it.id)}
-                onFill={onFill ? (fills: any[]) => onFill(it.id, fills) : null} />
+                onFill={onFill ? (fills: any[]) => onFill(it.id, fills) : null} growFill={growFill} />
             ))
           )}
 
@@ -1249,6 +1245,8 @@ const st = StyleSheet.create({
     borderWidth: 1, borderColor: colors.lineStrong,
   },
   tickOn: { backgroundColor: colors.accentSoft, borderColor: colors.accentLine },
+  // Edited (#111): logged by a number typed, not yet ticked.
+  tickEdited: { borderWidth: 2, borderColor: colors.accentLine },
   doingMeta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', rowGap: space[3], columnGap: space[2], marginTop: space[3] },
   implSwitch: {
     flexDirection: 'row', alignItems: 'center', gap: space[1], minHeight: TAP, paddingHorizontal: space[3],

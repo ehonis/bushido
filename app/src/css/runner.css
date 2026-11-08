@@ -50,7 +50,9 @@
 .run-addset:active { transform: translateY(1px); }
 
 .run-move { margin: var(--sp-3) 0 2px; font-size: var(--fs-screen); line-height: var(--lh-tight); font-weight: 600; }
-.run-impl { font-size: var(--fs-label); color: var(--ink-dim); }
+/* The implement, and what its weight means as the sheet's switch (#111): under
+   the name, a screen's height from the big weight's number. */
+.run-impl { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: var(--sp-2); font-size: var(--fs-label); color: var(--ink-dim); }
 
 /* What was asked for, always on screen and never in the box. The distinction is
    the whole model: `data.plan` is the target, `data.run` is what happened. */

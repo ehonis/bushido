@@ -207,9 +207,13 @@ export default [
     const stepper = 2 + 2 * TAP + row.mid
     const need = row.tick + row.tickGap + 2 * stepper + row.seam
     if (need > inside) throw new Error(`a set needs ${need}pt of ${inside}: it wraps onto two rows`)
-    if (row.tick < 44 || row.mid < 44) throw new Error('the ✓ or the number is under 44')
-    // The ✓ 16 clear of the reps' −, so a left-thumb miss on − never ticks (#93 review).
+    // The number box is 44 tall and gave 2 of its width for the seam (#111): never under 40.
+    if (row.tick < 44 || row.mid < 40) throw new Error('the ✓ is under 44, or the number box under 40 wide')
+    // The ✓ 16 clear of the reps' −, so a left-thumb miss on − never ticks (#93 review),
+    // and the two steppers 8 apart, so the reps' + and the weight's − are two
+    // controls, not one strip (#111).
     if (row.tickGap < 16) throw new Error(`the ✓ is ${row.tickGap}pt from the reps' −`)
+    if (row.seam < 8) throw new Error(`the reps' + is ${row.seam}pt from the weight's −`)
     // Copy down on its own line at the right edge, 16 clear of the rows above and below.
     if (!/copyDown: \{ alignSelf: 'flex-end'[^}]*marginVertical: space\[2\]/.test(src) || !/sets: \{ gap: space\[2\]/.test(src)) throw new Error('Copy down is back beside a stepper column')
     // The card is keyed by the exercise, from the same lib function the web tests (#93, A F1).

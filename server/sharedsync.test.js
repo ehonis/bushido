@@ -108,6 +108,14 @@ check('removed on one side: gone on the other unless the other logged on it', ()
 const typedAll = (data) => ({ ...data, plan: { ...data.plan, blocks: data.plan.blocks.map(b => ({ ...b,
   items: b.items.map(i => ({ ...i, sets: i.sets.map(x => ({ ...x, typed: true })) })) })) } })
 
+check('#111: an exercise added over there arrives with none of their typed or ticked numbers (the app\'s crossingSet rule)', () => {
+  const before = alex()
+  const after = edit(before, bs => { bs[0].items.push(lift('BP', 'Bench press', [set({ reps: 10, weight: 135, typed: true, ticked: true }), set({ reps: 10, weight: 135, typed: true })])); return bs })
+  const got = itemNamed(carry(sam(), shapeOf(before), after), 'Bench press')
+  ok(got, 'the new exercise did not arrive')
+  eq(got.sets.map(x => [x.reps, x.weight, x.typed ?? null, x.ticked ?? null]), [[null, null, null, null], [null, null, null, null]], 'a typed number or its marks crossed')
+})
+
 check('numbers typed into the plan are logged too: the other side\'s removal never takes them', () => {
   // Sam filled in sets on the sheet without ever starting the runner.
   const typed = typedAll({ ...sam(), run: undefined })

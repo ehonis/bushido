@@ -6,12 +6,13 @@ import {
   sharePeople, sharedWithOf, sharedPeopleOn, withLine, sharedOut, hasOwnMarks, copyIdFor,
   sharedCopy, withSharedPerson, addPerson, removePerson, copyExercises, hasExercises,
   isSynced, withSync, openSide, inStep, inStepLine, shareSummary, takeOffWords, undoTakeOff,
-  planShown, syncedSides, ownWordsOn, withStoredWords,
+  planShown, syncedSides, ownWordsOn, withStoredWords, crossingSet,
 } from './src/lib/shared.js'
 import { withAck, adoptAcks } from './src/lib/store.js'
 import { formOut, categoryOf } from './src/lib/category.js'
 import { createCopyQueue, openedCopy } from './src/lib/copyqueue.js'
-import { patchSet, dropEmptyBlocks, keepTyped } from './src/lib/prescription.js'
+import { patchSet, dropEmptyBlocks, keepTyped, tickSet } from './src/lib/prescription.js'
+import { liftsDone } from './src/lib/lifts.js'
 
 const tests = []
 const test = (name, fn) => tests.push([name, fn])
@@ -699,6 +700,41 @@ test('who a removal says the exercises stay in step with, from where the sheet s
   assert.deepEqual(syncedSides(theirs, [], null), ['Alex'])
   assert.equal(syncedSides({ ...theirs, data: { sharedFrom: { id: 'owner', name: 'Alex', sync: false } } }, [], null), null)
   assert.equal(syncedSides({ id: 'x', data: {} }, [], null), null)
+})
+
+test('#111 D F1: a set the owner typed crosses blank, by the first share and by Copy my exercises', () => {
+  let mine = { blocks: [{ id: 'b0', name: 'Main', items: [{ id: 'b0i0', uid: 'u1', kind: 'lift', name: 'Bench press', exercise: 'bench-press',
+    sets: [{ id: 'b0i0s0', reps: 8, weight: 135 }, { id: 'b0i0s1', reps: 8, weight: 135 }, { id: 'b0i0s2', reps: 8, weight: 135 }] }] }] }
+  mine = patchSet(mine, 'b0i0', 'b0i0s0', { reps: 10 })
+  mine = tickSet(mine, 'b0i0', 'b0i0s1', true)
+  const owner = { id: 'daily-2026-11-08', kind: 'daily', date: '2026-11-08', data: { optId: 'planned', done: false, plan: mine } }
+  const TODAY = '2026-11-08'
+  const first = sharedCopy(owner, { owner: { id: 'owner', name: 'Alex' }, today: TODAY }).data.plan.blocks[0].items[0].sets
+  const empty = (o) => { const c = sharedCopy(o, { today: TODAY }); return { ...c, data: { ...c.data, plan: { blocks: [] } } } }
+  const copied = copyExercises(empty(owner), owner, TODAY).data.plan.blocks[0].items[0].sets
+  for (const [how, sets] of [['the first share', first], ['Copy my exercises', copied]]) {
+    assert.equal(sets[0].reps, null, `${how} carried the owner's typed 10 reps`)
+    assert.equal(sets[1].reps, null, `${how} carried a set the owner ticked`)
+    assert.equal(sets[2].reps, 8, `${how} lost an untouched target`)
+    assert.ok(sets.every(x => x.weight === null && !x.typed && !x.ticked), `${how} carried a weight or a mark`)
+  }
+  // So nothing of the owner's reads as theirs the next day (D11).
+  const theirs = { id: 'c', kind: 'daily', date: '2026-11-08', data: { done: false, plan: { blocks: [{ name: 'Main', items: [{ kind: 'lift', exercise: 'bench-press', sets: first }] }] } } }
+  assert.deepEqual(liftsDone(theirs, '2026-11-09').flatMap(r => r.sets.map(x => x.reps)), [8], 'only the plan\'s target reads as done as written')
+  // An interval's numbers are its shape, typed or not (server/sharedsync.js keeps them).
+  assert.equal(crossingSet('interval', { seconds: 60, typed: true }).seconds, 60)
+  // A plan for a LATER day: nothing is lifted yet, so a number typed there is planning
+  // (patchSet marks every edit) and crosses as a target (#111 review). Wednesday's Row
+  // set 1 edited to 6 reps on Tuesday: Sam gets 6, by either path; never the weight.
+  const wednesday = { ...owner, id: 'daily-2026-11-11', date: '2026-11-11' }
+  const later = sharedCopy(wednesday, { today: TODAY }).data.plan.blocks[0].items[0].sets
+  const laterCopied = copyExercises(empty(wednesday), wednesday, TODAY).data.plan.blocks[0].items[0].sets
+  for (const [how, sets] of [['the first share', later], ['Copy my exercises', laterCopied]]) {
+    assert.deepEqual(sets.map(x => x.reps), [10, 8, 8], `${how} blanked a planned target on a later day`)
+    assert.ok(sets.every(x => x.weight === null && !x.typed && !x.ticked), `${how} carried a weight or a mark`)
+  }
+  // The same workout once its day has come is the owner's log again.
+  assert.equal(sharedCopy(wednesday, { today: '2026-11-11' }).data.plan.blocks[0].items[0].sets[0].reps, null)
 })
 
 for (const [name, fn] of tests) {

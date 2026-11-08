@@ -32,16 +32,16 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
-import { NumInput } from './numinput.jsx'
+import { NumInput, selectOnFocus } from './numinput.jsx'
 import { setFieldsFor, measureOfItem, timeBox, bumpTime } from './lib/prescription.js'
 import { acceptMinutesText, minutesText, numOrNull } from './lib/numtext.js'
 import {
   searchExercises, implementsFor, lastLift, catalogOf, exerciseOf, muscleName, measureFor,
-  weightModesFor, weightPatch, nextWeightMode, rememberedWeightMode, weightModeWords, weightBoxOf,
+  weightModesFor, weightPatch, nextWeightMode, rememberedWeightMode, weightModeWords,
   implementChoices, implementLabel, weightModeOf, weightMeaning, weightUnit, lastTimeFill, lastTimeWhen,
   pickerGroupFor, copyDownFills, canCopyDown, unfills, cardIdentity, cardKey,
 } from './lib/lifts.js'
-import { setTicked, itemTicked, setHasNumber, doingMove } from './lib/prescription.js'
+import { setTicked, setEdited, itemTicked, itemProgress, setHasNumber, doingMove } from './lib/prescription.js'
 import { ExerciseBody, BodyMap, musclesOf, muscleWords } from './lib/bodymap.jsx'
 import { HowBody } from './howto.jsx'
 import { Popover } from './modal.jsx'
@@ -56,7 +56,7 @@ import { Explain } from './blurb.jsx'
  * plate and a length are; one rep and five seconds because that is what those
  * are. The weight's label comes off the IMPLEMENT — "30 lb per hand" and
  * "135 lb on the bar" are different numbers and the box has to say which — and
- * the mode the user switched it to (`weightSwitch`).
+ * the mode the user switched it to (`modeFlip`).
  */
 export const STEP = {
   reps: () => ({ label: 'reps', step: 1, min: 0 }),
@@ -103,7 +103,7 @@ export function stepBox({ step = 1, min = null, max = null, time = false }, valu
  * A minutes box over seconds (#78): `NumInput`'s rules for "45", "1.5" and
  * "1:40" (lib/numtext.js `acceptMinutesText`); it shows "1:40", never "1.67".
  */
-export function TimeInput({ value, onChange, blank = null, placeholder = '—', ...rest }) {
+export function TimeInput({ value, onChange, blank = null, placeholder = '—', onFocus, ...rest }) {
   const shown = minutesText(value)
   const [text, setText] = useState(shown)
   const last = useRef(numOrNull(value))
@@ -122,19 +122,8 @@ export function TimeInput({ value, onChange, blank = null, placeholder = '—', 
   const ph = numOrNull(placeholder) === null ? placeholder : minutesText(placeholder)
   return (
     <input type="text" inputMode="decimal" value={text} placeholder={ph}
-      onChange={change} onBlur={() => setText(shown)} {...rest} />
+      onChange={change} onBlur={() => setText(shown)} onFocus={selectOnFocus(onFocus)} {...rest} />
   )
-}
-
-/**
- * The tap that changes what a lift's weight means (issue #58), or null where
- * its implement has one meaning. Hands the stepper the label to show as a
- * button and what one tap does; the same for the editor, the log and the runner.
- */
-export function weightSwitch(liftField, item, onPatch) {
-  if (item?.kind !== 'lift' || weightModesFor(liftField, item.implement).length < 2) return null
-  const next = weightPatch(liftField, item.implement, nextWeightMode(liftField, item))
-  return { box: weightBoxOf(liftField, item), next: next.weightLabel, onSwitch: () => onPatch(next) }
 }
 
 /**
@@ -170,18 +159,6 @@ export function countSwitch(liftField, item, onPatch) {
     aria: `Counted in ${now === 'time' ? 'seconds' : 'reps'}. Switch to ${next === 'time' ? 'seconds' : 'reps'}`,
     next, onSwitch: () => onPatch({ measure: next }),
   }
-}
-
-/** A switch's words, the last one held to the swap mark so a wrap never strands it. */
-export function SwapWords({ label, size }) {
-  const words = String(label).split(' ')
-  const last = words.pop()
-  return (
-    <>
-      {words.length ? `${words.join(' ')} ` : ''}
-      <span className="stepper-swap-end">{last}<Icon name="ArrowLeftRight" size={size} /></span>
-    </>
-  )
 }
 
 /**
@@ -251,10 +228,10 @@ export function modeFlip(liftField, item, write, toast = { push: pushToast, dism
 /**
  * The card's one switch for what its weight means (#93; #58's switch, moved
  * out of every set's cell): "on the bar ⇆", once per exercise, beside what it
- * is done with. A hold's "seconds ⇆" is the same kind of switch and sits here
+ * is done with; the runner's too, under the name (#111). A hold's "seconds ⇆" is the same kind of switch and sits here
  * too. With one meaning the words are said, not offered.
  */
-function ModeSwitch({ words, aria, onSwitch }) {
+export function ModeSwitch({ words, aria, onSwitch }) {
   if (!onSwitch) return <span className="presc-meaning">{words}</span>
   return (
     <button type="button" className="modeswitch" onClick={onSwitch} aria-label={aria}>
@@ -517,11 +494,15 @@ const choosesImplement = (liftField, item) =>
  * A set's ✓ in doing mode (#79): "I did this set as it says". Before it is
  * ticked it shows the set's number, so the row needs no number column and the
  * two steppers keep the width; ticked, a check on the accent tint. It writes the
- * same `typed` mark a number typed leaves (prescription.js `tickSet`), which is
- * the log (D11). 44px, at the row's far end: nothing destructive beside it, and
- * a miss is a tick that taps off again.
+ * same `typed` mark a number typed leaves, plus its own `ticked`
+ * (prescription.js `tickSet`), which is the log (D11). 44px, at the row's far
+ * end: nothing destructive beside it, and a miss is a tick that taps off again.
+ *
+ * Three looks (#111): untouched (the number), `edited` (a number typed or
+ * stepped: logged, so an accent ring round the number) and ticked (✓). A tap on
+ * an edited set ticks it; only a ticked one comes off.
  */
-export function SetTick({ n, on, onToggle, locked = false, empty = false, onPrompt = null }) {
+export function SetTick({ n, on, onToggle, locked = false, empty = false, edited = false, onPrompt = null }) {
   /* A done plan's earlier day (`asWritten`): its sets ARE the log as written,
      so the mark is read, not toggled; a number changed or a set removed is the
      correction, as anywhere in the log. */
@@ -542,9 +523,11 @@ export function SetTick({ n, on, onToggle, locked = false, empty = false, onProm
       </button>
     )
   }
+  const look = on ? 'on' : edited ? 'edited' : ''
   return (
-    <button type="button" className={`presc-tick ${on ? 'on' : ''}`} role="checkbox" aria-checked={on}
-      aria-label={`Set ${n} done`} onClick={() => onToggle(!on)}>
+    <button type="button" className={`presc-tick ${look}`} role="checkbox" aria-checked={on ? true : edited ? 'mixed' : false}
+      aria-label={on ? `Set ${n} done` : edited ? `Set ${n}: logged as typed. Tick it` : `Set ${n} done`}
+      onClick={() => onToggle(!on)}>
       {on ? <Icon name="Check" size={20} /> : <span className="presc-tickn">{n}</span>}
     </button>
   )
@@ -569,7 +552,7 @@ export function SetTick({ n, on, onToggle, locked = false, empty = false, onProm
 export function ExerciseCard({
   item, liftField, entries = [], entryId = null, defaultOpen = false, defaultEditing = false, blank = null,
   onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove, doing = false, onTick = null, focus = false,
-  asWritten = false, onFill = null,
+  asWritten = false, onFill = null, growFill = false,
 }) {
   const [open, setOpen] = useState(defaultOpen)
   const [about, setAbout] = useState(false)
@@ -623,7 +606,8 @@ export function ExerciseCard({
   // stays short enough not to squeeze the name on a phone.
   const modeWords = item.kind === 'lift' ? weightModeWords(liftField, item) : null
   const ticking = doing && onTick
-  const ticks = ticking ? item.sets.filter(s => setTicked(s, asWritten)).length : 0
+  // In the log, ticked or edited: the Today row's count too (`itemProgress`, #111).
+  const ticks = ticking ? itemProgress(item, asWritten).done : 0
   const finished = ticking && itemTicked(item, asWritten)
   const line = ticking && ticks && !finished
     ? [`${ticks} of ${item.sets.length} done`, item.line].filter(Boolean).join(' · ')
@@ -641,7 +625,7 @@ export function ExerciseCard({
     const t = setTimeout(() => root.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' }), 60)
     return () => clearTimeout(t)
   }, [finished, focus, ticking])
-  const fill = onFill && prior && !asWritten ? lastTimeFill(liftField, item, prior) : []
+  const fill = onFill && prior && !asWritten ? lastTimeFill(liftField, item, prior, { grow: growFill }) : []
   const copyDown = onFill && !asWritten ? (s) => copyDownWrite(item, s.id, (f) => fillNow.current?.(f), undefined, () => itemNow.current) : null
   const lastTime = prior && <LastTime prior={prior} onUse={fill.length ? () => onFill(fill) : null} />
   /* What the weight means and how a hold is counted: once, on the card, beside
@@ -761,7 +745,7 @@ export function ExerciseCard({
                 <div className={ticking && setTicked(s, asWritten) ? 'presc-set ticked' : 'presc-set'}>
                   {ticking
                     ? <SetTick n={i + 1} on={setTicked(s, asWritten)} locked={asWritten} onToggle={(v) => onTick(s.id, v)}
-                        empty={!setHasNumber(s)}
+                        empty={!setHasNumber(s)} edited={setEdited(s)}
                         onPrompt={(e) => e.currentTarget.closest('.presc-set')?.querySelector('input')?.focus()} />
                     : <span className="presc-setn">{i + 1}</span>}
                   <span className="presc-setfields">
@@ -939,7 +923,7 @@ export function ExerciseSection({
   title, count, items, liftField, entries = [], entryId = null,
   firstOpenId = null, blank = null, addLabel = 'Add an exercise here',
   open = true, onToggle = null,
-  onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove, onFill = null,
+  onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove, onFill = null, growFill = false,
   onMove = null, onAdd = null, extra = null, foot = null, note = null,
   menu = null, tag = null, lead = null, doing = false, onTick = null, focusId = null, asWritten = false,
 }) {
@@ -1034,7 +1018,7 @@ export function ExerciseSection({
                 onAddSet={() => onAddSet(it.id)}
                 onRemoveSet={(setId) => onRemoveSet(it.id, setId)}
                 onRemove={() => onRemove(it.id)}
-                onFill={onFill ? (fills) => onFill(it.id, fills) : null} />
+                onFill={onFill ? (fills) => onFill(it.id, fills) : null} growFill={growFill} />
             ))
           )}
 

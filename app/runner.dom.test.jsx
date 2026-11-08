@@ -34,6 +34,7 @@ const { CUES } = await import('./src/lib/cues.js')
 const { normalizePrescription, prescriptionSteps } = await import('./src/lib/prescription.js')
 const { liftFieldOf } = await import('./src/lib/lifts.js')
 const { applyRun } = await import('./src/lib/trainer.js')
+const { useToasts } = await import('./src/lib/toast.js')
 const require = createRequire(import.meta.url)
 const { mergeLibrary } = require('../server/library.js')
 const PLAN = mergeLibrary(require('../test/fixtures/plan.json'), require('../test/fixtures/exercises.json'))
@@ -244,13 +245,46 @@ test("The weight's meaning: one write to the plan, the boxes untouched", async (
   const r = await mount(entryOf(LEGS))
   await tapText(/Log this set without the clock/)
   await typeInto(box('weight'), '45')
-  const sw = byLabel(/^Weight in .*Switch to /)
+  const sw = byLabel(/^Weight is .*Switch to /)
   assert.ok(sw, 'no meaning switch on a barbell')
   await click(sw)
   const w = r.last()
   assert.ok(w.opts.plan, 'the switch did not write the plan')
   assert.ok(w.opts.plan.blocks[1].items[0].weightMode, 'the plan item has no mode')
   assert.equal(box('weight').value, '45', 'the switch reset the box')
+  await r.done()
+})
+
+/** The toasts on screen, as the shell's deck would show them, each with its action as a button. */
+function Toasts() {
+  return <div className="probe-toasts">{useToasts().map(t => (
+    <p key={t.id}>{t.text}{t.action && <button type="button" onClick={t.action.onClick}>{t.action.label}</button>}</p>
+  ))}</div>
+}
+
+test("#111 B F1: the runner's meaning switch says what it did, with Undo, and sits by the implement, not the number", async () => {
+  const r = await mount(entryOf(LEGS))
+  await tapText(/Log this set without the clock/)
+  const probe = document.createElement('div')
+  document.body.appendChild(probe)
+  const toasts = createRoot(probe)
+  await act(async () => toasts.render(<Toasts />))
+  const sw = byLabel(/^Weight is .*Switch to /)
+  assert.ok(sw.closest('.run-impl'), 'the switch is not beside the implement')
+  assert.equal(sw.closest('.run-inputs'), null, 'the switch is in the number boxes')
+  assert.deepEqual([...document.querySelectorAll('.run-inputs .bigstep-label')].map(x => x.textContent), ['reps', 'lb'], 'the big weight says more than its unit')
+  const before = r.state.entry.data.plan.blocks[1].items[0].weightMode ?? null
+  await click(sw)
+  const flipped = r.state.entry.data.plan.blocks[1].items[0].weightMode ?? null
+  assert.notEqual(flipped, before, 'the switch wrote nothing')
+  // The newest: an earlier case's flip may still be showing its own.
+  const note = [...probe.querySelectorAll('p')].filter(p => /Back squat: weight now /.test(p.textContent)).at(-1)
+  assert.ok(note, 'the flip was silent')
+  const undo = [...note.querySelectorAll('button')].find(b => /Undo/.test(b.textContent))
+  assert.ok(undo, 'the flip offers no Undo')
+  await click(undo)
+  assert.equal(r.state.entry.data.plan.blocks[1].items[0].weightMode ?? null, before, 'Undo did not put the meaning back')
+  await act(() => toasts.unmount())
   await r.done()
 })
 
