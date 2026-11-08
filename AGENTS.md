@@ -499,7 +499,13 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   Every person is built by `body()` from the one skeleton (`BONES`), hands and feet are
   placed by IK so they touch what they hold or stand on, and each figure has ONE cue in
   the accent on what its `watch` is about (#109, the vocabulary is at the top of the
-  file). `app/figures.test.jsx` holds limb lengths, contacts, cues and the native copy.
+  file). The 50×42 thumbnail is the primary size: each figure is framed on its person
+  (`view`), its cue is at least 2px there, and a close-up (`detail`: a finger on the
+  edge, the tall back) is drawn beside the figure on the card, never on a thumbnail. A
+  `sided` figure is mirrored for an exercise named "right" (`mirrored`).
+  `app/figures.test.jsx` holds limb lengths, contacts, framing, cue width, poses that
+  visibly differ, heads that follow their spines, limbs that never fuse, and the native
+  copy.
 - **Every claim is graded and sourced.** `evidence.grade` is one of `rct`,
   `controlled-trial`, `observational`, `mechanistic`, `expert-consensus`, `folklore`;
   `transfer` states what is assumed versus demonstrated. Verify citations against the

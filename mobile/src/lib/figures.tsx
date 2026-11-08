@@ -16,15 +16,15 @@
  */
 import React, { useEffect } from 'react'
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
-import Svg, { Circle, Path } from 'react-native-svg'
+import Svg, { Circle, G, Path } from 'react-native-svg'
 import Animated, {
   Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withRepeat, withSequence, withTiming,
   cancelAnimation,
 } from 'react-native-reanimated'
 import { colors } from '../theme'
-import { FIGURES, KINDS, hasFigure } from './figuredata.js'
+import { FIGURES, KINDS, hasFigure, mirrored } from './figuredata.js'
 
-export { FIGURES, hasFigure }
+export { FIGURES, hasFigure, mirrored }
 
 type Shape = { k: keyof typeof KINDS; d?: string; c?: [number, number, number]; w?: number; dash?: string }
 
@@ -77,25 +77,26 @@ function useCrossfade(on: boolean) {
   return { a, b }
 }
 
-function Layer({ children }: { children: React.ReactNode }) {
+function Layer({ children, view, mirror }: { children: React.ReactNode; view: number[]; mirror?: boolean }) {
   return (
-    <Svg width="100%" height="100%" viewBox="0 0 120 100">
-      {children}
+    <Svg width="100%" height="100%" viewBox={view.join(' ')}>
+      <G transform={mirror ? `matrix(-1 0 0 1 ${2 * view[0] + view[2]} 0)` : undefined}>{children}</G>
     </Svg>
   )
 }
 
 /**
  * One figure, sized entirely by its container: a 50pt row thumbnail, the one in
- * workout mode, the how-to card. `detail` (the finger inset) is for the card;
- * thumbnails pass false, as the web's do.
+ * workout mode, the how-to card. The viewBox is the figure's own framing
+ * (`view`), so the person fills the box; `mirror` flips a sided figure for the
+ * other hand (`mirrored()`), as the web's does.
  */
-export function Figure({ name, color = colors.inkDim, cue, detail = true, style }: {
+export function Figure({ name, color = colors.inkDim, cue, mirror = false, style }: {
   name: any
   className?: string
   color?: string
   cue?: string
-  detail?: boolean
+  mirror?: boolean
   style?: StyleProp<ViewStyle>
 }) {
   const fig: any = name ? (FIGURES as any)[name] : null
@@ -103,29 +104,44 @@ export function Figure({ name, color = colors.inkDim, cue, detail = true, style 
   const fade = useCrossfade(moves)
   if (!fig) return null
   const cueInk = cue ?? (color === colors.accent ? colors.ink : colors.accent)
-  const top = (
-    <>
-      {draw(fig.over, color, cueInk)}
-      {detail ? draw(fig.detail, color, cueInk) : null}
-    </>
-  )
+  const view: number[] = fig.view
   return (
     <View style={[st.fig, style]} accessible accessibilityRole="image" accessibilityLabel={fig.alt}>
       <View style={StyleSheet.absoluteFill}>
-        <Layer>
+        <Layer view={view} mirror={mirror}>
           {draw(fig.props, color, cueInk)}
           {draw(fig.s, color, cueInk)}
           {moves ? null : draw(fig.a, color, cueInk)}
-          {moves ? null : top}
+          {moves ? null : draw(fig.over, color, cueInk)}
         </Layer>
       </View>
       {moves ? (
         <>
-          <Animated.View style={[StyleSheet.absoluteFill, fade.b]}><Layer>{draw(fig.b, color, cueInk)}</Layer></Animated.View>
-          <Animated.View style={[StyleSheet.absoluteFill, fade.a]}><Layer>{draw(fig.a, color, cueInk)}</Layer></Animated.View>
-          <View style={StyleSheet.absoluteFill} pointerEvents="none"><Layer>{top}</Layer></View>
+          <Animated.View style={[StyleSheet.absoluteFill, fade.b]}><Layer view={view} mirror={mirror}>{draw(fig.b, color, cueInk)}</Layer></Animated.View>
+          <Animated.View style={[StyleSheet.absoluteFill, fade.a]}><Layer view={view} mirror={mirror}>{draw(fig.a, color, cueInk)}</Layer></Animated.View>
+          <View style={StyleSheet.absoluteFill} pointerEvents="none"><Layer view={view} mirror={mirror}>{draw(fig.over, color, cueInk)}</Layer></View>
         </>
       ) : null}
+    </View>
+  )
+}
+
+/** Does this figure have a close-up for the card (a finger on an edge, the tall back)? */
+export const hasDetail = (name: any) => Boolean(name && (FIGURES as any)[name]?.detail)
+
+/** The card's close-up, drawn beside the figure, large (the web's FigureDetail). */
+export function FigureDetail({ name, color = colors.ink, cue = colors.accent, style }: {
+  name: any
+  color?: string
+  cue?: string
+  style?: StyleProp<ViewStyle>
+}) {
+  const fig: any = name ? (FIGURES as any)[name] : null
+  if (!fig?.detail) return null
+  const [w, h] = fig.detailBox
+  return (
+    <View style={[{ height: '100%', aspectRatio: w / h }, style]} accessible accessibilityRole="image" accessibilityLabel="Close-up">
+      <Svg width="100%" height="100%" viewBox={`0 0 ${w} ${h}`}>{draw(fig.detail, color, cue)}</Svg>
     </View>
   )
 }

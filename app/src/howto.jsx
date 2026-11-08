@@ -26,7 +26,7 @@
 import { useState } from 'react'
 import { Icon } from './lib/icons.jsx'
 import { Popover } from './modal.jsx'
-import { Figure } from './lib/figures.jsx'
+import { Figure, FigureDetail, hasDetail, mirrored } from './lib/figures.jsx'
 
 /** "3 × 8" — the prescription, short enough to sit in a row. */
 export function doseLabel(ex) {
@@ -43,12 +43,15 @@ export function doseLabel(ex) {
  * the free hand turns the weight BEFORE you lower it, and doing those two in
  * the other order is the whole mistake the eccentrics card exists to prevent.
  */
-export function HowBody({ how, showFigure = true }) {
+export function HowBody({ how, showFigure = true, name }) {
   if (!how) return null
   return (
     <div className="how-body">
       {showFigure && how.figure && (
-        <div className="how-fig"><Figure name={how.figure} /></div>
+        <div className="how-fig">
+          <Figure name={how.figure} mirror={mirrored(how.figure, name)} />
+          {hasDetail(how.figure) && <FigureDetail name={how.figure} className="how-detail" />}
+        </div>
       )}
       {how.gist && <p className="how-gist">{how.gist}</p>}
 
@@ -93,7 +96,7 @@ export function HowRow({ exercise, open, onToggle, meta }) {
   return (
     <div className={`how-row ${open ? 'on' : ''}`}>
       <button className="how-head" onClick={onToggle} aria-expanded={open}>
-        <span className="how-thumb"><Figure name={how?.figure} detail={false} /></span>
+        <span className="how-thumb"><Figure name={how?.figure} mirror={mirrored(how?.figure, exercise.name)} /></span>
         <span className="how-heads">
           <span className="how-name">{exercise.name}</span>
           {how?.gist && <span className="how-sub">{how.gist}</span>}
@@ -101,7 +104,7 @@ export function HowRow({ exercise, open, onToggle, meta }) {
         {dose && <span className="how-dose">{dose}</span>}
         <span className="how-chev"><Icon name="ChevronDown" size={17} /></span>
       </button>
-      {open && how && <HowBody how={how} />}
+      {open && how && <HowBody how={how} name={exercise.name} />}
       {open && !how && (
         <p className="how-none">
           No step-by-step for this one yet — the full protocol is in the sections above.
@@ -132,7 +135,7 @@ export function HowSheet({ exercise, how, title, onClose }) {
             <Icon name="X" size={18} />
           </button>
         </header>
-        <div className="how-sheetbody"><HowBody how={card} /></div>
+        <div className="how-sheetbody"><HowBody how={card} name={name} /></div>
         <button className="btn how-got" onClick={onClose}>Got it</button>
       </div>
     </Popover>

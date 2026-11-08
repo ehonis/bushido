@@ -21,7 +21,7 @@ import React, { useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { colors, mix, radius, font, space } from '../theme'
 import { Icon } from '../lib/icons'
-import { Figure } from '../lib/figures'
+import { Figure, FigureDetail, hasDetail, mirrored } from '../lib/figures'
 import { T } from '../ui/Text'
 import { Btn, Press } from '../ui/kit'
 import { Modal } from '../ui/Sheet'
@@ -41,12 +41,15 @@ export function doseLabel(ex: any) {
  * the free hand turns the weight BEFORE you lower it, and doing those two in
  * the other order is the whole mistake the eccentrics card exists to prevent.
  */
-export function HowBody({ how, showFigure = true, style }: { how: any; showFigure?: boolean; style?: any }) {
+export function HowBody({ how, showFigure = true, name, style }: { how: any; showFigure?: boolean; name?: string; style?: any }) {
   if (!how) return null
   return (
     <View style={style}>
       {showFigure && how.figure ? (
-        <View style={s.fig}><Figure name={how.figure} color={colors.ink} /></View>
+        <View style={s.fig}>
+          <Figure name={how.figure} color={colors.ink} mirror={mirrored(how.figure, name)} style={s.figMain} />
+          {hasDetail(how.figure) ? <FigureDetail name={how.figure} style={s.detail} /> : null}
+        </View>
       ) : null}
       {how.gist ? <T size={font.body} weight={500} style={{ marginBottom: space[3] }}>{how.gist}</T> : null}
 
@@ -103,7 +106,7 @@ export function HowRow({ exercise, open, onToggle, meta }: { exercise: any; open
   return (
     <View style={[s.row, open && s.rowOn]}>
       <Press haptic style={s.head} onPress={onToggle} accessibilityRole="button" accessibilityState={{ expanded: !!open }}>
-        <View style={s.thumb}><Figure name={how?.figure} color={open ? colors.accent : colors.inkDim} detail={false} /></View>
+        <View style={s.thumb}><Figure name={how?.figure} color={open ? colors.accent : colors.inkDim} mirror={mirrored(how?.figure, exercise.name)} /></View>
         <View style={s.heads}>
           <T size={font.body} weight={600}>{exercise.name}</T>
           {how?.gist ? <T size={font.caption} dim numberOfLines={open ? 3 : 2}>{how.gist}</T> : null}
@@ -113,7 +116,7 @@ export function HowRow({ exercise, open, onToggle, meta }: { exercise: any; open
           <Icon name="ChevronDown" size={17} color={open ? colors.accent : colors.inkFaint} />
         </View>
       </Press>
-      {open && how ? <HowBody how={how} style={s.body} /> : null}
+      {open && how ? <HowBody how={how} name={exercise.name} style={s.body} /> : null}
       {open && !how ? (
         <T size={font.label} faint style={s.none}>
           No step-by-step for this one yet — the full protocol is in the sections above.
@@ -140,7 +143,7 @@ export function HowSheet({ exercise, how, title, onClose }: { exercise?: any; ho
       footer={<Btn title="Got it" onPress={onClose} flex style={{ minHeight: 52 }} />}
     >
       <View accessibilityLabel={`How to do ${name}`}>
-        <HowBody how={card} />
+        <HowBody how={card} name={name} />
       </View>
     </Modal>
   )
@@ -184,10 +187,15 @@ const s = StyleSheet.create({
   heads: { flex: 1, minWidth: 0, gap: 2 },
   none: { paddingHorizontal: space[4], paddingBottom: space[4] },
   body: { paddingHorizontal: space[4], paddingBottom: space[4] },
+  // The card's figure, 176 tall, with the close-up (a finger on the edge, the
+  // tall back) beside it at full height, as the web's .how-fig (#109).
   fig: {
-    height: 132, marginBottom: space[4], padding: space[2],
+    flexDirection: 'row', justifyContent: 'center', gap: space[2],
+    height: 176, marginBottom: space[4], padding: space[2],
     backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control,
   },
+  figMain: { flex: 1, width: undefined, minWidth: 0 },
+  detail: { padding: space[2], backgroundColor: colors.panel, borderRadius: radius.control },
   steps: { gap: space[2] },
   step: { flexDirection: 'row', gap: space[3], alignItems: 'flex-start' },
   n: {

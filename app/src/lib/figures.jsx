@@ -3,7 +3,7 @@
  *
  * The drawings themselves are data in figuredata.js, shared byte for byte with
  * the iPhone app; this file only turns shapes into SVG. Why they are drawn, the
- * one skeleton and the cue vocabulary are written down there.
+ * one skeleton, the framing and the cue vocabulary are written down there.
  *
  * Colours come from the container: the body is `currentColor` (`.fig` inherits
  * it, so the how-to card is --ink, a row thumbnail --ink-dim and an open row or
@@ -13,9 +13,9 @@
  * behind pose A.
  */
 
-import { FIGURES, KINDS, hasFigure } from './figuredata.js'
+import { FIGURES, KINDS, hasFigure, mirrored } from './figuredata.js'
 
-export { FIGURES, hasFigure }
+export { FIGURES, hasFigure, mirrored }
 
 function Shape({ s }) {
   const k = KINDS[s.k]
@@ -38,22 +38,41 @@ const layer = (shapes) => (shapes || []).map((s, i) => <Shape key={i} s={s} />)
 
 /**
  * One figure, sized entirely by its container: a 50×42 row thumbnail, the
- * 44×38 one in workout mode, the how-to card. `detail` (the finger inset) is
- * for the card; thumbnails pass false.
+ * 44×38 one in workout mode, the how-to card. The viewBox is the figure's own
+ * framing (`view`), so the person fills whatever box it is given. `mirror`
+ * flips it (a sided figure for the other hand: `mirrored()`).
  */
-export function Figure({ name, className = '', detail = true }) {
+export function Figure({ name, className = '', mirror = false }) {
   const fig = FIGURES[name]
   if (!fig) return null
   const moves = Boolean(fig.b)
+  const [x, , w] = fig.view
   return (
     <svg className={`fig ${moves ? 'fig-move' : ''} ${className}`.trim()}
-      viewBox="0 0 120 100" role="img" aria-label={fig.alt} focusable="false">
-      {layer(fig.props)}
-      {layer(fig.s)}
-      {moves && <g className="fig-p2">{layer(fig.b)}</g>}
-      <g className={moves ? 'fig-p1' : ''}>{layer(fig.a)}</g>
-      {layer(fig.over)}
-      {detail && fig.detail && <g className="fig-detail">{layer(fig.detail)}</g>}
+      viewBox={fig.view.join(' ')} role="img" aria-label={fig.alt} focusable="false">
+      <g transform={mirror ? `matrix(-1 0 0 1 ${2 * x + w} 0)` : undefined}>
+        {layer(fig.props)}
+        {layer(fig.s)}
+        {moves && <g className="fig-p2">{layer(fig.b)}</g>}
+        <g className={moves ? 'fig-p1' : ''}>{layer(fig.a)}</g>
+        {layer(fig.over)}
+      </g>
+    </svg>
+  )
+}
+
+/** Does this figure have a close-up for the card (a finger on an edge, the tall back)? */
+export const hasDetail = (name) => Boolean(FIGURES[name]?.detail)
+
+/** The card's close-up, drawn beside the figure, large. Nothing on a thumbnail. */
+export function FigureDetail({ name, className = '' }) {
+  const fig = FIGURES[name]
+  if (!fig?.detail) return null
+  const [w, h] = fig.detailBox
+  return (
+    <svg className={`fig fig-detail ${className}`.trim()} viewBox={`0 0 ${w} ${h}`}
+      style={{ aspectRatio: `${w} / ${h}` }} role="img" aria-label="Close-up" focusable="false">
+      {layer(fig.detail)}
     </svg>
   )
 }
