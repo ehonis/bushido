@@ -93,7 +93,7 @@ export function HowRow({ exercise, open, onToggle, meta }) {
   return (
     <div className={`how-row ${open ? 'on' : ''}`}>
       <button className="how-head" onClick={onToggle} aria-expanded={open}>
-        <span className="how-thumb"><Figure name={how?.figure} /></span>
+        <span className="how-thumb"><Figure name={how?.figure} detail={false} /></span>
         <span className="how-heads">
           <span className="how-name">{exercise.name}</span>
           {how?.gist && <span className="how-sub">{how.gist}</span>}
@@ -101,7 +101,7 @@ export function HowRow({ exercise, open, onToggle, meta }) {
         {dose && <span className="how-dose">{dose}</span>}
         <span className="how-chev"><Icon name="ChevronDown" size={17} /></span>
       </button>
-      {open && how && <HowBody how={how} showFigure={false} />}
+      {open && how && <HowBody how={how} />}
       {open && !how && (
         <p className="how-none">
           No step-by-step for this one yet — the full protocol is in the sections above.

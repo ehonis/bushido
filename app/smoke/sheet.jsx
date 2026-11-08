@@ -819,6 +819,22 @@ export default [
   ...Object.keys(FIGURES).map(name => [`Figure(${name})`,
     <HowRow exercise={{ name, how: { figure: name, gist: 'x' } }} open onToggle={noop} />,
     html => { if (!html.includes('<svg')) throw new Error('drew nothing') }]),
+  /* #109: the session sheet showed the figure only as the 50×42 thumbnail,
+   * because an open row's card left its own figure out. An open row now shows
+   * the card's figure, large; a closed row does not; the thumbnail never draws
+   * the finger inset (noise at that size), the card does. Pinned from both
+   * sides, so the move is not a deletion. */
+  ['HowRow(open shows the figure large, closed does not)', null, () => {
+    const ex = { name: 'Max hangs', how: { figure: 'hang-edge', gist: 'x', steps: ['a'] } }
+    const open = renderToString(<HowRow exercise={ex} open onToggle={noop} />)
+    const shut = renderToString(<HowRow exercise={ex} open={false} onToggle={noop} />)
+    if (!/class="how-fig"/.test(open)) throw new Error('an open row has no large figure')
+    if (/class="how-fig"/.test(shut)) throw new Error('a closed row draws the large figure')
+    const thumb = /<span class="how-thumb">([\s\S]*?)<\/span>/.exec(open)?.[1] || ''
+    if (!thumb.includes('<svg')) throw new Error('the row lost its thumbnail')
+    if (thumb.includes('fig-detail')) throw new Error('the thumbnail draws the finger inset')
+    if (!/class="how-fig"[\s\S]*fig-detail/.test(open)) throw new Error('the card lost its finger inset')
+  }],
   // The moves list on every session that has one, and the mid-set sheet.
   ...plan.dailyMenu.filter(m => m.logSpec?.exercises?.length)
     .map(m => [`Moves(${m.id})`, <MovesList session={m} />]),

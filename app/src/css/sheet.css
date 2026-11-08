@@ -171,7 +171,13 @@
    the drawing goes first, the sentence goes second, and the paragraphs stay one
    tap away instead of first in the queue. */
 
-.fig { display: block; width: 100%; height: 100%; color: var(--ink-dim); }
+/* The figure takes its ink from where it sits (the card --ink, a row --ink-dim,
+   an open row or workout mode --accent), as the phone passes it explicitly. It
+   used to set --ink-dim on itself, which beat every container's colour. The one
+   cue per figure (figuredata.js) is --fig-cue: the accent, or the ink where the
+   body itself is drawn in the accent. */
+.fig { display: block; width: 100%; height: 100%; color: inherit; }
+.fig-cue { color: var(--fig-cue, var(--accent)); }
 
 /* Two poses crossfading. Neither ever goes fully transparent — a figure that
    blinks out reads as a glitch, where one that fades to a ghost reads as "and
@@ -205,7 +211,7 @@
   flex: 0 0 auto; width: 50px; height: 42px;
   display: grid; place-items: center; color: var(--ink-dim);
 }
-.how-row.on .how-thumb { color: var(--accent); }
+.how-row.on .how-thumb { color: var(--accent); --fig-cue: var(--ink); }
 .how-heads { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .how-name { font-size: var(--fs-body); font-weight: 600; }
 .how-sub {

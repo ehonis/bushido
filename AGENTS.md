@@ -118,7 +118,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Profile | `app/src/lib/profile.js`, `app/src/profile.jsx` | A `Popover`, not a `FullScreen`. Opens on a list of sections (`homePages`), each a page with a back button; Testing and Why (`testing.jsx`) are under Climbing. |
 | Number inputs | `app/src/numinput.jsx`, `app/src/lib/numtext.js` | Text inputs that own their text (§6.4). |
 | Body diagram | `app/src/lib/bodymap.jsx`, `app/muscles.build.mjs` | `react-body-highlighter` + `free-exercise-db`; nothing hand-drawn. |
-| How-to figures | `app/src/howto.jsx`, `app/src/lib/figures.jsx` | Registry of SVG figures named by content. |
+| How-to figures | `app/src/howto.jsx`, `app/src/lib/figuredata.js`, `app/src/lib/figures.jsx` | The drawings are data in `figuredata.js` (one skeleton, `body()`; copied byte for byte to mobile), and `figures.jsx` / `figures.tsx` only render them. Tested by `app/figures.test.jsx` (#109). |
 | Palette | `app/src/styles.css` `:root`, `app/validate_palette.js` | `npm run palette`; a real gate (§6.10). The rest of the token contract is pinned by `app/smoke/system.jsx` (§10.13). |
 | Styles | `app/src/styles.css` (tokens, base components, shell), `app/src/css/<area>.css` (each screen area's rules, one owner each), `app/src/timer.css` | A new rule goes in its area's file (`sheet.css`, `today.css`, `planner.css`, `editor.css`, `runner.css`, `workout.css`, …); `main.jsx` imports them in cascade order. See `docs/DESIGN.md`, "Visual system". |
 | Notifications client | `app/src/lib/push.js`, `app/src/notifications.jsx` | |
@@ -493,9 +493,13 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
 - **Every exercise has a `how`**: a `figure`, a one-line `gist`, three to five short
   `steps`, the one `watch` error, optional `easier`. The length limits in
   `workout.test.js` are the feature: long protocol prose demonstrably did not get read
-  mid-session. Figures are hand-written SVG in `lib/figures.jsx` because accurate,
-  licensable photos of these drills mostly do not exist and the app must work offline;
-  the smoke suite checks every named figure exists and every figure is used.
+  mid-session. Figures are hand-drawn SVG, kept as data in `lib/figuredata.js`, because
+  accurate, licensable photos of these drills mostly do not exist and the app must work
+  offline; the smoke suite checks every named figure exists and every figure is used.
+  Every person is built by `body()` from the one skeleton (`BONES`), hands and feet are
+  placed by IK so they touch what they hold or stand on, and each figure has ONE cue in
+  the accent on what its `watch` is about (#109, the vocabulary is at the top of the
+  file). `app/figures.test.jsx` holds limb lengths, contacts, cues and the native copy.
 - **Every claim is graded and sourced.** `evidence.grade` is one of `rct`,
   `controlled-trial`, `observational`, `mechanistic`, `expert-consensus`, `folklore`;
   `transfer` states what is assumed versus demonstrated. Verify citations against the

@@ -20,6 +20,7 @@
     "test:gear": "node gear.test.js",
     "test:progress": "node progress.test.js",
     "palette": "node validate_palette.js",
+    "test:figures": "esbuild figures.test.jsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --outfile=.figurestest.mjs --log-level=error && node .figurestest.mjs",
     "test:md": "esbuild markdown.test.jsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --outfile=.mdtest.mjs --log-level=error && node .mdtest.mjs",
     "test:streak": "node streak.test.js",
     "test:presc": "node prescription.test.js",
