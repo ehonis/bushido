@@ -4,20 +4,32 @@
  */
 import { renderToString } from 'react-dom/server'
 import {
-  PlanFlow, KeptStep, PlanTalk, BuildStep, groupedKinds, DraftList, Working, KindStep,
-  AskStep,
+  PlanFlow, KeptStep, PlanTalk, BuildStep, groupedKinds, DraftList, Working, KindChips,
+  AskStep, MinuteChips, PlanDay, WORKING_LINE, FileAs,
 } from '../src/planner.jsx'
+import { blankFor, fileChoices } from '../src/lib/planflow.js'
+import { addedId } from '../src/editor.jsx'
+import { isoShift } from '../src/lib/dates.js'
 import { draftStep, draftPres, draftLine } from '../src/lib/drafts.js'
 import { _setMe } from '../src/lib/whoami.js'
 import { hasIcon } from '../src/lib/icons.jsx'
 import { plannerContext, aiOffered, noteAiRefusal, resetAiRefusal } from '../src/lib/plannerapi.js'
 import { activityFieldOf } from '../src/picker.jsx'
-import { blankPrescription, appendLift } from '../src/lib/prescription.js'
+import { blankPrescription, appendLift, appendPiece } from '../src/lib/prescription.js'
 import { PlanProvider } from '../src/lib/planctx.jsx'
 import { liftFieldOf } from '../src/lib/lifts.js'
 import {
   plan, entries, noop, TODAY, back, text, LIFT_FIELD, SQUAT, PRESCRIPTION,
 } from './fixtures.jsx'
+
+/* The builder as Plan a workout opens it with nothing picked (#78), in its provider. */
+const builder = (pres = blankFor([]), picked = [], extra = {}) => (
+  <PlanProvider plan={plan}>
+    <BuildStep pres={pres} setPres={noop} liftField={LIFT_FIELD} entries={[]} categories={plan.quotaCategories}
+      onKeep={noop} plan={plan} picked={picked} setPicked={noop} {...extra} />
+  </PlanProvider>
+)
+const noAi = { id: 'sam', owner: false, features: { ai: false, goals: false, whoop: false, strava: false, notifications: false } }
 
 export default [
   /* ============================================ plan a workout, and run it
@@ -32,24 +44,23 @@ export default [
    * and the model's first screen is one box (AskStep, below), with the same kinds
    * as optional chips. Both must list every kind.
    */
-  ['KindStep(pick what)', <KindStep plan={plan} custom="" setCustom={noop} setPicked={noop} onBuild={noop} picked={[]} />,
+  ['BuildStep(start from: every kind, under its group, in the page)', builder(),
     (html) => {
       const t = text(html)
       // The kinds are CONTENT — adding "Shoulders" must be an edit to plan.json
       // and not a rebuild, so the screen has to be rendering that list.
-      // `&` comes back as `&amp;` out of the serialiser — "Core & hips" is one
-      // of the kinds, so the comparison has to read through the escaping.
       const plain = t.replace(/&amp;/g, '&')
       for (const k of plan.plannerKinds.kinds) {
-        if (!plain.includes(k.label)) throw new Error(`${k.label} is not on the picker`)
+        if (!plain.includes(k.label)) throw new Error(`${k.label} is not on the builder's Start from`)
       }
-      // The dividers, and the reason for them: "Power" and "Endurance" are
-      // climbing categories in this app and ordinary words everywhere else, so
-      // ungrouped they were a coin flip. Hence a heading per group.
+      // "Power" and "Endurance" are climbing categories here and ordinary words
+      // everywhere else, so ungrouped they were a coin flip. Hence a heading per group.
       for (const g of plan.plannerKinds.groups) {
-        if (!plain.includes(g.name)) throw new Error(`the "${g.name}" divider is missing`)
+        if (!plain.includes(g.name)) throw new Error(`the "${g.name}" group is missing`)
       }
-      if (!/Something else/.test(t)) throw new Error('no way to ask for something not on the list')
+      if (!/<details class="askkinds plan-from"><summary class="section-head"><h3>Start from<\/h3><span class="sub">Optional<\/span>/.test(html)) {
+        throw new Error('the kinds are not an optional, folded "Start from"')
+      }
     }],
   // The discipline travels onto the ask screen too — "Power endurance" alone is
   // the same ambiguity one step later, on the screen the user presses go from.
@@ -82,46 +93,57 @@ export default [
   /* Multi-select, and the conversation that follows a plan: several workouts can
    * be selected to plan a full day at the gym, and a created plan can be followed
    * up on with the AI rather than being a dead end. */
-  ['KindStep(more than one kind at a time, numbered in the order picked)',
-    <KindStep plan={plan} custom="" setCustom={noop} setPicked={noop} onBuild={noop}
-      picked={[plan.plannerKinds.kinds[2], plan.plannerKinds.kinds[0]]} />,
+  ['BuildStep(start from several kinds: one block each, in the order tapped)', null, () => {
+    const [a, b] = [plan.plannerKinds.kinds[2], plan.plannerKinds.kinds[0]]
+    const html = renderToString(builder(blankFor([a, b]), [a, b]))
+    if (!/<details class="askkinds plan-from" open="">/.test(html)) throw new Error('a picked kind is folded away')
+    // The blocks are written in the order the kinds were tapped: which came first is a fact about the session.
+    const blocks = [...html.matchAll(/class="presc-blocktoggle"[^>]*>(?:(?!<\/h3>).)*?<h3>([^<]+)<\/h3>/g)].map(m => m[1].replace(/&amp;/g, '&'))
+    if (blocks.join() !== `${a.label},${b.label}`) throw new Error(`the blocks are ${blocks.join()}, not ${a.label},${b.label}`)
+  }],
+  /*
+   * TWO ROUTES, and Build it myself starts empty (#78). No kind is needed: the
+   * builder opens on one block with the catalogues' two doors, the keep button
+   * off until something is in it, and nothing written for the model (a kind's
+   * `hint`, the model, a "why") on the hand-built route.
+   */
+  ['BuildStep(empty: one block, no kind needed, no model, no kind hints)', builder(),
     (html) => {
-      // Every row is a toggle, and the fork is what commits — a row that navigates
-      // on tap cannot be the second of three.
-      if (!/aria-pressed="false"/.test(html) || !/aria-pressed="true"/.test(html)) throw new Error('the kind rows are not toggles')
-      // The check carries the order: the planner writes the blocks in it.
-      const marks = [...html.matchAll(/class="kindrow-check"[^>]*>(\d*)</g)].map(m => m[1]).filter(Boolean)
-      if (marks.join() !== '2,1') throw new Error(`the picks are numbered ${marks.join()}, not in the order tapped`)
-      if (!/Build it myself/.test(text(html))) throw new Error('no way to commit a selection')
+      const t = text(html).replace(/&amp;/g, '&')
+      if (!/Add an exercise here/.test(t)) throw new Error('an empty builder has no way into the exercise catalogue')
+      if (!/Add a swim set, interval or hold/.test(t)) throw new Error('an empty builder has no way to add a piece')
+      if (!/<button class="btn big" disabled=""/.test(html)) throw new Error('an empty workout can be kept')
+      const btns = [...html.matchAll(/<button class="(btn big[^"]*)"/g)].map(m => m[1].trim())
+      if (btns.length !== 1 || btns[0] !== 'btn big') throw new Error(`the footer is ${btns.join(' / ')}, not one primary`)
+      if (/Write it for me|Sparkles|Why this session/.test(html)) throw new Error('the hand-built route offers the model')
+      for (const k of plan.plannerKinds.kinds.filter(k => k.hint)) {
+        if (t.includes(k.hint)) throw new Error(`a hint written for the model is on the builder: "${k.hint}"`)
+      }
+      if (/class="list-row kindrow/.test(html)) throw new Error('the kinds are a required list again')
+    }],
+  // Something in it: the blocks are the user's, and Start from goes.
+  ['BuildStep(once something is in it, Start from is gone)',
+    builder(appendLift(blankFor([]), LIFT_FIELD, SQUAT.key, { blockId: 'b0' })),
+    (html) => {
+      if (/plan-from|Start from/.test(html)) throw new Error('Start from still offers to replace a workout with work in it')
+      if (/<button class="btn big" disabled=""/.test(html)) throw new Error('a workout with a squat in it cannot be kept')
     }],
   /*
-   * TWO ROUTES (docs/DESIGN.md, Plan a workout). The build route's kinds are rows
-   * with a check under section heads, no prose; its footer appears once a kind is
-   * picked, and it never offers the model (that is the first screen's, #59).
+   * A piece's time is minutes (#78): a fifteen-minute run is "15 min", never
+   * "1 × 900 s", and its box counts minutes. A hand-built piece starts at ten.
    */
-  ['KindStep(nothing picked: no footer, no paragraph, rows not cards)', <KindStep plan={plan} custom="" setCustom={noop}
-    setPicked={noop} onBuild={noop} picked={[]} />,
-    (html) => {
-      const t = text(html)
-      if (/Build it myself|Write it for me/.test(t)) throw new Error('the footer shows before anything is picked')
-      if (/as many as you like|sends nothing anywhere|Pick what you are doing/i.test(t)) throw new Error('the paragraphs are back')
-      if (/kindcard|kindgrid|kindgroup-head/.test(html)) throw new Error('the kinds are cards in a grid again')
-      if (!/class="list-row kindrow/.test(html)) throw new Error('the kinds are not list rows')
-      if (!/class="section-head"><h3>Lifting<\/h3>/.test(html)) throw new Error('the groups are not section heads')
-      // A group's blurb is content, and is no longer printed.
-      const blurb = plan.plannerKinds.groups.find(g => g.blurb)?.blurb
-      if (blurb && t.includes(blurb.slice(0, 30))) throw new Error('a group blurb paragraph is on screen')
-    }],
-  ['KindStep(picked: Build it myself is the one primary, and the model is not offered here)',
-    <KindStep plan={plan} custom="" setCustom={noop} setPicked={noop} onBuild={noop}
-      picked={[plan.plannerKinds.kinds[0]]} />,
-    (html) => {
-      const btns = [...html.matchAll(/<button class="(btn big[^"]*)"[^>]*>.*?<\/button>/g)].map(m => [m[1], text(m[0])])
-      if (btns.length !== 1 || btns[0][0].trim() !== 'btn big' || !/Build it myself/.test(btns[0][1])) {
-        throw new Error(`the footer is ${JSON.stringify(btns)}, not one "Build it myself" primary`)
-      }
-      if (/Write it for me|Sparkles/.test(html)) throw new Error('the build route offers the model')
-    }],
+  ['BuildStep(a timed piece is in minutes)', null, () => {
+    const fifteen = appendPiece(blankFor([]), 'Easy run', { by: 'time' })
+    const it = fifteen.blocks[0].items[0]
+    if (it.sets[0].seconds !== 600) throw new Error(`a new timed piece starts at ${it.sets[0].seconds} s`)
+    const pres = { ...fifteen, blocks: [{ ...fifteen.blocks[0], items: [{ ...it, sets: [{ ...it.sets[0], seconds: 900 }] }] }] }
+    const html = renderToString(builder(pres))
+    const t = text(html)
+    if (/900 s|900<|value="900"/.test(html)) throw new Error('a fifteen-minute piece shows 900 seconds')
+    if (!/1 × 15 min/.test(t)) throw new Error('the piece line does not say "1 × 15 min"')
+    if (!/value="15"/.test(html)) throw new Error('the box is not in minutes')
+    if (!/aria-label="more min"/.test(html)) throw new Error('the stepper does not step minutes')
+  }],
   /*
    * THE BLANK CANVAS (#59). "Write it for me" opens on one box and one button: a
    * sentence is a brief on its own, and no kind is required. The kinds are still
@@ -392,19 +414,15 @@ export default [
     for (const g of plan.plannerKinds.groups) if (!hasIcon(g.icon)) throw new Error(`group ${g.key}: icon "${g.icon}" is not registered`)
     for (const c of plan.quotaCategories) if (!hasIcon(c.icon)) throw new Error(`category ${c.key}: icon "${c.icon}" is not registered`)
   }],
-  ['KindStep(folded catalogs are still in the page)', <KindStep plan={plan} custom="" setCustom={noop} setPicked={noop} onBuild={noop} picked={[]} />,
+  ['KindChips(folded, every kind still in the page)', <KindChips plan={plan} picked={[]} setPicked={noop} title="Start from" />,
     (html) => {
-      if (!/<details class="kindgroup folded"/.test(html)) throw new Error('nothing folds')
+      if (!/<details class="askkinds"><summary/.test(html)) throw new Error('the kinds do not fold')
       const t = text(html).replace(/&amp;/g, '&')
       // Folded is not gone: every ride variant is rendered, one tap away.
       for (const k of plan.plannerKinds.kinds.filter(k => k.group === 'bike')) {
         if (!t.includes(k.label)) throw new Error(`${k.label} is not in the page`)
       }
-      if (!/<summary class="section-head"><h3>[^<]+<\/h3><span class="sub">\d+<\/span>/.test(html)) {
-        throw new Error('a folded group is not a section head saying how many are in it')
-      }
-      // The endurance group's paragraph ("These let the model pick swim, bike or run…") is
-      // content and stays in the file, but the screen no longer prints it (D7).
+      // The endurance group's paragraph is content and stays in the file, never on screen (D7).
       if (/pick swim, bike or run/i.test(t)) throw new Error('the endurance paragraph is back on the screen')
     }],
   /* The planner picks a sport from what was LOGGED lately, not from a quota (issue #31). */
@@ -428,23 +446,17 @@ export default [
       throw new Error('an empty week does not say so')
     }
   }],
-  ['PlanFlow(no AI: building it yourself is the only button, primary, and nothing mentions a model)', null, () => {
-    const one = [plan.plannerKinds.kinds[0]]
-    _setMe({ id: 'sam', owner: false, features: { ai: false, goals: false, whoop: false, strava: false, notifications: false } })
+  ['PlanFlow(no AI: the first screen is the builder, and nothing mentions a model)', null, () => {
+    _setMe(noAi)
     try {
-      // Without the model, the kinds are the first screen.
-      const html = renderToString(<KindStep plan={plan} custom="" setCustom={noop} setPicked={noop}
-        onBuild={noop} picked={one} />)
+      const html = renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />)
       const t = text(html)
-      if (!/Build it myself/.test(t)) throw new Error('no way to build a workout without the AI')
-      if (/Write it for me|Write me \d/.test(t)) throw new Error('the model is offered to someone it is not set up for')
+      if (/Write it for me|Drafts|What do you want to do/.test(t)) throw new Error('the flow offers the model or its drafts')
       if (/model|Sparkles/i.test(t.replace(/<[^>]*>/g, ' '))) throw new Error('the screen mentions a model')
+      if (!/Add an exercise here/.test(t)) throw new Error('without the model, the first screen is not the builder')
+      if (/class="list-row kindrow/.test(html)) throw new Error('without the model, a kind must still be picked first')
       const btns = html.match(/<button class="btn big[^"]*"/g) || []
       if (btns.length !== 1 || /secondary|ghost/.test(btns[0])) throw new Error(`the only button is ${btns.join(' / ')}, not one primary`)
-      const flowHtml = renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />)
-      const flow = text(flowHtml)
-      if (/Write it for me|Drafts|What do you want to do/.test(flow)) throw new Error('the flow offers the model or its drafts')
-      if (!/class="list-row kindrow/.test(flowHtml)) throw new Error('without the model, the first screen is not the kinds')
     } finally { _setMe({}) }
     const owner = text(renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />))
     if (!/Write it for me/.test(owner)) throw new Error('the owner lost "Write it for me"')
@@ -468,4 +480,88 @@ export default [
       if (/Write it for me|Drafts/.test(flow)) throw new Error('the reopened flow offers the model or its drafts')
     } finally { resetAiRefusal() }
   }],
+  /*
+   * WHICH DAY (#78). The flow opens on the day Today is showing, and the keep
+   * button says it; a past day is not offered (that is Log a workout's), and the
+   * stepper goes no earlier than today.
+   */
+  ['PlanFlow(plans the day Today is showing, and says it on the button)', null, () => {
+    _setMe(noAi)
+    try {
+      const tomorrow = isoShift(TODAY, 1)
+      const html = renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} date={tomorrow} onKeep={noop} onClose={noop} />)
+      const t = text(html)
+      if (!/Put it on tomorrow/.test(t)) throw new Error('planning from tomorrow does not offer "Put it on tomorrow"')
+      if (!/<section class="planday" aria-label="Which day">/.test(html)) throw new Error('no day in the flow')
+      if (/disabled="" aria-label="The day before"/.test(html)) throw new Error('tomorrow cannot step back to today')
+      const past = renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} date={isoShift(TODAY, -2)} onKeep={noop} onClose={noop} />)
+      if (!/Put it on today/.test(text(past))) throw new Error('a past day Today was showing is not planned for today')
+      if (!/disabled="" aria-label="The day before"/.test(past)) throw new Error('the day can go before today')
+    } finally { _setMe({}) }
+    const ask = renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} date={isoShift(TODAY, 3)} onKeep={noop} onClose={noop} />)
+    if (!/class="planday"/.test(ask)) throw new Error('the ask has no day')
+  }],
+  ['PlanDay(today and later, in words)', <PlanDay value={isoShift(TODAY, 1)} today={TODAY} onChange={noop} />,
+    (html) => {
+      if (!/<span>Tomorrow<\/span>/.test(html)) throw new Error('the day is not in words')
+      if (!/aria-label="The day before"/.test(html) || !/aria-label="The day after"/.test(html)) throw new Error('no ‹ ›')
+    }],
+  /* How long is set one way (#78): chips, and Other; no second ± stepper. */
+  ['AskStep(minutes are chips, with Other, and no second stepper)',
+    <AskStep goal="" setGoal={noop} minutes={45} setMinutes={noop} plan={plan} picked={[]} setPicked={noop} onGo={noop} />,
+    (html) => {
+      if (/minstep|five minutes (less|more)/.test(html)) throw new Error('the minutes are set two ways again')
+      if (!/aria-pressed="true">45<!-- --> min/.test(html)) throw new Error('the chosen time is not a picked chip')
+      if (!/>Other<\/button>/.test(html)) throw new Error('no way to a time that is not a chip')
+    }],
+  ['MinuteChips(a time that is not a chip shows as its own, picked)',
+    <MinuteChips minutes={50} setMinutes={noop} chips={[30, 45, 60]} />,
+    (html) => {
+      if (!/class="out-chip on" aria-pressed="true">50<!-- --> min/.test(html)) throw new Error('fifty minutes from a draft is not shown')
+      if ((html.match(/out-chip on/g) || []).length !== 1) throw new Error('more than one time is picked')
+    }],
+  /* The wait says what it is doing and only that: no stages on a timer (#78). */
+  ['Working(no canned stages)', <Working label="Legs" minutes={45} />,
+    (html) => {
+      if (/recovery|athlete profile|what you lifted last time/i.test(html)) throw new Error('a canned stage is back')
+      if (!text(html).includes(WORKING_LINE)) throw new Error('the wait does not say what it is doing')
+    }],
+  /* Back from the builder keeps the work (G-visual-ia F6): the ask says so. */
+  ['AskStep(a workout set aside is one tap back)',
+    <AskStep goal="" setGoal={noop} minutes={45} setMinutes={noop} plan={plan} picked={[]} setPicked={noop} onGo={noop}
+      onBuild={noop} building />,
+    (html) => {
+      if (!/Back to your workout/.test(text(html))) throw new Error('the ask does not offer the workout set aside')
+    }],
+  /* An exercise added to the second of two blocks called "Main" opens there, not in the first (C F17). */
+  ['addedId(the block an exercise was added to, by place, not by name)', null, () => {
+    const two = blankPrescription({ title: 'Legs', blocks: [{ name: 'Main', category: 'lift' }, { name: 'Main', category: 'lift' }] })
+    const next = appendLift(two, LIFT_FIELD, SQUAT.key, { blockId: 'b1' })
+    const id = addedId(two, next, 'b1')
+    if (!id || !next.blocks[1].items.some(i => i.id === id)) throw new Error(`the new exercise was looked for in the wrong block (${id})`)
+  }],
+  /* A minutes box keeps its unit and reads m:ss (#78): 100 s is "1:40", not "1.67", and 30 s is "0:30", not "30 sec". */
+  ['BuildStep(a minutes box reads m:ss and never flips to seconds)', null, () => {
+    const base = appendPiece(blankFor([]), 'Strides', { by: 'time' })
+    const it = base.blocks[0].items[0]
+    const at = (secs) => renderToString(builder({ ...base, blocks: [{ ...base.blocks[0], items: [{ ...it, sets: [{ ...it.sets[0], seconds: secs }] }] }] }))
+    const a = at(100)
+    if (!/value="1:40"/.test(a) || /1\.67/.test(a)) throw new Error('100 seconds is not "1:40"')
+    const b = at(30)
+    if (!/value="0:30"/.test(b) || !/aria-label="more min"/.test(b) || /aria-label="more sec"/.test(b)) throw new Error('30 seconds flipped to a seconds box')
+  }],
+  /* "What is it?" (#78): the catalog's pinned sports, one tap, and the rest behind Other…. */
+  ['FileAs(the pinned sports, and Other…)', <FileAs choices={fileChoices(plan)} value={null} onChange={noop} />,
+    (html) => {
+      const t = text(html)
+      if (!/<h3>What is it\?<\/h3>/.test(html)) throw new Error('the row does not ask what it is')
+      for (const name of ['Run', 'Bike', 'Swim', 'Lift']) if (!t.includes(`> ${name}<`) && !t.includes(name)) throw new Error(`${name} is not offered`)
+      if (!/Other…/.test(t)) throw new Error('no way to the rest of the catalog')
+      if (/<select/.test(html)) throw new Error('a native select on the plan side')
+    }],
+  ['FileAs(a pick from Other… shows as its own chip, picked)', <FileAs choices={fileChoices(plan)} value="rowing" onChange={noop} />,
+    (html) => {
+      const on = html.match(/class="out-chip on"[^>]*>(?:(?!<\/button>).)*/g) || []
+      if (on.length !== 1 || !/Row/i.test(on[0])) throw new Error(`the pick is not shown: ${on.join(' / ')}`)
+    }],
 ]

@@ -31,6 +31,7 @@
     "test:shared": "node shared.test.js",
     "test:trainer": "node trainer.test.js",
     "test:drafts": "node drafts.test.js",
+    "test:planflow": "esbuild planflow.test.js --bundle --platform=node --format=esm --jsx=automatic --packages=external --outfile=.planflowtest.mjs --log-level=error && node .planflowtest.mjs",
     "test:done": "node done.test.js",
     "test:history": "node history.test.js",
     "test:fingers": "node fingers.test.js",

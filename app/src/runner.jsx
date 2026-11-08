@@ -59,7 +59,7 @@ import {
   restClock, restPausedAt, toggleRest, bumpRest, restBack, reopened,
 } from './lib/timer.js'
 import { clock } from './lib/workout.js'
-import { Stepper, STEP, weightSwitch, SwapWords, ExerciseSheet } from './exercises.jsx'
+import { Stepper, boxFor, stepBox, TimeInput, weightSwitch, SwapWords, ExerciseSheet } from './exercises.jsx'
 import { ExerciseBody, musclesOf, muscleWords } from './lib/bodymap.jsx'
 import { usePlan } from './lib/planctx.jsx'
 import { TimerRun, WorkHead, LeaveDialog, leaveActions, ControlRow, setsWord } from './timer.jsx'
@@ -703,7 +703,7 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
           plan in and not record in is worse than no box. See setFieldsFor. */}
       <div className="run-inputs">
         {fields.map(f => (
-          <BigStepper key={f} {...STEP[f](item, step.set)} value={draft?.[f]}
+          <BigStepper key={f} {...boxFor(f, item, step.set)} value={draft?.[f]}
             swap={f === 'weight' ? swap : null}
             onChange={v => onPatch({ [f]: v })} />
         ))}
@@ -791,12 +791,9 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
  * is two to a screen with 64px targets and a value you can read from arm's
  * length on the floor.
  */
-function BigStepper({ label, value, step = 1, min = null, onChange, swap = null }) {
-  const n = Number(value)
-  const bump = (d) => {
-    const next = (Number.isFinite(n) ? n : 0) + d * step
-    onChange(min !== null ? Math.max(min, next) : next)
-  }
+export function BigStepper({ label, value, step = 1, min = null, onChange, swap = null, time = false }) {
+  // A piece's time is a minutes box (`boxFor`, #78), pressed exactly as the editor's.
+  const bump = (d) => onChange(stepBox({ step, min, time }, value, d))
   return (
     <div className="bigstep">
       <button className="bigstep-btn" onClick={() => bump(-1)} aria-label={`less ${label}`}>
@@ -807,8 +804,9 @@ function BigStepper({ label, value, step = 1, min = null, onChange, swap = null 
             control that failed to render. Blank is a real and common state here:
             the planner leaves a weight out rather than invent one, and a dash is
             how the app says "you tell me". */}
-        <NumInput className="bigstep-in" aria-label={label} placeholder="—"
-          value={value} onChange={onChange} />
+        {time
+          ? <TimeInput className="bigstep-in" aria-label={label} placeholder="—" value={value} onChange={onChange} />
+          : <NumInput className="bigstep-in" aria-label={label} placeholder="—" value={value} onChange={onChange} />}
         {swap ? (
           <button type="button" className="bigstep-label stepper-swap" onClick={swap.onSwitch}
             aria-label={`Weight in ${label}. Switch to ${swap.next}`}>

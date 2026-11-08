@@ -19,6 +19,18 @@ import {
 } from './fixtures.jsx'
 
 export default [
+  /* A piece's time in the runner is the editor's minutes box (#78): "45", never "2700 sec". */
+  ['WorkoutRunner(a timed piece is in minutes, as in the editor)', null, () => {
+    const pres = normalizePrescription({
+      title: 'Zone 2 ride', blocks: [{ name: 'Ride', items: [{ kind: 'interval', name: 'Zone 2 ride', sets: [{ seconds: 2700 }] }] }],
+    })
+    const entry = { ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, plan: pres, run: { ...emptyRun(1), sets: {} } } }
+    const html = renderToString(<WorkoutRunner session={PLANNED_CARD} entry={entry} entries={[]} onRun={noop} onExit={noop} />)
+    if (!/class="bigstep-in"/.test(html)) throw new Error('the set screen did not render, so this proves nothing')
+    if (/2700|aria-label="more sec"/.test(html)) throw new Error('the runner asks a 45-minute ride in seconds')
+    if (!/aria-label="more min"/.test(html) || !/<span class="bigstep-label">min<\/span>/.test(html)) throw new Error('the runner\'s box is not in minutes')
+    if (!/Planned.*45 min/.test(text(html))) throw new Error('the target is not "45 min"')
+  }],
   /* A hold in the runner: the set is seconds, the target says so, the name explains it. */
   ['WorkoutRunner(a hold: the set is seconds, and the name opens what it is)', <PlanProvider plan={HELD_PLAN}><WorkoutRunner session={PLANNED_CARD}
     entry={HELD_ENTRY} entries={[]} onRun={noop} onExit={noop} /></PlanProvider>,

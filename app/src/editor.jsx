@@ -195,6 +195,17 @@ function CircuitBlock({ block: b, pres, onChange, liftField, entries, entryId, o
 
 
 /**
+ * The id of the exercise `appendLift` just put at the end of block `blockId`.
+ * Found by the block's PLACE, which re-minting keeps, never by its name: two
+ * blocks called "Main" opened the wrong card (#78, C F17).
+ */
+export function addedId(before, next, blockId) {
+  const at = (before?.blocks || []).findIndex(x => x.id === blockId)
+  const block = next?.blocks?.[at] || next?.blocks?.[0]
+  return block?.items?.at(-1)?.id || null
+}
+
+/**
  * Every set, editable, with thumbs in mind.
  *
  * Steppers rather than keyboards for reps and weight: the numbers move in
@@ -284,8 +295,7 @@ export function PrescriptionEditor({
           onAdd={(key) => {
             const next = appendLift(pres, liftField, key, { blockId: b.id, entries, excludeId: entryId })
             onChange(next)
-            const block = (next.blocks || []).find(x => x.name === b.name) || next.blocks?.[0]
-            return block?.items?.at(-1)?.id || null
+            return addedId(pres, next, b.id)
           }} />
       )))}
       {/* Only where there is nothing to be done about it. A session the user is still

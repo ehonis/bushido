@@ -288,6 +288,8 @@ function createDrafts({ max = MAX_DRAFTS, maxAgeMs = MAX_AGE_MS, now = () => Dat
         kinds: picked.map(k => k.prompt || k.label),
         label: picked.map(k => k.label).join(' + ') || clip(goal, 48),
         minutes, goal,
+        // The day it is for (#78), so a draft reopened later lands where it was asked for.
+        ...(/^\d{4}-\d{2}-\d{2}$/.test(String(body?.day || '')) ? { day: body.day } : {}),
       },
       context: str(body?.context, 4000),
       for: body?.for ? { id: str(body.for.id, 64), name: str(body.for.name, 80) } : null,

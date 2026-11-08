@@ -144,7 +144,7 @@ overhaul-2 issue cites.)
   owner's space; the others' data reaches it as context, never as a readable path.
 - **"Write it for me" is a blank canvas.** One box and one button; kinds are optional chips.
   The model picks the blocks and their categories from what was written. "Build it myself"
-  keeps its kind picker, because a hand-built session needs its blocks named.
+  opens the editor at once since #78; its kinds are an optional "Start from" row.
 
 ### Overhaul 2 (2026-11-08): decisions D9–D13
 

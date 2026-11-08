@@ -100,7 +100,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Workout mode | `app/src/workout.jsx`, `app/src/lib/workout.js` | The climbing cards' rep clock and set log. |
 | Interval timer | `app/src/timer.jsx`, `app/src/timer.css`, `app/src/lib/timer.js` | The general timer: from any workout's sheet and the + menu. Pure model, `now` as an argument; presets are `kind: 'timer'` entries (§6.5). |
 | Circuits | `app/src/circuit.jsx`, `lib/timer.js` (`exercises`, `circuitDone`, `stopRun`), `lib/prescription.js` (`block.circuit`, `blockTimer`, `endCircuit`, `circuitPlan`, `loggedCircuit`) | #68. One editor (Work / Rest / Rounds, each exercise's own timing behind a tap) for a plan's block switched to Circuit and a timer preset with exercises; both run on `TimerRun` and log themselves (§6.5, §6.6). Tested by `app/circuit.test.js`. |
-| Planner UI | `app/src/planner.jsx`, `app/src/lib/plannerapi.js`, `app/src/lib/drafts.js` | + → Plan a workout; `AskStep` (one box: what you want to do) → `ReviewStep` (by model), `KindStep` → `BuildStep` (by hand); `DraftList` reopens a draft at its step. `plannerContext` sends the last week's logged workouts (`groupContext` one paragraph per person for a group). `lib/markdown.jsx` renders its reasoning. |
+| Planner UI | `app/src/planner.jsx`, `app/src/lib/planflow.js`, `app/src/lib/plannerapi.js`, `app/src/lib/drafts.js` | + → Plan a workout; `AskStep` (one box: what you want to do) → `ReviewStep` (by model), or `BuildStep` (by hand, open at once; the kinds are an optional Start from); `DraftList` reopens a draft at its step. The flow's state is `usePlanFlow` / `flowReducer` in `lib/planflow.js`, shared with the phone; each platform's `PlanFlow` is only its view (#78). `plannerContext` sends the last week's logged workouts (`groupContext` one paragraph per person for a group). `lib/markdown.jsx` renders its reasoning. |
 | Pickers | `app/src/picker.jsx`, `app/src/lib/folders.js` | `PickerScreen`, `ActivityChooser` (Log a workout: the sports catalog, then the plan's cards under Climbing, in folders by `sched.discipline`). Declaration order, no ranking. |
 | Quick log | `app/src/quicklog.jsx`, `app/src/lib/quicklog.js` | `<QuickLog plan entries upsertEntry date onPlaced />`: up to three recent activities (then the catalog's pins), one tap each; under Log a workout in the + menu, Recent in Log a workout, and Today's empty day. Places through `placeEntries`, so the id and done-by-default are Log a workout's own. |
 | Unlogged workouts | `app/src/lib/unlogged.js`, `app/src/unlogged.jsx` | What WHOOP/Strava saw that the log lacks; `pairUp`, `mergeTargets`, `outWith()`. |
@@ -1002,11 +1002,21 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   a brief on its own (#59): no kind is required, and the model decides the blocks and
   each one's category and activity; the server drops any key the content does not know
   (`realKeys` in planner.js) rather than failing. **Build it myself**, a quiet button under
-  it, opens the kinds (`KindStep`), which the hand-built route still needs to name its
-  blocks, then `BuildStep`. Without the model the kinds are the first screen. Both
-  produce the same object (`blankPrescription()` matches `normalizePrescription`), the
+  it, opens `BuildStep` at once with one empty block (#78): no kind is required, and the
+  kinds are an optional **Start from** row (labels only, never the hints written for the
+  model) while the builder is still empty. Without the model the builder is the first
+  screen. A hand-built workout with no kind is named from what is in it (`workTitle`).
+  Both produce the same object (`blankPrescription()` matches `normalizePrescription`), the
   same editor, the same entry. `BuildStep` has nothing that claims a model reasoned about
   it; the revise panel on the entry still works for either.
+- **A plan lands on a day the user picks** (#78): the day Today is showing, or any later
+  one, never earlier (that is Log a workout's), and the keep button says it ("Put it on
+  tomorrow", `forWords(who, day)`). A plan for a later day tells the model which day it is
+  for (`plannerContext({ day })`), and its last screen offers no Start. Whether it reads as
+  done is the store's rule (§4), through the same keep paths.
+- **Back never throws a hand-built workout away silently** (`backOf` in lib/planflow.js):
+  from the builder to the ask it is set aside and "Back to your workout" reopens it; Back
+  that would close the planner with work in it asks first.
 - **"Write it for me" is a draft on the server** (`server/drafts.js`, `lib/drafts.js`),
   in the requester's space, never an entry. The run belongs to the draft, so leaving the
   page loses nothing; the first screen lists drafts and reopens one at its step

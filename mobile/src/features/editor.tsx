@@ -196,6 +196,17 @@ function CircuitBlock({ block: b, pres, onChange, liftField, entries, entryId, o
 }
 
 /**
+ * The id of the exercise `appendLift` just put at the end of block `blockId`.
+ * Found by the block's PLACE, which re-minting keeps, never by its name: two
+ * blocks called "Main" opened the wrong card (#78, C F17).
+ */
+export function addedId(before: any, next: any, blockId: string): string | null {
+  const at = (before?.blocks || []).findIndex((x: any) => x.id === blockId)
+  const block = next?.blocks?.[at] || next?.blocks?.[0]
+  return block?.items?.at(-1)?.id || null
+}
+
+/**
  * Every set of a planned session, editable, with thumbs in mind.
  *
  * THE SAME COMPONENT THE LOG FORM USES: the card, the fold, the implement chips,
@@ -265,8 +276,7 @@ export function PrescriptionEditor({
           onAdd={(key: string) => {
             const next: any = (appendLift as any)(pres, liftField, key, { blockId: b.id, entries, excludeId: entryId })
             onChange(next)
-            const block = (next.blocks || []).find((x: any) => x.name === b.name) || next.blocks?.[0]
-            return block?.items?.at(-1)?.id || null
+            return addedId(pres, next, b.id)
           }} />
       )))}
       {/* Only where there is nothing to be done about it: a session still being

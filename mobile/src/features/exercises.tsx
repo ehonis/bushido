@@ -22,7 +22,7 @@
  * ticks, and a set that becomes complete buzzes.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Animated, FlatList, Linking, ScrollView, StyleSheet, View } from 'react-native'
+import { Animated, FlatList, Linking, ScrollView, StyleSheet, View, type TextInputProps } from 'react-native'
 import * as WebBrowser from 'expo-web-browser'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable'
@@ -33,7 +33,8 @@ import { Popover } from '../ui/Sheet'
 import { impact, success, tap } from '../ui/haptics'
 import { Icon } from '../lib/icons'
 import { NumInput } from './numinput'
-import { setFieldsFor, measureOfItem } from '../lib/prescription.js'
+import { setFieldsFor, measureOfItem, timeBox, bumpTime } from '../lib/prescription.js'
+import { acceptMinutesText, minutesText, numOrNull } from '../lib/numtext.js'
 import {
   searchExercises, implementsFor, lastLift, catalogOf, exerciseOf, muscleName, measureFor,
   weightModesFor, weightPatch, nextWeightMode, rememberedWeightMode, weightModeWords, weightBoxOf,
@@ -61,6 +62,52 @@ export const STEP: Record<string, (item?: any, set?: any) => { label: string; st
   // And the seconds step follows the SIZE: five at a time is right for a hang,
   // and 540 presses for a forty-five minute ride.
   seconds: (_item, set) => ({ label: 'sec', step: Number(set?.seconds) >= 180 ? 30 : 5, min: 0 }),
+}
+
+/**
+ * The box for one field of a set, in the editor and the runner alike. A piece's
+ * time is a minutes box (`timeBox`, #78: `time`), a hold's is seconds; the set
+ * keeps seconds either way.
+ */
+export const boxFor = (f: string, item: any, set: any): { label: string; step: number; min: number; time?: boolean } =>
+  (f === 'seconds' ? { ...(timeBox as any)(item, set), min: 0 } : STEP[f] ? STEP[f](item, set) : { label: f, step: 1, min: 0 })
+
+/** One press of a stepper's −/+: the web's `stepBox`, shared by `Stepper` and the runner's `BigStepper`. */
+export function stepBox({ step = 1, min = null, max = null, time = false }: { step?: number; min?: number | null; max?: number | null; time?: boolean }, value: any, d: number): number {
+  if (time) return (bumpTime as any)(value, d)
+  let next = (Number(value) || 0) + d * step
+  if (min !== null) next = Math.max(min, next)
+  if (max !== null) next = Math.min(max, next)
+  return Math.round(next * 100) / 100
+}
+
+/**
+ * A minutes box over seconds (#78): the web's `TimeInput`. Takes "45", "1.5" and
+ * "1:40" (`acceptMinutesText`), shows "1:40", never "1.67". The keyboard has the colon.
+ */
+export function TimeInput({ value, onChange, blank = null, placeholder = '—', style, ...rest }: Omit<TextInputProps, 'value' | 'onChange'> & {
+  value: any; onChange: (v: any) => void; blank?: any
+}) {
+  const shown = (minutesText as any)(value)
+  const [text, setText] = useState(shown)
+  const last = useRef((numOrNull as any)(value))
+  useEffect(() => {
+    const v = (numOrNull as any)(value)
+    if (v !== last.current) { last.current = v; setText(shown) }
+  }, [value, shown])
+  const change = (raw: string) => {
+    const r = (acceptMinutesText as any)(raw)
+    if (!r) return
+    setText(r.text)
+    if (!r.emit) return
+    last.current = r.value
+    onChange(r.value === null ? blank : r.value)
+  }
+  const ph = (numOrNull as any)(placeholder) === null ? placeholder : (minutesText as any)(placeholder)
+  return (
+    <Input value={text} onChangeText={change} onBlur={() => setText(shown)} placeholder={ph}
+      keyboardType="numbers-and-punctuation" style={style} {...rest} />
+  )
 }
 
 /**
@@ -159,9 +206,11 @@ export function countSwitch(liftField: any, item: any, onPatch: (patch: any) => 
  */
 export function Stepper({
   label, value, step = 1, min = null, max = null, suffix = '', quiet = false,
-  blank = null, placeholder = '—', onChange, swap = null,
+  blank = null, placeholder = '—', onChange, swap = null, time = false,
 }: {
   swap?: WeightSwap
+  /** A minutes box over seconds (`boxFor`), stepped by `bumpTime`. */
+  time?: boolean
   label: string
   value: any
   placeholder?: string
@@ -174,13 +223,7 @@ export function Stepper({
   onChange: (v: any) => void
 }) {
   const n = Number(value) || 0
-  const bump = (d: number) => {
-    let next = n + d * step
-    if (min !== null) next = Math.max(min, next)
-    if (max !== null) next = Math.min(max, next)
-    tap()
-    onChange(Math.round(next * 100) / 100)
-  }
+  const bump = (d: number) => { tap(); onChange(stepBox({ step, min, max, time }, value, d)) }
   return (
     <View style={[st.stepper, quiet && st.stepperQuiet]}>
       <Press onPress={() => bump(-1)} disabled={min !== null && n <= min} style={st.stepperBtn}
@@ -188,11 +231,17 @@ export function Stepper({
         <Icon name="Minus" size={15} color={colors.inkDim} />
       </Press>
       <View style={st.stepperMid}>
-        <NumInput
-          value={value} accessibilityLabel={label} placeholder={placeholder} blank={blank} onChange={onChange}
-          placeholderTextColor={colors.inkFaint} keyboardAppearance="dark" selectionColor={colors.accent}
-          selectTextOnFocus style={st.stepperIn}
-        />
+        {time ? (
+          <TimeInput value={value} accessibilityLabel={label} placeholder={placeholder} blank={blank} onChange={onChange}
+            placeholderTextColor={colors.inkFaint} keyboardAppearance="dark" selectionColor={colors.accent}
+            selectTextOnFocus style={st.stepperIn} />
+        ) : (
+          <NumInput
+            value={value} accessibilityLabel={label} placeholder={placeholder} blank={blank} onChange={onChange}
+            placeholderTextColor={colors.inkFaint} keyboardAppearance="dark" selectionColor={colors.accent}
+            selectTextOnFocus style={st.stepperIn}
+          />
+        )}
         {swap ? (
           <Press onPress={swap.onSwitch} style={st.swap} hitSlop={{ top: 2, bottom: 12, left: 10, right: 10 }}
             accessibilityRole="button" accessibilityLabel={swap.aria || `Weight in ${label}. Switch to ${swap.next}`}>
@@ -486,7 +535,7 @@ export function ExerciseCard({
                 <View style={st.set}>
                   <T size={font.small} dim tabular align="center" style={{ width: 20 }}>{String(i + 1)}</T>
                   {setFieldsFor(item, s).map((f: string) => (
-                    <Stepper key={f} {...(STEP[f] ? STEP[f](item, s) : { label: f, step: 1, min: 0 })} value={s[f]} blank={blank}
+                    <Stepper key={f} {...boxFor(f, item, s)} value={s[f]} blank={blank}
                       placeholder={s.hint?.[f] != null && s.hint[f] !== '' ? String(s.hint[f]) : '—'}
                       swap={f === 'weight' ? swap : (f === 'reps' || f === 'seconds') ? count : null}
                       onChange={(v) => patchSet(s, { [f]: v })} />

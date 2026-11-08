@@ -30,10 +30,11 @@
  * survives sharing a component, rather than by rewriting one of the two stores.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
 import { NumInput } from './numinput.jsx'
-import { setFieldsFor, measureOfItem } from './lib/prescription.js'
+import { setFieldsFor, measureOfItem, timeBox, bumpTime } from './lib/prescription.js'
+import { acceptMinutesText, minutesText, numOrNull } from './lib/numtext.js'
 import {
   searchExercises, implementsFor, lastLift, catalogOf, exerciseOf, muscleName, measureFor,
   weightModesFor, weightPatch, nextWeightMode, rememberedWeightMode, weightModeWords, weightBoxOf,
@@ -70,6 +71,53 @@ export const STEP = {
    * type. The box is still a box, so an exact 47 is one tap and a type away.
    */
   seconds: (item, set) => ({ label: 'sec', step: Number(set?.seconds) >= 180 ? 30 : 5, min: 0 }),
+}
+
+/**
+ * The box for one field of a set, in the editor and the runner alike. A piece's
+ * time is a minutes box (`timeBox`, #78: `time`), a hold's is seconds; the set
+ * keeps seconds either way.
+ */
+export const boxFor = (f, item, set) => (f === 'seconds' ? { ...timeBox(item, set), min: 0 } : STEP[f](item, set))
+
+/**
+ * One press of a stepper's −/+ (`d` is −1 or 1): a minutes box steps to the next
+ * mark (`bumpTime`), anything else by its step, held to its bounds. The editor's
+ * `Stepper` and the runner's `BigStepper` both press through this.
+ */
+export function stepBox({ step = 1, min = null, max = null, time = false }, value, d) {
+  if (time) return bumpTime(value, d)
+  let next = (Number(value) || 0) + d * step
+  if (min !== null) next = Math.max(min, next)
+  if (max !== null) next = Math.min(max, next)
+  return Math.round(next * 100) / 100
+}
+
+/**
+ * A minutes box over seconds (#78): `NumInput`'s rules for "45", "1.5" and
+ * "1:40" (lib/numtext.js `acceptMinutesText`); it shows "1:40", never "1.67".
+ */
+export function TimeInput({ value, onChange, blank = null, placeholder = '—', ...rest }) {
+  const shown = minutesText(value)
+  const [text, setText] = useState(shown)
+  const last = useRef(numOrNull(value))
+  useEffect(() => {
+    const v = numOrNull(value)
+    if (v !== last.current) { last.current = v; setText(shown) }
+  }, [value, shown])
+  const change = (e) => {
+    const r = acceptMinutesText(e.target.value)
+    if (!r) return
+    setText(r.text)
+    if (!r.emit) return
+    last.current = r.value
+    onChange(r.value === null ? blank : r.value)
+  }
+  const ph = numOrNull(placeholder) === null ? placeholder : minutesText(placeholder)
+  return (
+    <input type="text" inputMode="decimal" value={text} placeholder={ph}
+      onChange={change} onBlur={() => setText(shown)} {...rest} />
+  )
 }
 
 /**
@@ -143,21 +191,19 @@ export function SwapWords({ label, size }) {
  */
 export function Stepper({
   label, value, step = 1, min = null, max = null, suffix = '', quiet = false,
-  blank = null, placeholder = '—', onChange, swap = null,
+  blank = null, placeholder = '—', onChange, swap = null, time = false,
 }) {
+  // `time`: a minutes box over seconds (`boxFor`), stepped by `bumpTime`.
   const n = Number(value) || 0
-  const bump = (d) => {
-    let next = n + d * step
-    if (min !== null) next = Math.max(min, next)
-    if (max !== null) next = Math.min(max, next)
-    onChange(Math.round(next * 100) / 100)
-  }
+  const bump = (d) => onChange(stepBox({ step, min, max, time }, value, d))
   return (
     <span className={`stepper ${quiet ? 'quiet' : ''}`}>
       <button className="stepper-btn" onClick={() => bump(-1)} disabled={min !== null && n <= min}
         aria-label={`less ${label}`}><Icon name="Minus" size={15} /></button>
       <span className="stepper-mid">
-        <NumInput value={value} aria-label={label} placeholder={placeholder} blank={blank} onChange={onChange} />
+        {time
+          ? <TimeInput value={value} aria-label={label} placeholder={placeholder} blank={blank} onChange={onChange} />
+          : <NumInput value={value} aria-label={label} placeholder={placeholder} blank={blank} onChange={onChange} />}
         {swap ? (
           <button type="button" className="stepper-label stepper-swap" onClick={swap.onSwitch}
             aria-label={swap.aria || `Weight in ${label}. Switch to ${swap.next}`}>
@@ -423,7 +469,7 @@ export function ExerciseCard({
               <div key={s.id} className="presc-set">
                 <span className="presc-setn">{i + 1}</span>
                 {setFieldsFor(item, s).map(f => (
-                  <Stepper key={f} {...STEP[f](item, s)} value={s[f]} blank={blank}
+                  <Stepper key={f} {...boxFor(f, item, s)} value={s[f]} blank={blank}
                     placeholder={s.hint?.[f] != null && s.hint[f] !== '' ? String(s.hint[f]) : '—'}
                     swap={f === 'weight' ? swap : (f === 'reps' || f === 'seconds') ? count : null}
                     onChange={v => onPatchSet(s.id, { [f]: v })} />

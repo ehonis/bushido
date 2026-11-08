@@ -66,7 +66,7 @@ import { clock } from '../lib/workout.js'
 import { TimerRun, WorkHead, LeaveDialog, leaveActions, ControlRow, setsWord, KIND_COLOR } from './timer'
 import { timingWords } from './circuit'
 import * as trainerLib from '../lib/trainer.js'
-import { Stepper, STEP, weightSwitch, ExerciseSheet, type WeightSwap } from './exercises'
+import { Stepper, boxFor, stepBox, TimeInput, weightSwitch, ExerciseSheet, type WeightSwap } from './exercises'
 import { ExerciseBody, musclesOf, muscleWords } from '../lib/bodymap'
 import { usePlan } from '../lib/planctx.jsx'
 
@@ -752,7 +752,7 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
             user can plan in and not record in is worse than no box. */}
         <View style={st.inputs}>
           {fields.map((f: string) => (
-            <BigStepper key={f} {...(STEP as any)[f](item, step.set)} value={draft?.[f]}
+            <BigStepper key={f} {...boxFor(f, item, step.set)} value={draft?.[f]}
               swap={f === 'weight' ? swap : null}
               onChange={(v: any) => onPatch({ [f]: v })} />
           ))}
@@ -877,20 +877,18 @@ function RunBtn({ kind = 'primary', big, icon, iconSize = 16, label, a11y, onPre
  * length on the floor. Its 56pt number is one of the two sizes above
  * font.display (the interval timer's clock is the other, docs/DESIGN.md "Type").
  */
-function BigStepper({ label, value, step = 1, min = null, onChange, swap = null }: {
+function BigStepper({ label, value, step = 1, min = null, onChange, swap = null, time = false }: {
   swap?: WeightSwap
+  /** A piece's time: a minutes box (`boxFor`, #78), as in the editor. */
+  time?: boolean
   label: string
   value: any
   step?: number
   min?: number | null
   onChange: (v: any) => void
 }) {
-  const n = Number(value)
-  const bump = (d: number) => {
-    tap()
-    const next = (Number.isFinite(n) ? n : 0) + d * step
-    onChange(min !== null ? Math.max(min, next) : next)
-  }
+  // A piece's time is a minutes box (`boxFor`, #78), pressed exactly as the editor's.
+  const bump = (d: number) => { tap(); onChange(stepBox({ step, min, time }, value, d)) }
   return (
     <View style={st.bigstep}>
       <Press onPress={() => bump(-1)} style={st.bigstepBtn} accessibilityRole="button" accessibilityLabel={`less ${label}`}>
@@ -901,8 +899,13 @@ function BigStepper({ label, value, step = 1, min = null, onChange, swap = null 
             control that failed to render. Blank is a real and common state here:
             the planner leaves a weight out rather than invent one, and a dash is
             how the app says "you tell me". */}
-        <NumInput accessibilityLabel={label} placeholder="—" placeholderTextColor={colors.inkFaint}
-          value={value} onChange={onChange} style={st.bigstepIn} selectTextOnFocus />
+        {time ? (
+          <TimeInput accessibilityLabel={label} placeholder="—" placeholderTextColor={colors.inkFaint}
+            value={value} onChange={onChange} style={st.bigstepIn} selectTextOnFocus />
+        ) : (
+          <NumInput accessibilityLabel={label} placeholder="—" placeholderTextColor={colors.inkFaint}
+            value={value} onChange={onChange} style={st.bigstepIn} selectTextOnFocus />
+        )}
         {swap ? (
           <Press onPress={swap.onSwitch} style={st.swap}
             accessibilityRole="button" accessibilityLabel={`Weight in ${label}. Switch to ${swap.next}`}>

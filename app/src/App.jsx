@@ -378,7 +378,7 @@ export default function App() {
    * as one part and behaves exactly as it did. Returns the FIRST id, which is what
    * "start it now" opens.
    */
-  const keepPlan = (pres) => {
+  const keepPlan = (pres, { date = localIso() } = {}) => {
     const entries = placeWritten(
       plannedItems(splitPrescription(pres)),
       {
@@ -386,7 +386,8 @@ export default function App() {
         // whether to go back, plan another or start now. Planning at eight for a
         // session at six is the normal case, and dropping the user into a running
         // timer was the app assuming the answer to a question it never asked.
-        open: false, close: false,
+        // The day is the planner's (#78): the one Today showed, or a later one.
+        open: false, close: false, date,
       })
     const ids = entries.map(e => e.id)
     return { ids, count: ids.length, first: ids[0] || null, entries }
@@ -399,8 +400,8 @@ export default function App() {
    * endpoints, with the same ids their own "+" would mint against their day.
    */
   const people = planPeople(me)
-  const keepPlanForPerson = (person, pres, key = null) => keepPlanFor({
-    person, parts: splitPrescription(pres), menu: plan?.dailyMenu || [], date: localIso(),
+  const keepPlanForPerson = (person, pres, key = null, date = localIso()) => keepPlanFor({
+    person, parts: splitPrescription(pres), menu: plan?.dailyMenu || [], date,
     owner: { id: me.real.id, name: me.real.name }, api: peopleApi, key,
   })
   /*
@@ -581,7 +582,7 @@ export default function App() {
       )}
 
       {fab === 'plan' && (
-        <PlanFlow plan={plan} entries={store.entries} iso={localIso()}
+        <PlanFlow plan={plan} entries={store.entries} iso={localIso()} date={tab === 'today' ? viewDay : null}
           onKeep={keepPlan} onStart={startPlanned} onClose={() => setFab(null)}
           people={people} onKeepFor={keepPlanForPerson} onShareWith={shareKeptWith}
           onStartFor={(person, entryId) => {

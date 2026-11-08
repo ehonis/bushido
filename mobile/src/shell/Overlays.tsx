@@ -65,7 +65,8 @@ export function Overlays() {
   }
   if (fab === 'plan') {
     return (
-      <PlanFlow plan={plan} entries={store.entries} iso={localIso()} onKeep={keepPlan} onStart={startPlanned} onClose={close}
+      <PlanFlow plan={plan} entries={store.entries} iso={localIso()} date={menuFrom === 'today' ? viewDay : null}
+        onKeep={keepPlan} onStart={startPlanned} onClose={close}
         people={people} onKeepFor={keepPlanFor} onShareWith={shareKeptWith}
         onStartFor={(person: any, entryId: string) => {
           setFab(null)
