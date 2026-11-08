@@ -12,7 +12,7 @@ import { T } from '../ui/Text'
 import { Btn, Chip, Input, Press, Row, Toggle } from '../ui/kit'
 import { Modal } from '../ui/Sheet'
 import { Fold } from '../ui/Fold'
-import { success, tap } from '../ui/haptics'
+import { success, tap, warn } from '../ui/haptics'
 import { Icon } from '../lib/icons'
 import { NumInput } from './numinput'
 import { SetLog, GradeSelect, RangeSlider, totalSets, totalReps } from './setlog'
@@ -28,6 +28,7 @@ import { quickNames, titleOf, nameFor, rename, titleFor } from '../lib/naming.js
 import { GearPicker } from './gearpicker'
 import { WhoopWorkouts } from './whoop'
 import { StravaActivities } from './strava'
+import { dayWords } from '../lib/dates.js'
 
 /* --------------------------------------------------------------- notes --- */
 
@@ -37,13 +38,16 @@ import { StravaActivities } from './strava'
  */
 export { priorSessions, priorIdsOf } from '../lib/history.js'
 
-const dayLabel = (iso: string) => {
-  const days = Math.round((Date.now() - new Date(`${iso}T12:00:00`).getTime()) / 86400000)
-  if (days <= 0) return 'earlier today'
-  if (days === 1) return 'yesterday'
-  if (days < 14) return `${days} days ago`
-  return iso
-}
+/* One date format on the sheet (#94, A F6): the day in words, as the header and
+   "last time" say it ("Yesterday", "Sat, Oct 24"), never "2026-10-20" beside "yesterday". */
+const dayLabel = (iso: string) => dayWords(iso)
+
+/**
+ * What the two note boxes say while they are empty (#94, A F5, B F13): a hint,
+ * short and about no sport in particular, never a warm-up row and a climbing
+ * problem written out as if logged, on a lift workout too.
+ */
+export const NOTE_HINTS = { notes: 'Anything worth remembering', improve: 'One thing to change' }
 
 /** "3 sets, 21 reps · 5.10+" — what the session itself was, off what was logged. */
 function priorWork(entry: any, field: any = null) {
@@ -189,7 +193,7 @@ function Slider({ field, value, onChange, yours }: any) {
  */
 const NAMES_SHOWN = 6
 
-export function NameField({ session, out, onChange }: any) {
+export function NameField({ session, out, plan: pres = null, onChange }: any) {
   const plan = usePlan()
   const mine = titleOf(out)
   const [draft, setDraft] = useState(mine || '')
@@ -208,7 +212,9 @@ export function NameField({ session, out, onChange }: any) {
   useEffect(() => { setDraft(mine || '') }, [mine])
 
   const names: string[] = quickNames(plan, session, out)
-  const otherwise = nameFor(session, { ...out, title: undefined }) || session?.name || ''
+  // What the sheet's header calls it without a name of its own: a planned workout
+  // is its plan's title ("Pull"), never the card's "Planned workout" (#94, A F9).
+  const otherwise = (titleFor as any)(session, { ...out, title: undefined }, pres) || nameFor(session, { ...out, title: undefined }) || session?.name || ''
   const pick = (name: string) => { setDraft(name === mine ? '' : name); commit.current(name === mine ? '' : name) }
 
   const chip = (name: string) => (
@@ -330,7 +336,7 @@ function ToggleRow({ value, onChange, children }: { value: boolean; onChange: (v
  * and the note. A PANEL and not a screen, so both sheets that have one open the
  * same thing. `onTraining` is absent where the question is nonsense.
  */
-export function SessionDetails({ session, entry, entries, onSave, training, onTraining = null }: any) {
+export function SessionDetails({ session, entry, entries, onSave, training, onTraining = null, future = false }: any) {
   const out = entry?.data?.out || {}
   // Pruned on the way in exactly as the form does it. See lib/outputs.js.
   const derive = useMemo(() => gateResolver(session), [session])
@@ -339,7 +345,10 @@ export function SessionDetails({ session, entry, entries, onSave, training, onTr
   return (
     <View style={{ gap: space[4] }}>
       {/* Blank is not nameless: see NameField. */}
-      <NameField session={session} out={out} onChange={(v: string) => onSave(rename(out, v))} />
+      <NameField session={session} out={out} plan={entry?.data?.plan || null} onChange={(v: string) => onSave(rename(out, v))} />
+
+      {/* A day still to come has a name and nothing done on it yet. */}
+      {!future && (<>
 
       {/* What it was done on. App-level; renders nothing for a session whose
           discipline uses no gear. */}
@@ -359,6 +368,7 @@ export function SessionDetails({ session, entry, entries, onSave, training, onTr
       {!asksItsOwnDuration(session) && (
         <TimeSpent session={session} out={out} onChange={(v: any) => set('minutesSpent', v)} />
       )}
+      </>)}
     </View>
   )
 }
@@ -367,19 +377,51 @@ export function SessionDetails({ session, entry, entries, onSave, training, onTr
  * What this session WAS, on its own layer, opened by the pencil beside the X.
  * A page sheet over the session sheet.
  */
+/*
+ * NO FOOTER (#94, A F9, D N7): its "Done" was Close in a footer (everything here
+ * saves as it is typed; the header X closes), and the second control called
+ * Done on the sheet, beside the chip that marks the workout done.
+ *
+ * REMOVE LIVES HERE (#94, C N13): the bin sat in the sheet's header beside the
+ * pencil and the X, and on a day still to come right beside the X. It is set-once
+ * like the rest of this panel, so it is a worded button at its foot, two layers
+ * and a question away from the X. The web's DetailsSheet, the same.
+ */
 export function DetailsSheet({
   session, entry, entries, onSave, onClose, training, onTraining = null, planTalk = null,
+  onRemove = null, future = false,
 }: any) {
+  const [confirming, setConfirming] = useState(false)
   return (
     <Modal title="Edit this workout"
       sub={titleFor(session, entry?.data?.out, entry?.data?.plan)}
-      icon="Pencil" onClose={onClose}
-      footer={<Btn title="Done" flex onPress={onClose} />}>
-      {/* Asking the model to change a planned workout (#79): planning, so here,
-          one layer up from the sets, while the workout is being done. */}
-      {planTalk}
-      <SessionDetails session={session} entry={entry} entries={entries} onSave={onSave}
-        training={training} onTraining={onTraining} />
+      icon="Pencil" onClose={onClose}>
+      {confirming ? (
+        <View style={st.confirm}>
+          <Icon name="TriangleAlert" size={34} color={colors.vizCrit} />
+          <T size={font.title} weight={600} align="center" style={{ marginTop: space[2], marginBottom: space[2] }}>Remove workout?</T>
+          <T size={font.label} dim align="center">It comes off the day and out of your training load. Anything you logged on it goes with it.</T>
+          <View style={{ flexDirection: 'row', gap: space[2], marginTop: space[6], alignSelf: 'stretch' }}>
+            <Btn kind="secondary" title="Keep it" flex onPress={() => setConfirming(false)} />
+            <Btn kind="destructive" icon="Trash2" title="Remove" flex
+              onPress={() => { setConfirming(false); onClose(); onRemove(entry) }} />
+          </View>
+        </View>
+      ) : (<>
+        {/* Asking the model to change a planned workout (#79): planning, so here,
+            one layer up from the sets, while the workout is being done. */}
+        {planTalk}
+        <SessionDetails session={session} entry={entry} entries={entries} onSave={onSave}
+          training={training} onTraining={onTraining} future={future} />
+        {onRemove ? (
+          <View style={st.remove}>
+            <Btn kind="secondary" onPress={() => { warn(); setConfirming(true) }}>
+              <Icon name="Trash2" size={16} color={colors.bad} />
+              <T size={font.body} weight={600} color={colors.bad}>Remove workout</T>
+            </Btn>
+          </View>
+        ) : null}
+      </>)}
     </Modal>
   )
 }
@@ -543,14 +585,14 @@ export function SessionLog({
             <NoteField
               key={`notes-${entry?.id}`}
               label="Notes"
-              hint="rowed 10 min to warm up; left knee grumbled on the last set"
+              hint={NOTE_HINTS.notes}
               value={out.notes}
               onCommit={(v) => set('notes', v.trim() || undefined)}
             />
             <NoteField
               key={`improve-${entry?.id}`}
               label="What to improve next time"
-              hint="start the timer before chalking; drop a grade on problem 3"
+              hint={NOTE_HINTS.improve}
               value={out.improve}
               onCommit={(v) => set('improve', v.trim() || undefined)}
             />
@@ -562,6 +604,9 @@ export function SessionLog({
 }
 
 const st = StyleSheet.create({
+  // Edit this workout: Remove at its foot, apart from everything (#94).
+  remove: { marginTop: space[6], paddingTop: space[4], borderTopWidth: 1, borderTopColor: colors.line },
+  confirm: { paddingTop: space[4], paddingHorizontal: space[1], paddingBottom: space[2], alignItems: 'center' },
   outlog: { marginTop: space[4], borderTopWidth: 1, borderTopColor: colors.line, paddingTop: space[4] },
   body: { gap: space[4] },
   field: { gap: space[2] },

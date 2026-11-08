@@ -38,7 +38,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Keyboard, KeyboardAvoidingView, Modal as RNModal, Platform, ScrollView, StyleSheet, View,
+  KeyboardAvoidingView, Modal as RNModal, Platform, ScrollView, StyleSheet, View,
   useWindowDimensions, type StyleProp, type ViewStyle,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -48,6 +48,8 @@ import { T } from '../ui/Text'
 import { Btn, Card, IconBtn, Press, SectionHeader, Sub, Toggle, s as kit, type BtnKind } from '../ui/kit'
 import { Modal } from '../ui/Sheet'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import ToastHost from '../ui/ToastHost'
+import { useKeyboardShown } from '../ui/KeyboardBar'
 import { impact, success, tap, warn } from '../ui/haptics'
 import { Icon } from '../lib/icons'
 import { onForeground } from '../lib/foreground'
@@ -375,6 +377,8 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
     <RNModal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={askExit}>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <View style={[st.run, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>{body}</View>
+        {/* This screen's own toasts: iOS draws it above the root's host (#94, F N6). */}
+        <ToastHost />
       </GestureHandlerRootView>
     </RNModal>
   )
@@ -402,6 +406,8 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
       <RNModal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={onExit}>
         <GestureHandlerRootView style={{ flex: 1 }}>
           <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>{body}</View>
+          {/* This screen's own toasts: iOS draws it above the root's host (#94, F N6). */}
+          <ToastHost />
         </GestureHandlerRootView>
       </RNModal>
     )
@@ -697,7 +703,7 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
   // Seconds and nothing else counted: the primary starts its clock (#75).
   const timed = !logged && isTimedSet(fields, { seconds: draft?.seconds ?? step.set.seconds })
   const holdFor = Number(draft?.seconds) > 0 ? Number(draft.seconds) : Number(step.set.seconds)
-  const typing = useKeyboardUp()
+  const typing = useKeyboardShown()
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -805,8 +811,9 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
           already marked offers its undo as a secondary in its place. Under it only
           things that cannot lose a set: All sets and one more set.
           While the keyboard is up none of it is drawn, so nothing rides onto the
-          keypad (#75); a tap on empty space puts the keyboard away. The keyboard's
-          own Done bar belongs to NumInput (another issue). */}
+          keypad (#75); the keys' own bar (‹ › Done editing, kit's Input) puts it
+          away. They come back once the keys have gone (`keyboardDidHide`, the
+          sheet's rule), not as they start to leave under a lifting thumb (#94). */}
       {typing ? null : (
         <View style={st.acts}>
           {logged ? (
@@ -920,18 +927,6 @@ function BigStepper({ label, value, step = 1, min = null, onChange, swap = null,
   )
 }
 
-/** Whether the keyboard is up, from React Native's own events (D13: no new native code). */
-function useKeyboardUp() {
-  const [up, setUp] = useState(false)
-  useEffect(() => {
-    const show = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow'
-    const hide = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide'
-    const a = Keyboard.addListener(show, () => setUp(true))
-    const b = Keyboard.addListener(hide, () => setUp(false))
-    return () => { a.remove(); b.remove() }
-  }, [])
-  return up
-}
 
 /* ------------------------------------------------------------ a timed set */
 

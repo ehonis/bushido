@@ -1556,6 +1556,31 @@ export const firstUnticked = (pres, asWritten = false) =>
   (pres?.blocks || []).flatMap(b => b.items || []).find(it => !itemTicked(it, asWritten))?.id || null
 
 /**
+ * What doing mode does to one exercise card as a write lands (#94, B F2), from
+ * the card's `{ finished, focus }` before and after: the card just finished
+ * folds away (its head keeps the ✓ and the count), and the card that just
+ * became the next one to do opens and is scrolled to, so set 1 of the next
+ * exercise comes to the thumb instead of opening below the fold.
+ */
+export function doingMove(before = {}, after = {}) {
+  return {
+    fold: Boolean(after.finished && !before.finished),
+    reveal: Boolean(after.focus && !before.focus),
+  }
+}
+
+/**
+ * How far a plan being done on its sheet has got: sets ticked out of every set
+ * it holds (#94). The Today row says it ("4 of 18 sets", as a run under way does)
+ * once the first set is ticked and until the last, rather than what has been
+ * logged so far ("1 exercise · 1 set · 900 lb" over a plan of six).
+ */
+export function planProgress(pres, asWritten = false) {
+  const sets = (pres?.blocks || []).flatMap(b => b.items || []).flatMap(it => it.sets || [])
+  return { done: sets.filter(s => setTicked(s, asWritten)).length, total: sets.length }
+}
+
+/**
  * A blank lift row, for adding a movement the planner did not think of. It
  * starts on `defaultImplement` (the one last lifted with, else what the catalog
  * says, #93), in the weight mode the exercise was last logged in with it, as on

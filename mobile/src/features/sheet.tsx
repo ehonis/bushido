@@ -18,7 +18,7 @@ import { pushToast, dismissToast } from '../lib/toast'
 import { dayWords } from '../lib/dates.js'
 import { metaText } from './metaline'
 import { isDone, markDone } from '../lib/store.js'
-import { openTimerAfterSheet, timerRequestFor } from './timer'
+import { openTimer, timerRequestFor } from './timer'
 import { PrescriptionEditor } from './editor'
 import { PlanTalk } from './planner'
 import { usePlan } from '../lib/planctx.jsx'
@@ -108,6 +108,30 @@ export function SessionSheet({
   const [dirty, setDirty] = useState(false)
   // The name is its own layer now — a pencil beside the X. See DetailsSheet.
   const [renaming, setRenaming] = useState(false)
+  /*
+   * THE INTERVAL TIMER COMES BACK TO THIS SHEET (#94, F N2). iOS presents one
+   * modal at a time, so the row used to close the sheet and open the timer 450ms
+   * later, and closing the timer left Today: mid-lift, a rest timer cost the
+   * sheet. Now the sheet hides (`Modal hidden`, this component and its state stay
+   * mounted), the timer opens once it has slid away (`onHidden`, not a guessed
+   * delay), and closing the timer brings the sheet back where it was scrolled.
+   */
+  const [timing, setTiming] = useState(false)
+  const timerReq = useRef<any>(null)
+  const timerLate = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (timerLate.current) clearTimeout(timerLate.current) }, [])
+  const showTimer = () => {
+    if (timerLate.current) clearTimeout(timerLate.current)
+    const req = timerReq.current
+    timerReq.current = null
+    if (req) openTimer({ ...req, onReturn: () => setTiming(false) })
+  }
+  const askTimer = () => {
+    timerReq.current = timerRequestFor(opt, entry)
+    setTiming(true)
+    // `onDismiss` is how iOS says the sheet has gone; this is only in case it never does.
+    timerLate.current = setTimeout(showTimer, 900)
+  }
   const planned = Boolean(entry)
   const done = planned && isDone(entry)
   // The prescription, if this session has one. Its presence turns the sheet from
@@ -280,11 +304,14 @@ export function SessionSheet({
       dismissable={!dirty}
       onClose={onClose}
       /* The name, one layer up: a rename is a thing you do TO the session you are
-         looking at, so it belongs where the session's title is. */
-      onRename={planned && !isFuture && !sidePerson ? () => setRenaming(true) : null}
-      onDelete={onRemove && entry && !sidePerson ? () => onRemove(entry) : null}
-      deleteLabel="Remove workout"
+         looking at, so it belongs where the session's title is. Removing it is in
+         the same panel (#94, C N13), so the header is Edit and Close, and nothing
+         destructive sits beside the X. A day still to come has the panel too. */
+      onRename={planned && !sidePerson ? () => setRenaming(true) : null}
       footer={footer}
+      /* Away while the interval timer it opened is up, and back as it was (#94). */
+      hidden={timing}
+      onHidden={showTimer}
     >
       {/* Who is on it and how, behind the chip under the title. Owner-only; see sharedwith.tsx. */}
       {sharing.isOpen ? (
@@ -373,11 +400,11 @@ export function SessionSheet({
 
       {/* Any workout can use a clock; a card that declares one offers it as a
           preset. A tool, so a row at the foot of the sheet. One modal at a time
-          on iOS: the sheet goes, then the timer comes. */}
+          on iOS: the sheet steps aside, the timer comes, and the sheet comes back. */}
       {!isFuture && (planned || onLog) && opt.role !== 'rest' ? (
         <View style={st.tools}>
           <Row icon="Timer" label="Interval timer"
-            onPress={() => { const req = timerRequestFor(opt, entry); onClose(); openTimerAfterSheet(req) }} />
+            onPress={askTimer} />
         </View>
       ) : null}
 
@@ -389,6 +416,8 @@ export function SessionSheet({
              of max hangs. Driven by the discipline rather than by a list. */
           onTraining={onTraining}
           planTalk={planTalkWhere({ ai, doing }) === 'details' ? planTalk : null}
+          future={isFuture}
+          onRemove={onRemove && entry ? onRemove : null}
           onClose={() => setRenaming(false)} />
       )}
       </>)}

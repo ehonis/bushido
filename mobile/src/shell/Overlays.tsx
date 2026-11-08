@@ -14,7 +14,7 @@ import * as trainerLib from '../lib/trainer.js'
 
 export function Overlays() {
   const {
-    store, plan, fab, setFab, placeAll, keepPlan, startPlanned,
+    store, plan, fab, setFab, placeAll, keepPlan, startPlanned, setShowDay, setTab,
     menuFrom, viewDay, logAt, openLog, dayLabel,
     restOpt, restOn, restDate, askRest, takeRest, people, keepPlanFor, shareKeptWith,
   } = useApp()
@@ -67,6 +67,7 @@ export function Overlays() {
     return (
       <PlanFlow plan={plan} entries={store.entries} iso={localIso()} date={menuFrom === 'today' ? viewDay : null}
         onKeep={keepPlan} onStart={startPlanned} onClose={close}
+        onShowDay={(d: string) => { setShowDay({ date: d, seq: Date.now() }); setTab('today') }}
         people={people} onKeepFor={keepPlanFor} onShareWith={shareKeptWith}
         onStartFor={(person: any, entryId: string) => {
           setFab(null)

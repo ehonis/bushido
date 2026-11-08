@@ -30,13 +30,13 @@ import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeabl
 import { colors, font, mix, radius, space, TAP, height } from '../theme'
 import { T } from '../ui/Text'
 import { Btn, IconBtn, Input, Press } from '../ui/kit'
-import { Popover } from '../ui/Sheet'
+import { Popover, useSheetScroll } from '../ui/Sheet'
 import { showMenu } from '../ui/menu'
 import { impact, success, tap, warn } from '../ui/haptics'
 import { Icon } from '../lib/icons'
 import { pushToast, dismissToast } from '../lib/toast'
 import { NumInput } from './numinput'
-import { setFieldsFor, measureOfItem, timeBox, bumpTime, setTicked, itemTicked, setHasNumber } from '../lib/prescription.js'
+import { setFieldsFor, measureOfItem, timeBox, bumpTime, setTicked, itemTicked, setHasNumber, doingMove } from '../lib/prescription.js'
 import { acceptMinutesText, minutesText, numOrNull } from '../lib/numtext.js'
 import {
   searchExercises, implementsFor, lastLift, catalogOf, exerciseOf, muscleName, measureFor,
@@ -711,6 +711,20 @@ export function ExerciseCard({
     : item.line
   const fill: any[] = onFill && prior && !asWritten ? (lastTimeFill as any)(liftField, item, prior) : []
   const copyDown = onFill && !asWritten ? (s: any) => { impact(); copyDownWrite(item, s.id, (f) => fillNow.current?.(f), undefined, () => itemNow.current) } : null
+  /* Doing mode moves on with the workout (#94, B F2, lib/prescription.js
+     `doingMove`): finished, this card folds; next, it opens and the sheet scrolls to it. */
+  const root = useRef<View>(null)
+  const scrollTo = useSheetScroll()
+  const was = useRef({ finished, focus })
+  useEffect(() => {
+    const move: any = (doingMove as any)(was.current, { finished, focus })
+    was.current = { finished, focus }
+    if (!ticking) return undefined
+    if (move.fold) setOpen(false)
+    if (!move.reveal || !scrollTo) return undefined
+    const t = setTimeout(() => scrollTo(root.current), 120)
+    return () => clearTimeout(t)
+  }, [finished, focus, ticking, scrollTo])
 
   // A set whose every box now has a number is a set done: the success buzz.
   const patchSet = (s: any, patch: any) => {
@@ -736,7 +750,7 @@ export function ExerciseCard({
   const hasSwitches = Boolean(flip || meaning || count)
 
   const card = (
-    <View style={st.item}>
+    <View ref={root} style={st.item}>
       {/*
         * The whole head folds the card, as it always has: cards start folded,
         * so this is the tap made most. A movement out of the catalog also has

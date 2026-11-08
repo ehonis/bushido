@@ -188,7 +188,8 @@ content. It is the main defence for this codebase, and it has had to learn three
   `Sheet(no second route to a second session)`, `SessionLog(the name box is not in the
   form)`, `Sheet(a lift-only session offers no clock)`).
 - **A control that moved needs a test at its new address**, or the move is
-  indistinguishable from a deletion (`SessionSheet(rename and remove live in the header)`,
+  indistinguishable from a deletion (`SessionSheet(the header is Edit and Close…)` with
+  `DetailsSheet(Remove workout at its foot…)`,
   `SessionDetails(name, gear, just miles and time spent, all in one place)`). Pin moves
   from both sides.
 
@@ -1489,7 +1490,8 @@ Removed, each pinned absent: `FullScreenSession` (a third way to read a session)
 `AdjunctPills` (unused add-ons), the sheet's "MAIN/ADDED SESSION" strap, the sheet's own
 "log another" link (the + is the door; the day list's own dashed "Log another" button went
 too in #41, §10.9), the footer "remove"
-link (now a header bin with a confirmation), the name box in the form (now behind the
+link (a header bin with a confirmation, then since #94 a worded Remove workout at the foot
+of Edit this workout, §10.13), the name box in the form (now behind the
 pencil), boilerplate protocols on the two container cards (now a plain notes box), lift
 rest intervals, and the runner for lift-only sessions.
 
@@ -1714,6 +1716,35 @@ only; behaviour did not change. Pinned by `app/smoke/system.jsx` (and the cases 
   Done editing (`copy(one name per action…)`). The screen probe is under Troubleshooting.
 - `scripts/test.mjs` refuses a test file or a test-running script that no listed suite runs,
   whatever its name (it saw only `test:*` names).
+
+### 10.13 The sheet, regrade 1 (#94, 2026-11-08)
+
+The regrade's sheet findings, web and native, each pinned in `app/smoke/` (sheet, today,
+editor, timer, planner, people):
+
+- **Toasts start under the topmost header** on the web too (`toastTop` in `toast.jsx`, the
+  phone's `ToastHost top`): over a sheet the deck covered its X, and the toast's ✕ sat where
+  Close is. Every full-screen workout modal on the phone mounts its own `ToastHost`.
+- **The interval timer comes back to its sheet.** The phone hides the sheet (`Modal hidden`,
+  state kept), opens the timer on `onDismiss`, and brings the sheet back at its scroll
+  position on `onReturn` (`closeTimer`). The web's sheet stays under the timer. The setup's
+  X is at the top left, like every workout screen.
+- **Doing mode moves on** (`doingMove`): the exercise just finished folds, the next one is
+  scrolled into view (`useSheetScroll` on the phone).
+- **One tap has a way back**: a sheet opened on a workout a tap just wrote (quick log, a pick
+  in Log a workout) and closed with nothing on it says "Logged Walk" with Undo
+  (`placedUndoText`, `closeSheet` in DaySessions).
+- **Honest words**: note boxes hint ("Anything worth remembering"), never a climb written
+  out as if logged; one date format on a sheet (`dayWords`/`dayPhrase`); a plan in progress
+  on Today says "4 of 18 sets" (`planProgress`); an empty day to come offers "Plan a workout
+  for <day>"; the kept screen offers "See it on <day>" for a later day.
+- **Remove lives in Edit.** The sheet's header is Edit and Close; Remove workout is a worded
+  button at the foot of Edit this workout, which asks first and has no footer (its "Done"
+  was a Close, and the second "Done" on the sheet). The done chip is named by state and
+  action ("Done, mark undone").
+- **One sheet whichever door**: Sam's copy of a shared workout opened from Sam's day opens
+  the owner's own sheet on Sam's side (`ownerEntryFor`); anything else of theirs opens
+  `PersonEntrySheet`, which is their side's body (the doing editor, their history).
 
 ## 11. Before you finish
 

@@ -262,10 +262,11 @@ export function SessionSheet({
       dismissable={!dirty}
       onClose={onClose}
       /* The name, one layer up: a rename is a thing you do TO the session you are
-         looking at, so it belongs where the session's title is. */
-      onRename={planned && !isFuture && !sidePerson ? () => setRenaming(true) : null}
-      onDelete={onRemove && entry && !sidePerson ? () => onRemove(entry) : null}
-      deleteLabel="Remove workout"
+         looking at, so it belongs where the session's title is. Removing it is in
+         the same panel (#94, C N13), so the header is Edit and Close, and nothing
+         destructive sits beside the X. A day still to come has the panel too: its
+         name, and Remove. */
+      onRename={planned && !sidePerson ? () => setRenaming(true) : null}
       footer={footer}
     >
       {/* Whose copy this sheet is filling in, pinned while the sheet scrolls. Only on a shared workout. */}
@@ -380,6 +381,8 @@ export function SessionSheet({
              of max hangs. Driven by the discipline rather than by a list. */
           onTraining={onTraining}
           planTalk={planTalkWhere({ ai, doing }) === 'details' ? planTalk : null}
+          future={isFuture}
+          onRemove={onRemove && entry ? onRemove : null}
           onClose={() => setRenaming(false)} />
       )}
       </>)}

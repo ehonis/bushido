@@ -20,17 +20,22 @@ import { FullScreen, Modal } from './modal.jsx'
 import { WorkoutRunner } from './runner.jsx'
 import { WorkoutMode } from './workout.jsx'
 import { SessionLog } from './sessionlog.jsx'
-import { usePersonCopy, Avatar, PersonChip } from './sharedwith.jsx'
+import { usePersonCopy, Avatar, PersonChip, TheirSide } from './sharedwith.jsx'
+import { PrescriptionEditor } from './editor.jsx'
+import { usePlan } from './lib/planctx.jsx'
+import { liftFieldOf } from './lib/lifts.js'
+import { titleFor } from './lib/naming.js'
+import { dayWords as dayInWords } from './lib/dates.js'
 import { DoneChip, useDoneFlip, SheetStart } from './sheetparts.jsx'
 import * as peopleApi from './lib/peopleapi.js'
 import { optFor } from './lib/menu.js'
 import {
-  applyRun, applyOut, applyDone, canStart, dayOf, dayRow, runKind, plannedLine, toneFor, toggleFor, forWords, FOR_ME,
+  applyRun, applyOut, applyDone, applyPlan, canStart, dayOf, dayRow, runKind, plannedLine, toneFor, toggleFor, forWords, FOR_ME, ownerEntryFor,
   togetherSides, togetherWords, togetherNames, togetherPref, saveTogetherPref, shareCircuit,
   notePending, pendingFor, retryPending,
 } from './lib/trainer.js'
 import { isDone } from './lib/store.js'
-import { prescriptionSteps, runProgress, itemLine, prescriptionLine } from './lib/prescription.js'
+import { prescriptionSteps, runProgress, itemLine, prescriptionLine, runOf } from './lib/prescription.js'
 import { restClock, restPausedAt } from './lib/timer.js'
 import { fromIso, localIso, mondayOf, weekDays, shiftWeek } from './lib/dates.js'
 import { currentMe } from './lib/whoami.js'
@@ -359,7 +364,7 @@ const rowMeta = (r) => [r.running ? 'In progress' : r.done ? 'Done' : 'Not done 
  * "Sam's day", on Today: one row per person, the owner's way to see and open
  * someone's days without acting as them. Nothing for anyone else.
  */
-export function PeopleDays({ people = [], date, plan }) {
+export function PeopleDays({ people = [], date, plan, entries = [], onOpenShared = null }) {
   const [open, setOpen] = useState(null)
   const [seen, setSeen] = useState(0)
   if (!people.length) return null
@@ -375,6 +380,10 @@ export function PeopleDays({ people = [], date, plan }) {
       </section>
       {open && (
         <PersonDay person={{ ...open, tone: toneFor(people, open.id) }} date={date} plan={plan}
+          ownerEntries={entries}
+          /* A copy of one of the owner's workouts opens the owner's own sheet on
+             their side (#94, D N4), on Today, so this week steps out of the way. */
+          onOpenShared={onOpenShared ? (own, personId) => { setOpen(null); setSeen(n => n + 1); onOpenShared(own, personId) } : null}
           onClose={() => { setOpen(null); setSeen(n => n + 1) }} />
       )}
     </>
@@ -443,7 +452,7 @@ export function DayHead({ date, today = false, empty = false }) {
  * them, and a tap opens one. Read from their log on the server every time it
  * opens; edits go through that one entry.
  */
-export function PersonDay({ person, date = localIso(), plan, openId: initialOpen = null, onClose }) {
+export function PersonDay({ person, date = localIso(), plan, openId: initialOpen = null, onClose, ownerEntries = [], onOpenShared = null }) {
   const log = usePersonLog(person.id)
   const [monday, setMonday] = useState(() => mondayOf(date))
   const [openId, setOpenId] = useState(initialOpen)
@@ -451,6 +460,16 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
   const menu = (log.plan || plan)?.dailyMenu || []
   const today = localIso()
   const thisWeek = monday === mondayOf(today)
+  /* ONE SHEET WHICHEVER DOOR (#94, D N4). A copy of one of the owner's own
+     workouts is opened as the owner's sheet on this person's side, exactly as
+     from Today; anything else of theirs opens `PersonEntrySheet`, the same
+     their-side body. */
+  const open = (id) => {
+    const e = (log.entries || []).find(x => x.id === id)
+    const own = e?.data?.sharedFrom && onOpenShared ? ownerEntryFor(ownerEntries, person.id, id) : null
+    if (own) onOpenShared(own, person.id)
+    else setOpenId(id)
+  }
   const label = `${fromIso(monday).toLocaleDateString([], { month: 'short', day: 'numeric' })} – ` +
     `${fromIso(weekDays(monday)[6]).toLocaleDateString([], { month: 'short', day: 'numeric' })}`
 
@@ -480,7 +499,7 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
                 <div className="card pday-list">
                   <div className="list">
                     {rows.map(r => (
-                      <button key={r.id} type="button" className="list-row" onClick={() => setOpenId(r.id)}>
+                      <button key={r.id} type="button" className="list-row" onClick={() => open(r.id)}>
                         <span className={r.done ? 'pday-check on' : 'pday-check'}>
                           <Icon name={r.done ? 'CircleCheck' : 'Circle'} size={20} />
                         </span>
@@ -513,14 +532,18 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
 }
 
 /**
- * One of someone's sessions, opened by the owner: whose log it is (their
- * initial, in their colour), the plan, their form (no WHOOP or Strava; those are
- * the owner's accounts), and Start, which runs it from their side. Every write
- * goes to that one entry in their log. The same sheet parts as the owner's own
- * sheet (#80, sheetparts.jsx): done is the chip under the title, with Undo and
- * whose it was; the footer is Start or nothing. It had a footer of its own
- * ("Start for Sam" beside "Mark done for Sam", the lime primary when there was
- * nothing to start), the third style of footer for one workout.
+ * One of someone's sessions, opened by the owner from their week. THE SAME
+ * SHEET AS THEIR SIDE OF THE OWNER'S (#94, D N4): it was a third view of one
+ * workout (a read-only text list of the plan, the bare form, and "The last 2
+ * times YOU did this" over their history), where the owner's Today, switched to
+ * Sam, gave the doing-mode editor, ticks, and Sam's own "last time". Now a plan
+ * is that editor (`doing` on its day or after), the form and history are
+ * `TheirSide`'s, labelled with their name, and the header is the owner's sheet's:
+ * the title the plan gives it, the day, the done chip with Undo (#80,
+ * sheetparts.jsx), and Start (or Carry on) as the one footer action, which runs
+ * it from their side. Every write goes to that one entry in their log. A copy of
+ * one of the owner's own workouts does not come here at all: `PersonDay` opens
+ * the owner's sheet on their side.
  */
 export function PersonEntrySheet({ person, entryId, menu = [], entries = [], onClose }) {
   const copy = usePersonCopy(person.id, entryId, person.name)
@@ -540,50 +563,48 @@ export function PersonEntrySheet({ person, entryId, menu = [], entries = [], onC
   return (
     <PersonEntryView person={person} entry={e} opt={opt} entries={entries} loading={copy.loading} error={copy.error}
       onFlip={flip} onStart={kind ? () => setRunning(true) : null} onClose={onClose}
-      onSave={(out) => copy.update(cur => applyOut(cur, opt, out))} />
+      onSave={(out) => copy.update(cur => applyOut(cur, opt, out))}
+      onSavePlan={(next) => copy.update(cur => applyPlan(cur, opt, next))} />
   )
 }
 
 /**
  * `PersonEntrySheet` as drawn, from an entry already read: pure, so the smoke
- * suite can pin its header and footer without a server. `onStart` is null when
- * there is nothing to run.
+ * suite can pin its header, body and footer without a server. `onStart` is null
+ * when there is nothing to run.
  */
-export function PersonEntryView({ person, entry: e, opt, entries = [], loading = false, error = null, onFlip, onStart = null, onSave, onClose, today = localIso(), me = currentMe() }) {
+export function PersonEntryView({
+  person, entry: e, opt, entries = [], loading = false, error = null, onFlip, onStart = null, onSave,
+  onSavePlan = null, onClose, today = localIso(), me = currentMe(),
+}) {
   const tone = person.tone ?? 1
   const live = Boolean(e && !e.deleted)
-  const pres = e?.data?.plan || null
+  const pres = live ? e.data?.plan || null : null
+  const future = Boolean(e?.date && e.date > today)
   const start = Boolean(live && onStart && canStart(e))
   const by = e ? plannedLine(e, me) : null
+  const thePlan = usePlan()
+  const liftField = liftFieldOf(thePlan)
+  const title = (opt && titleFor(opt, e?.data?.out, pres)) || e?.data?.name || opt?.name || 'Session'
+  const sub = [e?.date ? dayInWords(e.date) : null, pres ? prescriptionLine(pres).split(' · ')[0] || null : null]
+    .filter(Boolean).join(' · ') || `${person.name}’s log`
   return (
-    <Modal title={e?.data?.name || opt?.name || 'Session'} sub={e?.date ? dayWords(e.date) : `${person.name}’s log`} icon="Users" onClose={onClose}
+    <Modal title={title} sub={sub} icon="Users" onClose={onClose}
       /* A day still to come has no done state to flip, as on the owner's sheet. */
-      status={live && e.date <= today ? <DoneChip done={isDone(e)} whose={person.name} onToggle={onFlip} /> : null}
-      footer={start ? <SheetStart label={`Start for ${person.name}`} onStart={onStart} /> : null}>
+      status={live && !future ? <DoneChip done={isDone(e)} whose={person.name} onToggle={onFlip} /> : null}
+      footer={start ? <SheetStart label={runOf(e)?.startedAt ? 'Carry on' : 'Start workout'} onStart={onStart} /> : null}>
       <p className="forline" data-tone={tone}>
         <Avatar name={person.name} tone={tone} small />
         <span><strong>{person.name}&rsquo;s log</strong>{by ? ` · ${by}` : ''}</span>
       </p>
-      {loading && <p className="sub">Opening {person.name}&rsquo;s log…</p>}
-      {error && <p className="withrow-err">{error}</p>}
-      {live && (
-        <>
-          {pres && (
-            <div className="pday-plan">
-              <p className="sub">{prescriptionLine(pres)}</p>
-              {(pres.blocks || []).map(b => (
-                <div key={b.id} className="pday-block">
-                  <strong>{b.name}</strong>
-                  {(b.items || []).map(it => <span key={it.id} className="sub">{it.name} · {itemLine(it)}</span>)}
-                  {!b.items?.length && b.note && <span className="sub">{b.note}</span>}
-                </div>
-              ))}
-            </div>
-          )}
-          {opt && <SessionLog session={opt} entry={e} entries={entries} measured={false} defaultOpen onSave={onSave} />}
-        </>
-      )}
-      {e?.deleted && <p className="sub">This session is not in {person.name}&rsquo;s log any more.</p>}
+      {e?.deleted ? <p className="sub">This session is not in {person.name}&rsquo;s log any more.</p> : opt || loading ? (
+        <TheirSide session={opt} copy={e} loading={loading} error={error} person={person} entries={entries} onSave={onSave}
+          plan={pres && (
+            <PrescriptionEditor pres={pres} liftField={liftField} entries={entries} entryId={e?.id}
+              categories={thePlan?.quotaCategories || []} onChange={(next) => onSavePlan?.(next)} compact
+              doing={!future} asWritten={Boolean(e?.date && e.date < today && isDone(e))} />
+          )} />
+      ) : error ? <p className="withrow-err">{error}</p> : null}
     </Modal>
   )
 }

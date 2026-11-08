@@ -352,6 +352,16 @@ button.btn.how-got {
   min-height: 76px; resize: vertical; line-height: 1.5;
   font-family: inherit;
 }
+/* A hint, not something written (#94): label-sized and faint, so an empty box
+   never reads as a note already logged. */
+.notefield textarea::placeholder { font-size: var(--fs-label); }
+
+/* Doing mode brings the next exercise into view (#94): a little air above it. */
+.presc.doing .presc-item { scroll-margin-top: var(--sp-3); }
+
+/* Edit this workout: Remove at its foot, worded, apart from everything (#94). */
+.details-remove { margin-top: var(--sp-6); padding-top: var(--sp-4); border-top: 1px solid var(--line); }
+.btn.secondary.details-remove-btn { width: 100%; color: var(--bad); }
 
 /* The previous time you did this session, shown BEFORE you do it again —
    "what to improve" is only worth writing if you see it while you can act. */

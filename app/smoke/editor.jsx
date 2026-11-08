@@ -41,6 +41,24 @@ const lastTimeFillOf = (prior) => lastTimeFill(LIFT_FIELD, { kind: 'lift', imple
 
 export default [
   /*
+   * DOING MODE MOVES ON (#94, B F2): ticking an exercise's last set left it open
+   * and opened the next below the fold. The card just finished folds and the
+   * next is scrolled to (`doingMove`, an effect SSR cannot run, so the wiring is
+   * pinned on both platforms).
+   */
+  ['ExerciseCard(doing: the finished card folds, the next is scrolled into view, web and phone)', null, () => {
+    const web = readFileSync(new URL('../src/exercises.jsx', import.meta.url), 'utf8')
+    if (!/doingMove\(was\.current, \{ finished, focus \}\)/.test(web) || !/if \(move\.fold\) setOpen\(false\)/.test(web) || !/scrollIntoView/.test(web)) {
+      throw new Error('the web card does not fold and bring the next into view')
+    }
+    const phone = readFileSync(new URL('../../mobile/src/features/exercises.tsx', import.meta.url), 'utf8')
+    if (!/doingMove as any\)\(was\.current, \{ finished, focus \}\)/.test(phone) || !/if \(move\.fold\) setOpen\(false\)/.test(phone) || !/scrollTo\(root\.current\)/.test(phone)) {
+      throw new Error('the phone card does not fold and scroll to the next')
+    }
+    const css = readFileSync(new URL('../src/css/sheet.css', import.meta.url), 'utf8')
+    if (!/\.presc\.doing \.presc-item \{ scroll-margin-top/.test(css)) throw new Error('the next card lands flush under the edge')
+  }],
+  /*
    * The picker itself, which the log used to own and now shares. Its group chips
    * had to survive the merge: tapping one SEARCHES for the group, so browsing and
    * searching are one mechanism, and the planner's version never had them.

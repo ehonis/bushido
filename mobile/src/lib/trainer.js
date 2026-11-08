@@ -748,3 +748,15 @@ export async function retryPending({ storage, ownerEntry, readPerson, putPerson,
   }
   return pendingFor(storage, ownerEntry)
 }
+
+/**
+ * The owner's own entry a copy in someone's log is the other side of (#94, D
+ * N4): the live daily entry whose `sharedWith` links that person to that copy,
+ * or null. Opening Sam's copy from Sam's day then opens the owner's sheet on
+ * Sam's side, the same sheet as from Today, not a third view of one workout.
+ */
+export function ownerEntryFor(entries = [], personId, copyId) {
+  if (!personId || !copyId) return null
+  return (entries || []).find(e => e && !e.deleted && e.kind === 'daily'
+    && (e.data?.sharedWith || []).some(l => l?.id === personId && l?.entryId === copyId)) || null
+}

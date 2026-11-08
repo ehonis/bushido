@@ -7,7 +7,7 @@ import {
   planPeople, placeEntries, plannedEntriesFor, keepPlanFor, plannedLine,
   applyOut, applyRun, applyPlan, applyDone, canStart, workoutSides, toneFor, dayOf, dayRow, runKind,
   FOR_ME, toggleFor, forOf, whoOfDraft, forWords, namesOf, isGroup, forSomeoneElse, plannedItems, shareKept, keepForEach,
-  keepKeyFor, withoutLoads,
+  keepKeyFor, withoutLoads, ownerEntryFor,
 } from './src/lib/trainer.js'
 import { groupContext, plannerContext } from './src/lib/plannerapi.js'
 import { splitPrescription, normalizePrescription, runOutputs, patchItem } from './src/lib/prescription.js'
@@ -364,6 +364,19 @@ test('a plan kept for today is written not done; a workout logged today is done 
   assert.equal(after.data.done, true, 'a plan put on an earlier day is logging after the fact')
   const [logged] = placeEntries({ menu, date: '2026-10-08', today: '2026-10-08', items: [{ optId: 'log-workout', data: { out: { activity: 'run' } } }] })
   assert.equal(logged.data.done, true, 'a workout logged today was not done at once')
+})
+
+/* #94, D N4: Sam's copy opened from Sam's day opens the owner's own sheet on Sam's side. */
+test('ownerEntryFor: the owner entry whose sharedWith links that person to that copy', () => {
+  const own = { id: 'daily-2026-11-08', kind: 'daily', date: '2026-11-08', data: { sharedWith: [{ id: 'sam', entryId: 'daily-2026-11-08-2', sync: true }] } }
+  const other = { id: 'daily-2026-11-07', kind: 'daily', date: '2026-11-07', data: { sharedWith: [{ id: 'robin', entryId: 'daily-2026-11-08-2' }] } }
+  const gone = { ...own, id: 'daily-2026-11-06', deleted: true }
+  const entries = [gone, other, own]
+  assert.equal(ownerEntryFor(entries, 'sam', 'daily-2026-11-08-2'), own)
+  assert.equal(ownerEntryFor(entries, 'sam', 'daily-2026-11-08'), null, 'another copy of Sam\'s is not this one')
+  assert.equal(ownerEntryFor([gone], 'sam', 'daily-2026-11-08-2'), null, 'a removed workout is not the other side')
+  assert.equal(ownerEntryFor(entries, 'robin', 'daily-2026-11-08-2'), other)
+  assert.equal(ownerEntryFor(entries, null, 'x'), null)
 })
 
 let failed = 0

@@ -15,6 +15,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Modal as RNModal, StyleSheet, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import ToastHost from '../ui/ToastHost'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { colors, font, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
@@ -27,13 +28,18 @@ import { Icon } from '../lib/icons'
 import { WorkoutRunner } from './runner'
 import { WorkoutMode } from './workout'
 import { SessionLog } from './sessionlog'
-import { usePersonCopy, Avatar, PersonChip, PersonSegmented } from './sharedwith'
+import { usePersonCopy, Avatar, PersonChip, PersonSegmented, TheirSide } from './sharedwith'
+import { PrescriptionEditor } from './editor'
+import { usePlan } from '../lib/planctx.jsx'
+import { liftFieldOf } from '../lib/lifts.js'
+import { titleFor } from '../lib/naming.js'
+import { dayWords as dayInWords } from '../lib/dates.js'
 import { DoneChip, useDoneFlip, SheetStart } from './sheetparts'
 import * as peopleApi from '../lib/peopleapi.js'
 import { optFor } from '../lib/menu.js'
 import * as trainerLib from '../lib/trainer.js'
 import { isDone } from '../lib/store.js'
-import { prescriptionSteps, runProgress, itemLine, prescriptionLine } from '../lib/prescription.js'
+import { prescriptionSteps, runProgress, itemLine, prescriptionLine, runOf } from '../lib/prescription.js'
 import { restClock, restPausedAt } from '../lib/timer.js'
 import { fromIso, localIso, mondayOf, weekDays, shiftWeek } from '../lib/dates.js'
 import { currentMe } from '../lib/whoami.js'
@@ -43,7 +49,7 @@ type Side = { id: string | null; name: string; entryId: string | null; tone: num
 
 // Default parameters in the ported JS narrow TypeScript's inference; cast here
 // rather than edit the copied file (mobile/AGENTS.md).
-const { applyRun, applyOut, applyDone, canStart, dayOf, dayRow, runKind, plannedLine, toneFor, toggleFor, forWords, FOR_ME } = trainerLib as any
+const { applyRun, applyOut, applyDone, applyPlan, canStart, dayOf, dayRow, runKind, plannedLine, toneFor, toggleFor, forWords, FOR_ME, ownerEntryFor } = trainerLib as any
 const { togetherSides, togetherWords, togetherNames, togetherPref, saveTogetherPref, shareCircuit, notePending, pendingFor, retryPending } = trainerLib as any
 
 /** Who a plan is for (lib/trainer.js): the owner, and anyone else picked. */
@@ -312,6 +318,8 @@ export function SidesWorkout({
             )
           })}
         </View>
+        {/* This screen's own toasts: iOS draws it above the root's host (#94, F N6). */}
+        <ToastHost />
       </GestureHandlerRootView>
     </RNModal>
   )
@@ -363,7 +371,11 @@ const rowMeta = (r: any) => [r.running ? 'In progress' : r.done ? 'Done' : 'Not 
   .filter(Boolean).join(' · ')
 
 /** "Sam's day", on Today: a card with one row per person, the owner's way into someone's days without acting as them. */
-export function PeopleDays({ people = [], date, plan }: { people?: Person[]; date: string; plan: any }) {
+export function PeopleDays({ people = [], date, plan, entries = [], onOpenShared = null }: {
+  people?: Person[]; date: string; plan: any
+  entries?: any[]
+  onOpenShared?: ((own: any, personId: string) => void) | null
+}) {
   const [open, setOpen] = useState<Person | null>(null)
   const [seen, setSeen] = useState(0)
   if (!people.length) return null
@@ -377,6 +389,10 @@ export function PeopleDays({ people = [], date, plan }: { people?: Person[]; dat
       </Card>
       {open ? (
         <PersonDay person={{ ...open, tone: toneFor(people, open.id) }} date={date} plan={plan}
+          ownerEntries={entries}
+          /* A copy of one of the owner's workouts opens the owner's own sheet on
+             their side (#94, D N4), on Today, so this week steps out of the way. */
+          onOpenShared={onOpenShared ? (own: any, personId: string) => { setOpen(null); setSeen((n) => n + 1); onOpenShared(own, personId) } : null}
           onClose={() => { setOpen(null); setSeen((n) => n + 1) }} />
       ) : null}
     </>
@@ -422,7 +438,9 @@ function PersonDayRow({ person, tone, date, plan, seen, first, onOpen }: {
 }
 
 /** Someone's week, read-only, from their log on the server; a tap opens one session. */
-export function PersonDay({ person, date = localIso(), plan, openId: initialOpen = null, onClose }: {
+export function PersonDay({ person, date = localIso(), plan, openId: initialOpen = null, onClose, ownerEntries = [], onOpenShared = null }: {
+  ownerEntries?: any[]
+  onOpenShared?: ((own: any, personId: string) => void) | null
   person: Person
   date?: string
   plan: any
@@ -439,6 +457,15 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
   const c = toneColor(tone)
   const label = `${fromIso(monday).toLocaleDateString([], { month: 'short', day: 'numeric' })} – ` +
     `${fromIso(weekDays(monday)[6]).toLocaleDateString([], { month: 'short', day: 'numeric' })}`
+  /* ONE SHEET WHICHEVER DOOR (#94, D N4): a copy of one of the owner's own
+     workouts opens as the owner's sheet on this person's side, exactly as from
+     Today; anything else of theirs opens `PersonEntrySheet`, the same their-side body. */
+  const openRow = (id: string) => {
+    const e = (log.entries || []).find((x: any) => x.id === id)
+    const own = e?.data?.sharedFrom && onOpenShared ? ownerEntryFor(ownerEntries, person.id, id) : null
+    if (own) onOpenShared!(own, person.id)
+    else setOpenId(id)
+  }
 
   return (
     <FullScreen title={`${person.name}’s week`} sub={label} icon="Users" onBack={onClose}>
@@ -467,7 +494,7 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
             {rows.length ? (
               <Card style={[st.listCard, { marginBottom: 0 }]}>
                 {rows.map((r: any, j: number) => (
-                  <Press key={r.id} haptic onPress={() => setOpenId(r.id)} accessibilityRole="button" style={[kit.row, j > 0 && st.divider]}>
+                  <Press key={r.id} haptic onPress={() => openRow(r.id)} accessibilityRole="button" style={[kit.row, j > 0 && st.divider]}>
                     <Icon name={r.done ? 'CircleCheck' : 'Circle'} size={20} color={r.done ? colors.vizGood : colors.inkFaint} />
                     <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                       <T size={font.body} weight={500} numberOfLines={1}>{r.name}</T>
@@ -495,9 +522,14 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
 }
 
 /**
- * One of someone's sessions, opened by the owner. Every write goes to that one
- * entry in their log. Done is the default once its day arrives, so the footer
- * offers the exception: Mark undone, or Mark done on one that was undone.
+ * One of someone's sessions, opened by the owner from their week. THE SAME
+ * SHEET AS THEIR SIDE OF THE OWNER'S (#94, D N4), the web's PersonEntrySheet: a
+ * plan is the doing-mode editor, the form and history are `TheirSide`'s,
+ * labelled with their name, and the header is the owner's sheet's (the plan's
+ * title, the day, the done chip with Undo, Start or Carry on as the one footer
+ * action). It was a third view: a text list of the plan, the bare form, and
+ * "The last 2 times you did this" over their history. Every write goes to that
+ * one entry in their log.
  */
 export function PersonEntrySheet({ person, entryId, menu = [], entries = [], onClose }: {
   person: Person
@@ -511,6 +543,8 @@ export function PersonEntrySheet({ person, entryId, menu = [], entries = [], onC
   // Written through this sheet's queue, so the toast goes with the sheet (sheetparts.tsx).
   const flip = useDoneFlip({ read: () => copy.entry, whose: person.name, write: (v: any) => { void copy.update((cur: any) => applyDone(cur, v)) } })
   const me = currentMe()
+  const thePlan: any = usePlan()
+  const liftField = (liftFieldOf as any)(thePlan)
   const e = copy.entry
   const opt = e ? optFor(menu, e.data?.optId) : null
   const kind = e && opt ? runKind(e, opt) : null
@@ -523,47 +557,36 @@ export function PersonEntrySheet({ person, entryId, menu = [], entries = [], onC
     )
   }
 
-  /* The same sheet parts as the owner's own sheet (#80, sheetparts.tsx): done is the
-     chip under the title, with Undo and whose it was; the footer is Start or nothing.
-     It had a footer of its own (Start for Sam beside Mark done for Sam), the third
-     style of footer for one workout. A day still to come has no done state to flip. */
+  const today = localIso()
   const live = Boolean(e && !e.deleted)
-  const pres = e?.data?.plan || null
+  const pres = live ? e.data?.plan || null : null
+  const future = Boolean(e?.date && e.date > today)
   const start = Boolean(live && kind && canStart(e))
   const by = e ? plannedLine(e, me) : null
+  const title = (opt && (titleFor as any)(opt, e?.data?.out, pres)) || e?.data?.name || opt?.name || 'Session'
+  const sub = [e?.date ? dayInWords(e.date) : null, pres ? prescriptionLine(pres).split(' · ')[0] || null : null]
+    .filter(Boolean).join(' · ') || `${person.name}’s log`
   return (
-    <Modal title={e?.data?.name || opt?.name || 'Session'} sub={e?.date ? dayWords(e.date) : `${person.name}’s log`} icon="Users" onClose={onClose}
-      status={live && e.date <= localIso() ? <DoneChip done={isDone(e)} whose={person.name} onToggle={flip} /> : null}
-      footer={start ? <SheetStart label={`Start for ${person.name}`} onStart={() => setRunning(true)} /> : null}>
+    <Modal title={String(title)} sub={sub} icon="Users" onClose={onClose}
+      /* A day still to come has no done state to flip, as on the owner's sheet. */
+      status={live && !future ? <DoneChip done={isDone(e)} whose={person.name} onToggle={flip} /> : null}
+      footer={start ? <SheetStart label={(runOf as any)(e)?.startedAt ? 'Carry on' : 'Start workout'} onStart={() => setRunning(true)} /> : null}>
       <View style={[st.forLine, { borderLeftColor: toneColor(tone) }]}>
         <Avatar name={person.name} tone={tone} size={22} />
         <T size={font.label} dim style={{ flex: 1 }}>
           <T size={font.label} weight={600}>{`${person.name}’s log`}</T>{by ? ` · ${by}` : ''}
         </T>
       </View>
-      {copy.loading ? <Spinner label={`Opening ${person.name}’s log…`} /> : null}
-      {copy.error ? <T size={font.label} color={colors.bad}>{copy.error}</T> : null}
-      {e && !e.deleted ? (
-        <>
-          {pres ? (
-            <View style={{ marginBottom: space[3], gap: space[2] }}>
-              <Sub>{prescriptionLine(pres)}</Sub>
-              {(pres.blocks || []).map((b: any) => (
-                <View key={b.id} style={{ gap: 2 }}>
-                  <T size={font.body} weight={600}>{b.name}</T>
-                  {(b.items || []).map((it: any) => <Sub key={it.id}>{`${it.name} · ${itemLine(it)}`}</Sub>)}
-                  {!b.items?.length && b.note ? <Sub>{b.note}</Sub> : null}
-                </View>
-              ))}
-            </View>
-          ) : null}
-          {opt ? (
-            <SessionLog session={opt} entry={e} entries={entries} measured={false} defaultOpen
-              onSave={(out: any) => copy.update((cur: any) => applyOut(cur, opt, out))} />
-          ) : null}
-        </>
-      ) : null}
-      {e?.deleted ? <Sub>{`This session is not in ${person.name}’s log any more.`}</Sub> : null}
+      {e?.deleted ? <Sub>{`This session is not in ${person.name}’s log any more.`}</Sub> : opt || copy.loading ? (
+        <TheirSide session={opt} copy={e} loading={copy.loading} error={copy.error} person={person} entries={entries}
+          onSave={(out: any) => copy.update((cur: any) => applyOut(cur, opt, out))}
+          plan={pres ? (
+            <PrescriptionEditor pres={pres} liftField={liftField} entries={entries} entryId={e?.id}
+              categories={thePlan?.quotaCategories || []} compact
+              onChange={(next: any) => { void copy.update((cur: any) => applyPlan(cur, opt, next)) }}
+              doing={!future} asWritten={Boolean(e?.date && e.date < today && isDone(e))} />
+          ) : null} />
+      ) : copy.error ? <T size={font.label} color={colors.bad}>{copy.error}</T> : null}
     </Modal>
   )
 }

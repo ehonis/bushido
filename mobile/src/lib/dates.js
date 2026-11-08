@@ -64,3 +64,12 @@ export function dayWords(iso, today = localIso()) {
   if (offset === 1) return 'Tomorrow'
   return fromIso(iso).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
 }
+
+/**
+ * The same day inside a sentence: "last time (yesterday)", "last time (Sat, Oct 24)".
+ * One format on a sheet (#94): it read "2026-11-07", "yesterday" and "2026-10-20".
+ */
+export function dayPhrase(iso, today = localIso()) {
+  const words = dayWords(iso, today)
+  return /^(Today|Yesterday|Tomorrow)$/.test(words) ? words.toLowerCase() : words
+}

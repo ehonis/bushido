@@ -29,7 +29,7 @@
 // swipeable set row or a slider inside a sheet silently does nothing. Context
 // (the store, the plan, WHOOP, Strava) still flows through, since a Modal is
 // in the same React tree.
-import React, { useCallback, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { Dimensions, KeyboardAvoidingView, Modal as RNModal, Platform, ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -61,10 +61,18 @@ function TitleIcon({ icon, tone }: { icon: string; tone?: string }) {
   )
 }
 
+/**
+ * Scrolls the open sheet's body to a view inside it (doing mode's next exercise,
+ * #94). Null outside a sheet, so a caller with nowhere to scroll does nothing.
+ */
+export const SheetScroll = createContext<((node: any) => void) | null>(null)
+export const useSheetScroll = () => useContext(SheetScroll)
+
 export function Modal({
   title, sub, status = null, icon, tone, onClose, onRename = null, onDelete = null,
   deleteLabel = 'Remove this session', deleteBody = null,
   dismissable = true, footer, children, scroll = true, bodyStyle,
+  hidden = false, onHidden,
 }: {
   title: string
   sub?: React.ReactNode
@@ -83,8 +91,30 @@ export function Modal({
   /** False when the body is its own list (a FlatList) and must not be wrapped in a ScrollView. */
   scroll?: boolean
   bodyStyle?: StyleProp<ViewStyle>
+  /**
+   * Put away for a moment and brought back as it was (#94, F N2): the session
+   * sheet while the interval timer it opened is up, because iOS presents one
+   * modal at a time. The caller's state stays (this component stays mounted);
+   * the body comes back at the scroll position it left. `onHidden` runs once the
+   * sheet has slid away, which is when the next modal can be presented.
+   */
+  hidden?: boolean
+  onHidden?: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
+  // Where the body was scrolled, kept across `hidden` (the native modal drops its
+  // children while it is away); `back` is the offset to come back at.
+  const scrollY = useRef(0)
+  const scrollRef = useRef<ScrollView>(null)
+  const [back, setBack] = useState(0)
+  useEffect(() => { if (hidden) setBack(scrollY.current) }, [hidden])
+  const offset = useMemo(() => ({ x: 0, y: back }), [back])
+  const scrollTo = useCallback((node: any) => {
+    const sv: any = scrollRef.current
+    const inner = sv?.getInnerViewRef?.()
+    if (!sv || !inner || !node?.measureLayout) return
+    node.measureLayout(inner, (_x: number, y: number) => sv.scrollTo({ y: Math.max(0, y - space[3]), animated: true }), () => {})
+  }, [])
   // A page sheet starts below the top of the screen, but KeyboardAvoidingView
   // measures the keyboard against its own frame from y=0, so without this the
   // footer and the last field stay that far under the keyboard.
@@ -115,13 +145,15 @@ export function Modal({
 
   return (
     <RNModal
-      visible
+      visible={!hidden}
       animationType="slide"
       presentationStyle="pageSheet"
       allowSwipeDismissal={canSwipe}
       onRequestClose={() => { if (canSwipe) onClose() }}
+      onDismiss={hidden ? onHidden : undefined}
     >
       <SheetDirty.Provider value={markDirty}>
+      <SheetScroll.Provider value={scrollTo}>
       <GestureHandlerRootView style={{ flex: 1 }} onLayout={(e) => setSheetTop(Math.max(0, Dimensions.get('window').height - e.nativeEvent.layout.height))}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={sheetTop} style={st.sheet}>
         {/* THE HEADER (#82, from #91's review): one title row that never wraps its
@@ -151,10 +183,14 @@ export function Modal({
         </View>
         {scroll || confirming ? (
           <ScrollView
+            ref={scrollRef}
             style={{ flex: 1 }}
             contentContainerStyle={[{ padding: space[4], paddingBottom: showFoot ? 16 : typing ? 24 : insets.bottom + 24 }, bodyStyle]}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
+            contentOffset={offset}
+            onScroll={(e) => { scrollY.current = e.nativeEvent.contentOffset.y }}
+            scrollEventThrottle={64}
           >
             {body}
           </ScrollView>
@@ -166,6 +202,7 @@ export function Modal({
       {/* This sheet's own toasts: iOS draws it above the root, and the root's host. */}
       <ToastHost top={headH + space[2]} />
       </GestureHandlerRootView>
+      </SheetScroll.Provider>
       </SheetDirty.Provider>
     </RNModal>
   )

@@ -502,13 +502,45 @@ export default [
         </PlanProvider>)
         const html = draw({})
         const status = html.slice(html.indexOf('class="modal-status"'), html.indexOf('class="modal-body'))
-        if (!/class="done-chip on" role="switch" aria-checked="true" aria-label="Sam: Done"/.test(status)) throw new Error('no done chip under the title')
+        if (!/class="done-chip on" role="switch" aria-checked="true" aria-label="Sam: Done, mark undone"/.test(status)) throw new Error('no done chip under the title')
         if (/Mark undone|Mark done for/.test(text(html).replace(/<[^>]+>/g, ' ')) || /aria-pressed/.test(html)) throw new Error('the old done button is back')
         if (/modal-foot|sheet-foot/.test(html)) throw new Error('a footer with nothing to start')
         const started = draw({ onStart: noop })
-        if (!/class="sheet-foot"><button type="button" class="btn">.*Start for Sam/.test(started)) throw new Error('Start is not the one footer action')
+        // The owner's sheet's words (#94, D N4): Start workout, not a third "Start for Sam".
+        if (!/class="sheet-foot"><button type="button" class="btn">.*Start workout/.test(started) || /Start for Sam/.test(started)) throw new Error('Start is not the one footer action, in the sheet\u2019s words')
         const later = { ...done, date: '2999-01-01' }
         if (/done-chip/.test(draw({ entry: later }))) throw new Error('a done chip on a day still to come')
+      }],
+      /*
+       * ONE SHEET WHICHEVER DOOR (#94, D N4). Sam's planned session opened from
+       * Sam's day was a third view: a text list of the plan, the bare form, and
+       * "The last 2 times you did this" over Sam's history. It is now their side
+       * of the owner's sheet: the doing-mode editor with a ✓ per set, Sam's own
+       * "last time" and history labelled with Sam's name, and the plan's title.
+       */
+      ['PersonEntryView(their planned session is their side of the owner\'s sheet: the doing editor, their history)', null, () => {
+        const lf = liftFieldOf(plan)
+        const ex = lf.exercises[0]
+        const plannedOpt = plan.dailyMenu.find(m => m.id === 'planned')
+        const pres = { title: 'Legs', blocks: [{ id: 'b0', name: 'Main', items: [{ id: 'b0i0', uid: 'x1', kind: 'lift', name: ex.name, exercise: ex.key,
+          sets: [{ id: 'b0i0s0', reps: 10, weight: 55 }, { id: 'b0i0s1', reps: 10, weight: 55 }] }] }] }
+        const mine = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
+          data: { optId: 'planned', name: 'Planned workout', done: false, plan: pres, out: {}, plannedBy: { id: 'owner', name: 'Alex' } } }
+        const earlier = { id: 'daily-2026-01-02', kind: 'daily', date: '2026-01-02', data: { optId: 'planned', done: true, plan: { title: 'Legs', blocks: [] },
+          out: { lifts: [{ uid: `${ex.key}-1`, key: ex.key, name: ex.name, sets: [{ reps: '8', weight: '40' }] }] } } }
+        const html = renderToString(<PlanProvider plan={plan}>
+          <PersonEntryView person={{ id: 'sam', name: 'Sam', tone: 1 }} entry={mine} opt={plannedOpt} entries={[earlier]}
+            onFlip={noop} onSave={noop} onSavePlan={noop} onClose={noop} today={TODAY} me={ownerMe} />
+        </PlanProvider>)
+        const t = text(html).replace(/<[^>]+>/g, ' ')
+        if (!/class="presc compact doing"/.test(html)) throw new Error('the plan is not the doing-mode editor')
+        if (!/presc-tick/.test(html)) throw new Error('no ✓ per set on their side')
+        if (/pday-plan|pday-block/.test(html)) throw new Error('the read-only text list of the plan is back')
+        if (!/Last time Sam did this/.test(t) || /times you did this|Last time you did/.test(t)) throw new Error('their history is labelled as yours')
+        if (!t.includes(`Last time · ${dayWords('2026-01-02')}`)) throw new Error('no last time from Sam\u2019s log')
+        const title = (html.match(/<div class="modal-title">([^<]*)<\/div>/) || [])[1]
+        if (title !== 'Legs') throw new Error(`titled "${title}", not by its plan`)
+        if (!/Everything here goes in Sam/.test(t)) throw new Error('not their side\u2019s words')
       }],
       ['people.css(no small capitals, and every font size on the type scale)', null, () => {
         const css = readFileSync(new URL('../src/css/people.css', import.meta.url), 'utf8')

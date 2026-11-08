@@ -123,7 +123,9 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
   nothing installed can beep without a native change).
 - **The interval timer** (`features/timer.tsx`, `lib/timer.js` copied byte for byte) is mounted
   once as `TimerHost` in `app/(tabs)/_layout.tsx`. iOS presents one modal at a time, so the
-  session sheet and the + menu close first and call `openTimerAfterSheet`.
+  + menu closes first and calls `openTimerAfterSheet`; the session sheet steps aside instead
+  (`Modal hidden`, its state kept), opens the timer on `onDismiss` and comes back where it was
+  scrolled when the timer closes (`openTimer({ onReturn })`, #94).
   Its `TimerRun` is exported for circuits (#68): the runner renders it inside its own frame
   for a plan's circuit block (`CircuitRun` in `features/runner.tsx`), and `features/circuit.tsx`
   is the web's `circuit.jsx`, the one circuit editor for the planner and the timer setup.

@@ -34,7 +34,7 @@ import { usePlan } from './lib/planctx.jsx'
 import { ForChoice, ForLine, usePeopleLogs } from './trainer.jsx'
 import { FOR_ME, forWords, forSomeoneElse, namesOf } from './lib/trainer.js'
 import { liftFieldOf } from './lib/lifts.js'
-import { fromIso, isoShift, dayWords } from './lib/dates.js'
+import { fromIso, isoShift, dayWords, dayPhrase } from './lib/dates.js'
 import { usePlanFlow, hasWork, dayBounds, DEFAULT_MINUTES } from './lib/planflow.js'
 
 /* ------------------------------------------------------------------ flow */
@@ -45,7 +45,7 @@ import { usePlanFlow, hasWork, dayBounds, DEFAULT_MINUTES } from './lib/planflow
  * other people on the install (lib/trainer.js). `people` is empty for anyone but
  * the owner, while acting and with one person, and then nothing here changes.
  */
-export function PlanFlow({ plan, entries = [], iso, date = null, onKeep, onStart, onClose, people = [], onKeepFor = null, onShareWith = null, onStartFor = null }) {
+export function PlanFlow({ plan, entries = [], iso, date = null, onKeep, onStart, onClose, people = [], onKeepFor = null, onShareWith = null, onStartFor = null, onShowDay = null }) {
   const f = usePlanFlow({
     plan, entries, iso, date, people, usePeopleLogs, onKeep, onKeepFor, onShareWith, onClose, onStart, onStartFor,
     confirmDiscard: (message) => typeof window === 'undefined' || window.confirm(message),
@@ -121,6 +121,11 @@ export function PlanFlow({ plan, entries = [], iso, date = null, onKeep, onStart
           /* Nothing to start on a later day; leaving asks first if a workout is set aside (`keptStart`). */
           onStart={f.start?.run || null} startLabel={f.start?.label || null}
           onAnother={f.another}
+          /* Kept for you on a later day: the way to it, on Today, in place of Back to
+             today (#94, C N15: a plan for Monday offered no way to open it). */
+          onSee={onShowDay && kept.who?.me !== false && kept.date && kept.date > f.today
+            ? () => { onShowDay(kept.date); f.close() } : null}
+          seeLabel={kept.date ? seeWords(kept.date, f.today) : null}
           onDone={f.close} />
       )}
     </FullScreen>
@@ -775,7 +780,13 @@ function SplitNote({ parts }) {
  * starting it is the accent button because it is the only one that goes
  * somewhere new, and the other two are equal ways of saying "later".
  */
-export function KeptStep({ pres, count = 1, parts = [], onStart, onAnother, onDone, forName = null, words = null, failed = [], startLabel = null, onRetry = null, retrying = false }) {
+/** "See it tomorrow", "See it on Mon, Nov 9": the kept screen's way to a later day (#94). */
+export const seeWords = (date, today) => {
+  const words = dayPhrase(date, today)
+  return /^(today|tomorrow)$/.test(words) ? `See it ${words}` : `See it on ${words}`
+}
+
+export function KeptStep({ pres, count = 1, parts = [], onStart, onAnother, onDone, forName = null, words = null, failed = [], startLabel = null, onRetry = null, retrying = false, onSee = null, seeLabel = null }) {
   const many = count > 1
   const w = words || forWords(forName ? { me: false, others: [{ id: forName, name: forName }] } : FOR_ME)
   return (
@@ -831,9 +842,15 @@ export function KeptStep({ pres, count = 1, parts = [], onStart, onAnother, onDo
         <button className={`btn ${onStart ? 'secondary' : ''}`} onClick={onAnother}>
           <Icon name="Plus" size={16} /> Plan another workout
         </button>
-        <button className="btn secondary" onClick={onDone}>
-          <Icon name="House" size={16} /> Back to today
-        </button>
+        {onSee ? (
+          <button className="btn secondary" onClick={onSee}>
+            <Icon name="CalendarDays" size={16} /> {seeLabel}
+          </button>
+        ) : (
+          <button className="btn secondary" onClick={onDone}>
+            <Icon name="House" size={16} /> Back to today
+          </button>
+        )}
       </div>
     </div>
   )

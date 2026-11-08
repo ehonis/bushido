@@ -5,7 +5,7 @@ import { PlanGate } from './PlanGate'
 import { TodayTab } from '../tabs'
 
 export default function TodayScreen() {
-  const { store, openEntryId, setOpenEntryId, setFab, restOpt, askRest, openLog, setViewDay } = useApp()
+  const { store, openEntryId, setOpenEntryId, setFab, restOpt, askRest, openLog, setViewDay, showDay, setShowDay } = useApp()
   return (
     <Screen>
       <PlanGate>
@@ -14,7 +14,7 @@ export default function TodayScreen() {
             upsertEntry={store.upsertEntry} deleteEntry={store.deleteEntry}
             openEntryId={openEntryId} onOpened={() => setOpenEntryId(null)}
             onPlan={() => setFab('plan')} onLog={openLog}
-            onViewDay={setViewDay}
+            onViewDay={setViewDay} showDay={showDay} onDayShown={() => setShowDay(null)}
             onRest={restOpt ? askRest : null} />
         )}
       </PlanGate>

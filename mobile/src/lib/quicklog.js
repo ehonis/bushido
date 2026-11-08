@@ -52,6 +52,41 @@ export function recentActivities(entries = [], field = null, { max = QUICK_MAX, 
   return out
 }
 
+/** What an entry may hold and still be only the tap that placed it. */
+const PLACED_KEYS = new Set(['activity', 'category'])
+
+/**
+ * A WAY BACK FROM ONE TAP (#94, A F3). A quick-log row, or a pick in Log a
+ * workout, writes a done workout the moment it is tapped, and its sheet opens
+ * on it. Closed with nothing added, that row counts for the streak, the habit
+ * and the calendar, and the only way back was the bin and a confirm. So the
+ * sheet of a workout placed this way says what was logged as it closes, with
+ * Undo: `placedUndoText` is those words, or null when there is nothing to undo
+ * because something was put on it (a number, a note, a plan, a run, a
+ * measurement, a rename), which makes it a log someone meant.
+ */
+export function placedUndoText(entry, opt = null, field = null) {
+  if (!entry || entry.deleted || entry.kind !== 'daily') return null
+  const data = entry.data || {}
+  if (data.plan || data.run) return null
+  const out = data.out || {}
+  if (Object.keys(out).some(k => !PLACED_KEYS.has(k) && out[k] !== undefined && out[k] !== null && out[k] !== '')) return null
+  const name = activityOf(field, out.activity)?.name || data.name || opt?.name || null
+  return name ? `Logged ${name}` : 'Logged'
+}
+
+/**
+ * What an Undo offered by `placedUndoText` removes, decided when it is PRESSED,
+ * from the entries as they are then (#101 review): the workout if it is still
+ * only the tap that placed it, else null. The toast lasts six seconds and the
+ * sheet can be reopened and written on in that time; an Undo that removed what
+ * it saw at close would take a note typed since with it.
+ */
+export function placedToUndo(entries = [], id, opt = null, field = null) {
+  const now = (entries || []).find(e => e && e.id === id) || null
+  return now && placedUndoText(now, opt, field) ? now : null
+}
+
 /**
  * The entry one quick-log tap writes: the workout card on `date` with the
  * activity answered, minted by `placeEntries` against that day, exactly as Log a

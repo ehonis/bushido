@@ -27,6 +27,7 @@
  * confirm is drawn on the screen, as on the web (docs/DESIGN.md, Confirm).
  */
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import ToastHost from '../ui/ToastHost'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   KeyboardAvoidingView, Modal as RNModal, Platform, Pressable, ScrollView, StyleSheet, View,
@@ -347,6 +348,8 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
     <RNModal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={askExit}>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <View style={[st.wo, { paddingTop: insets.top }]}>{body}</View>
+        {/* This screen's own toasts: iOS draws it above the root's host (#94, F N6). */}
+        <ToastHost />
       </GestureHandlerRootView>
     </RNModal>
   )
