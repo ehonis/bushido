@@ -28,10 +28,13 @@ import { gearUsage } from './lib/gear.js'
 import { GearSection } from './gear.jsx'
 import { TestingTab, WhyTab, hasTests, hasEvidence } from './testing.jsx'
 import { usePrefs } from './lib/prefs.jsx'
-import { localIso } from './lib/dates.js'
+import { localIso, dateWords } from './lib/dates.js'
 import { NotificationsSection } from './notifications.jsx'
 import { currentMe, actAs } from './lib/whoami.js'
 import { MyAbout } from './trainer.jsx'
+import { Explain } from './blurb.jsx'
+import { ScaleGradeSelect } from './setlog.jsx'
+import { gradeFromText } from './lib/grades.js'
 
 /* ---------------------------------------------------------- the pages */
 
@@ -260,6 +263,21 @@ function FactsForm({ groups, entries, strava, upsertEntry }) {
       <div className="factgrid">
         {group.fields.map(f => {
           const { value, source, date } = factValue(f, { facts, strava, entries })
+          if (f.type === 'grade') {
+            // Typed before the ladder: shown on its rung when it is exactly one, else said
+            // under the picker; either way stored as typed until a rung is picked (§4).
+            const typed = source === 'own' && typeof value === 'string' && value.trim() ? value.trim() : null
+            const rungOf = typed ? gradeFromText(typed, f.scale) : null
+            return (
+              <div className="field fact" key={f.key}>
+                <span className="fact-label">{f.label}</span>
+                <ScaleGradeSelect scale={f.scale} label={f.label}
+                  value={source === 'own' && typeof value === 'number' ? value : rungOf ?? ''}
+                  onChange={v => save(f.key, v)} />
+                {typed && rungOf == null && <span className="fact-from">You wrote &ldquo;{typed}&rdquo;</span>}
+              </div>
+            )
+          }
           return (
             <label className="field fact" key={f.key}>
               <span className="fact-label">
@@ -267,7 +285,7 @@ function FactsForm({ groups, entries, strava, upsertEntry }) {
                 {/* A value the user did not give must never look like one they did —
                     the same rule `filledBy` enforces on a WHOOP-filled distance. */}
                 {source === 'strava' && <span className="fact-from">from Strava</span>}
-                {source === 'logged' && <span className="fact-from">logged {date}</span>}
+                {source === 'logged' && <span className="fact-from">logged {dateWords(date)}</span>}
               </span>
               <input
                 type="text"
@@ -288,7 +306,7 @@ function FactsForm({ groups, entries, strava, upsertEntry }) {
                       ? (e.target.value === '' ? '' : Number(e.target.value))
                       : e.target.value))}
               />
-              {f.hint && HINTED.has(f.key) && <span className="fact-hint">{f.hint}</span>}
+              {f.hint && HINTED.has(f.key) && <Explain><span className="fact-hint">{f.hint}</span></Explain>}
             </label>
           )
         })}

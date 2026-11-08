@@ -40,8 +40,8 @@ import { DoneChip, useDoneFlip, SheetStart, sheetPartStyles } from './sheetparts
 import * as trainerLib from '../lib/trainer.js'
 
 // Default parameters in the ported JS narrow TypeScript's inference (mobile/AGENTS.md).
-const { applyOut, applyPlan, canStart, plannedLine } = trainerLib as any
-const _titleFor = titleFor as any
+const { applyOut, applyPlan, canStart, plannedLine } = trainerLib
+const _titleFor = titleFor
 
 /* --------------------------------------------------------- session sheets */
 
@@ -150,9 +150,9 @@ export function SessionSheet({
   // A done plan on an earlier day is the log as written (`liftsDone`): its ✓s are read.
   const asWritten = (e: any) => Boolean(e?.date && e.date < localIso() && isDone(e))
   // Asking the model to change it, only where a model is on offer (#55, D F9).
-  const ai = (aiOffered as any)(me?.features)
+  const ai = aiOffered(me?.features)
   const thePlan: any = usePlan()
-  const liftField = (liftFieldOf as any)(thePlan)
+  const liftField = liftFieldOf(thePlan)
 
   const save = (out: any) => { setDirty(true); onSave(entry, out) }
 
@@ -163,9 +163,9 @@ export function SessionSheet({
    * whose copy the sheet is filling in, by id, or null for the owner's own,
    * remembered per entry on this device. On their side the history is THEIR log.
    */
-  const people: any[] = planned && onSaveEntry ? (sharePeople as any)(me) : []
+  const people: any[] = planned && onSaveEntry ? sharePeople(me) : []
   const on: any[] = people.length
-    ? (sharedPeopleOn as any)(entry, me.people).map((p: any) => ({ ...p, tone: (trainerLib.toneFor as any)(people, p.id) }))
+    ? sharedPeopleOn(entry, me.people).map((p: any) => ({ ...p, tone: trainerLib.toneFor(people, p.id) }))
     : []
   const [side, setSide] = useSide(entry?.id, on)
   const sidePerson = (side && on.find((p) => p.id === side)) || null
@@ -213,7 +213,7 @@ export function SessionSheet({
   // copy's, never the owner's over Sam's exercises. Until it is read, the day only.
   const shown = sidePerson ? theirs.entry : entry
   const shownPres = sidePerson ? theirPres : pres
-  const mins = shown && !shown.deleted ? (loggedMinutes as any)(shown, opt) : null
+  const mins = shown && !shown.deleted ? loggedMinutes(shown, opt) : null
   const timed = mins !== null ? `${mins} min` : null
   const subLine = metaText([
     entry?.date ? dayWords(entry.date) : null,
@@ -233,7 +233,7 @@ export function SessionSheet({
    */
   /* A run already under way, or finished and reopened by Start (#75), is carried
      on, not started: the runner opens where it was. */
-  const startWords = (e: any) => ((runOf as any)(e)?.startedAt ? 'Carry on' : 'Start workout')
+  const startWords = (e: any) => (runOf(e)?.startedAt ? 'Carry on' : 'Start workout')
   const start = (side: string | null = null) => (
     <SheetStart label={startWords(side ? theirs.entry : entry)} onStart={() => { setDirty(true); onStartWorkout?.(opt, side) }} />
   )
@@ -300,7 +300,7 @@ export function SessionSheet({
       /* The day and one count: one line beside the header's buttons, never wrapped (#82). */
       sub={subLine || undefined}
       // The activity's own icon, as its row in the Log feed shows it (#55).
-      icon={(loggedActivity as any)(opt, entry?.data?.out)?.icon || opt.icon}
+      icon={loggedActivity(opt, entry?.data?.out)?.icon || opt.icon}
       tone={tone}
       status={statusRow}
       dismissable={!dirty}

@@ -14,9 +14,9 @@ import { liftFieldOf } from './lib/lifts.js'
 import { dayWords } from './lib/dates.js'
 import { MetaLine, metaParts } from './metaline.jsx'
 import { isDone, markDone } from './lib/store.js'
-import { openTimer, timerRequestFor } from './timer.jsx'
+import { openTimer, timerRequestFor } from './timerbus.js'
+import { PlanTalk } from './plantalk.jsx'
 import { PrescriptionEditor } from './editor.jsx'
-import { PlanTalk } from './planner.jsx'
 import { usePlan } from './lib/planctx.jsx'
 import { prescriptionLine, isLiftOnly, runOf } from './lib/prescription.js'
 import { localIso } from './lib/dates.js'
@@ -170,7 +170,7 @@ export function SessionSheet({
     const id = pushToast(theirs.error, 'error', { duration: 0,
       action: { label: 'Retry', onClick: () => theirs.update(cur => cur) } })
     return () => dismissToast(id)
-  }, [theirs.error])
+  }, [theirs.error]) // eslint-disable-line react-hooks/exhaustive-deps -- one toast per error; `theirs` is a new object on every poll
 
   /*
    * The line under the name: the day, then the time as it was typed or

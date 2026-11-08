@@ -143,9 +143,12 @@ export const PROFILE_GROUPS = [
     icon: 'Mountain',
     blurb: 'Where you actually are, as opposed to where the goal is.',
     fields: [
-      { key: 'redpoint', label: 'Redpoint grade', type: 'text' },
-      { key: 'flash', label: 'Flash / onsight', type: 'text' },
-      { key: 'boulder', label: 'Boulder grade', type: 'text' },
+      // Picked off the ladder, never typed (AGENTS.md §6.4, #98): stored as the grade's
+      // number, `scale` saying which ladder. A grade typed as text before is kept as it
+      // is, shown beside the picker, until a rung is picked (§4).
+      { key: 'redpoint', label: 'Redpoint grade', type: 'grade', scale: 'yds' },
+      { key: 'flash', label: 'Flash / onsight', type: 'grade', scale: 'yds' },
+      { key: 'boulder', label: 'Boulder grade', type: 'grade', scale: 'v' },
       { key: 'apeIndex', label: 'Ape index', unit: 'in', type: 'number',
         hint: 'Wingspan minus height. Positive is longer arms.' },
       { key: 'climbingSince', label: 'Climbing since', type: 'text' },

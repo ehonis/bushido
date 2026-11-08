@@ -34,10 +34,11 @@ import {
 } from '../lib/prescription.js'
 import { usePlan } from '../lib/planctx.jsx'
 import { liftFieldOf } from '../lib/lifts.js'
-import { fromIso, isoShift, dayWords, dayPhrase } from '../lib/dates.js'
+import { fromIso, isoShift, dayWords, dayPhrase, dayLong } from '../lib/dates.js'
 import { usePlanFlow, hasWork, dayBounds, DEFAULT_MINUTES } from '../lib/planflow.js'
 import { ForChoice, ForLine, usePeopleLogs } from './trainer'
 import * as trainerLib from '../lib/trainer.js'
+import { Explain } from './blurb'
 
 // Default parameters in the ported JS narrow TypeScript's inference (mobile/AGENTS.md).
 const { FOR_ME, forWords, forSomeoneElse, namesOf } = trainerLib as any
@@ -230,7 +231,7 @@ export function PlanDay({ value, today, onChange }: { value: string; today: stri
   const { min, max } = (dayBounds as any)(today)
   const words = (dayWords as any)(value, today)
   const date = /^(Today|Tomorrow)$/.test(words)
-    ? (fromIso as any)(value).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })
+    ? dayLong(value, today)
     : null
   return (
     <View style={st.planday} accessibilityLabel="Which day">
@@ -470,7 +471,7 @@ export function Working({ label, minutes, since = null, onDiscard = null }: {
       </T>
       <T size={font.body} dim align="center" style={{ marginTop: space[2], marginBottom: space[4] }}>{WORKING_LINE}</T>
       <PulseDots style={{ marginBottom: space[3] }} />
-      <T size={font.label} dim align="center" tabular>{secs}s · You can leave; it keeps going</T>
+      <T size={font.label} dim align="center" tabular>{secs}s<Explain> · You can leave; it keeps going</Explain></T>
       {onDiscard ? (
         <Btn kind="quiet" title="Stop and throw it away" onPress={() => { warn(); onDiscard() }}
           style={{ marginTop: space[3] }} />

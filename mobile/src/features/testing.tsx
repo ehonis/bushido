@@ -14,9 +14,9 @@ import { ceilingState, cfPctOfMax, cfBand, CF_CORRECTION_KG, CF_PCT_MVC_MEAN, CF
 import { Blurb } from './blurb'
 import { DayStepper } from '../ui/DayStepper'
 import { NumInput } from './numinput'
-import { localIso } from '../lib/dates.js'
+import { localIso, dateWords } from '../lib/dates.js'
 import { measured, testResultFrom } from '../lib/tests.js'
-import { dateWords } from '../lib/vizscale.js'
+import { axisDate } from '../lib/vizscale.js'
 import { confirm } from '../ui/menu'
 
 /** The test series the ±CF_NOISE_PCT band belongs to: critical force and CFmin. */
@@ -110,7 +110,7 @@ function CeilingReadout({ entries }: { entries: any[] }) {
     if (!tooLow) return null
     return (
       <T size={font.label} dim style={{ marginTop: space[3] }}>
-        {`Critical force on ${tooLow.date} was ${Math.round(tooLow.cf * 10) / 10} kg, at or under the ${CF_CORRECTION_KG} kg correction, so this rule gives no ceiling. Retest before you set the gauge from it.`}
+        {`Critical force on ${dateWords(tooLow.date)} was ${Math.round(tooLow.cf * 10) / 10} kg, at or under the ${CF_CORRECTION_KG} kg correction, so this rule gives no ceiling. Retest before you set the gauge from it.`}
       </T>
     )
   }
@@ -124,11 +124,11 @@ function CeilingReadout({ entries }: { entries: any[] }) {
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2], marginBottom: space[3] }}>
         <Icon name="Gauge" size={16} color={colors.series3} />
         <T size={font.body} weight={600} style={{ flex: 1 }}>Your ceiling</T>
-        <T size={font.caption} dim>{`tested ${c.date}`}</T>
+        <T size={font.caption} dim>{`tested ${dateWords(c.date)}`}</T>
       </View>
       {/* A newer result with no critical force on it does not hide this one. */}
       {incomplete ? (
-        <T size={font.label} dim style={{ marginBottom: space[3] }}>{`The ${incomplete} result has no critical force, so this is from ${c.date}.`}</T>
+        <T size={font.label} dim style={{ marginBottom: space[3] }}>{`The ${incomplete} result has no critical force, so this is from ${dateWords(c.date)}.`}</T>
       ) : null}
 
       <View style={{ flexDirection: 'row', gap: space[6], flexWrap: 'wrap', marginBottom: space[4] }}>
@@ -182,7 +182,7 @@ function OneResult({ metric, point }: { metric: any; point: { x: string; y: numb
       <T size={font.title} weight={600} tabular>
         {String(point.y)}{metric.unit ? <T size={font.label} dim>{` ${metric.unit}`}</T> : null}
       </T>
-      <T size={font.caption} faint style={st.oneDate}>{(dateWords as any)(point.x, { withYear: true })}</T>
+      <T size={font.caption} faint style={st.oneDate}>{axisDate(point.x, { withYear: true })}</T>
     </View>
   )
 }

@@ -35,11 +35,12 @@ import {
   startOf, advancePhase, afterSet, backPhase, LEAD_IN,
 } from './lib/workout.js'
 import { NumInput } from './numinput.jsx'
-import { WorkHead, LeaveDialog, ControlRow } from './timer.jsx'
+import { WorkHead, LeaveDialog, ControlRow } from './workchrome.jsx'
 import { totalSets, totalReps, GradeLaps, ClimbLog } from './setlog.jsx'
+import { Explain } from './blurb.jsx'
 import {
   GRADE_FIELD, hasGrades, fitGrades, repCount,
-  CLIMB_FIELD, fitClimbs, stepClimbs, fallsIn, climbCount, detailOn, saidIn, MAX_CLIMBS,
+  CLIMB_FIELD, stepClimbs, fallsIn, climbCount, detailOn, saidIn, MAX_CLIMBS,
 } from './lib/grades.js'
 
 const FIELD_LABEL = { reps: 'reps', seconds: 'secs', weight: 'lb' }
@@ -63,7 +64,8 @@ function firstUnlogged(steps) {
  * behind the other but stays silent, so a cue is always about the side on screen.
  */
 export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinish = null, who = null, switcher = null, shown = true }) {
-  const out = entry?.data?.out || {}
+  const stored = entry?.data?.out
+  const out = useMemo(() => stored || {}, [stored])
   const steps = useMemo(() => buildSteps(session, out), [session, out])
 
   const [i, setI] = useState(() => firstUnlogged(steps))
@@ -145,7 +147,7 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
     setDeadline(0)
     setPaused(false)
     cue('setDone')
-  }, [steps, i, timing.work, phase, phaseAt, cue])
+  }, [steps, i, timing.work, phase, phaseAt, cue]) // eslint-disable-line react-hooks/exhaustive-deps -- the seconds read the clock's work length; `timing` is rebuilt every render
 
   const beginSet = useCallback((index, opts) => enter(startOf(index, steps, opts)), [enter, steps])
 
@@ -573,7 +575,7 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }) {
     <div className="wo-review">
       <div className="wo-where">{step.exName} · Set {step.setIndex + 1} of {step.setCount}</div>
       <h3 className="wo-reviewh">What actually happened?</h3>
-      <p className="wo-reviewsub">Pre-filled from the plan. Change anything that didn't match.</p>
+      <Explain><p className="wo-reviewsub">Pre-filled from the plan. Change anything that didn't match.</p></Explain>
 
       {!isLastSet && (
         <label className="cx-switch wo-lastset">
@@ -694,10 +696,12 @@ export function Finish({ session, out, startedAt, value, onValue, onFinish }) {
           placeholder={measured != null ? String(measured) : String(session.minutes ?? '')}
           onChange={v => onValue(v == null ? '' : String(v))} />
       </label>
-      <p className="wo-note">
-        Measured from when you hit start. This is what the weekly training-load chart multiplies
-        by your RPE, so a real number beats the card's nominal one.
-      </p>
+      <Explain>
+        <p className="wo-note">
+          Measured from when you hit start. This is what the weekly training-load chart multiplies
+          by your RPE, so a real number beats the card's nominal one.
+        </p>
+      </Explain>
 
       <button className="btn wo-start" onClick={() => onFinish(true)}>
         <Icon name="CircleCheck" size={18} /> Finish workout

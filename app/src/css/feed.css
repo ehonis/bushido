@@ -157,3 +157,17 @@
 }
 .progacts::-webkit-scrollbar, .progcats::-webkit-scrollbar, .logfilters::-webkit-scrollbar { display: none; }
 .progacts > .chip, .progcats > .chip, .logfilters > .chip { flex: none; }
+
+/* The screen's title (filters.jsx ScreenTitle): Log and Progress at screen size,
+   as Today's day is (#98, G r1 F6). */
+.screen-title { margin: 0 0 var(--sp-3); font-size: var(--fs-screen); font-weight: 600; line-height: var(--lh-tight); }
+
+/* A second level of filter (filters.jsx SubFilter, #98, G r1 F5): a caption that
+   names it, indented behind a rule, outlined chips; under the sport row, never
+   one more sport in it. */
+.subfilter { margin: 0 0 var(--sp-3); padding-left: var(--sp-3); border-left: 2px solid var(--accent-line); }
+.subfilter-label { display: block; margin-bottom: var(--sp-1); font-size: var(--fs-label); color: var(--ink-dim); }
+.subfilter > .filters { margin-bottom: 0; }
+.subfilter > .progcats, .subfilter > .logfilters { margin-inline: 0 calc(-1 * var(--gutter)); padding-inline: 0 var(--gutter); }
+.chip.sub { background: transparent; }
+.chip.sub.on { background: var(--accent-soft); }

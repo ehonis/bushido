@@ -1,231 +1,42 @@
 import { useEffect, useState } from 'react'
-import { useStore, doneWhenPlaced } from './lib/store.js'
-import { TodayTab, DaySwitcher } from './tabs.jsx'
+import { useStore } from './lib/store.js'
+import { TodayTab } from './tabs.jsx'
 import { LogTab } from './log.jsx'
 import { Icon, BushidoMark, TAB_ICONS } from './lib/icons.jsx'
 import { PrefsProvider } from './lib/prefs.jsx'
 import { WhoopProvider } from './lib/whoop.jsx'
 import { StravaProvider } from './lib/strava.jsx'
 import { ProgressView } from './progress.jsx'
-import { localIso, fromIso } from './lib/dates.js'
-import { streakDays } from './lib/streak.js'
+import { localIso } from './lib/dates.js'
 import { ProfileMenu } from './profile.jsx'
 import { PlanProvider } from './lib/planctx.jsx'
-import { PlanFlow } from './planner.jsx'
-import { liftFieldOf } from './lib/lifts.js'
-import { aiOffered } from './lib/plannerapi.js'
-import { splitPrescription, circuitPlan, loggedCircuit, circuitFiling } from './lib/prescription.js'
-import { optFor } from './lib/menu.js'
 import { ActivityChooser, activityFieldOf } from './picker.jsx'
 import { QuickLog } from './quicklog.jsx'
 import { outWith } from './lib/unlogged.js'
-import { placeEntries, planPeople, keepPlanFor, toneFor, plannedItems, shareKept, applyRun } from './lib/trainer.js'
+import { toneFor } from './lib/trainer.js'
 import { PersonDay } from './trainer.jsx'
-import * as peopleApi from './lib/peopleapi.js'
-import { Modal } from './modal.jsx'
-import { currentMe, actAs } from './lib/whoami.js'
-import { TimerHost, openTimer } from './timer.jsx'
+import { currentMe } from './lib/whoami.js'
+import { openTimer } from './timerbus.js'
+import { lazyPart, LoadFailed } from './lazy.jsx'
+import { TimerHost } from './timerhost.jsx'
+import { FullScreen } from './modal.jsx'
+import { tabsFor, HeaderStreak, ActingBanner, FabMenu, RestPrompt } from './shell.jsx'
+import { useAppData } from './appdata.jsx'
+
+// Loaded when first drawn (lazy.jsx). Opened by a tap, so a failed load says so in
+// its own screen, with Try again and the way out; never over anything else.
+const PlanFlow = lazyPart(() => import('./planner.jsx'), 'PlanFlow', {
+  failed: (props, retry) => (
+    <FullScreen title="Plan a workout" onBack={props.onClose}>
+      <LoadFailed what="Plan a workout" onRetry={retry} />
+    </FullScreen>
+  ),
+})
 
 /*
- * Three tabs, since 2026-10-25 (issue #31): Today, Log, Progress. Bushido is a
- * workout log, and those are the three things a log is for: what is on the day,
- * what was done, and how it is going. Week went with the quotas, and
- * Achievements, Goals and Coach went because they were not used. Gear, Testing
- * and Why live under the profile: reference, not doing.
+ * The app: the header, the tabs, the + and what it opens. Its state and write
+ * paths are appdata.jsx (`useAppData`); the frame's pieces are shell.jsx (#98).
  */
-const TABS = [
-  { id: 'today', label: 'Today' },
-  { id: 'log', label: 'Log' },
-  { id: 'progress', label: 'Progress' },
-]
-
-/*
- * What this person's app offers. Every tab is everyone's now; the signature
- * stays because callers (and the iPhone app) still pass features and ownership.
- */
-export const tabsFor = () => TABS
-
-/**
- * Says whose log is open when the owner is acting as someone else, on every
- * screen, with the way back. Logging into the wrong log is the failure this
- * whole feature has to make hard, and the avatar alone is too quiet for it.
- */
-export function ActingBanner({ me }) {
-  const [busy, setBusy] = useState(false)
-  if (!me?.acting) return null
-  return (
-    <div className="acting" role="status">
-      <Icon name="Users" size={15} />
-      <span>Logging for <strong>{me.name}</strong></span>
-      <button className="acting-back" disabled={busy}
-        onClick={() => { setBusy(true); actAs(null).catch(() => setBusy(false)) }}>
-        {busy ? 'Switching…' : `Back to ${me.real.name || 'me'}`}
-      </button>
-    </div>
-  )
-}
-
-/**
- * What the + offers.
- *
- * It began as two things, deliberately. The swap list it replaced showed thirty
- * cards in three ranked groups, which is a menu you read rather than a button you
- * press — and the ranking was the recommender, which is the thing that came off
- * this app. What is left is the actual choice: is this a workout you are about to
- * write down, or one you have already done? "Pick a session" came back the same
- * day because twenty-one climbing cards had no other door, and went again on
- * 2026-10-14 when those cards moved into Log a workout as the Bouldering and Rock
- * climbing folders (see lib/folders.js). "Plan the week" went with the quotas
- * on 2026-10-25.
- *
- * A sheet from the bottom on a phone, because the button is at the bottom and a
- * menu that opens away from your thumb is a menu you reach across the screen for.
- *
- * Log a workout leads (2026-10-25, docs/DESIGN.md D7 and "The + menu, final
- * shape"): writing down what you did is what the + is pressed for most, so it is
- * the first row and the only one in the accent. Logging doors, then planning,
- * then tools. Each door says what it is in one line; the paragraphs that used to
- * sit under each one made the menu something to read rather than to press.
- *
- * `quick` is the quick-log rows (quicklog.jsx), right under Log a workout: the
- * last few activities, one tap each, so "I did a run" is + → Run (docs/DESIGN.md,
- * "Logging in two taps").
- */
-/*
- * `ai`: whether "Write it for me" is on offer (lib/plannerapi.js). Without it the
- * Plan door says only what is there, the same rule as Plan a workout itself (#55).
- */
-export function FabMenu({ onClose, onPlan, onLog, onRest, onTimer = null, quick = null, ai = aiOffered(currentMe().features) }) {
-  return (
-    <div className="fabmenu-scrim" onClick={onClose} role="presentation">
-      <div className="fabmenu" onClick={e => e.stopPropagation()} role="dialog" aria-label="Add a workout">
-        <button className="fabmenu-row" onClick={onLog}>
-          <span className="fabmenu-ico log"><Icon name="NotebookPen" size={22} /></span>
-          <span className="fabmenu-body">
-            <strong>Log a workout</strong>
-            <span className="sub">Something you already did</span>
-          </span>
-        </button>
-        {quick}
-        {/* A rest day the user chose is part of the week, and it used to be a link at the
-            foot of the old session picker, under thirty cards — which is to say nowhere.
-            One tap: choosing it is the whole action, so nothing opens. */}
-        {onRest && (
-          <button className="fabmenu-row" onClick={onRest}>
-            <span className="fabmenu-ico rest"><Icon name="Sunset" size={22} /></span>
-            <span className="fabmenu-body">
-              <strong>Log a rest day</strong>
-              <span className="sub">A day off on purpose</span>
-            </span>
-          </button>
-        )}
-        <button className="fabmenu-row" onClick={onPlan}>
-          <span className="fabmenu-ico plan"><Icon name="ClipboardCheck" size={22} /></span>
-          <span className="fabmenu-body">
-            <strong>Plan a workout</strong>
-            <span className="sub">{ai ? 'Build it yourself, or have it written for you' : 'Build it yourself'}</span>
-          </span>
-        </button>
-        {/* A timer on its own, for a workout nobody is logging yet. See timer.jsx. */}
-        {onTimer && (
-          <button className="fabmenu-row" onClick={onTimer}>
-            <span className="fabmenu-ico"><Icon name="Timer" size={22} /></span>
-            <span className="fabmenu-body">
-              <strong>Interval timer</strong>
-              <span className="sub">Work, rest and rounds</span>
-            </span>
-          </button>
-        )}
-        <button className="fabmenu-cancel" onClick={onClose}>Cancel</button>
-      </div>
-    </div>
-  )
-}
-
-/**
- * Why rest today — asked before it is logged, not after.
- *
- * A rest day with no reason reads the same in a month whether the user was sick, beat
- * up or just busy, and those are three different things to look back on. The chips are the rest card's own `why` output (plan.json), so the same
- * answer shows up and stays editable in the session sheet afterwards; the box is
- * the ordinary `out.notes`. Both optional — a prompt, not a gate.
- */
-export function RestPrompt({ opt, date: initialDate, entryFor, onSave, onClose }) {
-  const field = (opt?.outputs || []).find(f => f.key === 'why')
-  const today = localIso()
-  const [date, setDate] = useState(initialDate || today)
-  const existing = entryFor ? entryFor(date) : null
-  const [why, setWhy] = useState(existing?.data?.out?.why)
-  const [notes, setNotes] = useState(existing?.data?.out?.notes || '')
-  // Moving the date onto a day that already rests shows THAT day's answer, so
-  // saving edits it rather than overwriting it with what was typed for another.
-  useEffect(() => {
-    setWhy(existing?.data?.out?.why)
-    setNotes(existing?.data?.out?.notes || '')
-  }, [existing?.id])
-  const save = () => onSave({ date, why: why || undefined, notes: notes.trim() || undefined })
-
-  return (
-    <Modal title="Rest day" sub={existing ? 'Already a rest day' : null}
-      icon={opt?.icon || 'Sunset'} tone="rest" onClose={onClose}
-      footer={
-        <button className="btn" onClick={save}>
-          <Icon name="Check" size={16} /> {existing ? 'Save' : 'Log the rest day'}
-        </button>
-      }>
-      {/* Any day up to today — a rest day the user forgot to log is still one the
-          user took. The day switcher, as on Today, not a browser date box. */}
-      <div className="field rest-day">
-        <span>Day</span>
-        <DaySwitcher value={date} today={today} max={today} onChange={setDate} />
-      </div>
-      {field && (
-        <div className="out-field rest-why">
-          <div className="out-label"><span>{field.label}</span></div>
-          <div className="out-choices">
-            {field.options.map(o => {
-              const on = why === o.value
-              return (
-                <button key={o.value} type="button" className={`out-chip ${on ? 'on' : ''}`}
-                  aria-pressed={on} onClick={() => setWhy(on ? undefined : o.value)}>
-                  {o.icon && <Icon name={o.icon} size={14} />}
-                  <span>{o.label}</span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
-      <label className="notefield">
-        <span className="notefield-label">Notes</span>
-        <textarea rows={3} value={notes} placeholder="Optional"
-          onChange={e => setNotes(e.target.value)} />
-      </label>
-    </Modal>
-  )
-}
-
-/**
- * Days in a row, in the header.
- *
- * NO BACKGROUND and no border — it is a reading, not a control, and the only two
- * things in that corner you can press are the profile button and the tabs. Giving
- * it a pill would make it look like a third.
- *
- * Renders NOTHING at zero. "0 days" is not a streak, it is the absence of one,
- * and a counter that sits at zero for a week is a counter the user stops seeing.
- */
-function HeaderStreak({ entries }) {
-  const n = streakDays(entries)
-  if (!n) return null
-  return (
-    <span className="hdr-streak" title={`${n} day${n === 1 ? '' : 's'} trained in a row`}>
-      <Icon name="Flame" size={15} className="hdr-streak-ico" />
-      <span className="hdr-streak-n">{n}</span>
-    </span>
-  )
-}
-
 export default function App() {
   const store = useStore()
   const me = currentMe()
@@ -244,208 +55,9 @@ export default function App() {
   }, [])
 
   useEffect(() => { location.hash = tab }, [tab])
-
-  /* ------------------------------------------------------- the + button */
-
-  /*
-   * Adding to the day, from anywhere.
-   *
-   * This is where the swap list, the quota lanes and the "add another session"
-   * link all went on 2026-09-17. Today stopped offering sessions, so the way to
-   * put one on the day had to stop being part of Today — it is a floating
-   * button now, reachable from every tab, with the things the user actually
-   * does under it.
-   *
-   * PLAN one and the planner writes the sets (see planner.jsx). LOG one and the
-   * ordinary workout card opens with nothing filled in. Both land as ordinary
-   * entries; neither is written by anything except their tap.
-   */
-  const [fab, setFab] = useState(null)         // null | 'menu' | 'plan' | 'log' | 'rest'
-  const [openEntryId, setOpenEntryId] = useState(null)
-  // A day for Today to show, asked for from elsewhere (the planner's "See it on Mon", #94).
-  const [showDay, setShowDay] = useState(null)
-
-  /*
-   * WHICH DAY a logged workout lands on.
-   *
-   * Until 2026-10-14 every pick landed on today, whatever day the user was
-   * looking at, so Monday's board session could not be logged on Monday. Now Log
-   * a workout lands on the day Today is showing (never a future one: you cannot
-   * have done tomorrow's workout), from the + button as much as from the day.
-   * `climb` is a WHOOP or Strava climb from the unlogged card, attached to
-   * whichever card the user picks for it.
-   */
-  const [viewDay, setViewDay] = useState(null)
-  const [logAt, setLogAt] = useState({ date: null, climb: null })
-  const logDay = (date) => {
-    const today = localIso()
-    return date && date <= today ? date : today
-  }
-  const openLog = (date, { climb = null } = {}) => {
-    setLogAt({ date: logDay(date), climb })
-    setFab('log')
-  }
-  const dayLabel = (date) => (date && date !== localIso()
-    ? `for ${fromIso(date).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}`
-    : null)
-
-  /**
-   * Put one or more sessions on today, in one go.
-   *
-   * BATCHED ON PURPOSE, and the reason is a bug this had for about ten minutes.
-   * The first thing on an empty day is the day's MAIN session and everything
-   * after is an extra — so placing two sessions means the second has to see the
-   * first. Calling a single-place function twice cannot: both read `store.entries`
-   * out of the same render's closure, both find an empty day, both mint
-   * `daily-<date>`, and the second silently overwrites the first. A gym trip
-   * planned as a lift and a run landed as just the run, while the screen said two
-   * workouts were on today.
-   *
-   * So ids are allocated against ONE snapshot plus whatever this call has already
-   * written. It is the same stale-closure shape as the runner's double write
-   * earlier today, and the same fix: one function that knows about the whole
-   * batch, rather than two calls that each know about half of it.
-   *
-   * `open` and `close` are what the PLANNER needs and nobody else does. Picking a
-   * session or an activity is one decision — you chose it, here it is, get on
-   * with it — so both default to true. Keeping a plan is not: writing a workout
-   * down and starting it are two decisions, and the flow stays up to ask which.
-   */
-  const placeAll = (items, opts) => placeWritten(items, opts).map(e => e.id)
-  const placeWritten = (items, { open = true, close = true, date = localIso() } = {}) => {
-    /*
-     * The ids and the entry shape are `placeEntries` (lib/trainer.js), the same
-     * function the owner planning for someone else runs against THEIR day, so
-     * the two cannot mint different ids for the same act. A card that names
-     * itself from what you picked says so from the moment it lands, and it is
-     * done on today or an earlier day, planned on a later one (AGENTS.md §4).
-     */
-    const written = placeEntries({ menu: plan?.dailyMenu || [], onDay: store.entries, items, date })
-    for (const entry of written) store.upsertEntry(entry)
-
-    if (close) setFab(null)
-    if (open && written[0]) setOpenEntryId(written[0].id)
-    setTab('today')
-    return written
-  }
-
-  /**
-   * A rest day on the date RestPrompt was given (today from the +, the viewed day
-   * from Your day, and the user can change it there), with the why it asked for. Done on arrival (a rest
-   * day is done whatever its date) and no sheet opens — the prompt was the form. A day already
-   * resting gets its why edited rather than a second rest entry.
-   */
-  const restOpt = (plan?.dailyMenu || []).find(m => m.role === 'rest' && !m.retired) || null
-  const restOn = (date) => restOpt && store.entries.find(e => e.kind === 'daily' && e.date === date
-    && !e.deleted && e.data?.optId === restOpt.id)
-  const [restDate, setRestDate] = useState(null)
-  const askRest = (date) => { setRestDate(date || localIso()); setFab('rest') }
-  const takeRest = ({ date, why, notes }) => {
-    const hit = restOn(date)
-    if (hit) {
-      store.upsertEntry({ ...hit,
-        data: { ...hit.data, out: { ...(hit.data.out || {}), why, notes } } })
-      setFab(null); setTab('today')
-      return
-    }
-    placeAll([{ optId: restOpt.id, data: { out: { why, notes } } }], { open: false, date })
-  }
-
-  /** One session. Everything goes through the batch, so ids cannot collide. */
-  const placeToday = (optId, data = {}, opts = {}) => placeAll([{ optId, data }], opts)[0] || null
-
-  /**
-   * Keep a prescription.
-   *
-   * The whole thing goes on the entry as `data.plan` — what was ASKED for, kept
-   * separate from `out`, which is what happened. `out.category` and
-   * `out.activity` are what file it in the Log and Progress filters and pick the
-   * log form. See lib/prescription.js and lib/category.js.
-   */
-  /**
-   * Keep a prescription — as one entry per WORKOUT in it.
-   *
-   * A plan with several kinds of workout in it becomes several separate entries
-   * rather than one pooled one, so WHOOP and Strava activities attach to the
-   * right workout.
-   *
-   * The attach argument is the one that settles it. A pooled entry has ONE
-   * `out.whoop` and ONE `out.strava`, so a trip that was a lift and a ride has a
-   * single slot for two measurements and whichever lands first owns it. Split,
-   * each half has its own entry, its own log form and its own place for the watch
-   * to attach to, and one entry with one category is what the rest of this app
-   * already assumes.
-   *
-   * `splitPrescription` decides where the seams are; a single-kind plan comes back
-   * as one part and behaves exactly as it did. Returns the FIRST id, which is what
-   * "start it now" opens.
-   */
-  const keepPlan = (pres, { date = localIso() } = {}) => {
-    const entries = placeWritten(
-      plannedItems(splitPrescription(pres)),
-      {
-        // They land on the day, but nothing opens: the planner's last screen asks
-        // whether to go back, plan another or start now. Planning at eight for a
-        // session at six is the normal case, and dropping the user into a running
-        // timer was the app assuming the answer to a question it never asked.
-        // The day is the planner's (#78): the one Today showed, or a later one.
-        open: false, close: false, date,
-      })
-    const ids = entries.map(e => e.id)
-    return { ids, count: ids.length, first: ids[0] || null, entries }
-  }
-
-  /*
-   * THE OWNER AS TRAINER (lib/trainer.js, trainer.jsx). Who the owner can plan for:
-   * nobody unless this is the owner on the owner's own log with someone else on the
-   * install. A plan kept for someone goes into THEIR log through the people
-   * endpoints, with the same ids their own "+" would mint against their day.
-   */
-  const people = planPeople(me)
-  const keepPlanForPerson = (person, pres, key = null, date = localIso()) => keepPlanFor({
-    person, parts: splitPrescription(pres), menu: plan?.dailyMenu || [], date,
-    owner: { id: me.real.id, name: me.real.name }, api: peopleApi, key,
-  })
-  /*
-   * You and others (#59): the entries just kept, shared with each of them, sync
-   * on, through the same `addPerson` as "With …" on the sheet. Each updated entry
-   * of yours is written through your own store.
-   */
-  const shareKeptWith = (others, kept) => shareKept({
-    entries: kept, people: others, menu: plan?.dailyMenu || [],
-    owner: { id: me.real.id, name: me.real.name }, api: peopleApi, save: store.upsertEntry,
-  })
-  const [personView, setPersonView] = useState(null) // { person, entryId } — their week, opened from the planner
-
-  /*
-   * A circuit from the + timer (issue #68). "Put it on today" places it as a
-   * planned workout, as keeping a plan does. Run, it logs itself when it ends:
-   * the same planned workout, placed the same way, with its run finished and
-   * its log in the same write (`applyRun`, the runner's own), done like any
-   * workout finished in the runner. Nothing done, nothing placed. It lands on
-   * the day it was started, and is filed by what its exercises are
-   * (`circuitFiling`), since a preset says nothing else about it.
-   */
-  const filingOf = (config) => circuitFiling(config, liftFieldOf(plan),
-    { categories: plan?.quotaCategories || [], activities: activityFieldOf(plan)?.activities || [] })
-  const placeCircuit = (name, config) =>
-    placeWritten(plannedItems(splitPrescription(circuitPlan(name, config, liftFieldOf(plan), filingOf(config)))), { open: false })
-  const logCircuit = (name, config, timerRun) => {
-    const done = loggedCircuit(name, config, timerRun, liftFieldOf(plan), filingOf(config))
-    if (!done) return false
-    const menu = plan?.dailyMenu || []
-    const [entry] = placeEntries({ menu, onDay: store.entries, items: plannedItems(splitPrescription(done.pres)), date: done.date })
-    if (!entry) return false
-    store.upsertEntry(applyRun(entry, optFor(menu, entry.data.optId), done.run, { out: { ...entry.data.out, ...done.out }, done: true }))
-    return true
-  }
-
-  /** "Start it now", from the planner's last screen. */
-  const startPlanned = (id) => {
-    setFab(null)
-    setOpenEntryId(id)
-    setTab('today')
-  }
+  const {
+    fab, setFab, openEntryId, setOpenEntryId, showDay, setShowDay, viewDay, setViewDay, logAt, logDay, openLog, dayLabel, placeAll, restOpt, restOn, restDate, askRest, takeRest, keepPlan, people, keepPlanForPerson, shareKeptWith, personView, setPersonView, placeCircuit, logCircuit, startPlanned,
+  } = useAppData({ store, plan, me, setTab })
 
   const needsPlan = tab !== 'log'
 

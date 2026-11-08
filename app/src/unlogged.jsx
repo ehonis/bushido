@@ -69,11 +69,10 @@ export function UnloggedWorkouts({
   // Which row has its other actions open. One at a time, for the same reason.
   const [openId, setOpenId] = useState(initialOpen)
 
-  const args = { plan, entries, iso, whoop, strava, skipped, split }
   // A climb is only offered where there is a climbing card to log it on.
-  const items = useMemo(() => unloggedWorkouts(args).filter(i => !i.climbing || onClimb),
+  const items = useMemo(() => unloggedWorkouts({ plan, entries, iso, whoop, strava, skipped, split }).filter(i => !i.climbing || onClimb),
     [plan, entries, iso, whoop, strava, skipped, split, onClimb])
-  const gone = useMemo(() => dismissedWorkouts(args),
+  const gone = useMemo(() => dismissedWorkouts({ plan, entries, iso, whoop, strava, skipped, split }),
     [plan, entries, iso, whoop, strava, skipped, split])
 
   if (!items.length && !gone.length) return null

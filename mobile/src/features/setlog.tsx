@@ -28,6 +28,7 @@ import { pushToast } from '../lib/toast'
 import { Icon } from '../lib/icons'
 import { NumInput } from './numinput'
 import { SwipeRemove } from './exercises'
+import { Explain } from './blurb'
 import {
   GRADE_FIELD, hardestGrade, gradesIn, hasGrades, fitGrades, repCount,
   VGRADES, CLIMB_FIELD, offersClimbs, climbsOn, blankClimb, fitClimbs,
@@ -141,6 +142,12 @@ function LadderSelect({ ladder, fmt, value, onChange, label, style }: any) {
 }
 
 const ladderFor = (scale: string, system: string) => (scale === 'v' ? VGRADES : routeLadder(system))
+
+/** A grade off one scale's ladder: `v` for boulders, else the routes (the profile's grades). */
+export function ScaleGradeSelect({ scale, value, onChange, label, style }: any) {
+  const [system] = useRouteSystem()
+  return <LadderSelect ladder={ladderFor(scale, system)} fmt={(v: any) => labelOn(scale, v)} value={value} onChange={onChange} label={label} style={style} />
+}
 
 /** The route ladder, written the way this device writes it (5.5 to 5.15). */
 export function GradeSelect({ value, onChange, label, style }: any) {
@@ -640,7 +647,7 @@ export function SetLog({ session, out, onSave, hints = null }: any) {
         />
       ))}
       {prefilledBy(spec) ? (
-        <T size={font.caption} faint>Pre-filled from the plan: change what didn't match, and add a set if you did more.</T>
+        <Explain><T size={font.caption} faint>Pre-filled from the plan: change what didn't match, and add a set if you did more.</T></Explain>
       ) : null}
     </View>
   )

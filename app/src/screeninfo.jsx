@@ -15,6 +15,7 @@
 
 import { useEffect, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
+import { Explain } from './blurb.jsx'
 
 /** env() cannot be read from JS; a probe element with it as padding can. */
 function readInsets() {
@@ -80,7 +81,7 @@ export function ScreenCard() {
   return (
     <section className="prof-sec screen-card">
       {/* A reading for when a button hides under the clock or the bottom strip is dead. */}
-      <div className="section-head"><h3>Screen</h3><span className="sub">What this device gives the page</span></div>
+      <div className="section-head"><h3>Screen</h3><Explain><span className="sub">What this device gives the page</span></Explain></div>
       {!m ? (
         <p className="sub">Measuring…</p>
       ) : (

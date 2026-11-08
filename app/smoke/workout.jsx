@@ -2,6 +2,9 @@
  * Run by app/smoke/index.jsx (`npm run smoke`); moved out of app/smoke.jsx in #73,
  * unchanged and in their old relative order. A case is [name, element | null, assert?].
  */
+import { readFileSync } from 'node:fs'
+import { PrefsProvider } from '../src/lib/prefs.jsx'
+import { renderToString } from 'react-dom/server'
 import { SessionLog } from '../src/sessionlog.jsx'
 import { WorkoutMode, Face, Review } from '../src/workout.jsx'
 import { hasWorkout, buildSteps } from '../src/lib/workout.js'
@@ -92,6 +95,31 @@ export default [
           // The list must not also appear as a number field — Number([10.1,10.2]) is NaN.
           if (/aria-label="[^"]*grades"|>grades</.test(html)) throw new Error('the grade list rendered as a number input')
         }],
+      /* "Show explanations" governs every explanation (#98, G r1 F8), not only the
+         testing page's blurbs; both platforms wrap theirs in Explain. */
+      ['Explain(off in Settings: the sentence that explains goes, what happened stays)', null, () => {
+        const step = buildSteps(plan.dailyMenu.find(m => m.id === 'repeaters'), {})[0]
+        const el = <Review step={step} draft={{ reps: 1, seconds: 7, weight: 43 }} onDraft={noop} onCommit={noop} isLastSet />
+        const on = text(renderToString(<PrefsProvider settings={{}} saveSettings={noop}>{el}</PrefsProvider>))
+        const off = text(renderToString(<PrefsProvider settings={{ blurbs: { allHidden: true } }} saveSettings={noop}>{el}</PrefsProvider>))
+        if (!/Pre-filled from the plan/.test(on)) throw new Error('the explanation is not there with explanations on, so this proves nothing')
+        if (/Pre-filled from the plan/.test(off)) throw new Error('an explanation shows with explanations off')
+        if (!/What actually happened\?/.test(off)) throw new Error('turning explanations off took the screen with it')
+        const read = (f) => readFileSync(new URL(`../${f}`, import.meta.url), 'utf8')
+        for (const [f, n] of [['src/workout.jsx', 2], ['src/setlog.jsx', 1], ['src/timer.jsx', 1], ['src/exercises.jsx', 1], ['src/profile.jsx', 1],
+          ['../mobile/src/features/workout.tsx', 2], ['../mobile/src/features/setlog.tsx', 1], ['../mobile/src/features/timer.tsx', 1],
+          ['../mobile/src/features/exercises.tsx', 1], ['../mobile/src/features/profile.tsx', 1],
+          // #98 review: the gear form, notifications, the planner's working line, the Log's and
+          // Progress's empty states, the screen probe.
+          ['src/gear.jsx', 2], ['src/notifications.jsx', 1], ['src/planner.jsx', 1], ['src/log.jsx', 1], ['src/progress.jsx', 1],
+          ['src/screeninfo.jsx', 1], ['../mobile/src/features/gear.tsx', 1], ['../mobile/src/features/planner.tsx', 1],
+          ['../mobile/src/features/log.tsx', 1], ['../mobile/src/features/progress.tsx', 1]]) {
+          const got = (read(f).match(/<Explain>/g) || []).length
+          if (got < n) throw new Error(`${f}: ${got} of ${n} explanations behind Explain`)
+        }
+        // The phone's gear confirm takes its line as a prop: no line while explanations are off.
+        if (!/deleteBody=\{explain \? 'Workouts logged with it keep their history\.' : false\}/.test(read('../mobile/src/features/gear.tsx'))) throw new Error('the phone\'s gear confirm explains with explanations off')
+      }],
       ['Review(an ordinary set)',
         <Review step={buildSteps(plan.dailyMenu.find(m => m.id === 'repeaters'), {})[0]}
           draft={{ reps: 1, seconds: 7, weight: 43 }} onDraft={noop} onCommit={noop} isLastSet />,

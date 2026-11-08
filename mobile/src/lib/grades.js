@@ -187,6 +187,22 @@ export function vLabel(value) {
 }
 
 /** Is this a rung of the V ladder? */
+/**
+ * A grade someone typed as text ("5.11b", "5.10-", "V5"), read off the ladder
+ * the FIELD names (`scale`), for display only (#98: the profile's grades were
+ * text boxes; they are pickers now, and what was typed is never rewritten).
+ * Exactly a rung's own label, a hyphen read as its minus, or null: nothing is
+ * guessed onto a rung.
+ */
+export function gradeFromText(text, scale) {
+  if (typeof text !== 'string') return null
+  const t = text.trim().toLowerCase().replace(/\s+/g, '').replace(/-/g, '−')
+  if (!t) return null
+  const ladder = scale === 'v' ? VGRADES : ROUTE_GRADES
+  const hit = ladder.find(g => g.label.toLowerCase() === t)
+  return hit ? hit.value : null
+}
+
 export const isVGrade = (value) => { const n = num(value); return n !== null && VGRADES.some(g => g.value === n) }
 
 /** The V axis formatter: a tick between rungs loses its label, not gains a grade. */

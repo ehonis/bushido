@@ -43,7 +43,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
 import { NumInput } from './numinput.jsx'
-import { useModalLayer } from './modal.jsx'
+import { useModalLayer, Popover } from './modal.jsx'
 import { CUES, primeAudio, resumeAudio, acquireWakeLock, releaseWakeLock } from './lib/cues.js'
 import { lastLift, liftFieldOf } from './lib/lifts.js'
 import { isLogged, isSkipped, setLine, itemLine, setFieldsFor, measureOfItem, blockTimer, circuitOnly, circuitTiming } from './lib/prescription.js'
@@ -53,9 +53,11 @@ import { clock } from './lib/workout.js'
 import { Stepper, boxFor, stepBox, TimeInput, weightSwitch, SwapWords, ExerciseSheet } from './exercises.jsx'
 import { ExerciseBody, musclesOf, muscleWords } from './lib/bodymap.jsx'
 import { usePlan } from './lib/planctx.jsx'
-import { TimerRun, WorkHead, LeaveDialog, leaveActions, ControlRow, setsWord } from './timer.jsx'
+import { WorkHead, LeaveDialog, leaveActions, ControlRow, setsWord } from './workchrome.jsx'
+import { TimerRun } from './timerrun.jsx'
 import { timingWords } from './circuit.jsx'
 import { andWords, togetherSaid } from './lib/trainer.js'
+import { dayPhrase } from './lib/dates.js'
 
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).padStart(2, '0')}`
 
@@ -157,7 +159,8 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
       </div>
 
       {rest > 0 ? (
-        <RestScreen seconds={rest} of={run.restOf} next={step} paused={restPaused}
+        // After the last set the cursor stays on it: no "Next" that is the set just done (#98 review).
+        <RestScreen seconds={rest} of={run.restOf} next={step && !isLogged(run, step.setId) ? step : null} paused={restPaused}
           onBack={r.restGoBack} onBump={r.restBump} onPause={r.restPause} onSkip={r.restSkip} />
       ) : done ? (
         <FinishScreen progress={progress} elapsed={elapsed}
@@ -477,7 +480,7 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
 
       {prior && (
         <p className="run-prior">
-          <Icon name="RotateCw" size={13} /> last time ({prior.date}): {prior.summary}
+          <Icon name="RotateCw" size={13} /> last time ({dayPhrase(prior.date)}): {prior.summary}
           {prior.implement ? ` · ${prior.implement}` : ''}
         </p>
       )}
@@ -624,12 +627,12 @@ function RestScreen({ seconds, of, next, paused, onBack, onBump, onPause, onSkip
         <span>{mmss(seconds)}</span>
       </div>
 
-      {next && (
+      {next ? (
         <p className="rest-next">
           Next: <strong>{next.item.name}</strong> · Set {next.index + 1} of {next.of}
           {' · '}{setLine(next.set, next.item)}
         </p>
-      )}
+      ) : <p className="rest-next">That was the last set.</p>}
 
       <div className="run-acts">
         <ControlRow paused={paused} onBack={onBack} onLess={() => onBump(-10)} onPause={onPause}
@@ -684,9 +687,11 @@ export function SetList({ pres, steps, run, cursor, onJump, onUnmark, onUnskip, 
     if (g && g.itemId === s.itemId) g.sets.push(s)
     else groups.push({ itemId: s.itemId, item: s.item, blockName: s.blockName, sets: [s] })
   }
+  // Through the shell's Popover (#98, H F9), so a tap on the scrim, Escape and
+  // focus behave as every other sheet does; `over` puts it above the runner.
   return (
-    <div className="setlist-scrim" onClick={onClose} role="presentation">
-      <div className="setlist" onClick={e => e.stopPropagation()} role="dialog" aria-label="All sets">
+    <Popover label="All sets" onClose={onClose} over>
+      <div className="setlist">
         <header className="setlist-head">
           <span>All sets</span>
           <button className="iconbtn" onClick={onClose} aria-label="Close"><Icon name="X" size={18} /></button>
@@ -746,7 +751,7 @@ export function SetList({ pres, steps, run, cursor, onJump, onUnmark, onUnskip, 
           </footer>
         )}
       </div>
-    </div>
+    </Popover>
   )
 }
 

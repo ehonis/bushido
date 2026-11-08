@@ -22,7 +22,7 @@ import { HowSheet, MovesList, HowRow } from '../src/howto.jsx'
 import { FIGURES, hasFigure } from '../src/lib/figures.jsx'
 import { resolveCeiling, ceilingState } from '../src/lib/force.js'
 import { hasWorkout } from '../src/lib/workout.js'
-import { TimerHost, openTimer, closeTimer, timerRequestFor, TimerSetup } from '../src/timer.jsx'
+import { TimerHost, openTimer, closeTimer, timerRequestFor, TimerSetup, IntervalTimer } from '../src/timer.jsx'
 import { ToastList, toastTop } from '../src/toast.jsx'
 import { DoneChip, doneChipLabel } from '../src/sheetparts.jsx'
 import { BUILT_INS } from '../src/lib/timer.js'
@@ -1073,7 +1073,9 @@ export default [
     if (req.presets.some(Boolean)) throw new Error('an ordinary card invented a plan timer')
     openTimer(req)
     try {
-      const html = renderToString(<TimerHost entries={[]} upsertEntry={noop} deleteEntry={noop} />)
+      // The host answers with the timer's screen, which loads on demand (lazy.jsx): SSR
+      // cannot wait for it, so the screen is rendered as the host hands it the request.
+      const html = renderToString(<IntervalTimer title={req.title} sessionPresets={req.presets} entries={[]} upsertEntry={noop} deleteEntry={noop} onClose={noop} />)
       const t = text(html)
       for (const w of ['Interval timer', 'Run', 'Start', 'Work', 'Rest', 'Rounds', BUILT_INS[0].name]) {
         if (!t.includes(w)) throw new Error(`the timer opened without "${w}"`)

@@ -21,7 +21,7 @@
  * are `lib/metrics.js`, both pure and tested as arithmetic on the web.
  */
 import React, { useMemo, useState } from 'react'
-import { ScrollView, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { colors, font, space } from '../theme'
 import { T } from '../ui/Text'
 import { Btn, Card, Chip, Divider, Empty, H2, Row, Segmented } from '../ui/kit'
@@ -30,6 +30,8 @@ import { LineChart, BarChart, Pyramid, SERIES } from '../lib/viz'
 import { localIso } from '../lib/dates.js'
 import { EMPTY_SCOPE, resolveScope, scopeOptions } from '../lib/scope.js'
 import { metricsFor, totalsFor, bodyweightSeries } from '../lib/metrics.js'
+import { ChipRow, ScreenTitle, SubFilter, SubChip, subFilterLabel } from './filters'
+import { Explain } from './blurb'
 
 const RANGES = [
   { weeks: 4, label: '4 wk' },
@@ -101,7 +103,7 @@ export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }: any)
     return (
       <Empty icon="Gauge">
         <T size={font.body} dim align="center">Nothing logged yet</T>
-        <T size={font.label} dim align="center">Log a workout and your weeks show up here.</T>
+        <Explain><T size={font.label} dim align="center">Log a workout and your weeks show up here.</T></Explain>
       </Empty>
     )
   }
@@ -115,6 +117,7 @@ export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }: any)
 
   return (
     <>
+      <ScreenTitle>Progress</ScreenTitle>
       <Card>
         {narrowed ? (
           <View style={st.scope}>
@@ -155,12 +158,12 @@ export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }: any)
       )}
 
       {showCats && (
-        <ChipRow style={st.cats}>
+        <SubFilter label={subFilterLabel(options.activities.find((a: any) => a.value === within)?.label)}>
           {options.categories.map((o: any) => (
-            <Chip key={o.value} small label={o.label} on={scope.category === o.value}
+            <SubChip key={o.value} label={o.label} on={scope.category === o.value}
               onPress={() => set({ category: scope.category === o.value ? null : o.value, session: null, exercise: null })} />
           ))}
-        </ChipRow>
+        </SubFilter>
       )}
 
       <Card style={st.picks}>
@@ -234,27 +237,11 @@ function ScopePick({ label, options, value, onPick, all }: any) {
   return <Row label={label} value={cur ? cur.label : all} onPress={open} />
 }
 
-/*
- * One row of filter chips that scrolls sideways (#97, F3): two wrapped rows of
- * chips put the first chart (and the first workout) a screen down on a phone.
- * Bled to the screen's edges so the cut-off chip says there is more.
- */
-function ChipRow({ children, style }: { children: React.ReactNode; style?: any }) {
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[st.chipRow, style]}
-      contentContainerStyle={st.chipRowIn} keyboardShouldPersistTaps="handled">
-      {children}
-    </ScrollView>
-  )
-}
-
 const st = StyleSheet.create({
   scope: { flexDirection: 'row', alignItems: 'center', gap: space[2], marginTop: -space[2], marginRight: -space[3], marginBottom: space[2] },
   nums: { flexDirection: 'row', gap: space[4] },
   num: { flex: 1, minWidth: 0, gap: 2 },
   seg: { marginTop: space[4], marginBottom: 0 },
-  chipRow: { marginHorizontal: -space.gutter, flexGrow: 0 },
-  chipRowIn: { gap: space[2], paddingHorizontal: space.gutter },
   cats: { marginBottom: space[3] },
   picks: { paddingVertical: 0 },
   metricNext: { marginTop: space[6], paddingTop: space[4], borderTopWidth: 1, borderTopColor: colors.line },

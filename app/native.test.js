@@ -83,6 +83,27 @@ test('every Input carries the keyboard bar, and no sheet footer is a Close', () 
   assert.deepEqual(bad, [], 'a Close is back in a sheet footer')
 })
 
+test('the coach is gone from the dock too (#31, F F8)', () => {
+  if (/coach/.test(read('shell/TabBar.tsx'))) throw new Error('the tab bar still checks for a coach tab')
+  if (/coach/i.test(read('lib/foreground.ts'))) throw new Error('foreground.ts still names a coach provider')
+})
+
+/*
+ * The typecheck means something only where nothing is cast away (#98, H F4):
+ * a lib function TypeScript reads too narrowly gets a JSDoc type in the lib
+ * (both copies), never an `as any` at the call. A ratchet: these numbers only
+ * go down. Lower them when you remove casts.
+ */
+const AS_ANY = { total: 217, hot: { 'features/sheet.tsx': 0, 'features/editor.tsx': 1, 'features/exercises.tsx': 3, 'features/runner.tsx': 2 } }
+test(`no more \`as any\` than the ratchet (${AS_ANY.total} in mobile/src)`, () => {
+  const count = (f) => (read(f).match(/\bas any\b/g) || []).length
+  const total = walk('.').reduce((n, f) => n + count(f), 0)
+  if (total > AS_ANY.total) throw new Error(`${total} \`as any\` in mobile/src, up from ${AS_ANY.total}: type the lib function with JSDoc instead`)
+  for (const [f, n] of Object.entries(AS_ANY.hot)) {
+    if (count(f) > n) throw new Error(`${f}: ${count(f)} \`as any\`, up from ${n}`)
+  }
+})
+
 let failed = 0
 for (const [name, fn] of tests) {
   try { await fn(); console.log(`  ok  ${name}`) } catch (e) { failed += 1; console.log(`  FAIL ${name}\n       ${e.message}`) }

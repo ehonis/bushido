@@ -120,7 +120,7 @@ export function landsWords(block: any, pres: any, categories: any[] = []): strin
  */
 export function landsOf(pres: any): Map<string, 'own' | 'beside'> {
   const out = new Map<string, 'own' | 'beside'>()
-  if ((splitPrescription as any)(pres).length < 2) return out
+  if (splitPrescription(pres).length < 2) return out
   let open: string | null = null
   for (const b of pres?.blocks || []) {
     const own = Boolean(b.category) && b.category !== open
@@ -191,8 +191,8 @@ const loadOf = (it: any) => {
 function CircuitBlock({ block: b, pres, onChange, onDrop, liftField, entries, entryId, open, onToggle, extra, menu = null, lands = null, lead = null }: any) {
   const [more, setMore] = useState(false)
   const c = b.circuit
-  const items = b.items.map((it: any) => ({ id: it.id, key: it.exercise, name: it.name, timing: (circuitTiming as any)(it), load: loadOf(it) }))
-  const timing = (next: any) => onChange((patchBlock as any)(pres, b.id, { circuit: { ...c, ...next } }))
+  const items = b.items.map((it: any) => ({ id: it.id, key: it.exercise, name: it.name, timing: circuitTiming(it), load: loadOf(it) }))
+  const timing = (next: any) => onChange(patchBlock(pres, b.id, { circuit: { ...c, ...next } }))
   return (
     <View style={{ marginBottom: open ? 22 : 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
@@ -219,10 +219,10 @@ function CircuitBlock({ block: b, pres, onChange, onDrop, liftField, entries, en
             </View>
           ) : null}
           <CircuitList items={items} work={c.work} liftField={liftField}
-            onTiming={(i, t) => onChange((setTiming as any)(pres, items[i].id, t))}
+            onTiming={(i, t) => onChange(setTiming(pres, items[i].id, t))}
             onRemove={(i) => onDrop(items[i].id)}
-            onMove={(i, dir) => onChange((moveItem as any)(pres, items[i].id, dir).pres)}
-            onAdd={(key) => onChange((appendLift as any)(pres, liftField, key, { blockId: b.id, entries, excludeId: entryId }))} />
+            onMove={(i, dir) => onChange(moveItem(pres, items[i].id, dir).pres)}
+            onAdd={(key) => onChange(appendLift(pres, liftField, key, { blockId: b.id, entries, excludeId: entryId }))} />
         </>
       ) : null}
     </View>
@@ -263,18 +263,18 @@ export function PrescriptionEditor({
   const itemOf = (id: string) => (pres?.blocks || []).flatMap((b: any) => b.items || []).find((it: any) => it.id === id)
   const dropSet = (id: string, setId: string) => {
     const it = itemOf(id)
-    remove((removeSet as any)(pres, id, setId), removalWords(it, (it?.sets || []).findIndex((s: any) => s.id === setId), { syncedWith }))
+    remove(removeSet(pres, id, setId), removalWords(it, (it?.sets || []).findIndex((s: any) => s.id === setId), { syncedWith }))
   }
-  const dropItem = (id: string) => remove((removeItem as any)(pres, id), removalWords(itemOf(id), null, { syncedWith }))
+  const dropItem = (id: string) => remove(removeItem(pres, id), removalWords(itemOf(id), null, { syncedWith }))
   const [shut, setShut] = useState<Set<string>>(() => new Set())  // blockIds folded away
   // The block whose note is being written.
   const [noteFor, setNoteFor] = useState<string | null>(null)
 
-  const total = (prescriptionSteps as any)(pres).length
+  const total = prescriptionSteps(pres).length
   const blocks: any[] = pres.blocks || []
   // ONE exercise starts open. Planning: the first in the SESSION. Doing: the
   // first with a set still to do, which is where the workout is.
-  const next = doing ? (firstUnticked as any)(pres, asWritten) : null
+  const next = doing ? firstUnticked(pres, asWritten) : null
   const firstItemId = doing ? next : blocks.flatMap((b: any) => b.items || [])[0]?.id || null
 
   const toggleBlock = (id: string) => setShut(s => {
@@ -288,14 +288,14 @@ export function PrescriptionEditor({
   const dropBlock = (b: any) => {
     const words = `Removed ${b.name}`
     setShut(new Set())
-    remove((removeBlock as any)(pres, b.id), syncedWith?.length ? `${words}. ${syncLine(syncedWith)}` : words)
+    remove(removeBlock(pres, b.id), syncedWith?.length ? `${words}. ${syncLine(syncedWith)}` : words)
   }
   // An exercise to the end of another block (C N12), said in a toast with Undo:
   // it lands out of sight, and into a circuit it keeps one set.
   const moveTo = (itemId: string, blockId: string) => {
     const it = itemOf(itemId)
     const to = blocks.find((x: any) => x.id === blockId)
-    const r: any = (moveItem as any)(pres, itemId, { block: blockId })
+    const r: any = moveItem(pres, itemId, { block: blockId })
     if (r.pres === pres) return
     setShut(new Set())
     impact()
@@ -310,10 +310,10 @@ export function PrescriptionEditor({
    */
   const openMenu = (b: any, bi: number, reorder: (() => void) | null) => {
     const lands = () => setTimeout(() => showMenu([
-      { label: `${!b.category ? '✓ ' : ''}Part of the workout beside it`, onPress: () => onChange((patchBlock as any)(pres, b.id, { category: null })) },
+      { label: `${!b.category ? '✓ ' : ''}Part of the workout beside it`, onPress: () => onChange(patchBlock(pres, b.id, { category: null })) },
       ...categories.map((c: any) => ({
         label: `${b.category === c.key ? '✓ ' : ''}A separate ${c.name} workout`,
-        onPress: () => onChange((patchBlock as any)(pres, b.id, { category: c.key })),
+        onPress: () => onChange(patchBlock(pres, b.id, { category: c.key })),
       })),
     ], { title: `Where ${b.name} lands` }), 350)
     // Which exercise, then which block: two system sheets, as Where it lands.
@@ -325,13 +325,13 @@ export function PrescriptionEditor({
     const moveOne = () => (b.items.length === 1 ? toBlock(b.items[0]) : setTimeout(() => showMenu(
       b.items.map((it: any) => ({ label: it.name, onPress: () => toBlock(it) })), { title: 'Move which exercise?' }), 350))
     showMenu([
-      { label: 'Rename', onPress: () => { prompt('Rename this block', { defaultValue: b.name }).then((v) => { if (v) onChange((renameBlock as any)(pres, b.id, v)) }) } },
+      { label: 'Rename', onPress: () => { prompt('Rename this block', { defaultValue: b.name }).then((v) => { if (v) onChange(renameBlock(pres, b.id, v)) }) } },
       { label: b.note ? 'Edit the note' : 'Add a note', onPress: () => setNoteFor(b.id) },
       ...(reorder ? [{ label: 'Reorder exercises', onPress: reorder }] : []),
       ...(b.items.length && others.length ? [{ label: 'Move an exercise to another block…', onPress: moveOne }] : []),
-      ...(bi > 0 ? [{ label: 'Move block up', onPress: () => regroup((moveBlock as any)(pres, b.id, 'up').pres) }] : []),
-      ...(bi < blocks.length - 1 ? [{ label: 'Move block down', onPress: () => regroup((moveBlock as any)(pres, b.id, 'down').pres) }] : []),
-      { label: b.circuit ? 'Not a circuit' : 'Make it a circuit', onPress: () => onChange((setCircuit as any)(pres, b.id, !b.circuit)) },
+      ...(bi > 0 ? [{ label: 'Move block up', onPress: () => regroup(moveBlock(pres, b.id, 'up').pres) }] : []),
+      ...(bi < blocks.length - 1 ? [{ label: 'Move block down', onPress: () => regroup(moveBlock(pres, b.id, 'down').pres) }] : []),
+      { label: b.circuit ? 'Not a circuit' : 'Make it a circuit', onPress: () => onChange(setCircuit(pres, b.id, !b.circuit)) },
       ...(categories.length ? [{ label: 'Where it lands…', onPress: lands }] : []),
       ...(blocks.length > 1 ? [{ label: 'Remove block', destructive: true, onPress: () => dropBlock(b) }] : []),
     ], { title: b.name })
@@ -342,7 +342,7 @@ export function PrescriptionEditor({
   // Planning shows a note as its box; doing reads it, and the ⋯ opens the box.
   const leadOf = (b: any) => (
     <BlockNote note={b.note} editing={noteFor === b.id || (!doing && Boolean(b.note))} asked={noteFor === b.id}
-      onCommit={(v: string) => onChange((noteBlock as any)(pres, b.id, v))}
+      onCommit={(v: string) => onChange(noteBlock(pres, b.id, v))}
       onFocus={() => setNoteFor(b.id)} onDone={() => setNoteFor(null)} />
   )
 
@@ -357,35 +357,35 @@ export function PrescriptionEditor({
         <ExerciseSection key={b.id}
           title={b.name}
           count={b.items.length > 0 ? setCount(b) : null}
-          items={b.items.map((it: any) => ({ ...it, line: (itemLine as any)(it) }))}
+          items={b.items.map((it: any) => ({ ...it, line: itemLine(it) }))}
           liftField={liftField} entries={entries} entryId={entryId}
           firstOpenId={firstItemId}
           open={!shut.has(b.id)} onToggle={() => toggleBlock(b.id)}
           menu={menuOf(b, bi)} tag={blockTag(b, pres, categories)} lead={leadOf(b)}
           doing={doing} asWritten={asWritten} focusId={next}
-          onTick={doing ? (id: string, setId: string, v: boolean) => onChange((tickSet as any)(pres, id, setId, v)) : null}
+          onTick={doing ? (id: string, setId: string, v: boolean) => onChange(tickSet(pres, id, setId, v)) : null}
           /* The hand-built route only. A session the model wrote already has its
              intervals in it, and the place to change one is the card. */
           foot={onAddPiece
             ? <PieceAdder unit={distanceUnitFor(b)} label={pieceWords(b)}
                 onAdd={(name, by, unit) => onAddPiece(b.id, name, by, unit)} />
             : null}
-          onPatch={(id: string, patch: any) => onChange((patchItem as any)(pres, id, patch))}
-          onPatchSet={(id: string, setId: string, patch: any) => onChange((patchSet as any)(pres, id, setId, patch))}
+          onPatch={(id: string, patch: any) => onChange(patchItem(pres, id, patch))}
+          onPatchSet={(id: string, setId: string, patch: any) => onChange(patchSet(pres, id, setId, patch))}
           /* "Use last time" (#93): the numbers as targets, in one write, never ticked. */
-          onFill={(id: string, fills: any[]) => onChange((patchItem as any)(pres, id, { sets: (withFills as any)(itemOf(id)?.sets, fills) }))}
-          onAddSet={(id: string) => onChange((addSet as any)(pres, id))}
+          onFill={(id: string, fills: any[]) => onChange(patchItem(pres, id, { sets: withFills(itemOf(id)?.sets, fills) }))}
+          onAddSet={(id: string) => onChange(addSet(pres, id))}
           onRemoveSet={dropSet}
           onRemove={dropItem}
           onMove={canReorder ? (id: string, dir: number) => {
-            const r: any = (moveItem as any)(pres, id, dir)
+            const r: any = moveItem(pres, id, dir)
             onChange(r.pres)
             return r.itemId
           } : null}
           /* Same as the log form: the exercise just added opens. `appendLift`
              re-mints every id, and the new one is always last in its block. */
           onAdd={(key: string) => {
-            const n: any = (appendLift as any)(pres, liftField, key, { blockId: b.id, entries, excludeId: entryId })
+            const n: any = appendLift(pres, liftField, key, { blockId: b.id, entries, excludeId: entryId })
             onChange(n)
             return addedId(pres, n, b.id)
           }} />
@@ -393,7 +393,7 @@ export function PrescriptionEditor({
       {/* A block of its own: a finisher, a cool-down. Last, under everything; its
           name and the rest are its ⋯. */}
       <Btn kind="quiet" icon="Plus" title="Add a block" style={{ alignSelf: 'flex-start', paddingHorizontal: space[1] }}
-        onPress={() => { impact(); regroup((addBlock as any)(pres).pres) }} />
+        onPress={() => { impact(); regroup(addBlock(pres).pres) }} />
       {/* Only where there is nothing to be done about it: a session still being
           built is empty because the user has not started. */}
       {!total && !onAddPiece && (

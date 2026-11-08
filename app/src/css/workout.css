@@ -166,7 +166,7 @@ button.it-face.wo-clock.tappable:active { background: color-mix(in oklab, var(--
 /* The reps box becomes a stepper while the detail is on — see Review. Matching
    the big centred number fields beside it rather than the set log's table cell. */
 .wo-repstep input { font-size: var(--fs-stat); font-weight: 600; padding: var(--sp-3) var(--sp-1); min-height: 62px; width: 100%; }
-.wo-repstep .repstep-b { min-width: 34px; min-height: var(--tap); font-size: var(--fs-screen); }
+.wo-repstep .repstep-b { min-width: var(--tap); min-height: var(--tap); font-size: var(--fs-screen); }
 
 button.btn.wo-setdone {
   display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2);

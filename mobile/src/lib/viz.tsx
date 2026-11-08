@@ -23,7 +23,7 @@ import { T } from '../ui/Text'
 import { Empty, Press } from '../ui/kit'
 import { tap } from '../ui/haptics'
 import { localIso } from './dates.js'
-import { timeX, dateWords, needsYear, deltaBase } from './vizscale.js'
+import { timeX, axisDate, needsYear, deltaBase } from './vizscale.js'
 
 /** The categorical series, as real colours (the web names them var(--series-n)). */
 export const SERIES: string[] = [...THEME_SERIES]
@@ -206,7 +206,7 @@ export function LineChart({ points, label, help, unit = '', height = 190, color 
   const yAt = (v: number) => padT + innerH - ((v - lo) / (hi - lo || 1)) * innerH
   // The year is said when it is not obvious: the series crosses one, or is not this year's.
   const withYear = (needsYear as any)(data.map((d) => d.x))
-  const day = (x: string) => (dateWords as any)(x, { withYear }) as string
+  const day = (x: string) => axisDate(x, { withYear })
 
   const path = data.map((d, i) => `${i ? 'L' : 'M'}${xAt(i).toFixed(1)},${yAt(d.y).toFixed(1)}`).join('')
   const last = data[data.length - 1]

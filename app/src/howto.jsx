@@ -23,8 +23,9 @@
  *             held at arm's length has room for exactly one thing.
  */
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Icon } from './lib/icons.jsx'
+import { Popover } from './modal.jsx'
 import { Figure } from './lib/figures.jsx'
 
 /** "3 × 8" — the prescription, short enough to sit in a row. */
@@ -118,19 +119,13 @@ export function HowRow({ exercise, open, onToggle, meta }) {
 export function HowSheet({ exercise, how, title, onClose }) {
   const card = how || exercise?.how
   const name = title || exercise?.name
-
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
-
   if (!card) return null
 
+  // Through the shell's Popover (#98, H F9): its scrim, Escape (this layer only)
+  // and focus, as every other sheet; `over` puts it above workout mode.
   return (
-    <div className="how-scrim" onClick={onClose} role="presentation">
-      <div className="how-sheet" role="dialog" aria-modal="true" aria-label={`How to do ${name}`}
-        onClick={(e) => e.stopPropagation()}>
+    <Popover label={`How to do ${name}`} onClose={onClose} over>
+      <div className="how-sheet">
         <header className="how-sheethead">
           <div className="how-sheetname">{name}</div>
           <button className="modal-btn close" onClick={onClose} aria-label="Close">
@@ -140,7 +135,7 @@ export function HowSheet({ exercise, how, title, onClose }) {
         <div className="how-sheetbody"><HowBody how={card} /></div>
         <button className="btn how-got" onClick={onClose}>Got it</button>
       </div>
-    </div>
+    </Popover>
   )
 }
 

@@ -264,16 +264,10 @@
 /* Above workout mode, which is z-index 80. Opened mid-set, so it is a bottom
    sheet with a full-width dismiss bar: the only guaranteed-reachable target on
    a phone held in one chalky hand. */
-.how-scrim {
-  position: fixed; inset: 0; z-index: 90;
-  background: rgba(0, 0, 0, 0.62);
-  display: flex; align-items: flex-end; justify-content: center;
-}
+/* Inside the shell's Popover (#98), which is the scrim, the frame and the motion. */
 .how-sheet {
-  width: 100%; max-height: 92vh; display: flex; flex-direction: column;
-  background: var(--panel); border-top: 1px solid var(--line);
-  border-radius: var(--r-card) var(--r-card) 0 0;
-  padding: var(--sp-2) var(--sp-4) calc(var(--sp-4) + env(safe-area-inset-bottom));
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  padding: var(--sp-2) var(--sp-4) var(--sp-4);
 }
 .how-sheethead { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) 0 var(--sp-4); }
 .how-sheetname { flex: 1; min-width: 0; font-size: var(--fs-title); font-weight: 600; }
@@ -282,10 +276,6 @@ button.btn.how-got {
   flex: 0 0 auto; width: 100%; margin-top: var(--sp-4); min-height: 52px; font-size: var(--fs-body);
 }
 
-@media (min-width: 720px) {
-  .how-scrim { align-items: center; padding: var(--sp-6); }
-  .how-sheet { max-width: 520px; border-radius: var(--r-card); border: 1px solid var(--line); }
-}
 
 /* ------------------------------------------------------- protocol sections */
 
@@ -298,7 +288,8 @@ button.btn.how-got {
 .sect-nav::-webkit-scrollbar { display: none; }
 
 .sect-chip {
-  display: inline-flex; align-items: center; gap: var(--sp-2); white-space: nowrap;
+  /* Pressed on its own, so 44 tall (#98: 39 from its padding and a line). */
+  display: inline-flex; align-items: center; gap: var(--sp-2); white-space: nowrap; min-height: var(--tap);
   background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-pill);
   color: var(--ink-faint); font: inherit; font-size: var(--fs-label); font-weight: 500;
   padding: var(--sp-2) var(--sp-3); cursor: pointer; flex: 0 0 auto;

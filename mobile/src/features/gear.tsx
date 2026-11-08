@@ -26,6 +26,8 @@ import { Icon } from '../lib/icons'
 import { localIso } from '../lib/dates.js'
 import { DayStepper } from '../ui/DayStepper'
 import { NumInput } from './numinput'
+import { Explain } from './blurb'
+import { usePrefs } from '../lib/prefs.jsx'
 import {
   gearUsage, gearKinds, kindOf, metricOf, headlineFor, buildGearEntry, newGearId,
   priorValueFor, priorFieldsFor,
@@ -132,6 +134,8 @@ function GearRow({ row, kind, first, onOpen }: any) {
  * row for the same bike (#76). So its form has one button, Done.
  */
 function GearForm({ plan, row, onSave, onCancel, onDelete }: any) {
+  // "Show explanations" (Profile, Settings) governs the confirm's reassurance too (#98).
+  const explain = !(usePrefs() as any).allHidden
   const synced = row?.source === 'strava'
   const [name, setName] = useState(row?.name || '')
   const [kind, setKind] = useState(row?.kind || 'climbing-shoes')
@@ -172,7 +176,7 @@ function GearForm({ plan, row, onSave, onCancel, onDelete }: any) {
       dismissable={false}
       onDelete={onDelete}
       deleteLabel={row ? `Remove ${row.name}` : 'Remove'}
-      deleteBody="Workouts logged with it keep their history."
+      deleteBody={explain ? 'Workouts logged with it keep their history.' : false}
       footer={(
         <>
           {synced ? null : <Btn kind="secondary" title="Cancel" flex onPress={onCancel} />}
@@ -181,7 +185,7 @@ function GearForm({ plan, row, onSave, onCancel, onDelete }: any) {
       )}
     >
       {synced && (
-        <T size={font.label} dim style={{ marginBottom: space[3] }}>From Strava, which keeps its name, odometer and default.</T>
+        <Explain><T size={font.label} dim style={{ marginBottom: space[3] }}>From Strava, which keeps its name, odometer and default.</T></Explain>
       )}
 
       {!synced && (

@@ -327,6 +327,9 @@ export function nextWeightMode(field, row) {
  * `undone` and `done` are read as `isDone` (lib/store.js) reads them for a day
  * that has arrived. server/drafts.js `rememberedModes` is the same rule for a
  * whole log, and server/drafts.test.js holds the two to the same answers.
+ *
+ * @param {any} field @param {any[]} [entries] @param {string} key @param {string | null | undefined} implement
+ * @param {string | null} [excludeId] @param {string} [today]
  */
 export function rememberedWeightMode(field, entries = [], key, implement, excludeId = null, today = localIso()) {
   if (!key || !implement) return null
@@ -413,6 +416,9 @@ function searchText(ex) {
  * `group` is a picker's group chip: exactly that group, in catalog order, and
  * nothing that merely mentions it ("Triceps" is not a bench press). Description
  * matching is for words someone typed.
+ *
+ * @param {any} field @param {string} [query]
+ * @param {{ limit?: number, group?: string | null }} [opts]
  */
 export function searchExercises(field, query = '', { limit = 60, group = null } = {}) {
   const { exercises } = catalogOf(field)
@@ -840,6 +846,9 @@ export const liftedLine = (entry, field = null, today = localIso()) => liftsLine
  * being edited excluded. What was lifted is `liftsDone`: a done plan's sets count
  * as much as a logged row (D11). `measure` keeps a hold's last time to holds: sixty
  * reps of an old Plank is not a number to beat in seconds.
+ *
+ * @param {any[]} entries @param {string} key @param {string | null} [excludeId] @param {any} [field]
+ * @param {'reps' | 'time' | null} [measure] @param {string} [today]
  */
 export function lastLift(entries = [], key, excludeId = null, field = null, measure = null, today = localIso()) {
   const hits = []

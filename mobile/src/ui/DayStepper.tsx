@@ -4,7 +4,7 @@ import React from 'react'
 import { StyleSheet, View } from 'react-native'
 import { colors, radius, space, TAP, height } from '../theme'
 import { Icon } from '../lib/icons'
-import { localIso } from '../lib/dates.js'
+import { localIso, dayWords } from '../lib/dates.js'
 import { Input, Press } from './kit'
 
 /** The web's <input type="date" max={today}> as a day stepper: back a day, forward up to today. */
@@ -16,7 +16,7 @@ export function DayStepper({ value, max, onChange }: { value: string; max?: stri
     if (max && iso > max) return
     onChange(iso)
   }
-  const label = new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
+  const label = dayWords(value)
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[2] }}>
       <Press haptic onPress={() => shift(-1)} style={st.dayBtn} accessibilityLabel="The day before"><Icon name="ChevronLeft" size={18} color={colors.inkDim} /></Press>

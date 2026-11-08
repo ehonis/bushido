@@ -17,8 +17,8 @@ const PrefsCtx = createContext(null)
 export function PrefsProvider({ settings, saveSettings, children }) {
   const blurbs = settings?.blurbs || {}
   const allHidden = Boolean(blurbs.allHidden)
-  const hidden = blurbs.hidden || {}
-  const shown = blurbs.shown || {}
+  const hidden = useMemo(() => blurbs.hidden || {}, [blurbs.hidden])
+  const shown = useMemo(() => blurbs.shown || {}, [blurbs.shown])
 
   const isHidden = useCallback(
     (id) => (allHidden ? !shown[id] : Boolean(hidden[id])),

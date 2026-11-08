@@ -33,7 +33,7 @@ import { PrescriptionEditor } from './editor'
 import { usePlan } from '../lib/planctx.jsx'
 import { liftFieldOf } from '../lib/lifts.js'
 import { titleFor } from '../lib/naming.js'
-import { dayWords as dayInWords } from '../lib/dates.js'
+import { dayWords as dayInWords, dateWords, weekRange, localIso, mondayOf, weekDays, shiftWeek } from '../lib/dates.js'
 import { DoneChip, useDoneFlip, SheetStart } from './sheetparts'
 import * as peopleApi from '../lib/peopleapi.js'
 import { optFor } from '../lib/menu.js'
@@ -41,7 +41,6 @@ import * as trainerLib from '../lib/trainer.js'
 import { isDone } from '../lib/store.js'
 import { prescriptionSteps, runProgress, itemLine, prescriptionLine, runOf } from '../lib/prescription.js'
 import { restClock, restPausedAt } from '../lib/timer.js'
-import { fromIso, localIso, mondayOf, weekDays, shiftWeek } from '../lib/dates.js'
 import { currentMe } from '../lib/whoami.js'
 
 type Person = { id: string; name: string; entryId?: string; tone?: number }
@@ -364,7 +363,6 @@ function TheirSlot({ kind, person, session, shown, who, switcher, onExit, onFini
 
 /* ------------------------------------------------------ someone's day */
 
-const dayWords = (iso: string) => fromIso(iso).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
 
 /** What a row says about one of someone's sessions: where it stands, who planned it. */
 const rowMeta = (r: any) => [r.running ? 'In progress' : r.done ? 'Done' : 'Not done yet', r.plannedBy, r.sharedFrom ? 'shared' : null]
@@ -455,8 +453,7 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
   const today = localIso()
   const tone = person.tone ?? 1
   const c = toneColor(tone)
-  const label = `${fromIso(monday).toLocaleDateString([], { month: 'short', day: 'numeric' })} – ` +
-    `${fromIso(weekDays(monday)[6]).toLocaleDateString([], { month: 'short', day: 'numeric' })}`
+  const label = weekRange(monday)
   /* ONE SHEET WHICHEVER DOOR (#94, D N4): a copy of one of the owner's own
      workouts opens as the owner's sheet on this person's side, exactly as from
      Today; anything else of theirs opens `PersonEntrySheet`, the same their-side body. */
@@ -487,7 +484,7 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
         const rows = dayOf(log.entries, d).map((e: any) => dayRow(e, menu, me))
         return (
           <View key={d} style={i ? { marginTop: space[6] } : null}>
-            <SectionHeader title={dayWords(d)} style={{ marginTop: 0 }}
+            <SectionHeader title={dateWords(d)} style={{ marginTop: 0 }}
               right={d === today ? (
                 <Sub><T size={font.label} weight={600} color={c}>Today</T>{rows.length ? '' : ' · Nothing'}</Sub>
               ) : rows.length ? undefined : 'Nothing'} />

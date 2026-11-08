@@ -36,7 +36,7 @@ export default [
    * capitalised date with "N workouts", and a down chevron as if the row opened
    * in place) is gone.
    */
-  ['LogTab(one card per day, workouts as rows, a header like "Fri 23 Oct")', <LogTab plan={plan} upsertEntry={noop} deleteEntry={noop} entries={[
+  ['LogTab(one card per day, workouts as rows, a header like "Fri, Oct 23", the app\'s one date format)', <LogTab plan={plan} upsertEntry={noop} deleteEntry={noop} entries={[
     { id: 'r1', kind: 'daily', date: isoShift(TODAY, -3), updatedAt: 'z',
       data: { optId: 'log-workout', level: 2, done: true, out: { activity: 'run', duration: 32, distance: 3.1, rpe: 5 } } },
     { id: 'r2', kind: 'daily', date: isoShift(TODAY, -3), updatedAt: 'z',
@@ -49,8 +49,8 @@ export default [
       const heads = [...t.matchAll(/<div class="section-head"><h3>([^<]*)<\/h3>/g)].map(m => m[1])
       if (heads.length !== 2) throw new Error(`expected two day heads, got ${heads}`)
       for (const h of heads) {
-        if (!/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)( \d{4})?$/.test(h)) {
-          throw new Error(`a day head read "${h}", not like "Fri 23 Oct"`)
+        if (!/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}(, \d{4})?$/.test(h)) {
+          throw new Error(`a day head read "${h}", not like "Fri, Oct 23"`)
         }
       }
       if ((t.match(/class="card list logday-list"/g) || []).length !== 2) throw new Error('not one card per day')

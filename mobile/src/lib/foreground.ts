@@ -1,6 +1,6 @@
 // The web's "came back to the foreground" (document visibilitychange to
 // visible, and window 'online'), as one native subscription: AppState turning
-// active. The ported store and the WHOOP/Strava/coach providers re-read the
+// active. The ported store and the WHOOP and Strava providers re-read the
 // server on it, exactly where the web does.
 import { AppState } from 'react-native'
 

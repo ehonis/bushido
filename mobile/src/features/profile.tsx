@@ -37,7 +37,7 @@ import { pushError } from '../lib/toast'
 import { useStrava } from '../lib/strava.jsx'
 import { athleteOf, profileFacts, buildProfileEntry, factValue, PROFILE_GROUPS } from '../lib/profile.js'
 import { usePrefs } from '../lib/prefs.jsx'
-import { localIso } from '../lib/dates.js'
+import { localIso, dateWords } from '../lib/dates.js'
 import { currentMe, actAs, cacheKeyFor, USER_HEADER } from '../lib/whoami.js'
 import { MyAbout } from './trainer'
 import { signOutDevice } from '../lib/signout.js'
@@ -47,6 +47,9 @@ import { gearUsage } from '../lib/gear.js'
 import { GearSection } from './gear'
 import { TestingTab, WhyTab, hasTests, hasEvidence } from './testing'
 import { NotificationsSection } from './notifications'
+import { Explain } from './blurb'
+import { ScaleGradeSelect } from './setlog'
+import { gradeFromText } from '../lib/grades.js'
 
 /* ---------------------------------------------------------- the pages */
 
@@ -260,13 +263,27 @@ export function FactsForm({ groups, entries, strava, upsertEntry }: any) {
             {group.fields.map((f: any) => {
               const { value, source, date } = (factValue as any)(f, { facts, strava, entries })
               const num = f.type === 'number'
+              if (f.type === 'grade') {
+                // Typed before the ladder: kept, said, and replaced only by a pick.
+                const typed = source === 'own' && typeof value === 'string' && value.trim() ? value.trim() : null
+                const rungOf = typed ? gradeFromText(typed, f.scale) : null
+                return (
+                  <View key={f.key} style={{ gap: space[2] }}>
+                    <T size={font.label} dim>{f.label}</T>
+                    <ScaleGradeSelect scale={f.scale} label={f.label}
+                      value={source === 'own' && typeof value === 'number' ? value : rungOf ?? ''}
+                      onChange={(v: any) => save(f.key, v)} />
+                    {typed && rungOf == null ? <T size={font.caption} faint>{`You wrote “${typed}”`}</T> : null}
+                  </View>
+                )
+              }
               return (
                 <View key={f.key} style={{ gap: space[2] }}>
                   <View style={st.factLabel}>
                     <T size={font.label} dim>{f.unit ? `${f.label} (${f.unit})` : f.label}</T>
                     {/* A value the user did not give must never look like one they did. */}
                     {source === 'strava' && <T size={font.caption} faint>from Strava</T>}
-                    {source === 'logged' && <T size={font.caption} faint>{`logged ${date}`}</T>}
+                    {source === 'logged' && <T size={font.caption} faint>{`logged ${dateWords(date)}`}</T>}
                   </View>
                   <Input
                     defaultValue={source === 'own' ? String(value) : ''}
@@ -285,7 +302,7 @@ export function FactsForm({ groups, entries, strava, upsertEntry }: any) {
                       else save(f.key, num ? (v === '' ? '' : Number(v)) : v)
                     }}
                   />
-                  {f.hint && HINTED.has(f.key) ? <T size={font.caption} faint>{f.hint}</T> : null}
+                  {f.hint && HINTED.has(f.key) ? <Explain><T size={font.caption} faint>{f.hint}</T></Explain> : null}
                 </View>
               )
             })}

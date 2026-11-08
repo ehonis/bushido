@@ -69,8 +69,9 @@ import * as trainerLib from '../lib/trainer.js'
 import { Stepper, boxFor, stepBox, TimeInput, weightSwitch, ExerciseSheet, type WeightSwap } from './exercises'
 import { ExerciseBody, musclesOf, muscleWords } from '../lib/bodymap'
 import { usePlan } from '../lib/planctx.jsx'
+import { dayPhrase } from '../lib/dates.js'
 
-const { back: tBack, bump: tBump, skip: tSkip, togglePause, view: tView, isTimedSet } = timerLib as any
+const { back: tBack, bump: tBump, skip: tSkip, togglePause, view: tView, isTimedSet } = timerLib
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).padStart(2, '0')}`
 
@@ -203,7 +204,8 @@ export function WorkoutRunner({ session, entry, entries = [], onRun, onExit, onF
       </View>
 
       {rest > 0 ? (
-        <RestScreen seconds={rest} of={run.restOf} next={step} paused={restPaused}
+        // After the last set the cursor stays on it: no "Next" that is the set just done (#98 review).
+        <RestScreen seconds={rest} of={run.restOf} next={step && !isLogged(run, step.setId) ? step : null} paused={restPaused}
           onBack={r.restGoBack} onBump={r.restBump} onPause={r.restPause} onSkip={r.restSkip} />
       ) : done ? (
         <FinishScreen progress={progress} elapsed={elapsed}
@@ -290,8 +292,8 @@ function nativeFeedback(event: string, { muted, shown, cue, restUntil }: { muted
  */
 function CircuitRun({ pres, block, run, only, intro, who, switcher, shown, onRun, onNext, onBack, onLeave,
   together = null, onShare = null, shared = [], onRetry = null }: any) {
-  const { compile, startRun } = timerLib as any
-  const { andWords, togetherSaid } = trainerLib as any
+  const { compile, startRun } = timerLib
+  const { andWords, togetherSaid } = trainerLib
   const config = useMemo(() => blockTimer(block), [block])
   const program = useMemo(() => compile(config), [config])
   const live = run?.circuit?.block === block.id && run.circuit.timer ? run.circuit.timer : null
@@ -354,8 +356,8 @@ function CircuitRun({ pres, block, run, only, intro, who, switcher, shown, onRun
  * everyone in it. Remembered per device; on until turned off.
  */
 function CircuitStep({ block, onStart, onSkip, onList, together = null }: any) {
-  const { compile, describe, totalSeconds } = timerLib as any
-  const { andWords } = trainerLib as any
+  const { compile, describe, totalSeconds } = timerLib
+  const { andWords } = trainerLib
   const config = blockTimer(block)
   const total = totalSeconds(compile(config))
   return (
@@ -440,7 +442,7 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
   const logged = isLogged(run, step.setId)
   const liftField = liftFieldOf(usePlan())
   const prior: any = useMemo(
-    () => (item.exercise ? (lastLift as any)(entries, item.exercise, entryId, liftField, item.kind === 'lift' ? measureOfItem(item) : null) : null),
+    () => (item.exercise ? lastLift(entries, item.exercise, entryId, liftField, item.kind === 'lift' ? measureOfItem(item) : null) : null),
     [entries, item, entryId, liftField])
   const muscles = musclesOf(liftField, item.exercise)
   const swap = weightSwitch(liftField, item, onPatchItem)
@@ -539,7 +541,7 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
           <View style={st.prior}>
             <Icon name="RotateCw" size={13} color={colors.inkDim} />
             <T size={font.label} dim tabular style={{ flexShrink: 1 }}>
-              {`last time (${prior.date}): ${prior.summary}${prior.implement ? ` · ${prior.implement}` : ''}`}
+              {`last time (${dayPhrase(prior.date)}): ${prior.summary}${prior.implement ? ` · ${prior.implement}` : ''}`}
             </T>
           </View>
         ) : null}
@@ -766,7 +768,9 @@ function RestScreen({ seconds, of, next, paused, onBack, onBump, onPause, onSkip
             {'Next: '}<T size={font.label} weight={600}>{next.item.name}</T>
             {` · Set ${next.index + 1} of ${next.of} · ${setLine(next.set, next.item)}`}
           </T>
-        ) : null}
+        ) : (
+          <T size={font.label} dim align="center" style={{ marginTop: space[4] }}>That was the last set.</T>
+        )}
       </ScrollView>
 
       <View style={st.acts}>
