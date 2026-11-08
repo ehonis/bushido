@@ -32,8 +32,10 @@ import { HowRow, HowSheet, HowBody } from './howto.jsx'
 import { CUES, primeAudio, resumeAudio, acquireWakeLock, releaseWakeLock } from './lib/cues.js'
 import {
   buildSteps, writeSet, truncateSets, clock, interval, elapsedMinutes, loggedSeconds,
-  startOf, advancePhase, afterSet, LEAD_IN,
+  startOf, advancePhase, afterSet, backPhase, LEAD_IN,
 } from './lib/workout.js'
+import { NumInput } from './numinput.jsx'
+import { WorkHead, LeaveDialog, ControlRow } from './timer.jsx'
 import { totalSets, totalReps, GradeLaps, ClimbLog } from './setlog.jsx'
 import {
   GRADE_FIELD, hasGrades, fitGrades, repCount,
@@ -75,6 +77,7 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
   const [now, setNow] = useState(() => Date.now())
   const [muted, setMuted] = useState(false)
   const [confirmExit, setConfirmExit] = useState(false)
+  const [jumpTo, setJumpTo] = useState(null) // a rail jump waiting on a confirm while a clock runs
   const [startedAt, setStartedAt] = useState(() => out.startedAt || null)
   const [finalMin, setFinalMin] = useState('')
   const [howOpen, setHowOpen] = useState(false)
@@ -234,7 +237,24 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
 
   const bump = (seconds) => {
     if (!deadline) return
+    if (paused) { setHeldMs(h => Math.max(1000, h + seconds * 1000)); return }
     setDeadline(d => Math.max(Date.now() + 1000, d + seconds * 1000))
+  }
+
+  /** Back, as on every clock in the app (`backPhase`, lib/workout.js). */
+  const goBack = () => {
+    const into = (paused ? heldMs : Date.now() - phaseAt) / 1000
+    // On a countdown `heldMs` is what was LEFT; how far in is the rest of it.
+    const far = paused && deadline ? Math.max(0, (deadline - phaseAt - heldMs) / 1000) : into
+    enter(backPhase({ phase, rep, index: i, into: far }, steps))
+  }
+
+  /** Jump to a set from the rail. While a clock is running it asks first: the clock stops. */
+  const jump = (n) => { setJumpTo(null); setDraft(null); setI(n); setPhase('idle'); setDeadline(0); setPaused(false) }
+  const askJump = (n) => {
+    if (n === i && phase === 'idle') return
+    if (active && phase !== 'review' && !paused) setJumpTo(n)
+    else jump(n)
   }
 
   /** Save the reviewed set and move on. */
@@ -247,15 +267,32 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
     enter(afterSet({ index: i }, steps, { last }))
   }
 
+  /*
+   * Finishing writes the minutes, then whether it is done, through the
+   * caller's two writers. They both build on the entry they were given, so the
+   * second waits a tick for the first to land and is called through `latest`,
+   * the props of the render that saw it: called straight away, the done write
+   * rebuilt the entry from before the save and threw the minutes away.
+   *
+   * There is one way out of the finish: Finish workout, which marks it done.
+   * "Save the sets, but don't mark it done" did nothing it said under the
+   * done-by-default rule (AGENTS.md §4), and Mark undone lives on the sheet
+   * only (#75).
+   */
+  const latest = useRef({})
+  latest.current = { onSetDone, onExit, onFinish }
   const finish = (markDone) => {
     const mins = Number(finalMin) || elapsedMinutes(startedAt) || null
     const next = { ...out }
     if (mins) next.elapsedMin = mins
     delete next.startedAt
     onSave(next)
-    if (markDone) onSetDone?.(true)
-    // With more than one side, finishing one hands over to the next (SidesWorkout).
-    ;(onFinish || onExit)()
+    setTimeout(() => {
+      const l = latest.current
+      l.onSetDone?.(markDone)
+      // With more than one side, finishing one hands over to the next (SidesWorkout).
+      ;(l.onFinish || l.onExit)()
+    }, 0)
   }
 
   /* ------------------------------------------------------------- rendering */
@@ -263,7 +300,7 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
   if (!steps.length) {
     return (
       <div className="wo" data-tone={who ? who.tone : undefined}>
-        <WoHead session={session} elapsed={0} onExit={onExit} muted={muted} onMute={setMuted} who={who} />
+        <WorkHead title={session.name} who={who} muted={muted} onMute={setMuted} onExit={onExit} />
         {switcher}
         <div className="wo-body">
           <p className="empty">
@@ -275,14 +312,26 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
     )
   }
 
+  /*
+   * The phase is on the root as `wo--<phase>`: it was `wo-<phase>`, so in the
+   * review the root was also `.wo-review`, the review card's own class, and the
+   * header shrank to half the screen with the exit jumping right (#75).
+   *
+   * The rail is at the top, under the header, where the runner's progress bar
+   * is: it says where you are. At the bottom it was the nearest thing to a
+   * thumb reaching for the controls, and a tap on it threw away the set's clock.
+   */
   return (
-    <div className={`wo wo-${phase}`} role="dialog" aria-modal="true" aria-label={`${session.name} workout`}
+    <div className={`wo wo--${phase}`} role="dialog" aria-modal="true" aria-label={`${session.name} workout`}
       data-tone={who ? who.tone : undefined}>
-      <WoHead session={session} elapsed={elapsed} onExit={() => (active ? setConfirmExit(true) : onExit())}
-        muted={muted} onMute={setMuted} who={who} />
+      <WorkHead title={session.name} who={who} muted={muted} onMute={setMuted}
+        sub={<><Icon name="Timer" size={12} /> {clock(elapsed)}</>}
+        onExit={() => (active ? setConfirmExit(true) : onExit())} />
       {switcher}
 
       <div className="wo-body">
+        {phase !== 'finished' && <Rail steps={steps} current={i} onJump={askJump} />}
+
         {phase === 'idle' && <Intro session={session} steps={steps} onStart={start} resumed={Boolean(startedAt)} />}
 
         {phase === 'finished' && (
@@ -292,7 +341,7 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
 
         {active && phase !== 'review' && step && (
           <Face phase={phase} left={left} counted={counted} rep={rep} timing={timing} step={step}
-            paused={paused} onPause={pause} onBump={bump}
+            paused={paused} onPause={pause} onBump={bump} onBack={goBack}
             onSkip={advance} onHow={() => setHowOpen(true)}
             onEndSet={() => goReview(phase === 'work' ? rep : timing.reps)} />
         )}
@@ -301,11 +350,6 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
           <Review step={step} draft={draft || step.values} onDraft={setDraft}
             onCommit={commitSet} isLastSet={i === steps.length - 1} />
         )}
-
-        {phase !== 'finished' && (
-          <Rail steps={steps} current={i}
-            onJump={(n) => { setDraft(null); setI(n); setPhase('idle'); setDeadline(0) }} />
-        )}
       </div>
 
       {howOpen && step?.how && (
@@ -313,40 +357,22 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
       )}
 
       {confirmExit && (
-        <div className="wo-confirm" role="dialog" aria-label="Leave the workout?">
-          <p>Leave the workout? Every set you marked is saved.</p>
-          <div className="wo-confirm-btns">
-            <button className="btn ghost" onClick={() => setConfirmExit(false)}>Keep going</button>
-            <button className="btn" onClick={onExit}>Leave</button>
-          </div>
-        </div>
+        <LeaveDialog title="Leave the workout?" body="Every set you marked is saved. The clock stops."
+          onKeep={() => setConfirmExit(false)}
+          actions={[{ label: 'Leave', kind: 'secondary', onClick: onExit }]} />
+      )}
+
+      {jumpTo != null && steps[jumpTo] && (
+        <LeaveDialog title={`Go to ${steps[jumpTo].exName}, set ${steps[jumpTo].setIndex + 1}?`}
+          body="The clock on this set stops. Nothing you marked is lost."
+          onKeep={() => setJumpTo(null)}
+          actions={[{ label: `Go to set ${steps[jumpTo].setIndex + 1}`, kind: 'secondary', onClick: () => jump(jumpTo) }]} />
       )}
     </div>
   )
 }
 
 /* ------------------------------------------------------------------ pieces */
-
-function WoHead({ session, elapsed, onExit, muted, onMute, who = null }) {
-  return (
-    <header className="wo-head">
-      <button className="modal-btn" onClick={onExit} aria-label="Leave workout">
-        <Icon name="ChevronLeft" size={19} />
-      </button>
-      <div className="wo-title">
-        <div className="wo-name">
-          {who && <span className="side-who" data-tone={who.tone}>{who.name}</span>}
-          {session.name}
-        </div>
-        <div className="wo-elapsed"><Icon name="Timer" size={12} /> {clock(elapsed)}</div>
-      </div>
-      <button className="modal-btn" onClick={() => onMute(!muted)} aria-pressed={muted}
-        aria-label={muted ? 'Unmute cues' : 'Mute cues'} title={muted ? 'Cues off' : 'Cues on'}>
-        <Icon name={muted ? 'VolumeX' : 'Volume2'} size={18} />
-      </button>
-    </header>
-  )
-}
 
 /**
  * What you're about to do. The exercise list doubles as the how-to: every row
@@ -391,7 +417,7 @@ function Intro({ session, steps, onStart, resumed }) {
 
 const PHASE_LABEL = { countin: 'Get ready', work: 'Work', represt: 'Rest', setrest: 'Rest between sets' }
 
-export function Face({ phase, left, counted, rep, timing, step, paused, onPause, onBump, onSkip, onEndSet, onHow }) {
+export function Face({ phase, left, counted, rep, timing, step, paused, onPause, onBump, onBack = null, onSkip, onEndSet, onHow }) {
   const showing = left != null ? left : counted
   const pips = timing.reps > 1 && timing.reps <= 24
   // A set with no clock ends when you say it does, so ending it is the main
@@ -455,37 +481,6 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onPause,
         )
       )}
 
-      {openEnded && (
-        <button className="btn wo-setdone" onClick={onEndSet}>
-          <Icon name="Check" size={18} /> Done set
-        </button>
-      )}
-
-      <div className="it-ctl wo-ctl">
-        {left != null && (
-          <button className="it-btn" onClick={() => onBump(-15)} aria-label="15 seconds less">
-            <Icon name="Minus" size={18} /> 15s
-          </button>
-        )}
-        <button className="it-btn on" onClick={onPause}>
-          <Icon name={paused ? 'Play' : 'Pause'} size={20} />
-          {paused ? 'Resume' : 'Pause'}
-        </button>
-        {left != null && (
-          <button className="it-btn" onClick={() => onBump(15)} aria-label="15 seconds more">
-            <Icon name="Plus" size={18} /> 15s
-          </button>
-        )}
-        <button className="it-btn" onClick={onSkip}>
-          <Icon name="SkipForward" size={18} /> {phase === 'setrest' ? 'Next set' : 'Skip'}
-        </button>
-        {phase !== 'setrest' && !openEnded && (
-          <button className="it-btn" onClick={onEndSet}>
-            <Icon name="Flag" size={18} /> End set
-          </button>
-        )}
-      </div>
-
       {reading && (
         <div className="wo-hownext">
           <div className="section-head wo-hownexth">
@@ -494,6 +489,26 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onPause,
           <HowBody how={step.how} />
         </div>
       )}
+
+      {/* The bottom: what ends the set, then the one control row every clock in
+          the app has (timer.jsx `ControlRow`). A set with no clock ends on Done
+          set, the primary; a countdown can be ended early, quietly. */}
+      <div className="wo-foot">
+        {openEnded ? (
+          <button className="btn wo-setdone" onClick={onEndSet}>
+            <Icon name="Check" size={18} /> Done set
+          </button>
+        ) : (phase === 'work' || phase === 'represt') ? (
+          <button className="btn secondary wo-setdone" onClick={onEndSet}>
+            <Icon name="Flag" size={18} /> End the set here
+          </button>
+        ) : null}
+        <ControlRow paused={paused} onBack={onBack}
+          onLess={left != null ? () => onBump(-10) : null}
+          onPause={onPause}
+          onMore={left != null ? () => onBump(10) : null}
+          onSkip={onSkip} skipLabel={phase === 'setrest' ? 'Next set' : 'Skip'} />
+      </div>
     </div>
   )
 }
@@ -504,8 +519,11 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onPause,
  * renders nothing loses the grades rather than the whole session.
  */
 export function Review({ step, draft, onDraft, onCommit, isLastSet }) {
+  // "That was my last set" is a switch at the top, read by Set done, rather
+  // than a link 10px under it that skipped the rest of the exercise (#75).
+  const [last, setLast] = useState(false)
   const set = (field, value) => {
-    const next = { ...draft, [field]: value === '' ? '' : Number(value) }
+    const next = { ...draft, [field]: value === '' || value === null ? '' : Number(value) }
     // The grade pickers follow the rep count here too, so correcting "that was
     // three laps not two" on this screen grows the list rather than losing a lap.
     if (field === 'reps' && hasGrades(step.fields)) {
@@ -552,6 +570,17 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }) {
       <h3 className="wo-reviewh">What actually happened?</h3>
       <p className="wo-reviewsub">Pre-filled from the plan. Change anything that didn't match.</p>
 
+      {!isLastSet && (
+        <label className="cx-switch wo-lastset">
+          <span className="cx-switchwords">
+            <span>Last set of {step.exName.toLowerCase()}</span>
+            <span className="sub">{last ? 'Set done moves on to the next exercise' : 'Skip the sets left of it'}</span>
+          </span>
+          <input type="checkbox" role="switch" className="switch" checked={last}
+            onChange={e => setLast(e.target.checked)} />
+        </label>
+      )}
+
       {step.climbLog && (
         <button type="button" className={`signtog ${detailed ? 'on' : ''}`} aria-pressed={detailed}
           onClick={() => setDetail(!detailed)}>
@@ -567,13 +596,13 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }) {
               <span className="repstep wo-repstep">
                 <button type="button" className="repstep-b" onClick={() => bump(-1)}
                   aria-label={`one fewer ${what}`}>−</button>
-                <input type="number" inputMode="decimal" readOnly value={repCount(draft.reps)} />
+                <input type="text" inputMode="numeric" readOnly value={repCount(draft.reps)} aria-label={`${what}s`} />
                 <button type="button" className="repstep-b" onClick={() => bump(1)}
                   aria-label={`one more ${what}`}>+</button>
               </span>
             ) : (
-              <input type="number" inputMode="decimal" step={f === 'weight' ? 0.5 : 1}
-                value={draft[f] ?? ''} onChange={e => set(f, e.target.value)} />
+              <NumInput value={draft[f] ?? ''} blank="" decimal={f === 'weight'}
+                onChange={v => set(f, v)} aria-label={FIELD_LABEL[f] || f} />
             )}
           </label>
         ))}
@@ -603,15 +632,9 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }) {
         </div>
       )}
 
-      <button className="btn wo-setdone" onClick={() => onCommit(false)}>
+      <button className="btn wo-setdone" onClick={() => onCommit(last && !isLastSet)}>
         <Icon name="Check" size={18} /> Set done
       </button>
-
-      {!isLastSet && (
-        <button className="wo-link wo-lastset" onClick={() => onCommit(true)}>
-          <Icon name="Flag" size={15} /> That was my last set of {step.exName.toLowerCase()}
-        </button>
-      )}
     </div>
   )
 }
@@ -644,7 +667,7 @@ function Rail({ steps, current, onJump }) {
   )
 }
 
-function Finish({ session, out, startedAt, value, onValue, onFinish }) {
+export function Finish({ session, out, startedAt, value, onValue, onFinish }) {
   const measured = elapsedMinutes(startedAt)
   const sets = totalSets(out)
   const reps = totalReps(out)
@@ -662,9 +685,9 @@ function Finish({ session, out, startedAt, value, onValue, onFinish }) {
 
       <label className="wo-field wo-minutes">
         <span>Minutes to record</span>
-        <input type="number" inputMode="numeric" value={value}
+        <NumInput value={value} blank="" decimal={false}
           placeholder={measured != null ? String(measured) : String(session.minutes ?? '')}
-          onChange={e => onValue(e.target.value)} />
+          onChange={v => onValue(v == null ? '' : String(v))} />
       </label>
       <p className="wo-note">
         Measured from when you hit start. This is what the weekly training-load chart multiplies
@@ -672,10 +695,7 @@ function Finish({ session, out, startedAt, value, onValue, onFinish }) {
       </p>
 
       <button className="btn wo-start" onClick={() => onFinish(true)}>
-        <Icon name="CircleCheck" size={18} /> Finish &amp; mark done
-      </button>
-      <button className="wo-link" onClick={() => onFinish(false)}>
-        Save the sets, but don't mark it done
+        <Icon name="CircleCheck" size={18} /> Finish workout
       </button>
     </div>
   )

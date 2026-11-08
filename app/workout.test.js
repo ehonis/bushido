@@ -16,6 +16,7 @@ import { readFileSync } from 'node:fs'
 import {
   buildSteps, timingFor, exerciseTimer, hasWorkout, writeSet, truncateSets, clock, interval,
   elapsedMinutes, startOf, advancePhase, afterSet, COUNT_IN, LEAD_IN, blockTimers, loggedSeconds,
+  backPhase, phaseSeconds,
 } from './src/lib/workout.js'
 import { resolveCeiling, cfPctOfMax, cfBand } from './src/lib/force.js'
 import {
@@ -35,7 +36,12 @@ import {
   totalSeconds, stepSeconds, describe, sessionTimer, DEFAULT_CONFIG, BUILT_INS, BACK_GRACE,
   buildTimerEntry, buildLastTimerEntry, savedTimers, lastTimer, presetList, newTimerId, sameConfig,
   TIMER_KIND, LAST_TIMER_ID, runKeyFor, saveRun, loadRun,
+  holdConfig, isTimedSet, holdOn, startHold, heldSeconds, HOLD_COUNT_IN,
+  restClock, restPausedAt, pauseRest, resumeRest, toggleRest, bumpRest, restBack, reopened,
 } from './src/lib/timer.js'
+import {
+  normalizePrescription, prescriptionSteps, markSet, emptyRun, setFieldsFor, finishRun, runProgress,
+} from './src/lib/prescription.js'
 import { mergeState } from './src/lib/store.js'
 
 const plan = JSON.parse(readFileSync(new URL('../test/fixtures/plan.json', import.meta.url), 'utf8'))
@@ -1785,6 +1791,147 @@ check('timer: a climbing card\'s declared timer runs the same sequence as workou
   ok(p.segments[1].seconds > 0, 'a declared hang counts down')
   ok(p.segments.every(s => s.kind !== 'cooldown'), 'nothing the plan did not declare')
   eq(sessionTimer(menu.find(m => m.id === 'log-workout')), null, 'an ordinary card has no plan timer to offer')
+})
+
+/* ------------------------------------------- the runner's own clocks (#75) */
+
+const HELD = normalizePrescription({
+  title: 'Core', blocks: [{ name: 'Main', items: [
+    { kind: 'lift', name: 'Plank', exercise: 'plank', measure: 'time', sets: [{ seconds: 45 }, { seconds: 45 }] },
+    { kind: 'lift', name: 'Row', exercise: 'row', sets: [{ reps: 10, weight: 90, restSec: 90 }] },
+    { kind: 'interval', name: '400 m', sets: [{ seconds: 90, distance: 400 }] },
+    { kind: 'interval', name: 'Bike easy', sets: [{ seconds: 600, restSec: 60 }] },
+  ] }],
+})
+const HSTEPS = prescriptionSteps(HELD)
+const H0 = Date.parse('2026-11-08T10:00:00Z')
+
+check('a timed set is seconds and nothing else counted: a plank and a timed interval, not a row or a paced 400', () => {
+  const timed = HSTEPS.map(s => isTimedSet(setFieldsFor(s.item, s.set), s.set))
+  // plank ×2, row, 400 m (distance too), bike
+  eq(JSON.stringify(timed), JSON.stringify([true, true, false, false, true]))
+  eq(isTimedSet(['seconds'], { seconds: 0 }), false, 'a hold with no seconds has nothing to count down')
+})
+
+check('a hold runs on the timer: a short count-in, then the seconds asked for, and it marks the seconds held', () => {
+  const step = HSTEPS[0]
+  const config = holdConfig(45, { name: 'Plank', key: 'plank' })
+  const program = compile(config)
+  eq(program.segments.length, 2)
+  eq(program.segments[0].kind, 'countin'); eq(program.segments[0].seconds, HOLD_COUNT_IN)
+  eq(program.segments[1].seconds, 45)
+  const run = startHold(emptyRun(H0), step.setId, 45, H0, { name: 'Plank', key: 'plank' })
+  ok(holdOn(run, step.setId), 'the hold is on the set it was started on')
+  eq(holdOn(run, HSTEPS[1].setId), null, 'and on no other')
+  // Left alone (a locked phone): the whole hold is stepped over and all 45 s count.
+  const later = settle(program, run.hold.timer, H0 + (HOLD_COUNT_IN + 60) * 1000)
+  eq(heldSeconds(program, later), 45, 'a hold that ran out logs every second asked for')
+  eq(heldSeconds(program, settle(program, run.hold.timer, H0 + 10_000)), null, 'nothing is logged while it is still running')
+})
+
+check('a hold ended early logs what was done, and a mis-tap logs nothing', () => {
+  const program = compile(holdConfig(45))
+  const t = startRun(program, H0)
+  const working = settle(program, t, H0 + (HOLD_COUNT_IN + 20) * 1000)
+  eq(heldSeconds(program, skip(program, working, H0 + (HOLD_COUNT_IN + 20) * 1000)), 20, 'Skip mid-hold logs the twenty seconds held')
+  const tapped = skip(program, settle(program, t, H0 + (HOLD_COUNT_IN + 1) * 1000), H0 + (HOLD_COUNT_IN + 1) * 1000)
+  eq(heldSeconds(program, tapped), null, 'one second is a mis-tap, not a set')
+  // Paused for a minute in the middle: time paused is not time held.
+  const p = pause(program, settle(program, t, H0 + (HOLD_COUNT_IN + 10) * 1000), H0 + (HOLD_COUNT_IN + 10) * 1000)
+  const r = resume(program, p, H0 + (HOLD_COUNT_IN + 70) * 1000)
+  eq(heldSeconds(program, settle(program, r, H0 + (HOLD_COUNT_IN + 200) * 1000)), 45, 'a paused hold still counts 45, not 105')
+})
+
+check('marking a held set writes the seconds held and starts its rest, the hold gone', () => {
+  const step = HSTEPS[4]
+  const run = startHold(emptyRun(H0), step.setId, 600, H0)
+  const next = markSet({ ...run, hold: null }, step, { seconds: 600, restSec: 60 }, { at: H0 + 605_000, steps: HSTEPS })
+  eq(next.sets[step.setId].seconds, 600)
+  eq(next.restUntil, H0 + 605_000 + 60_000, 'the rest starts off the set, as any set')
+  eq(holdOn(next, step.setId), null)
+})
+
+check('the rest pauses, and stands still while paused; resumed, it picks up where it was', () => {
+  const run = markSet(emptyRun(H0), HSTEPS[1], { reps: 10, weight: 90, restSec: 90 }, { at: H0, steps: HSTEPS })
+  eq(restClock(run, H0 + 30_000), 60)
+  const p = pauseRest(run, H0 + 30_000)
+  ok(restPausedAt(p) != null, 'paused')
+  eq(restClock(p, H0 + 300_000), 60, 'four minutes later a paused rest still has sixty seconds')
+  const r = resumeRest(p, H0 + 300_000)
+  eq(restPausedAt(r), null)
+  eq(restClock(r, H0 + 300_000), 60, 'resumed where it was')
+  eq(restClock(r, H0 + 330_000), 30)
+  eq(toggleRest(toggleRest(run, H0 + 10_000), H0 + 20_000).restUntil, run.restUntil + 10_000, 'toggle twice is a ten-second pause')
+})
+
+check('a pause belongs to its rest: the next set\'s rest is not frozen by an old one', () => {
+  const run = markSet(emptyRun(H0), HSTEPS[1], { reps: 10, weight: 90, restSec: 90 }, { at: H0, steps: HSTEPS })
+  const p = pauseRest(run, H0 + 10_000)
+  const next = markSet(p, HSTEPS[4], { seconds: 600, restSec: 60 }, { at: H0 + 700_000, steps: HSTEPS })
+  eq(restPausedAt(next), null, 'the old pause names the old deadline, so it is ignored')
+  eq(restClock(next, H0 + 710_000), 50)
+})
+
+check('±10 on the rest never goes under a second, and keeps a paused rest paused', () => {
+  const run = markSet(emptyRun(H0), HSTEPS[1], { reps: 10, weight: 90, restSec: 90 }, { at: H0, steps: HSTEPS })
+  eq(restClock(bumpRest(run, H0, 10), H0), 100)
+  eq(restClock(bumpRest(run, H0 + 85_000, -10), H0 + 85_000), 1, 'never below a second left')
+  const p = bumpRest(pauseRest(run, H0 + 30_000), H0 + 40_000, -10)
+  ok(restPausedAt(p) != null, 'still paused after −10')
+  eq(restClock(p, H0 + 90_000), 50)
+})
+
+check('Back from a rest goes to the set that started it, still logged, and ends the rest', () => {
+  const run = markSet(emptyRun(H0), HSTEPS[1], { reps: 10, weight: 90, restSec: 90 }, { at: H0, steps: HSTEPS })
+  const b = restBack(run)
+  eq(b.cursor, HSTEPS[1].setId)
+  eq(restClock(b, H0), 0)
+  ok(b.sets[HSTEPS[1].setId], 'the set stays logged')
+})
+
+check('Back after a pause and a resume still finds the set that started the rest (#75 review)', () => {
+  const run = markSet(emptyRun(H0), HSTEPS[4], { seconds: 600, restSec: 60 }, { at: H0, steps: HSTEPS })
+  const resumed = resumeRest(pauseRest(run, H0 + 10_000), H0 + 70_000)
+  eq(resumed.restFrom, run.restFrom, 'a pause does not move when the set was marked')
+  eq(restClock(resumed, H0 + 70_000), 50)
+  const b = restBack(resumed)
+  eq(b.cursor, HSTEPS[4].setId, 'Back lands on the set just done, not the next one')
+  eq(restClock(b, H0 + 70_000), 0)
+  // And its length still follows ±10 after the pause.
+  eq(bumpRest(resumed, H0 + 70_000, 10).restOf, 70)
+})
+
+check('a timed set is offered the clock only within what a timer runs: an hour, not 90 minutes', () => {
+  eq(isTimedSet(['seconds'], { seconds: 3600 }), true, 'an hour is the longest clock')
+  eq(isTimedSet(['seconds'], { seconds: 3601 }), false, 'past an hour it would be clamped and logged as an hour')
+  eq(isTimedSet(['seconds'], { seconds: 5400 }), false)
+  eq(isTimedSet(['seconds'], { seconds: 5 }), true)
+  eq(isTimedSet(['seconds'], { seconds: 4 }), false, 'under five seconds it would be stretched to five')
+})
+
+check('a finished run is reopened by the first thing written in it; finishing again sets a new end', () => {
+  const done = finishRun(markSet(emptyRun(H0), HSTEPS[1], { reps: 10 }, { at: H0, steps: HSTEPS }), { at: H0 + 1000 })
+  const marked = markSet(done, HSTEPS[0], { seconds: 45 }, { at: H0 + 5000, steps: HSTEPS })
+  eq(marked.endedAt, H0 + 1000, 'markSet itself carries the old end')
+  eq(reopened(marked, done).endedAt, null, 'so the runner takes it off')
+  eq(reopened(finishRun(marked, { at: H0 + 9000 }), done).endedAt, H0 + 9000, 'a new end is kept')
+  eq(runProgress(reopened(marked, done), HSTEPS).done, 2)
+})
+
+check('workout mode\'s Back: a few seconds in goes to the phase before, later restarts this one', () => {
+  const steps = stepsOf('repeaters')
+  const t = steps[0].timing
+  ok(t.work && t.reps > 1, 'repeaters has a rep clock, or this proves nothing')
+  const again = backPhase({ phase: 'work', rep: 3, index: 0, into: 8 }, steps)
+  eq(again.phase, 'work'); eq(again.rep, 3); eq(again.seconds, t.work)
+  const before = backPhase({ phase: 'work', rep: 3, index: 0, into: 1 }, steps)
+  eq(before.phase, 'represt'); eq(before.rep, 2); eq(before.seconds, t.repRest || 0)
+  eq(backPhase({ phase: 'represt', rep: 2, index: 0, into: 1 }, steps).phase, 'work')
+  eq(backPhase({ phase: 'work', rep: 1, index: 0, into: 1 }, steps).phase, 'countin', 'the first rep goes back to getting ready')
+  eq(backPhase({ phase: 'countin', rep: 1, index: 0, into: 1 }, steps).index, 0, 'nothing before the first set')
+  const second = backPhase({ phase: 'countin', rep: 1, index: 1, into: 1 }, steps)
+  eq(second.index, 0); eq(second.phase, 'countin', 'from the next set\'s count-in, to the start of the set before')
+  eq(phaseSeconds({ phase: 'setrest', index: 1 }, steps), steps[0].timing.setRest || 0, 'a rest between sets restarts at its own length')
 })
 
 console.log(failed ? `\n${failed} test(s) failed` : '\nall workout tests pass')

@@ -18,20 +18,7 @@
   background: var(--bg); display: flex; flex-direction: column;
 }
 
-.wo-head {
-  flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-1);
-  padding: var(--sp-2); border-bottom: 1px solid var(--line);
-  padding-top: max(var(--sp-2), calc(env(safe-area-inset-top) + var(--sp-1)));
-}
-.wo-title { flex: 1; min-width: 0; }
-.wo-name {
-  font-size: var(--fs-title); font-weight: 600; line-height: var(--lh-tight); white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis;
-}
-.wo-elapsed {
-  display: flex; align-items: center; gap: var(--sp-1);
-  font-size: var(--fs-small); color: var(--ink-dim); font-variant-numeric: tabular-nums;
-}
+/* The header is every workout screen's (timer.css `.wk-head`). */
 
 .wo-body {
   flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain;
@@ -43,14 +30,19 @@
 /* The phase tints the whole screen, so you can read it from the floor without
    focusing on any particular number. `--k` is the interval timer's phase colour
    (timer.css `.it.k-*`), mapped from workout mode's phase names, so the face
-   below — the timer's own classes — takes the same colours as the timer. */
-.wo { --k: var(--ink-dim); }
-.wo-countin { --k: var(--viz-warn); }
-.wo-work { --k: var(--accent); }
-.wo-represt, .wo-setrest { --k: var(--load-3); }
-.wo-finished { --k: var(--viz-good); }
-.wo-countin .wo-body, .wo-work .wo-body, .wo-represt .wo-body, .wo-setrest .wo-body, .wo-finished .wo-body {
-  background: color-mix(in oklab, var(--k) 13%, var(--bg));
+   below — the timer's own classes — takes the same colours as the timer.
+   The phase classes are `wo--<phase>`: as `wo-<phase>` the review phase put
+   `.wo-review`, the review card's own layout, on the whole screen (#75). */
+.wo { --k: var(--ink-dim); --wo-tint: var(--bg); }
+.wo--countin { --k: var(--viz-warn); }
+.wo--work { --k: var(--accent); }
+.wo--represt, .wo--setrest { --k: var(--load-3); }
+.wo--finished { --k: var(--viz-good); }
+.wo--countin, .wo--work, .wo--represt, .wo--setrest, .wo--finished {
+  --wo-tint: color-mix(in oklab, var(--k) 13%, var(--bg));
+}
+.wo .wo-body {
+  background: var(--wo-tint);
   transition: background-color var(--dur) var(--ease-out);
 }
 
@@ -70,11 +62,17 @@ button.btn.quiet.wo-sound { align-self: center; }
 
 .wo-face {
   flex: 1 1 auto; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; text-align: center; gap: 10px;
-  padding: 10px 0 18px;
-  /* Between sets the how-to card can make this taller than the screen. Safe
-     centring keeps the top reachable instead of clipping it above the scroll. */
-  justify-content: safe center;
+  align-items: center; text-align: center; gap: 10px;
+  padding: 10px 0 0;
+}
+/* The clock takes the free space above and below it, so it sits in the middle
+   of what is left; the controls keep to the bottom (`.wo-foot`). */
+.wo-face > .wo-clock { margin-block: auto; }
+.wo-foot {
+  position: sticky; bottom: 0; z-index: 1; width: 100%;
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-2);
+  margin-top: auto; padding: var(--sp-3) 0 0;
+  background: var(--wo-tint);
 }
 /* The how-to, mid-set: a picture and one line. It has to be small enough that
    it never competes with the clock and legible enough to answer "which one is
@@ -131,15 +129,7 @@ button.it-face.wo-clock.tappable:active { background: color-mix(in oklab, var(--
   transform: scale(1.35);
 }
 
-/* The controls are the timer's row (.it-ctl, .it-btn). */
-.it-ctl.wo-ctl { width: 100%; margin-top: var(--sp-2); }
-.wo-link {
-  display: inline-flex; align-items: center; gap: var(--sp-2);
-  font: inherit; font-size: var(--fs-small); font-weight: 500; color: var(--ink-dim);
-  background: transparent; border: 0; padding: 0 var(--sp-2); min-height: var(--tap); border-radius: var(--r-control);
-  cursor: pointer;
-}
-.wo-link:hover { color: var(--ink); background: var(--panel-3); }
+/* The controls are every clock's row (timer.jsx `ControlRow`, timer.css `.wk-ctl`). */
 
 /* ------------------------------------------------------------ the review */
 
@@ -182,23 +172,29 @@ button.btn.wo-setdone {
   display: inline-flex; align-items: center; justify-content: center; gap: 9px;
   width: 100%; max-width: 340px; font-size: var(--fs-title); min-height: 56px; margin-top: var(--sp-2);
 }
-.wo-lastset { margin-top: 2px; }
+/* "Last set of …", a switch above the numbers, not a link under Set done (#75). */
+.cx-switch.wo-lastset {
+  width: 100%; max-width: 340px; margin: 0 0 var(--sp-2); padding: var(--sp-2) var(--sp-3);
+  text-align: left; border-radius: var(--r-card); background: var(--panel); border: 1px solid var(--line);
+}
+.cx-switch.wo-lastset .cx-switchwords { align-items: flex-start; }
 
 /* -------------------------------------------------------------- the rail */
 
-/* Every set of the session, at a glance. Tap any of them to go back and fix it. */
+/* Every set of the session, at a glance, at the top where the runner's progress
+   bar is. Tap any of them to go back and fix it; with a clock running it asks. */
 .wo-rail {
-  flex: 0 0 auto; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line);
-  display: flex; flex-direction: column; gap: 8px;
+  flex: 0 0 auto; margin: 0 0 var(--sp-3); padding-bottom: var(--sp-3); border-bottom: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: var(--sp-2);
 }
 .wo-railrow { display: flex; align-items: center; gap: 10px; }
 .wo-railname {
   flex: 1; min-width: 0; font-size: var(--fs-small); color: var(--ink-dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.wo-railsets { display: flex; gap: 5px; flex-wrap: wrap; }
+.wo-railsets { display: flex; gap: var(--sp-1); flex-wrap: wrap; }
 .wo-railset {
-  width: 36px; height: 36px; border-radius: var(--r-control);
+  width: var(--tap); height: var(--tap); border-radius: var(--r-control);
   display: grid; place-items: center;
   font: inherit; font-size: var(--fs-small); font-variant-numeric: tabular-nums;
   color: var(--ink-dim); background: var(--panel); border: 1px solid var(--line);
@@ -221,14 +217,7 @@ button.btn.wo-setdone {
 .wo-finishstats span { font-size: var(--fs-small); color: var(--ink-dim); }
 .wo-minutes { flex: 0 1 160px; }
 
-.wo-confirm {
-  position: absolute; inset: auto 0 0; z-index: 2;
-  background: var(--panel); border-top: 1px solid var(--line);
-  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
-}
-.wo-confirm p { margin: 0 0 var(--sp-3); font-size: var(--fs-body); }
-.wo-confirm-btns { display: flex; gap: 10px; }
-.wo-confirm-btns .btn { flex: 1; }
+/* Leaving asks in the one leave dialog (timer.css `.wk-scrim`). */
 
 /* Where you start one from: alongside "mark as done" in the sheet and the
    fullscreen page, never instead of it. */

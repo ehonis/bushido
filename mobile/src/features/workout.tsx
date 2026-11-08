@@ -33,11 +33,10 @@ import {
   useWindowDimensions, type StyleProp, type ViewStyle,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { SideRule, SideWho } from '../ui/Person'
 import { colors, font, mix, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
-import { Btn, Empty, IconBtn, Input, Press, SectionHeader, s as kit } from '../ui/kit'
-import { impact, success, tap } from '../ui/haptics'
+import { Empty, Press, SectionHeader, Toggle, s as kit } from '../ui/kit'
+import { impact, success, tap, warn } from '../ui/haptics'
 import { Icon } from '../lib/icons'
 import { onForeground } from '../lib/foreground'
 import { Figure } from '../lib/figures'
@@ -46,8 +45,9 @@ import { NumInput } from './numinput'
 import { CUES, primeAudio, resumeAudio, acquireWakeLock, releaseWakeLock } from '../lib/cues'
 import {
   buildSteps, writeSet, truncateSets, clock, interval, elapsedMinutes, loggedSeconds,
-  startOf, advancePhase, afterSet, LEAD_IN,
+  startOf, advancePhase, afterSet, backPhase, LEAD_IN,
 } from '../lib/workout.js'
+import { WorkHead, LeaveDialog, ControlRow } from './timer'
 import { totalSets, totalReps, GradeLaps, ClimbLog } from './setlog'
 import {
   GRADE_FIELD, hasGrades, fitGrades, repCount,
@@ -120,6 +120,7 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
   const [finalMin, setFinalMin] = useState('')
   const [howOpen, setHowOpen] = useState(false)
   const [confirmExit, setConfirmExit] = useState(false)
+  const [jumpTo, setJumpTo] = useState<number | null>(null) // a rail jump waiting on a confirm while a clock runs
 
   const step = steps[i] || null
   const timing = step?.timing || { work: null, reps: 1, repRest: null, setRest: null }
@@ -277,8 +278,23 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
 
   const bump = (seconds: number) => {
     if (!deadline) return
-    tap()
+    if (paused) { setHeldMs(h => Math.max(1000, h + seconds * 1000)); return }
     setDeadline(d => Math.max(Date.now() + 1000, d + seconds * 1000))
+  }
+
+  /** Back, as on every clock in the app (`backPhase`, lib/workout.js). */
+  const goBack = () => {
+    const into = (paused ? heldMs : Date.now() - phaseAt) / 1000
+    // On a countdown `heldMs` is what was LEFT; how far in is the rest of it.
+    const far = paused && deadline ? Math.max(0, (deadline - phaseAt - heldMs) / 1000) : into
+    enter((backPhase as any)({ phase, rep, index: i, into: far }, steps))
+  }
+
+  /** Jump to a set from the rail. While a clock is running it asks first: the clock stops. */
+  const jump = (n: number) => { tap(); setJumpTo(null); setDraft(null); setI(n); setPhase('idle'); setDeadline(0); setPaused(false) }
+  const askJump = (n: number) => {
+    if (n === i && phase === 'idle') return
+    if (active && phase !== 'review' && !paused) { warn(); setJumpTo(n) } else jump(n)
   }
 
   /** Save the reviewed set and move on. */
@@ -292,6 +308,16 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
     enter((afterSet as any)({ index: i }, steps, { last }))
   }
 
+  /*
+   * Finishing writes the minutes, then whether it is done, through the caller's
+   * two writers. Both build on the entry they were given, so the second waits a
+   * tick for the first to land and is called through `latest`, the props of the
+   * render that saw it: called straight away, the done write rebuilt the entry
+   * from before the save and threw the minutes away. Finish workout is the one
+   * way out and marks it done; Mark undone lives on the sheet only (#75).
+   */
+  const latest = useRef<any>({})
+  latest.current = { onSetDone, onExit, onFinish }
   const finish = (markDone: boolean) => {
     success()
     const mins = Number(finalMin) || elapsedMinutes(startedAt) || null
@@ -299,14 +325,16 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
     if (mins) next.elapsedMin = mins
     delete next.startedAt
     onSave(next)
-    if (markDone) onSetDone?.(true)
-    // With more than one side, finishing one hands over to the next (SidesWorkout).
-    ;(onFinish || onExit)()
+    setTimeout(() => {
+      const l = latest.current
+      l.onSetDone?.(markDone)
+      // With more than one side, finishing one hands over to the next (SidesWorkout).
+      ;(l.onFinish || l.onExit)()
+    }, 0)
   }
 
   const askExit = () => {
     if (!active) { onExit(); return }
-    impact()
     setConfirmExit(true)
   }
 
@@ -326,8 +354,7 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
   if (!steps.length) {
     return frame(
       <>
-        <SideRule who={who} />
-        <WoHead session={session} elapsed={0} onExit={onExit} muted={muted} onMute={setMuted} who={who} />
+        <WorkHead title={session.name} who={who} muted={muted} onMute={setMuted} onExit={onExit} />
         {switcher}
         <ScrollView style={{ flex: 1 }} contentContainerStyle={[st.body, bodyPad]}>
           <Empty>
@@ -339,16 +366,26 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
     )
   }
 
+  /*
+   * The rail is at the top, under the header, where the runner's progress bar
+   * is: it says where you are. At the bottom it was the nearest thing to a thumb
+   * reaching for the controls, and a tap on it threw away the set's clock (#75).
+   * The control row is outside the scroll, so it stays at the bottom however
+   * long the how-to between sets is.
+   */
+  const live = active && phase !== 'review' && step
   return frame(
     <>
-      <SideRule who={who} />
-      <WoHead session={session} elapsed={elapsed} onExit={askExit} muted={muted} onMute={setMuted} who={who} />
+      <WorkHead title={session.name} who={who} muted={muted} onMute={setMuted} onExit={askExit}
+        sub={<><Icon name="Timer" size={12} color={colors.inkDim} /><T size={font.small} dim tabular>{clock(elapsed)}</T></>} />
       {switcher}
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView style={{ flex: 1, backgroundColor: TINT[phase] || colors.bg }}
-          contentContainerStyle={[st.body, bodyPad]}
+      <KeyboardAvoidingView style={{ flex: 1, backgroundColor: TINT[phase] || colors.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView style={{ flex: 1 }}
+          contentContainerStyle={[st.body, live ? { paddingBottom: space[3] } : bodyPad]}
           keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+          {phase !== 'finished' && <Rail steps={steps} current={i} onJump={askJump} />}
+
           {phase === 'idle' && <Intro session={session} steps={steps} onStart={start} resumed={Boolean(startedAt)} />}
 
           {phase === 'finished' && (
@@ -356,72 +393,47 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
               value={finalMin} onValue={setFinalMin} onFinish={finish} />
           )}
 
-          {active && phase !== 'review' && step && (
+          {live ? (
             <Face phase={phase} left={left} counted={counted} rep={rep} timing={timing} step={step}
-              paused={paused} onPause={pause} onBump={bump}
-              onSkip={() => { impact(); advance() }} onHow={() => { tap(); setHowOpen(true) }}
+              paused={paused} onSkip={() => { impact(); advance() }} onHow={() => { tap(); setHowOpen(true) }}
               onEndSet={() => { impact(); goReview(phase === 'work' ? rep : timing.reps) }} />
-          )}
+          ) : null}
 
           {phase === 'review' && step && (
             <Review step={step} draft={draft || step.values} onDraft={setDraft}
               onCommit={commitSet} isLastSet={i === steps.length - 1} />
           )}
-
-          {phase !== 'finished' && (
-            <Rail steps={steps} current={i}
-              onJump={(n: number) => { tap(); setDraft(null); setI(n); setPhase('idle'); setDeadline(0) }} />
-          )}
         </ScrollView>
+
+        {live ? (
+          <FaceFoot phase={phase} left={left} paused={paused} bodyPad={bodyPad}
+            onPause={pause} onBump={bump} onBack={goBack}
+            onSkip={() => { advance() }}
+            onEndSet={() => { impact(); goReview(phase === 'work' ? rep : timing.reps) }} />
+        ) : null}
       </KeyboardAvoidingView>
 
       {howOpen && step?.how && (
         <HowSheet how={step.how} title={step.exName} onClose={() => setHowOpen(false)} />
       )}
 
-      {confirmExit && (
-        <View style={[st.confirm, { paddingBottom: space[4] + insets.bottom }]}
-          accessibilityViewIsModal accessibilityLabel="Leave the workout?">
-          <T size={font.body} style={{ marginBottom: space[3] }}>Leave the workout? Every set you marked is saved.</T>
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <Btn kind="ghost" title="Keep going" flex onPress={() => setConfirmExit(false)} />
-            <Btn title="Leave" flex onPress={onExit} />
-          </View>
-        </View>
-      )}
+      {confirmExit ? (
+        <LeaveDialog title="Leave the workout?" body="Every set you marked is saved. The clock stops."
+          onKeep={() => setConfirmExit(false)}
+          actions={[{ label: 'Leave', kind: 'secondary', onClick: onExit }]} />
+      ) : null}
+
+      {jumpTo != null && steps[jumpTo] ? (
+        <LeaveDialog title={`Go to ${steps[jumpTo].exName}, set ${steps[jumpTo].setIndex + 1}?`}
+          body="The clock on this set stops. Nothing you marked is lost."
+          onKeep={() => setJumpTo(null)}
+          actions={[{ label: `Go to set ${steps[jumpTo].setIndex + 1}`, kind: 'secondary', onClick: () => jump(jumpTo) }]} />
+      ) : null}
     </>,
   )
 }
 
 /* ------------------------------------------------------------------ pieces */
-
-function WoHead({ session, elapsed, onExit, muted, onMute, who = null }: any) {
-  return (
-    <View style={st.head}>
-      <IconBtn icon="ChevronLeft" size={19} label="Leave workout" onPress={onExit} />
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <SideWho who={who} />
-        <T size={font.title} weight={600} lineHeight={22} numberOfLines={1}>{session.name}</T>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[1] }}>
-          <Icon name="Timer" size={12} color={colors.inkDim} />
-          <T size={font.small} dim tabular>{clock(elapsed)}</T>
-        </View>
-      </View>
-      <IconBtn icon={muted ? 'VolumeX' : 'Volume2'} size={18} onPress={() => onMute(!muted)}
-        label={muted ? 'Unmute cues' : 'Mute cues'} />
-    </View>
-  )
-}
-
-/** .wo-link: a minor action, the quiet button's look, still 44pt tall. */
-function WoLink({ icon, label, onPress, style }: { icon?: string; label: string; onPress: () => void; style?: any }) {
-  return (
-    <Press onPress={onPress} style={[st.link, style]} accessibilityRole="button">
-      {icon ? <Icon name={icon} size={15} color={colors.inkDim} /> : null}
-      <T size={font.small} weight={500} dim style={{ flexShrink: 1 }}>{label}</T>
-    </Press>
-  )
-}
 
 /**
  * button.btn.wo-start / .wo-setdone: the screen's one primary, made big (56pt,
@@ -482,7 +494,7 @@ function Intro({ session, steps, onStart, resumed }: any) {
 
 const PHASE_LABEL: Record<string, string> = { countin: 'Get ready', work: 'Work', represt: 'Rest', setrest: 'Rest between sets' }
 
-export function Face({ phase, left, counted, rep, timing, step, paused, onPause, onBump, onSkip, onEndSet, onHow }: any) {
+export function Face({ phase, left, counted, rep, timing, step, paused, onSkip, onEndSet, onHow }: any) {
   const { width } = useWindowDimensions()
   const showing = left != null ? left : counted
   const pips = timing.reps > 1 && timing.reps <= 24
@@ -569,25 +581,6 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onPause,
         )
       ) : null}
 
-      {openEnded ? (
-        <BigBtn icon="Check" label="Done set" onPress={onEndSet} style={st.setDone} />
-      ) : null}
-
-      {/* The controls are the timer's row (timer.tsx CtlBtn): Pause is the raised one. */}
-      <View style={st.ctl}>
-        {left != null ? (
-          <CtlBtn icon="Minus" label="15s" a11y="15 seconds less" onPress={() => onBump(-15)} />
-        ) : null}
-        <CtlBtn on icon={paused ? 'Play' : 'Pause'} label={paused ? 'Resume' : 'Pause'} onPress={onPause} />
-        {left != null ? (
-          <CtlBtn icon="Plus" label="15s" a11y="15 seconds more" onPress={() => onBump(15)} />
-        ) : null}
-        <CtlBtn icon="SkipForward" label={phase === 'setrest' ? 'Next set' : 'Skip'} onPress={onSkip} />
-        {phase !== 'setrest' && !openEnded ? (
-          <CtlBtn icon="Flag" label="End set" onPress={onEndSet} />
-        ) : null}
-      </View>
-
       {reading ? (
         <View style={st.howNext}>
           <SectionHeader title={`Next up: ${step.exName}`} style={st.howNextHead} />
@@ -598,16 +591,26 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onPause,
   )
 }
 
-/** The interval timer's control button (timer.tsx CtlBtn, the web's .it-btn); `on` is the raised one. */
-function CtlBtn({ icon, label, a11y, onPress, on }: {
-  icon: string; label: string; a11y?: string; onPress: () => void; on?: boolean
-}) {
+/**
+ * The bottom of a running set: what ends it, then the one control row every
+ * clock in the app has (timer.tsx `ControlRow`). A set with no clock ends on
+ * Done set, the primary; a countdown can be ended early, quietly.
+ */
+function FaceFoot({ phase, left, paused, bodyPad, onPause, onBump, onBack, onSkip, onEndSet }: any) {
+  const openEnded = left == null && phase === 'work'
   return (
-    <Press onPress={onPress} accessibilityRole="button" accessibilityLabel={a11y || label}
-      style={[st.ctlBtn, on && st.ctlOn]}>
-      <Icon name={icon} size={on ? 20 : 18} color={on ? colors.ink : colors.inkDim} />
-      <T size={font.caption} weight={on ? 600 : 400} color={on ? colors.ink : colors.inkDim}>{label}</T>
-    </Press>
+    <View style={[st.foot, bodyPad]}>
+      {openEnded ? (
+        <BigBtn icon="Check" label="Done set" onPress={onEndSet} style={st.setDone} />
+      ) : (phase === 'work' || phase === 'represt') ? (
+        <BigBtn quiet icon="Flag" label="End the set here" onPress={onEndSet} style={[st.setDone, st.secondaryBtn]} />
+      ) : null}
+      <ControlRow paused={paused} onBack={onBack}
+        onLess={left != null ? () => onBump(-10) : null}
+        onPause={onPause}
+        onMore={left != null ? () => onBump(10) : null}
+        onSkip={onSkip} skipLabel={phase === 'setrest' ? 'Next set' : 'Skip'} />
+    </View>
   )
 }
 
@@ -617,6 +620,9 @@ function CtlBtn({ icon, label, a11y, onPress, on }: {
  * renders nothing loses the grades rather than the whole session.
  */
 export function Review({ step, draft, onDraft, onCommit, isLastSet }: any) {
+  // "That was my last set" is a switch at the top, read by Set done, rather
+  // than a link 10pt under it that skipped the rest of the exercise (#75).
+  const [last, setLast] = useState(false)
   const set = (field: string, value: any) => {
     const next = { ...draft, [field]: value === '' || value == null ? '' : Number(value) }
     // The grade pickers follow the rep count here too, so correcting "that was
@@ -663,6 +669,16 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }: any) {
       <T size={font.small} dim align="center" style={{ maxWidth: 280, marginBottom: space[2] }}>
         Pre-filled from the plan. Change anything that didn’t match.
       </T>
+
+      {!isLastSet ? (
+        <View style={st.lastSet}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <T size={font.body}>{`Last set of ${step.exName.toLowerCase()}`}</T>
+            <T size={font.small} dim>{last ? 'Set done moves on to the next exercise' : 'Skip the sets left of it'}</T>
+          </View>
+          <Toggle value={last} onChange={(v) => { tap(); setLast(v) }} />
+        </View>
+      ) : null}
 
       {step.climbLog ? (
         <Press onPress={() => setDetail(!detailed)} hitSlop={8} accessibilityRole="switch"
@@ -726,17 +742,12 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }: any) {
         </View>
       ) : null}
 
-      <BigBtn icon="Check" label="Set done" onPress={() => onCommit(false)} style={st.setDone} />
-
-      {!isLastSet ? (
-        <WoLink icon="Flag" label={`That was my last set of ${step.exName.toLowerCase()}`}
-          onPress={() => onCommit(true)} style={{ marginTop: 2 }} />
-      ) : null}
+      <BigBtn icon="Check" label="Set done" onPress={() => onCommit(last && !isLastSet)} style={st.setDone} />
     </View>
   )
 }
 
-/** Every set of the session, at a glance. Tap any of them to go back and fix it. */
+/** Every set of the session, at a glance, at the top. Tap any to go back and fix it; with a clock running it asks. */
 function Rail({ steps, current, onJump }: any) {
   const groups: any[] = []
   for (const [n, s] of steps.entries()) {
@@ -754,7 +765,7 @@ function Rail({ steps, current, onJump }: any) {
             {g.items.map(({ n, s }: any) => {
               const on = n === current
               return (
-                <Press key={n} onPress={() => onJump(n)} hitSlop={{ top: 6, bottom: 6, left: 2, right: 2 }}
+                <Press key={n} onPress={() => onJump(n)}
                   accessibilityRole="button" accessibilityLabel={`${g.name} set ${s.setIndex + 1}`}
                   style={[st.railSet, s.logged && st.railSetDone, on && st.railSetOn]}>
                   {s.logged
@@ -788,17 +799,16 @@ function Finish({ session, out, startedAt, value, onValue, onFinish }: any) {
 
       <View style={{ gap: 6, width: 160 }}>
         <T size={font.small} dim align="center">Minutes to record</T>
-        <Input keyboardType="number-pad" value={value} onChangeText={onValue}
+        <NumInput blank="" decimal={false} value={value} onChange={(v: any) => onValue(v == null || v === '' ? '' : String(v))}
           placeholder={measured != null ? String(measured) : String(session.minutes ?? '')}
-          style={st.fieldIn} />
+          accessibilityLabel="Minutes to record" style={st.fieldIn} />
       </View>
       <T size={font.small} dim align="center">
         Measured from when you hit start. This is what the weekly training-load chart multiplies
         by your RPE, so a real number beats the card’s nominal one.
       </T>
 
-      <BigBtn icon="CircleCheck" label="Finish & mark done" onPress={() => onFinish(true)} style={{ alignSelf: 'stretch' }} />
-      <WoLink label="Save the sets, but don't mark it done" onPress={() => onFinish(false)} />
+      <BigBtn icon="CircleCheck" label="Finish workout" onPress={() => onFinish(true)} style={{ alignSelf: 'stretch' }} />
     </View>
   )
 }
@@ -814,12 +824,7 @@ function Stat({ n, label }: { n: number; label: string }) {
 
 const st = StyleSheet.create({
   wo: { flex: 1, backgroundColor: colors.bg },
-  head: {
-    flexDirection: 'row', alignItems: 'center', gap: space[1],
-    padding: space[2], borderBottomWidth: 1, borderBottomColor: colors.line,
-  },
   body: { flexGrow: 1, paddingTop: space[4], paddingHorizontal: space.gutter },
-  link: { flexDirection: 'row', alignItems: 'center', gap: space[2], paddingHorizontal: space[2], minHeight: TAP, borderRadius: radius.control },
   // The one primary, made big: the accent at title size.
   bigBtn: { backgroundColor: colors.accent, borderColor: colors.accent, minHeight: 56 },
   quietBtn: { backgroundColor: 'transparent', borderColor: 'transparent' },
@@ -850,13 +855,14 @@ const st = StyleSheet.create({
   },
   pips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, justifyContent: 'center', maxWidth: 280, marginTop: 2 },
   pip: { width: 13, height: 13, borderRadius: 7, borderWidth: 2, borderColor: colors.lineStrong },
-  ctl: { flexDirection: 'row', gap: space[2], justifyContent: 'center', alignSelf: 'stretch', marginTop: space[2] },
-  ctlBtn: {
-    flex: 1, maxWidth: 92, minHeight: 60, gap: 2, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.lineStrong, borderRadius: radius.card,
+  // The bottom of a running set, outside the scroll: ending it, then the control row.
+  foot: { alignItems: 'center', gap: space[2], paddingTop: space[3], paddingHorizontal: space.gutter },
+  secondaryBtn: { backgroundColor: colors.panel3, borderColor: colors.lineStrong },
+  lastSet: {
+    flexDirection: 'row', alignItems: 'center', gap: space[3], width: '100%', maxWidth: 340,
+    minHeight: TAP, marginBottom: space[2], paddingVertical: space[2], paddingHorizontal: space[3],
+    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.card,
   },
-  // Pause is the control you reach for: the secondary button's raised surface, not the accent.
-  ctlOn: { maxWidth: 110, backgroundColor: colors.panel3 },
   review: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
   signtog: {
     backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.pill,
@@ -879,21 +885,15 @@ const st = StyleSheet.create({
   },
   climbs: { alignItems: 'center', gap: 4, width: '100%' },
   grades: { alignItems: 'center', gap: 6, width: '100%', marginTop: 4 },
-  rail: { marginTop: 14, paddingTop: space[3], borderTopWidth: 1, borderTopColor: colors.line, gap: space[2] },
+  rail: { marginBottom: space[3], paddingBottom: space[3], borderBottomWidth: 1, borderBottomColor: colors.line, gap: space[2] },
   railRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  railSets: { flexDirection: 'row', gap: 5, flexWrap: 'wrap', flexShrink: 1, justifyContent: 'flex-end' },
+  railSets: { flexDirection: 'row', gap: space[1], flexWrap: 'wrap', flexShrink: 1, justifyContent: 'flex-end' },
   railSet: {
-    width: 36, height: 36, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center',
+    width: TAP, height: TAP, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center',
     backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line,
   },
   railSetDone: { borderColor: mix(colors.vizGood, 40, colors.line) },
   railSetOn: { borderColor: colors.accentLine, backgroundColor: colors.accentSoft },
   finish: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: space[3] },
   stats: { flexDirection: 'row', gap: space[6], marginVertical: space[1] },
-  // Leaving mid-set: a panel at the foot, the clock still running above it.
-  confirm: {
-    position: 'absolute', left: 0, right: 0, bottom: 0,
-    backgroundColor: colors.panel, borderTopWidth: 1, borderTopColor: colors.line,
-    paddingHorizontal: space[4], paddingTop: space[4],
-  },
 })
