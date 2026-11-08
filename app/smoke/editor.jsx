@@ -4,7 +4,7 @@
  */
 import { renderToString } from 'react-dom/server'
 import { dayWords } from '../src/lib/dates.js'
-import { PrescriptionEditor, BlockMenu, blockTag, noteDraft, landsOf } from '../src/editor.jsx'
+import { PrescriptionEditor, BlockMenu, BlockQuota, blockTag, noteDraft, landsOf } from '../src/editor.jsx'
 import { normalizePrescription, setCircuit, noteBlock, tickSet, setTicked, addSet } from '../src/lib/prescription.js'
 import { SessionLog } from '../src/sessionlog.jsx'
 import { readFileSync } from 'node:fs'
@@ -287,8 +287,9 @@ export default [
     // The switch moved into each block's ⋯ (#79): the circuit says so on its head, and
     // no block carries a full-width switch any more. `BlockMenu(…)` pins the new address.
     if (/role="switch"/.test(html)) throw new Error('a full-width Circuit switch is back on a block')
-    if (!/class="presc-blocktag">Circuit</.test(html)) throw new Error('the circuit block does not say it is one')
-    if ((html.match(/class="presc-blocktag"/g) || []).length !== 1) throw new Error('the plain block claims a tag')
+    // One line on the circuit's head (#95, C N9): "Circuit · 3 rounds", in one place.
+    if (!/class="presc-blockn">Circuit · 3 rounds</.test(html)) throw new Error('the circuit block does not say it is one, with its rounds')
+    if (/class="presc-blocktag"/.test(html)) throw new Error('a block of a workout that does not split claims a tag')
     if ((html.match(/aria-label="[^"]*: block options"/g) || []).length !== 2) throw new Error('not every block has its ⋯')
     if (!/aria-label="Circuit timing"/.test(html)) throw new Error('no row of circuit steppers')
     for (const w of ['Work', 'Rest', 'Rounds', '40s', '20s', '3 rounds', 'Crunch', 'Plank', '1:00', '12 reps', 'Add an exercise']) {
@@ -415,23 +416,77 @@ export default [
    * one address. The head keeps what is true of it (`blockTag`).
    */
   ['BlockMenu(every block setting is reachable: name, note, reorder, move, circuit, where it lands, remove)', null, () => {
-    const b = { id: 'b1', name: 'Main', note: '', category: 'lift', items: [] }
-    const html = renderToString(<BlockMenu block={b} first={false} last={false} only={false}
+    const b = { id: 'b1', name: 'Main', note: '', category: 'lift', items: [{ id: 'b1i0', name: 'Face pull', sets: [] }] }
+    const blocks = [{ id: 'b0', name: 'Warm-up', items: [] }, b, { id: 'b2', name: 'Core', items: [] }]
+    const html = renderToString(<BlockMenu block={b} blocks={blocks} first={false} last={false} only={false}
       categories={plan.quotaCategories} onRename={noop} onNote={noop} onCircuit={noop} onQuota={noop}
-      onReorder={noop} onMove={noop} onRemove={noop} onClose={noop} />)
+      onReorder={noop} onMove={noop} onMoveItem={noop} onRemove={noop} onClose={noop} />)
     const t = text(html)
     if (!/<input value="Main"/.test(html)) throw new Error('no way to rename the block')
-    for (const w of ['Add a note', 'Reorder exercises', 'Move block up', 'Move block down', 'Circuit',
-      'Where it lands', 'Part of the workout beside it', 'Remove block', 'Done']) {
+    for (const w of ['Add a note', 'Reorder exercises', 'Move an exercise to another block', 'Move block up', 'Move block down',
+      'Circuit', 'Where it lands', 'Remove block']) {
       if (!t.includes(w)) throw new Error(`the block menu has no "${w}"`)
     }
     const lift = plan.quotaCategories.find(c => c.key === 'lift')
-    if (!new RegExp(`aria-pressed="true"[^>]*>(?:(?!</button>).)*${lift.name}</button>`).test(html)) throw new Error('the block\u2019s own split is not marked')
+    if (!t.includes(`A separate ${lift.name} workout`)) throw new Error('"Where it lands" does not say where it lands now')
+    // Where it lands is its own list behind that row: every answer, the block's own marked.
+    const lands = renderToString(<BlockQuota categories={plan.quotaCategories} value="lift" onChange={noop} />)
+    if (!text(lands).includes('Part of the workout beside it')) throw new Error('no way back to part of the workout beside it')
+    for (const c of plan.quotaCategories) if (!text(lands).includes(`A separate ${c.name} workout`)) throw new Error(`no way to land as ${c.name}`)
+    if (!new RegExp(`aria-pressed="true"[^>]*>(?:(?!</button>).)*${lift.name} workout`).test(lands)) throw new Error('the block\u2019s own split is not marked')
     // Ends and the only block: nothing that cannot be done is offered.
-    const one = renderToString(<BlockMenu block={{ ...b, note: 'x' }} first last only categories={[]}
-      onRename={noop} onNote={noop} onCircuit={noop} onQuota={noop} onMove={noop} onRemove={noop} onClose={noop} />)
-    if (/Move block|Remove block|Reorder exercises/.test(one)) throw new Error('the only block offers a move, a removal or a reorder')
+    const one = renderToString(<BlockMenu block={{ ...b, note: 'x' }} blocks={[b]} first last only categories={[]}
+      onRename={noop} onNote={noop} onCircuit={noop} onQuota={noop} onMove={noop} onMoveItem={noop} onRemove={noop} onClose={noop} />)
+    if (/Move block|Remove block|Reorder exercises|Move an exercise|Where it lands/.test(one)) throw new Error('the only block offers a move, a removal, a reorder or a split')
     if (!/Edit the note/.test(one)) throw new Error('a note that exists is not offered for editing')
+  }],
+  /*
+   * A SHORT SHEET (#95, C N10). The web's ⋯ opened in place as a 1,000px panel
+   * (Name, note, reorder, moves, Circuit, twelve "where it lands" chips, Remove 34px
+   * from Done), pushing the exercises off the screen. Now a popover (a bottom sheet
+   * on a phone): one list, where it lands behind one row, Remove last and apart.
+   * Pinned absent: the chips on the first page, the Done button beside Remove.
+   */
+  ['BlockMenu(a short sheet: a popover, one list, where it lands behind one row, Remove last and apart)', null, () => {
+    const b = { id: 'b0', name: 'Main', note: '', category: null, items: [] }
+    const html = renderToString(<BlockMenu block={b} blocks={[b, { id: 'b1', name: 'Run', items: [] }]} first last={false} only={false}
+      categories={plan.quotaCategories} onRename={noop} onNote={noop} onCircuit={noop} onQuota={noop}
+      onMove={noop} onMoveItem={noop} onRemove={noop} onClose={noop} />)
+    if (!/class="pop-scrim over"/.test(html) || !/role="dialog"[^>]*aria-label="Main: block options"/.test(html)) throw new Error('the block menu is not a sheet over the editor')
+    if (/class="implchip/.test(html) || /blockquota/.test(html)) throw new Error('the "where it lands" chips are back on the menu\u2019s first page')
+    if (/>Done</.test(text(html).replace(/\s+/g, ' ').replace(/Done editing/g, ''))) throw new Error('a Done button is back beside Remove')
+    if (!/aria-label="Close"/.test(html)) throw new Error('no X to close the sheet')
+    const lastList = html.lastIndexOf('class="list ')
+    if (lastList < 0 || !/blockmenu-rm/.test(html.slice(lastList, lastList + 40)) || html.indexOf('Remove block') < lastList) throw new Error('Remove block is not last, in a list of its own')
+    // A block with no exercises, or with nowhere to send one, offers no move.
+    if (/Move an exercise/.test(html)) throw new Error('an empty block offers to move an exercise')
+    // Added just now: the name is the first thing (focused and selected on mount; `fresh`).
+    if (!/<label class="field blockmenu-name">/.test(html)) throw new Error('the name is not on the first page')
+  }],
+  /*
+   * ONE LINE ON A CIRCUIT'S HEAD (#95, C N9). "Circuit · Part of the workout beside
+   * it" beside "3 rounds" broke the head in two at 390. The head says "Circuit · 3
+   * rounds"; where it lands is a line of its own under it.
+   */
+  ['PrescriptionEditor(a long circuit name gives way, the head stays one line)', null, () => {
+    const css = readFileSync(new URL('../src/css/editor.css', import.meta.url), 'utf8')
+    if (!/\.cx-block > \.presc-blockhead \{[^}]*flex-wrap: nowrap/.test(css)) throw new Error('a circuit head can wrap again')
+    if (!/\.cx-block \.presc-blocktoggle h3 \{[^}]*text-overflow: ellipsis/.test(css)) throw new Error('a long circuit name pushes the rounds and the ⋯ off the line')
+    const tsx = readFileSync(new URL('../../mobile/src/features/editor.tsx', import.meta.url), 'utf8')
+    if (!/numberOfLines=\{1\} style=\{\{ flex: 1, minWidth: 0 \}\}>\{b\.name\}/.test(tsx)) throw new Error('the phone\u2019s circuit name wraps its head')
+  }],
+  ['PrescriptionEditor(a circuit in a split workout: "Circuit · 3 rounds" on the head, where it lands under it)', null, () => {
+    const pres = normalizePrescription({ title: 'Legs and a run', blocks: [
+      { name: 'Main lifts', category: 'lift', items: [{ kind: 'lift', name: 'Squat', exercise: SQUAT.key, sets: [{ reps: 5 }] }] },
+      { name: 'Core', circuit: { work: 40, rest: 20, rounds: 3, countIn: 10 }, items: [{ kind: 'lift', name: 'Plank', exercise: 'plank', sets: [{ seconds: 45 }] }] },
+      { name: 'Easy run', category: 'run', items: [{ kind: 'interval', name: 'Run', sets: [{ seconds: 1200 }] }] },
+    ] }, { liftField: LIFT_FIELD })
+    const html = renderToString(<PrescriptionEditor pres={pres} liftField={LIFT_FIELD} categories={plan.quotaCategories} onChange={noop} />)
+    const core = html.slice(html.indexOf('cx-block'))
+    const head = core.slice(0, core.indexOf('</div>'))
+    if (!/class="presc-blockn">Circuit · 3 rounds</.test(head)) throw new Error('the circuit head does not say "Circuit · 3 rounds"')
+    if (/Part of the workout|presc-blocktag/.test(head)) throw new Error('where it lands is back on the circuit\u2019s head')
+    if (!/class="presc-blockland">Part of the workout beside it</.test(core)) throw new Error('a split workout\u2019s circuit no longer says where it lands')
   }],
   ['PrescriptionEditor(the block head: a ⋯ and what is true of it; the note shown; Add a block last)', null, () => {
     const html = renderToString(<PrescriptionEditor pres={TRIP} liftField={LIFT_FIELD} categories={plan.quotaCategories} onChange={noop} />)

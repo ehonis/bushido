@@ -425,19 +425,20 @@
 .presc-blocktag { font-size: var(--fs-label); color: var(--ink-dim); }
 .presc-blockmore { flex: 0 0 auto; }
 .presc-blockmore.on { color: var(--ink); background: var(--panel-3); }
-.blockmenu {
-  display: grid; gap: var(--sp-3); margin: 0 0 var(--sp-3); padding: var(--sp-3);
-  border: 1px solid var(--line); border-radius: var(--r-card); background: var(--panel-2);
-}
-.blockmenu-list { margin: 0; }
-.blockmenu-label { display: block; font-size: var(--fs-label); color: var(--ink-dim); margin-bottom: var(--sp-2); }
-.blockmenu .blockquota { margin: 0; }
-.blockmenu .blockquota-chips { margin: 0; }
-.blockmenu .cx-switch { margin: 0; }
-/* Remove on the left, Done on the right: apart, and Remove is not the primary. */
-.blockmenu-foot { display: flex; align-items: center; gap: var(--sp-3); }
-.blockmenu-done { margin-left: auto; }
-.blockmenu-rm { color: var(--bad); }
+/* The block's ⋯ is a short sheet (#95, C N10): a popover, a bottom sheet on a
+   phone. One list; Remove last, a gap and a line away from the rest. */
+.blockmenu { display: grid; gap: var(--sp-3); align-content: start; }
+.blockmenu-list, .blockmenu .blockquota { margin: 0; }
+.blockmenu .blockmenu-on { flex: none; color: var(--accent); }
+.blockmenu .cx-switch { margin: 0; cursor: pointer; }
+.blockmenu-rm { margin: var(--sp-3) 0 0; }
+.blockmenu-rm .list-row, .blockmenu-rm .list-row > svg:first-child { color: var(--bad); }
+/* A circuit's head stays one line; where it lands is the line under it (C N9).
+   A long name gives way with an ellipsis, never the rounds or the ⋯. */
+.cx-blockmeta { flex: none; white-space: nowrap; }
+.cx-block > .presc-blockhead { flex-wrap: nowrap; }
+.cx-block .presc-blocktoggle h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.presc-blockland { margin: 0 0 var(--sp-2); font-size: var(--fs-label); color: var(--ink-dim); }
 .presc-blocknote-edit { display: block; margin: 0 0 var(--sp-2); }
 .presc-blocknote-edit textarea { width: 100%; }
 .presc-addblock { margin-top: var(--sp-2); }

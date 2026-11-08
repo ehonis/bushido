@@ -103,10 +103,14 @@ function PieceAdder({ unit, onAdd, label = pieceWords(null) }: { unit: string; o
  * that does not split says nothing about it.
  */
 export function blockTag(block: any, pres: any, categories: any[] = []): string | null {
+  return [block?.circuit ? 'Circuit' : null, landsWords(block, pres, categories)].filter(Boolean).join(' · ') || null
+}
+
+/** Where a block lands, in words, only while the workout really splits (`landsOf`). */
+export function landsWords(block: any, pres: any, categories: any[] = []): string | null {
   const lands = categories.length ? landsOf(pres).get(block?.id) : null
   const cat = lands === 'own' ? categories.find((c: any) => c.key === block.category) : null
-  const words = cat ? `A separate ${cat.name} workout` : lands === 'beside' ? 'Part of the workout beside it' : null
-  return [block?.circuit ? 'Circuit' : null, words].filter(Boolean).join(' · ') || null
+  return cat ? `A separate ${cat.name} workout` : lands === 'beside' ? 'Part of the workout beside it' : null
 }
 
 /**
@@ -179,7 +183,12 @@ const loadOf = (it: any) => {
   return w !== null && w !== undefined && w !== '' ? `${w} ${it.weightLabel || 'lb'}` : null
 }
 
-function CircuitBlock({ block: b, pres, onChange, onDrop, liftField, entries, entryId, open, onToggle, extra, menu = null, tag = null, lead = null }: any) {
+/*
+ * The circuit's head is ONE line (C N9, the web's): its name, "Circuit · 3
+ * rounds" and the ⋯. Where it lands, when the workout splits, is a line of its
+ * own under the head.
+ */
+function CircuitBlock({ block: b, pres, onChange, onDrop, liftField, entries, entryId, open, onToggle, extra, menu = null, lands = null, lead = null }: any) {
   const [more, setMore] = useState(false)
   const c = b.circuit
   const items = b.items.map((it: any) => ({ id: it.id, key: it.exercise, name: it.name, timing: (circuitTiming as any)(it), load: loadOf(it) }))
@@ -190,12 +199,12 @@ function CircuitBlock({ block: b, pres, onChange, onDrop, liftField, entries, en
         <Press onPress={() => { tap(); onToggle() }} accessibilityRole="button" accessibilityState={{ expanded: open }}
           style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: TAP }}>
           <Icon name={open ? 'ChevronUp' : 'ChevronDown'} size={14} color={colors.inkFaint} />
-          <T size={font.body} weight={600} style={{ flex: 1, minWidth: 0 }}>{b.name}</T>
-          {tag ? <T size={font.label} dim>{tag}</T> : null}
-          <T size={font.label} dim tabular>{setCount(b)}</T>
+          <T size={font.body} weight={600} numberOfLines={1} style={{ flex: 1, minWidth: 0 }}>{b.name}</T>
+          <T size={font.label} dim tabular numberOfLines={1}>{`Circuit · ${setCount(b)}`}</T>
         </Press>
         {menu ? menu({ reorder: null }) : null}
       </View>
+      {lands ? <T size={font.label} dim style={{ marginBottom: space[2] }}>{lands}</T> : null}
       {open ? (
         <>
           {lead}
@@ -281,6 +290,17 @@ export function PrescriptionEditor({
     setShut(new Set())
     remove((removeBlock as any)(pres, b.id), syncedWith?.length ? `${words}. ${syncLine(syncedWith)}` : words)
   }
+  // An exercise to the end of another block (C N12), said in a toast with Undo:
+  // it lands out of sight, and into a circuit it keeps one set.
+  const moveTo = (itemId: string, blockId: string) => {
+    const it = itemOf(itemId)
+    const to = blocks.find((x: any) => x.id === blockId)
+    const r: any = (moveItem as any)(pres, itemId, { block: blockId })
+    if (r.pres === pres) return
+    setShut(new Set())
+    impact()
+    remove(r.pres, `Moved ${it?.name || 'it'} to ${to?.name || 'another block'}`)
+  }
 
   /*
    * A BLOCK'S OWN SETTINGS, behind its ⋯ (#79), as the system's action sheet.
@@ -296,10 +316,19 @@ export function PrescriptionEditor({
         onPress: () => onChange((patchBlock as any)(pres, b.id, { category: c.key })),
       })),
     ], { title: `Where ${b.name} lands` }), 350)
+    // Which exercise, then which block: two system sheets, as Where it lands.
+    const others = blocks.filter((x: any) => x.id !== b.id)
+    const toBlock = (it: any) => setTimeout(() => showMenu(others.map((x: any) => ({
+      label: x.circuit ? `${x.name} (a circuit: it keeps one set)` : x.name,
+      onPress: () => moveTo(it.id, x.id),
+    })), { title: `Move ${it.name} to` }), 350)
+    const moveOne = () => (b.items.length === 1 ? toBlock(b.items[0]) : setTimeout(() => showMenu(
+      b.items.map((it: any) => ({ label: it.name, onPress: () => toBlock(it) })), { title: 'Move which exercise?' }), 350))
     showMenu([
       { label: 'Rename', onPress: () => { prompt('Rename this block', { defaultValue: b.name }).then((v) => { if (v) onChange((renameBlock as any)(pres, b.id, v)) }) } },
       { label: b.note ? 'Edit the note' : 'Add a note', onPress: () => setNoteFor(b.id) },
       ...(reorder ? [{ label: 'Reorder exercises', onPress: reorder }] : []),
+      ...(b.items.length && others.length ? [{ label: 'Move an exercise to another block…', onPress: moveOne }] : []),
       ...(bi > 0 ? [{ label: 'Move block up', onPress: () => regroup((moveBlock as any)(pres, b.id, 'up').pres) }] : []),
       ...(bi < blocks.length - 1 ? [{ label: 'Move block down', onPress: () => regroup((moveBlock as any)(pres, b.id, 'down').pres) }] : []),
       { label: b.circuit ? 'Not a circuit' : 'Make it a circuit', onPress: () => onChange((setCircuit as any)(pres, b.id, !b.circuit)) },
@@ -323,7 +352,7 @@ export function PrescriptionEditor({
         <CircuitBlock key={b.id} block={b} pres={pres} onChange={onChange} onDrop={dropItem} liftField={liftField}
           entries={entries} entryId={entryId}
           open={!shut.has(b.id)} onToggle={() => toggleBlock(b.id)}
-          menu={menuOf(b, bi)} tag={blockTag(b, pres, categories)} lead={leadOf(b)} />
+          menu={menuOf(b, bi)} lands={landsWords(b, pres, categories)} lead={leadOf(b)} />
       ) : (
         <ExerciseSection key={b.id}
           title={b.name}

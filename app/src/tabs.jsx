@@ -12,6 +12,7 @@ import { FullScreen } from './modal.jsx'
 import { totalSets, totalReps } from './setlog.jsx'
 import { restStats } from './lib/stats.js'
 import { liftedLine, liftFieldIn } from './lib/lifts.js'
+import { climbLine } from './lib/grades.js'
 import { localIso, fromIso, isoShift, dayWords, dayPhrase } from './lib/dates.js'
 import { MetaLine, metaParts } from './metaline.jsx'
 import { isDone, extraEntryId, doneWhenPlaced, markDone } from './lib/store.js'
@@ -88,9 +89,28 @@ export function TodayTab({
 }) {
   const today = todayIso()
   const [iso, setIso] = useState(today)
-  // A day asked for from elsewhere: the planner's "See it on Mon" (#94). Applied
-  // once and handed back, so Today does not jump to it again on its next mount.
-  useEffect(() => { if (showDay?.date) { setIso(showDay.date); onDayShown?.() } }, [showDay])
+  /*
+   * Two ways another screen sends Today to a day, and only one drives it at a
+   * time; each is applied once and never again on a remount.
+   * - A workout OPENED from elsewhere (the planner's Start workout) is shown on
+   *   ITS day: Today may be showing another one, and the day's sessions only look
+   *   for it among what is on screen, so Start did nothing (#95, C N5). Followed
+   *   once per opening (`followed`); the opening clears itself once it opens.
+   * - A day ASKED for (the planner's "See it on Mon", #94), applied once and
+   *   handed back (`onDayShown`), so Today does not jump to it again on its next
+   *   mount. While a workout is being opened, the opening owns the day: the
+   *   asked-for day is only handed back.
+   */
+  const [followed, setFollowed] = useState(null)
+  const opening = openEntryId ? entries.find(e => e.id === openEntryId && e.kind === 'daily') : null
+  if (opening && followed !== opening.id) {
+    setFollowed(opening.id)
+    if (opening.date && opening.date !== iso) setIso(opening.date)
+  } else if (!openEntryId && followed) setFollowed(null)
+  useEffect(() => {
+    if (showDay?.date && opening) { onDayShown?.(); return }
+    if (showDay?.date) { setIso(showDay.date); onDayShown?.() }
+  }, [showDay])
   // The + button logs onto the day being looked at, so it has to know which.
   useEffect(() => { onViewDay?.(iso) }, [iso])
   const isFuture = iso > today
@@ -598,8 +618,11 @@ function DaySessions({
     else {
       const mins = loggedMinutes(entry, opt)
       const sets = totalSets(out)
+      // A climbing night says what was climbed ("5 routes · hardest 5.10"), the
+      // same line as the Log and "last time" (lib/grades.js `climbLine`, #97 F2):
+      // it read "1 set", the set log's container, not the climbs in it.
       const work = Number(out.distance) > 0 ? `${out.distance} mi`
-        : liftedLine(entry, liftFieldIn(opt)) || (sets ? `${sets} set${sets === 1 ? '' : 's'}` : null)
+        : climbLine(opt, out) || liftedLine(entry, liftFieldIn(opt)) || (sets ? `${sets} set${sets === 1 ? '' : 's'}` : null)
       // A planned session nothing has been logged on yet says what it holds
       // ("3 exercises · 9 sets · about 45 min"), which is also what says it has sets to run.
       if (mins === null && !work && entry.data?.plan) bits.push(prescriptionLine(entry.data.plan))

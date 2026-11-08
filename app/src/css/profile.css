@@ -156,3 +156,22 @@ code { background: var(--panel-2); padding: 1px var(--sp-1); border-radius: var(
 .prof-trouble > summary { list-style: none; }
 .prof-trouble > summary::-webkit-details-marker { display: none; }
 .prof-trouble[open] > summary .list-row-chev { transform: rotate(180deg); }
+
+/* Leaving a test with numbers typed asks first, in place (#97, F8). The way out
+   is quiet and sits under the result, never beside Save. */
+.test-ask {
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+  padding: var(--sp-3); border: 1px solid var(--line-strong); border-radius: var(--r-control);
+  background: var(--panel-2); font-size: var(--fs-label);
+}
+.test-ask > span { flex: 1 1 100%; }
+.test-cancel { margin-top: var(--sp-4); }
+/* A test's only result: a number and a date until there are two (#97, F9f). */
+.test-one {
+  display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap;
+  padding: var(--sp-3) 0; border-top: 1px solid var(--line);
+}
+.test-one-label { font-size: var(--fs-label); color: var(--ink-dim); flex: 1 1 auto; }
+.test-one-value { font-size: var(--fs-title); font-weight: 600; font-variant-numeric: tabular-nums; }
+.test-one-unit { font-size: var(--fs-label); font-weight: 500; color: var(--ink-dim); }
+.test-one-date { font-size: var(--fs-caption); color: var(--ink-faint); flex-basis: 100%; }

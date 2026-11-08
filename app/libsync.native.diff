@@ -23,10 +23,6 @@
 -   if (unsynced !== 0 && !confirmFn(lossMessage(unsynced))) { thaw(); return { signedOut: false, unsynced } }
 +   // Native: confirmFn is a system alert, so it may return a promise.
 +   if (unsynced !== 0 && !(await confirmFn(lossMessage(unsynced)))) { thaw(); return { signedOut: false, unsynced } }
-=== stats.js
-- import { totalSets, totalReps } from '../setlog.jsx'
-+ // Native: the web's app/src/setlog.jsx is features/setlog.tsx here.
-+ import { totalSets, totalReps } from '../features/setlog'
 === store.js
 - import { handoffTarget, retirePushSubscription } from './handoff.js'
 - import { isSignedOut, makeLocalPersist, onSignedOutElsewhere } from './signout.js'

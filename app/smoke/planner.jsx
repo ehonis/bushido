@@ -97,7 +97,9 @@ export default [
   ['BuildStep(start from several kinds: one block each, in the order tapped)', null, () => {
     const [a, b] = [plan.plannerKinds.kinds[2], plan.plannerKinds.kinds[0]]
     const html = renderToString(builder(blankFor([a, b]), [a, b]))
-    if (!/<details class="askkinds plan-from" open="">/.test(html)) throw new Error('a picked kind is folded away')
+    // Folded after a pick (#95, C N4), never lost: the head names every pick, in order.
+    const head = text(html.slice(html.indexOf('<summary'), html.indexOf('</summary>'))).replace(/&amp;/g, '&')
+    if (!head.includes(`${a.label} + ${b.label}`)) throw new Error('a picked kind is folded away and not named')
     // The blocks are written in the order the kinds were tapped: which came first is a fact about the session.
     const blocks = [...html.matchAll(/class="presc-blocktoggle"[^>]*>(?:(?!<\/h3>).)*?<h3>([^<]+)<\/h3>/g)].map(m => m[1].replace(/&amp;/g, '&'))
     if (blocks.join() !== `${a.label},${b.label}`) throw new Error(`the blocks are ${blocks.join()}, not ${a.label},${b.label}`)
@@ -435,6 +437,25 @@ export default [
     for (const k of plan.plannerKinds.kinds) if (!hasIcon(k.icon)) throw new Error(`${k.key}: icon "${k.icon}" is not registered`)
     for (const g of plan.plannerKinds.groups) if (!hasIcon(g.icon)) throw new Error(`group ${g.key}: icon "${g.icon}" is not registered`)
     for (const c of plan.quotaCategories) if (!hasIcon(c.icon)) throw new Error(`category ${c.key}: icon "${c.icon}" is not registered`)
+  }],
+  /*
+   * A PICK FOLDS THE LIST (#95, C N4). "Start from" stayed open after a pick, three
+   * screens of chips, and the block it made landed under all of them: the chip lit
+   * and nothing seemed to happen. On the builder a picked kind folds the list, its
+   * head says what was picked, and the screen goes to the new block. The ask's
+   * "Add a kind" is a brief, not a builder: it stays open with its picks.
+   */
+  ['BuildStep(a Start-from pick folds the list and says what was picked)', null, () => {
+    const zone2 = plan.plannerKinds.kinds.find(k => k.group === 'bike') || plan.plannerKinds.kinds[0]
+    const html = renderToString(builder(blankFor([zone2]), [zone2]))
+    const from = html.match(/<details class="askkinds plan-from"[^>]*>/)?.[0]
+    if (!from) throw new Error('no Start from on an empty builder')
+    if (/\bopen=""/.test(from)) throw new Error('Start from stays open after a pick, and the block it made is three screens down')
+    const head = html.slice(html.indexOf('<summary'), html.indexOf('</summary>'))
+    if (!text(head).replace(/&amp;/g, '&').includes(zone2.label)) throw new Error('the folded Start from does not say what was picked')
+    if (!html.includes(`<h3>${zone2.label.replace(/&/g, '&amp;')}</h3>`)) throw new Error('the pick made no block')
+    const ask = renderToString(<KindChips plan={plan} picked={[zone2]} setPicked={noop} title="Add a kind" />)
+    if (!/<details class="askkinds" open=""/.test(ask)) throw new Error('the ask\u2019s kinds fold away what was picked')
   }],
   ['KindChips(folded, every kind still in the page)', <KindChips plan={plan} picked={[]} setPicked={noop} title="Start from" />,
     (html) => {

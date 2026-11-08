@@ -15,6 +15,7 @@ import { ActivityPicker } from './activitypicker.jsx'
 import { activityOf, activityLabel } from './lib/activities.js'
 import { liftsLine, liftsDone, liftFieldIn } from './lib/lifts.js'
 import { priorSessions } from './lib/history.js'
+import { climbLine, mootHardest } from './lib/grades.js'
 import { asksItsOwnDuration, minutesFor, minutesSourceOf } from './lib/minutes.js'
 import { visibleOutputs, pruneHidden, derivedValue, filledBy } from './lib/outputs.js'
 import { gateResolver } from './lib/activities.js'
@@ -43,10 +44,14 @@ const dayLabel = (iso) => dayWords(iso)
  * Its lifting is what was lifted (`liftsDone`): on a planned workout done on the
  * sheet, the plan's sets (D11).
  */
-function priorWork(entry, field = null) {
+function priorWork(entry, field = null, session = null) {
   const out = entry?.data?.out || {}
   const bits = []
-  const sets = totalSets(out)
+  // A climbing session answers "what did I climb last time" first, in the line
+  // every list uses (lib/grades.js `climbLine`, #97 F2), not "1 set, 5 reps".
+  const climbed = session ? climbLine(session, out) : ''
+  if (climbed) bits.push(climbed)
+  const sets = climbed ? 0 : totalSets(out)
   const reps = totalReps(out)
   if (sets) bits.push(`${sets} set${sets === 1 ? '' : 's'}${reps ? `, ${reps} reps` : ''}`)
   const lifting = liftsLine({ lifts: liftsDone(entry) }, field)
@@ -86,7 +91,7 @@ export function PriorNote({ entries, session, excludeId, entry = null, all = fal
           : priorTitle(1, whose)}
       </div>
       {shown.map(e => {
-        const work = priorWork(e, liftFieldIn(session))
+        const work = priorWork(e, liftFieldIn(session), session)
         return (
           <div key={e.id} className="prior-item">
             <div className="prior-when">
@@ -576,6 +581,8 @@ export function SessionLog({
   const planHolds = Boolean(entry?.data?.plan?.blocks?.length)
   const fields = visibleOutputs(session, out, derive)
     .filter(f => !(f.type === 'lifts' && planHolds && !(Array.isArray(out[f.key]) && out[f.key].length)))
+    // A typed "hardest" under a list of graded climbs is moot (lib/grades.js, #97 F9b).
+    .filter(f => !mootHardest(session, out, f))
 
   // Pruned on the way in, so what is stored and what is on screen can never
   // disagree — correcting a run to a lift takes its distance with it rather than
@@ -637,7 +644,7 @@ export function SessionLog({
             return (
               <label key={f.key} className="field out-num">
                 <span>
-                  {f.label}{f.unit ? ` (${f.unit})` : ''}
+                  {f.label}{f.unit && !f.label.includes(`(${f.unit})`) ? ` (${f.unit})` : ''}
                   {source && <span className="out-from">from {source}</span>}
                 </span>
                 <input

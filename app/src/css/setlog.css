@@ -138,3 +138,20 @@
   background: var(--panel-2); font-size: var(--fs-label);
 }
 .exlog-confirm > span { flex: 1 1 100%; }
+
+/* "More details" reads as something that opens (#97, F9a): a chevron that turns. */
+.climb-more > summary::-webkit-details-marker { display: none; }
+.climb-more > summary { list-style: none; gap: var(--sp-1); align-self: flex-start; }
+.climb-more-chev { transition: transform var(--dur-fast) var(--ease-out); }
+.climb-more[open] .climb-more-chev { transform: rotate(180deg); }
+/* Which set to take off, asked in the foot (#97, F9d). */
+.exlog-pick { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; margin-top: var(--sp-2); }
+
+/* A climbing card being logged: the protocol under the log, in one fold (#97, F5). */
+.sess-about > summary {
+  display: flex; align-items: center; gap: var(--sp-1); min-height: var(--tap);
+  font-weight: 600; cursor: pointer; list-style: none;
+}
+.sess-about > summary::-webkit-details-marker { display: none; }
+.sess-about-chev { transition: transform var(--dur-fast) var(--ease-out); color: var(--ink-dim); }
+.sess-about[open] .sess-about-chev { transform: rotate(180deg); }

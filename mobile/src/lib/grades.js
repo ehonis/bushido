@@ -200,6 +200,22 @@ export function hardestGrade(list) {
 
 /* ------------------------------------------------------------ scale-aware --- */
 
+/**
+ * The rungs beside a grade on a ladder, for one-tap picks: one easier, the same,
+ * one harder, as `{ step, value, label }` (#97). A grade off this ladder (written
+ * the other way, or by hand) offers only itself, labelled by `fmt`; the ends offer
+ * what is there.
+ */
+export function nearRungs(ladder, value, fmt = String) {
+  const list = ladder || []
+  const at = list.findIndex(g => g.value === Number(value))
+  if (at < 0) return [{ step: 0, value: Number(value), label: fmt(Number(value)) }]
+  return [-1, 0, 1]
+    .map(step => ({ step, rung: list[at + step] }))
+    .filter(x => x.rung)
+    .map(({ step, rung }) => ({ step, value: rung.value, label: rung.label }))
+}
+
 /** The label for a value on a named scale: 'v' is the V ladder, anything else routes. */
 export const labelOn = (scale, value) => (scale === 'v' ? vLabel(value) : gradeLabel(value))
 
@@ -404,6 +420,71 @@ export function climbSaid(c) {
 /** How many climbs in these rows have something said about them — what turning the detail off would lose. */
 export const saidIn = (rows) => climbsIn(rows).filter(climbSaid).length
 
+/*
+ * WHAT A ROW COUNTS (regrade F1, #97).
+ *
+ * A count-only row counts its `reps`: the number in the box, typed or left as the
+ * plan wrote it, in plain sight and editable. With the per-climb detail on, the
+ * box is gone and the number becomes the length of a list of mostly blank
+ * records: "Log each problem" over the plan's 10, three problems described, and
+ * the night read "10 problems" everywhere while the climber had said three. The
+ * blanks are the plan's number standing in, a placeholder (AGENTS.md §6.4), never
+ * climbs. So once any climb in a row is DESCRIBED, the described climbs are the
+ * row's count; until one is, the row still counts `reps`, exactly as it did with
+ * the detail off (switching it on alone says nothing new).
+ *
+ * A read rule, not a migration: stored rows are read as they are, and every row
+ * logged before this whose climbs were all described (every one in the logs
+ * this was checked on) reads exactly as before.
+ *
+ * A lap is described when its record says something, or, on the doubled lead
+ * laps that ask a grade per lap, when its grade was picked.
+ */
+function toldOf(row) {
+  const n = climbCount(row?.reps)
+  const list = Array.isArray(row?.[CLIMB_FIELD]) ? row[CLIMB_FIELD] : []
+  const grades = Array.isArray(row?.[GRADE_FIELD]) ? row[GRADE_FIELD] : []
+  const told = []
+  for (let k = 0; k < n; k++) {
+    if (climbSaid(list[k]) || (grades[k] !== '' && grades[k] != null)) told.push(k)
+  }
+  return told
+}
+
+/** How many climbs this row counts: the described ones once any is, else its count. */
+export function climbsCounted(row) {
+  const reps = Math.max(0, Math.floor(Number(row?.reps) || 0))
+  if (!Array.isArray(row?.[CLIMB_FIELD])) return reps
+  const told = toldOf(row).length
+  return told > 0 ? told : reps
+}
+
+/** Climbs in the row's list nobody has described, while others are: not counted. */
+export function untoldIn(row) {
+  if (!Array.isArray(row?.[CLIMB_FIELD])) return 0
+  const told = toldOf(row).length
+  return told > 0 ? climbCount(row?.reps) - told : 0
+}
+
+/**
+ * The foot of a climbing exercise, in numbers, for both set logs: how many climbs
+ * count, how many of those went clean or fell, down-climbs, lengths of wall, and
+ * how many listed climbs are waiting to be described (and so do not count).
+ */
+export function climbTotals(rows) {
+  const list = rows || []
+  const count = list.reduce((s, r) => s + climbsCounted(r), 0)
+  const said = climbsIn(list).filter(climbSaid)
+  return {
+    count,
+    sent: said.filter(isClean).length,
+    falls: fallsIn(list),
+    downs: downsIn(list),
+    lengths: lengthsIn(list),
+    untold: list.reduce((s, r) => s + untoldIn(r), 0),
+  }
+}
+
 /** Every climb record across a list of set rows, in the order they were climbed. */
 export function climbsIn(rows) {
   return (rows || [])
@@ -424,10 +505,10 @@ export const downsIn = (rows) => climbsIn(rows).filter(c => c.down === 'both' ||
  * LENGTHS of wall covered, which is what a down-climb changes.
  *
  * One length is one trip up or down. An ordinary lap is one; a lap climbed and
- * down-climbed is two; a pure down-climb is one. Reps that carry no climb record
- * count as one each, so a session with the detail switched off — or switched on
- * halfway through — reads exactly as its rep count rather than dropping the laps
- * the user did not describe.
+ * down-climbed is two; a pure down-climb is one. The laps are the row's COUNTED
+ * climbs (`climbsCounted`): with the detail off, its rep count; with it on, the
+ * climbs described, once any is, since the blank records after them are the
+ * plan's number standing in, not laps.
  *
  * Deliberately NOT `reps`. The rep count is how many climbs the user did and the climb
  * list follows it; lengths is how much climbing that was. Merging them would put
@@ -435,7 +516,7 @@ export const downsIn = (rows) => climbsIn(rows).filter(c => c.down === 'both' ||
  */
 export function lengthsIn(rows) {
   return (rows || []).reduce((sum, r) => {
-    const n = climbCount(r?.reps)
+    const n = climbsCounted(r)
     const list = Array.isArray(r?.[CLIMB_FIELD]) ? r[CLIMB_FIELD] : []
     const extra = list.filter(c => c?.down === 'both').length
     return sum + n + extra
@@ -598,14 +679,15 @@ export function sessionGradesOf(opt, out) {
 }
 
 /**
- * How many climbs a session was, described or not: the count on every climbing
- * exercise's rows. The same number the set log's foot shows.
+ * How many climbs a session was: what every climbing exercise's rows COUNT
+ * (`climbsCounted`: the count, or the described climbs once the detail has any).
+ * The same number the set log's foot shows.
  */
 export function climbVolume(opt, out) {
   let n = 0
   for (const ex of exercisesOf(opt)) {
     if (!countsClimbs(ex)) continue
-    for (const r of out?.sets?.[ex.key] || []) n += Math.max(0, Math.floor(Number(r?.reps) || 0))
+    for (const r of out?.sets?.[ex.key] || []) n += climbsCounted(r)
   }
   return n
 }
@@ -638,6 +720,18 @@ export function hardestSent(opt, out, scale) {
 export function hardestTried(opt, out, scale) {
   const climbs = graded(opt, out, scale)
   return climbs.length ? most(climbs.map(c => c.grade)) : most(typedHardest(opt, out, scale))
+}
+
+/**
+ * Is a card's typed "hardest" field moot here: the session graded climbs on its
+ * ladder, so every reader takes those instead (`hardestSent`, the pyramid)? The
+ * form then leaves it out (#97, F9b): under a list of described climbs it was a
+ * second answer to the question the list answers, and it was ignored anyway. Its
+ * stored value is kept and comes back with the field if the detail goes.
+ */
+export function mootHardest(opt, out, f) {
+  const scale = scaleOfOutput(f)
+  return Boolean(scale) && graded(opt, out, scale).length > 0
 }
 
 /** The grade bands (whole grades) a session touched, as `"v:4"` / `"yds:10"` keys. */

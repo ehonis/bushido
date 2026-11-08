@@ -14,7 +14,7 @@
 
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { localIso } from './dates.js'
-import { timeX, dateWords, needsYear } from './vizscale.js'
+import { timeX, dateWords, needsYear, deltaBase } from './vizscale.js'
 
 export const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)']
 
@@ -148,8 +148,11 @@ export function LineChart({ points, label, help, unit = '', height = 190, color 
 
   const path = data.map((d, i) => `${i ? 'L' : 'M'}${xAt(i).toFixed(1)},${yAt(d.y).toFixed(1)}`).join('')
   const last = data[data.length - 1]
+  // Like with like (lib/vizscale.js `deltaBase`): the change is from the earliest
+  // point of the same kind as the newest, when the points say what they are of.
   const first = data[0]
-  const delta = data.length > 1 ? last.y - first.y : null
+  const since = deltaBase(data)
+  const delta = since ? last.y - since.y : null
 
   const onMove = e => {
     // Touch events carry no clientX of their own — read the first touch point.
@@ -168,13 +171,13 @@ export function LineChart({ points, label, help, unit = '', height = 190, color 
         {fmtY ? fmt(last.y) : last.y}
         {!fmtY && <span className="viz-unit">{unit}</span>}
         {delta != null && delta !== 0 && (() => {
-          const real = !noisePct || Math.abs(delta) > (first.y * noisePct) / 100
+          const real = !noisePct || Math.abs(delta) > (since.y * noisePct) / 100
           return (
             <span className={`viz-delta ${real ? (delta > 0 ? 'up' : 'down') : 'noise'}`}>
               {delta > 0 ? '▲' : '▼'}{' '}
               {fmtY
-                ? `${fmt(first.y)} → ${fmt(last.y)} since ${day(first.x)}`
-                : `${Math.abs(Number(delta.toFixed(1)))}${unit} since ${day(first.x)}`}
+                ? `${fmt(since.y)} → ${fmt(last.y)} since ${day(since.x)}`
+                : `${Math.abs(Number(delta.toFixed(1)))}${unit} since ${day(since.x)}`}
               {noisePct && !real && ' · inside noise'}
             </span>
           )

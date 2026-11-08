@@ -18,7 +18,7 @@
  * the phone; this file is the web's view of it.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
 import { FullScreen } from './modal.jsx'
 import { PrescriptionEditor } from './editor.jsx'
@@ -232,11 +232,22 @@ export function groupedKinds(plan) {
  * component. Labels only: a kind's `hint` and `prompt` are written for the
  * model and never reach the hand-built route. Every kind is in the page (a
  * `<details>`), so the reachability tests can see each one.
+ *
+ * `onPicked` (the builder's Start from, #95, C N4): a pick folds the list and
+ * hands the kind back, so the screen can go to the block it made. Left open,
+ * the list was three screens of chips and the block landed under all of it:
+ * the chip lit, and nothing seemed to happen. Folded, its head says what was
+ * picked; open it again to add another.
  */
-export function KindChips({ plan, picked = [], setPicked, title, className = 'askkinds' }) {
+export function KindChips({ plan, picked = [], setPicked, title, className = 'askkinds', onPicked = null }) {
   const groups = groupedKinds(plan)
+  const [open, setOpen] = useState(!onPicked && picked.length > 0)
   const has = (k) => picked.some(p => p.key === k.key)
-  const toggle = (k) => setPicked(has(k) ? picked.filter(p => p.key !== k.key) : [...picked, k])
+  const toggle = (k) => {
+    const adding = !has(k)
+    setPicked(adding ? [...picked, k] : picked.filter(p => p.key !== k.key))
+    if (adding && onPicked) { setOpen(false); onPicked(k) }
+  }
   const known = new Set(groups.flatMap(g => g.items.map(k => k.key)))
   // A draft written before #59 may carry a "Something else" kind; it is shown, and can be taken off.
   const extra = picked.filter(k => !known.has(k.key))
@@ -246,10 +257,11 @@ export function KindChips({ plan, picked = [], setPicked, title, className = 'as
     </button>
   )
   return (
-    <details className={className} open={picked.length > 0 || undefined}>
+    <details className={className} open={(onPicked ? open : open || picked.length > 0) || undefined}
+      onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary className="section-head">
         <h3>{title}</h3>
-        <span className="sub">{picked.length ? `${picked.length} picked` : 'Optional'}</span>
+        <span className="sub">{!picked.length ? 'Optional' : onPicked ? kindsLine(picked) : `${picked.length} picked`}</span>
         <Icon name="ChevronDown" size={16} className="kindgroup-chev" />
       </summary>
       {extra.length > 0 && <div className="chiprow askkinds-group">{extra.map(chip)}</div>}
@@ -262,6 +274,9 @@ export function KindChips({ plan, picked = [], setPicked, title, className = 'as
     </details>
   )
 }
+
+/** "Legs + Zone 2 ride": what a folded Start from has picked. */
+export const kindsLine = (picked) => picked.map(k => k.label).join(' + ')
 
 /* ------------------------------------------------- step: how long, what for */
 
@@ -679,19 +694,31 @@ export function BuildStep({
 }) {
   const sets = prescriptionSteps(pres).length
   const empty = !hasWork(pres)
+  // A Start-from pick makes a block (last, in the order tapped): go to it once it is drawn.
+  const editor = useRef(null)
+  const goToNew = useRef(false)
+  useEffect(() => {
+    if (!goToNew.current) return
+    goToNew.current = false
+    const last = [...(editor.current?.querySelectorAll('.presc-block') || [])].at(-1)
+    last?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+  }, [pres])
 
   return (
     <>
       {empty && setPicked && (
-        <KindChips plan={plan} picked={picked} setPicked={setPicked} title="Start from" className="askkinds plan-from" />
+        <KindChips plan={plan} picked={picked} setPicked={setPicked} title="Start from" className="askkinds plan-from"
+          onPicked={() => { goToNew.current = true }} />
       )}
 
       <SplitNote parts={splitPrescription(dropEmptyBlocks(pres))} />
 
-      <PrescriptionEditor pres={pres} onChange={setPres} liftField={liftField} entries={entries}
-        categories={categories} onAddPiece={
-          (blockId, name, by, unit) => setPres(appendPiece(pres, name, { blockId, by, unit }))
-        } />
+      <div ref={editor}>
+        <PrescriptionEditor pres={pres} onChange={setPres} liftField={liftField} entries={entries}
+          categories={categories} onAddPiece={
+            (blockId, name, by, unit) => setPres(appendPiece(pres, name, { blockId, by, unit }))
+          } />
+      </div>
 
       {fileAs && <div className="plan-dayfoot">{fileAs}</div>}
       {day && <div className="plan-dayfoot">{day}</div>}

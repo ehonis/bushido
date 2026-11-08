@@ -11,7 +11,7 @@ import { T } from '../ui/Text'
 import { Btn, Row } from '../ui/kit'
 import { Modal } from '../ui/Sheet'
 import { Icon } from '../lib/icons'
-import { SessionView } from './session'
+import { SessionView, SessionAbout, climbLogLeads } from './session'
 import { SessionLog, PriorNote, DetailsSheet } from './sessionlog'
 import { liftFieldOf } from '../lib/lifts.js'
 import { pushToast, dismissToast } from '../lib/toast'
@@ -384,12 +384,16 @@ export function SessionSheet({
         <>
           <T size={font.label} dim>{opt.dose}</T>
           <PriorNote entries={entries} session={opt} excludeId={entry?.id} />
-          <SessionView key={opt.id} session={opt} entries={entries} />
+          {/* A climbing card being logged: the log, then the protocol folded (session.tsx, #97 F5). */}
+          {!isFuture && planned && !opt.logFirst && climbLogLeads(opt) ? (<>
+            <SessionLog session={opt} entry={entry} entries={entries} onSave={save} />
+            <SessionAbout session={opt} entries={entries} />
+          </>) : <SessionView key={opt.id} session={opt} entries={entries} />}
         </>
       )}
 
       {/* Declared by the card. See `logFirst` in plan.json and SessionLog. */}
-      {!isFuture && planned && !opt.logFirst && (
+      {!isFuture && planned && !opt.logFirst && (pres || !climbLogLeads(opt)) && (
         <SessionLog session={opt} entry={entry} entries={entries} onSave={save} />
       )}
 

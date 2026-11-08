@@ -4,6 +4,9 @@ app/node_modules/
 app/smoke/.smoke.mjs
 app/.mdtest.mjs
 app/.planflowtest.mjs
+app/.editingtest.mjs
+app/.editingdomtest.mjs
+app/.blockmenudomtest.mjs
 
 # Your actual training log and its snapshots. Runtime state, not source:
 # it changes on every session and would be pure merge noise. Back it up with

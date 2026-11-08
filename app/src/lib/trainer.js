@@ -29,7 +29,7 @@ import { optFor } from './menu.js'
 import { sharePeople, sharedPeopleOn, addPerson } from './shared.js'
 import {
   isLiftOnly, followWeightModes, endCircuit, circuitOnly, circuitEnded, runProgress, prescriptionSteps, finishRun,
-  runOutputs, fillOut, blockTimer,
+  runOutputs, fillOut, blockTimer, remapRun,
 } from './prescription.js'
 import { compile, settle } from './timer.js'
 import { liftFieldIn } from './lifts.js'
@@ -360,7 +360,11 @@ export function applyOut(entry, opt, out) {
  * logged sets became (#58, `followWeightModes`).
  */
 export function applyPlan(entry, opt, plan) {
-  const data = followWeightModes(entry.data, { ...entry.data, plan }, liftFieldIn(opt))
+  // A run's marks are keyed by set ids, which the edit may have renumbered (a
+  // move, a removal): they follow their sets (`remapRun`).
+  const before = entry.data?.plan
+  const run = entry.data?.run?.sets && before?.blocks ? { run: remapRun(entry.data.run, before, plan) } : {}
+  const data = followWeightModes(entry.data, { ...entry.data, plan, ...run }, liftFieldIn(opt))
   return { ...entry, data: { ...data, name: plan.title || entry.data?.name } }
 }
 

@@ -10,7 +10,7 @@ import {
   keepKeyFor, withoutLoads, ownerEntryFor,
 } from './src/lib/trainer.js'
 import { groupContext, plannerContext } from './src/lib/plannerapi.js'
-import { splitPrescription, normalizePrescription, runOutputs, patchItem } from './src/lib/prescription.js'
+import { splitPrescription, normalizePrescription, runOutputs, patchItem, moveItem, patchSet } from './src/lib/prescription.js'
 
 const tests = []
 const test = (name, fn) => tests.push([name, fn])
@@ -180,6 +180,48 @@ test('one weight mode per exercise on a run entry: the sheet\'s plan and its log
   // An entry with no plan is written as it always was.
   const plain = { id: 'daily-y', kind: 'daily', date: DATE, data: { optId: 'log-workout', out: {} } }
   assert.equal('plan' in applyOut(plain, menu.find(o => o.id === 'log-workout'), { rpe: 5 }).data, false)
+})
+
+test('a plan edit keeps the run\u2019s done marks on their own sets: a move, a reorder, repeated names (#95 review)', () => {
+  const opt = menu.find(o => o.id === 'planned')
+  const liftField = (opt.outputs || []).find(f => f.type === 'lifts')
+  const p = normalizePrescription({ title: 'Legs and intervals', blocks: [
+    { name: 'Main', items: [{ kind: 'interval', name: 'Spin', sets: [{ seconds: 300 }] }] },
+    { name: 'Intervals', items: [
+      { kind: 'interval', name: 'Hard', sets: [{ seconds: 60 }] },
+      { kind: 'interval', name: 'Easy', sets: [{ seconds: 120 }] },
+    ] },
+  ] }, { liftField })
+  const idOf = (pres, name) => pres.blocks.flatMap(b => b.items).find(it => it.name === name).sets[0].id
+  const run = { sets: { [idOf(p, 'Hard')]: { seconds: 60 } }, skipped: [idOf(p, 'Easy')], cursor: idOf(p, 'Easy') }
+  const entry = { id: 'daily-x', kind: 'daily', date: DATE, data: { optId: 'planned', plan: p, run, out: {} } }
+
+  // The review's repro: Hard done, moved to Main. Its mark goes with it, never onto Easy.
+  const moved = applyPlan(entry, opt, moveItem(p, 'b1i0', { block: 'b0' }).pres)
+  const next = moved.data.plan
+  assert.deepEqual(Object.keys(moved.data.run.sets), [idOf(next, 'Hard')], 'the done mark stayed on the old id, now Easy\u2019s')
+  assert.deepEqual(moved.data.run.skipped, [idOf(next, 'Easy')])
+  assert.equal(moved.data.run.cursor, idOf(next, 'Easy'))
+  // Up and down inside a block: the same.
+  const down = applyPlan(entry, opt, moveItem(p, 'b1i0', 'down').pres)
+  assert.deepEqual(Object.keys(down.data.run.sets), [idOf(down.data.plan, 'Hard')])
+  assert.equal(down.data.run.sets[idOf(down.data.plan, 'Hard')].seconds, 60)
+
+  // Two intervals both called Hard: a number typed elsewhere leaves both marks where they were.
+  const reps = normalizePrescription({ title: 'Repeats', blocks: [{ name: 'Intervals', items: [
+    { kind: 'interval', name: 'Hard', sets: [{ seconds: 60 }] },
+    { kind: 'interval', name: 'Easy', sets: [{ seconds: 120 }] },
+    { kind: 'interval', name: 'Hard', sets: [{ seconds: 60 }] },
+  ] }] }, { liftField })
+  const twice = { ...entry, data: { ...entry.data, plan: reps, run: { sets: { b0i0s0: { seconds: 60 } } } } }
+  const typed = applyPlan(twice, opt, patchSet(reps, 'b0i1', 'b0i1s0', { seconds: 90 }))
+  assert.deepEqual(Object.keys(typed.data.run.sets), ['b0i0s0'], 'the first Hard\u2019s mark moved to the second')
+  // A renamed exercise in its own place keeps its marks; one removed takes them with it.
+  const renamed = applyPlan(twice, opt, patchItem(reps, 'b0i0', { name: 'Very hard' }))
+  assert.deepEqual(Object.keys(renamed.data.run.sets), ['b0i0s0'])
+  // No run: the entry is written as before, with no run key.
+  const plain = applyPlan({ ...entry, data: { ...entry.data, run: undefined } }, opt, p)
+  assert.equal(plain.data.run, undefined)
 })
 
 /* ------------------------------------------- several people at once (#59) */

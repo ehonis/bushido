@@ -34,6 +34,7 @@
 import { isDone } from './store.js'
 import { optFor } from './menu.js'
 import { loggedActivity } from './activities.js'
+import { loggedMinutes } from './minutes.js'
 
 export const GEAR_KIND = 'gear'
 
@@ -218,7 +219,12 @@ export function gearUsage({ plan, entries = [], strava = null }) {
 
     const out = e.data?.out || {}
     const miles = num(out.distance)
-    const minutes = num(e.data?.minutes ?? out.duration)
+    // Typed or measured time only (#97, F6). `data.minutes` is filled with the
+    // card's estimate when no time was given, so a 39-minute climbing session
+    // logged on a 120-minute card added two hours to the shoes. An entry whose
+    // card is gone keeps the one time it carries, its own duration.
+    const opt = optFor(menu, e.data?.optId)
+    const minutes = num(loggedMinutes(e, opt) ?? (opt ? 0 : out.duration))
     const reps = repsIn(e, menu)
     const onStrava = Boolean(out.strava?.id)
 
@@ -251,8 +257,11 @@ function repsIn(entry, menu) {
   }
   // The climbing set log, where a session declares its own exercises.
   const opt = optFor(menu, entry?.data?.optId)
+  // Its rows live in `out.sets[key]` (#97, F6: this read `out[key]`, where they
+  // never are, so a climbing set log added no reps at all).
   for (const ex of (opt?.logSpec?.exercises || [])) {
-    for (const set of (Array.isArray(out[ex.key]) ? out[ex.key] : [])) {
+    const rows = out.sets?.[ex.key]
+    for (const set of (Array.isArray(rows) ? rows : [])) {
       n += num(set?.reps) || 1
     }
   }

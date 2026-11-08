@@ -145,11 +145,29 @@ check('weights count reps, from the lift chooser', () => {
 
 check('climbing gear counts hours', () => {
   const entries = [rope,
-    did('2026-09-01', 'board', { gear: ['gear-rope'] }, { minutes: 90 }),
-    did('2026-09-03', 'board', { gear: ['gear-rope'] }, { minutes: 150 })]
+    did('2026-09-01', 'board', { gear: ['gear-rope'], minutesSpent: 90 }),
+    did('2026-09-03', 'board', { gear: ['gear-rope'], minutesSpent: 150 })]
   const row = gearUsage({ plan, entries, strava: null }).find(r => r.id === 'gear-rope')
   eq(row.minutes, 240)
   eq(headlineFor(row), { value: 4, unit: 'hr' })
+})
+
+check('gear hours never count the card\'s estimate, only time typed or measured (#97 F6)', () => {
+  // The seed's shape: data.minutes is the card's 120 because no time was typed.
+  const estimate = did('2026-10-19', 'fun-sport', { gear: ['gear-rope'] }, { minutes: 120 })
+  const typed = did('2026-10-20', 'fun-sport', { gear: ['gear-rope'], minutesSpent: 39 }, { minutes: 120 })
+  // A correction stored before minutesSpent existed still counts as typed.
+  const corrected = did('2026-10-21', 'fun-sport', { gear: ['gear-rope'] }, { minutes: 21, minutesSource: 'typed' })
+  const row = gearUsage({ plan, entries: [rope, estimate, typed, corrected], strava: null }).find(r => r.id === 'gear-rope')
+  eq(row.minutes, 60, '39 typed + 21 corrected, and nothing for the estimate')
+  eq(row.sessions, 3, 'the estimated session is still a use')
+})
+
+check('a climbing set log\'s reps count, read from out.sets (#97 F6)', () => {
+  const entries = [plates, did('2026-09-01', 'repeaters', {
+    gear: ['gear-plates'], sets: { [opt('repeaters').logSpec.exercises[0].key]: [{ reps: 6 }, { reps: 6 }] },
+  })]
+  eq(gearUsage({ plan, entries, strava: null }).find(r => r.id === 'gear-plates').reps, 12)
 })
 
 check('one workout can wear two things at once', () => {

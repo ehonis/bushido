@@ -3,7 +3,7 @@
     "version": "2.0",
     "app": "Bushido",
     "generated": "2026-09-14",
-    "note": "Test fixture: a large synthetic climbing-and-triathlon programme (31 session cards, 6 tests, 11 quota categories) that the test suites render and check against. Not loaded by the app; examples/plan.json and content/starter.json are generated from it by app/starter.build.mjs."
+    "note": "Test fixture: a large synthetic climbing-and-triathlon programme (33 session cards, 6 tests, 12 quota categories) that the test suites render and check against. Not loaded by the app; examples/plan.json and content/starter.json are generated from it by app/starter.build.mjs."
   },
   "testingNotes": [
     {
@@ -5080,6 +5080,296 @@
         ]
       },
       "category": "fun",
+      "discipline": "climbing"
+    },
+    {
+      "id": "climb-bouldering",
+      "tier": "any day",
+      "name": "Bouldering",
+      "minutes": 90,
+      "level": 2,
+      "levelFrom": "rpe",
+      "levelMap": [
+        {
+          "from": 8,
+          "level": 4
+        },
+        {
+          "from": 6,
+          "level": 3
+        },
+        {
+          "from": 4,
+          "level": 2
+        },
+        {
+          "from": 1,
+          "level": 1
+        }
+      ],
+      "sched": {
+        "discipline": "bouldering",
+        "whoopSport": "climbing",
+        "fingerLoad": "variable",
+        "venue": "climbing-gym",
+        "skinCost": true
+      },
+      "icon": "Mountain",
+      "dose": "A bouldering session: count the problems, or log each one with its grade and how it went.",
+      "whenInstead": "Any bouldering session that is not a structured workout of its own.",
+      "evidence": {
+        "grade": "expert-consensus",
+        "transfer": "Climbing problems is the skill itself, so there is nothing to transfer: this card exists to record it, not to train a proxy for it. There is no controlled trial of an unstructured problems session as an intervention, and the card does not claim one.",
+        "summary": "The case for logging it is the injury literature, not performance research. A systematic review of climbing injuries (Zieliński, Grygorowicz and Lewandowski 2025, J Funct Morphol Kinesiol, 7 studies, over 4000 climbers) found overuse injuries, mostly of the fingers and shoulders, more common than acute ones in adults; in the two included studies that split them, overuse made up 39–68% of injuries. The same review found the evidence on specific risk factors (grade, age, taping) inconsistent, so this card claims no more than that: unstructured sessions are the ones that go uncounted, which is why it asks whether it was a hard finger day.",
+        "sources": [
+          "https://doi.org/10.3390/jfmk11010019",
+          "https://pmc.ncbi.nlm.nih.gov/articles/PMC12821603/"
+        ]
+      },
+      "protocol": {
+        "duration": "As long as you want",
+        "setup": [
+          "Nothing to set up."
+        ],
+        "warmup": [
+          "Warm up even when nobody else does: cold fingers on a hard move are the usual way in.",
+          "Ten minutes of easy climbing before anything that feels hard."
+        ],
+        "blocks": [
+          {
+            "name": "Climb",
+            "loadPct": null,
+            "steps": [
+              "Climb whatever problems looks good. There is no prescription.",
+              "Log as you go or afterwards: a count, or each climb with its grade and how it went.",
+              "Then say how hard you went, 1 to 10, and whether it was a hard finger day."
+            ]
+          }
+        ],
+        "cues": [
+          "Log what happened, not what you meant to do."
+        ],
+        "stopIf": [
+          "Any finger pain, pop or click.",
+          "Skin splitting."
+        ],
+        "log": [
+          "How many problems, or each one with its grade",
+          "How hard you went",
+          "Hard finger day, yes or no"
+        ]
+      },
+      "outputs": [
+        {
+          "key": "rpe",
+          "type": "slider",
+          "label": "How hard did you actually go?",
+          "min": 1,
+          "max": 10,
+          "step": 1,
+          "default": 5,
+          "scale": [
+            "1 nothing",
+            "3 social",
+            "5 easy volume",
+            "7 worked things",
+            "8+ tried hard"
+          ]
+        },
+        {
+          "key": "hardFingers",
+          "type": "toggle",
+          "label": "Hard finger day?",
+          "hint": "Yes if you pulled near your limit: projecting, repeated hard attempts. Easy volume is a no.",
+          "default": false
+        }
+      ],
+      "role": "session",
+      "logSpec": {
+        "exercises": [
+          {
+            "key": "problems",
+            "name": "Problems climbed",
+            "defaultSets": 1,
+            "fields": [
+              "reps"
+            ],
+            "repName": "problem",
+            "climbLog": {
+              "scale": "v",
+              "styles": [
+                "slab",
+                "vert",
+                "overhang",
+                "roof",
+                "arete",
+                "dihedral",
+                "crack"
+              ]
+            },
+            "how": {
+              "figure": "boulder",
+              "gist": "Climb what looks good. Count it, or log each problem as you go.",
+              "steps": [
+                "Warm up on easy problems first.",
+                "Climb whatever looks good, at any grade.",
+                "Tap Log each problem to give each its grade and how it went.",
+                "Say how hard you went afterwards, honestly."
+              ],
+              "watch": "Projecting at your limit is a hard finger day, however social the night was."
+            }
+          }
+        ]
+      },
+      "category": "climb",
+      "discipline": "climbing"
+    },
+    {
+      "id": "climb-routes",
+      "tier": "any day",
+      "name": "Rock climbing",
+      "minutes": 120,
+      "level": 2,
+      "levelFrom": "rpe",
+      "levelMap": [
+        {
+          "from": 8,
+          "level": 4
+        },
+        {
+          "from": 6,
+          "level": 3
+        },
+        {
+          "from": 4,
+          "level": 2
+        },
+        {
+          "from": 1,
+          "level": 1
+        }
+      ],
+      "sched": {
+        "discipline": "rock-climbing",
+        "whoopSport": "climbing",
+        "fingerLoad": "variable",
+        "venue": "climbing-gym"
+      },
+      "icon": "Route",
+      "dose": "A day on ropes, sport or top-rope: count the routes, or log each one with its grade and how it went.",
+      "whenInstead": "Any day on routes that is not a structured workout of its own.",
+      "evidence": {
+        "grade": "expert-consensus",
+        "transfer": "Climbing routes is the skill itself, so there is nothing to transfer: this card exists to record it, not to train a proxy for it. There is no controlled trial of an unstructured routes session as an intervention, and the card does not claim one.",
+        "summary": "The case for logging it is the injury literature, not performance research. A systematic review of climbing injuries (Zieliński, Grygorowicz and Lewandowski 2025, J Funct Morphol Kinesiol, 7 studies, over 4000 climbers) found overuse injuries, mostly of the fingers and shoulders, more common than acute ones in adults; in the two included studies that split them, overuse made up 39–68% of injuries. The same review found the evidence on specific risk factors (grade, age, taping) inconsistent, so this card claims no more than that: unstructured sessions are the ones that go uncounted, which is why it asks whether it was a hard finger day.",
+        "sources": [
+          "https://doi.org/10.3390/jfmk11010019",
+          "https://pmc.ncbi.nlm.nih.gov/articles/PMC12821603/"
+        ]
+      },
+      "protocol": {
+        "duration": "As long as you want",
+        "setup": [
+          "Nothing to set up."
+        ],
+        "warmup": [
+          "Two easy routes first. On lead, the first one of the day warms the head up too.",
+          "Ten minutes of easy climbing before anything that feels hard."
+        ],
+        "blocks": [
+          {
+            "name": "Climb",
+            "loadPct": null,
+            "steps": [
+              "Climb whatever routes looks good. There is no prescription.",
+              "Log as you go or afterwards: a count, or each climb with its grade and how it went.",
+              "Then say how hard you went, 1 to 10, and whether it was a hard finger day."
+            ]
+          }
+        ],
+        "cues": [
+          "Log what happened, not what you meant to do."
+        ],
+        "stopIf": [
+          "Any finger pain, pop or click.",
+          "Skin splitting."
+        ],
+        "log": [
+          "How many routes, or each one with its grade",
+          "How hard you went",
+          "Hard finger day, yes or no"
+        ]
+      },
+      "outputs": [
+        {
+          "key": "hardestYds",
+          "type": "grade",
+          "label": "Hardest route you climbed"
+        },
+        {
+          "key": "rpe",
+          "type": "slider",
+          "label": "How hard did you actually go?",
+          "min": 1,
+          "max": 10,
+          "step": 1,
+          "default": 5,
+          "scale": [
+            "1 nothing",
+            "3 social",
+            "5 easy volume",
+            "7 worked things",
+            "8+ tried hard"
+          ]
+        },
+        {
+          "key": "hardFingers",
+          "type": "toggle",
+          "label": "Hard finger day?",
+          "hint": "Yes if you pulled near your limit: projecting, repeated hard attempts. Easy volume is a no.",
+          "default": false
+        }
+      ],
+      "role": "session",
+      "logSpec": {
+        "exercises": [
+          {
+            "key": "routes",
+            "name": "Routes climbed",
+            "defaultSets": 1,
+            "fields": [
+              "reps"
+            ],
+            "repName": "route",
+            "climbLog": {
+              "scale": "yds",
+              "downClimb": true,
+              "styles": [
+                "slab",
+                "vert",
+                "overhang",
+                "roof",
+                "dihedral",
+                "chimney",
+                "arete",
+                "crack"
+              ]
+            },
+            "how": {
+              "figure": "climb-route",
+              "gist": "Lead or top-rope what looks good. Count it, or log each route as you go.",
+              "steps": [
+                "Climb two easy routes first.",
+                "Lead or top-rope whatever you feel like.",
+                "Tap Log each route to give each its grade and how it went.",
+                "Say how hard you went afterwards, honestly."
+              ],
+              "watch": "Falls and burns at your limit make it a hard finger day."
+            }
+          }
+        ]
+      },
+      "category": "climb",
       "discipline": "climbing"
     },
     {
@@ -15535,6 +15825,14 @@
       "discipline": "climbing",
       "icon": "Users",
       "blurb": "Climbing with friends, outside, or for no reason. It still counts and it still costs your fingers — the hard-finger question on the card is what keeps it honest.",
+      "fingerLoad": "variable"
+    },
+    {
+      "key": "climb",
+      "name": "Climbing",
+      "discipline": "climbing",
+      "icon": "Mountain",
+      "blurb": "Bouldering and routes with no set workout. It still costs your fingers: the hard-finger question on the card is what keeps the count honest.",
       "fingerLoad": "variable"
     },
     {

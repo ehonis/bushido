@@ -24,7 +24,7 @@ import { optFor } from './menu.js'
 import { isTraining } from './store.js'
 import { mondayOf } from './dates.js'
 import { resolveMinutes, minutesSourceOf } from './minutes.js'
-import { isHardEntry } from './fingers.js'
+import { hardDates } from './fingers.js'
 import {
   gradeIndex, rungLabel, vRungLabel, hardestSent, climbsOf, sessionGradesOf, climbVolume,
   bandOf, bandLabel, axisLadder, indexOn,
@@ -123,12 +123,32 @@ const has = (set, ...keys) => keys.some(k => set.has(k))
 /**
  * The dates in scope that cost a hard finger exposure. A DAY is a hard finger
  * day, not a session: a split night (max hangs, then repeaters) is one exposure,
- * and counting sessions made it two (F5). `lib/fingers.js` `hardDates` is the
- * same rule; this one keeps to the scope's entries, which are already done.
+ * and counting sessions made it two (F5). ONE rule, `lib/fingers.js` `hardDates`
+ * (#97 F10: this was a second copy of it), over the scope's entries.
  */
-function hardDays(resolved, plan) {
-  const menu = plan?.dailyMenu || []
-  return [...new Set(resolved.entries.filter(e => isHardEntry(e, menu)).map(e => e.date))].sort()
+const hardDays = (resolved, plan) => hardDates(resolved.entries, plan?.dailyMenu || [])
+
+/*
+ * HARDEST SENT, LIKE WITH LIKE (#97, F7). Per session, an ARC day (easy on
+ * purpose) after a lead day drew "▼ 5.11− → 5.9": a different session read as a
+ * decline. So the line is the best of each WEEK, at the day it was sent (an easy
+ * day in a week with a hard one cannot lower it), and each point says which card
+ * it came from (`of`): the chart's change is measured from the earliest point of
+ * the same card as the newest (lib/vizscale.js `deltaBase`), and claims none when
+ * there is no earlier one.
+ */
+function bestPerWeek(resolved, plan, value) {
+  const best = new Map()
+  for (const e of resolved.entries) {
+    const y = value(e)
+    if (y === null || y === undefined || !Number.isFinite(y)) continue
+    const w = mondayOf(e.date)
+    const was = best.get(w)
+    if (!was || y > was.y || (y === was.y && e.date < was.x)) {
+      best.set(w, { x: e.date, y, of: optOf(plan, e)?.id ?? null })
+    }
+  }
+  return [...best.values()].sort((a, b) => String(a.x).localeCompare(String(b.x)))
 }
 
 /* --------------------------------------------------- one exercise, compared */
@@ -226,14 +246,33 @@ export function pyramidOf(resolved, plan, scale) {
 
 /** The hardest send of one ladder per session, as a chart value (a rung index for routes). */
 /** The ladder the scope's route sends are written on (see axisLadder in grades.js). */
-const routeAxis = (r, plan) => axisLadder(r.entries.map(e => {
+/*
+ * HARDEST SENT IS A LIMIT MEASURE (#97 review). A card whose declared finger load
+ * is sub-maximal is volume by design: ARC, traverses, doubled lead laps, the
+ * economy drill. Its hardest send is whatever the day's easy laps happened to
+ * be, and plotted beside a limit day it read as a decline ("▼ 5.11− → 5.9", two
+ * ARC days in the seed). So those cards are left out of the hardest lines; their
+ * climbs still count in the pyramids and Climbs per week. Read off the card's
+ * own declaration (`sched.fingerLoad`), else its category's, never a list of
+ * names; a card that declares neither is kept.
+ */
+const SUBMAXIMAL = new Set(['light', 'sub', 'none'])
+export function volumeCard(opt, plan) {
+  const own = opt?.sched?.fingerLoad
+  const cat = (plan?.quotaCategories || []).find(c => c.key === opt?.category)?.fingerLoad
+  return SUBMAXIMAL.has(own ?? cat)
+}
+
+/** The hardest send of one ladder on an entry, or null on a volume card (above). */
+const limitSent = (plan, e, scale) => {
   const opt = optOf(plan, e)
-  return opt ? hardestSent(opt, e.data?.out || {}, 'yds') : null
-}))
+  return opt && !volumeCard(opt, plan) ? hardestSent(opt, e.data?.out || {}, scale) : null
+}
+
+const routeAxis = (r, plan) => axisLadder(r.entries.map(e => limitSent(plan, e, 'yds')))
 
 const sentOn = (plan, scale) => (e) => {
-  const opt = optOf(plan, e)
-  const best = opt ? hardestSent(opt, e.data?.out || {}, scale) : null
+  const best = limitSent(plan, e, scale)
   if (best === null) return null
   return scale === 'v' ? best : gradeIndex(best)
 }
@@ -419,37 +458,11 @@ export const METRICS = [
   /*
    * LAST, on purpose (2026-10-25, issue #31). Groups render in the order their
    * first chart appears here, and this is a workout log first: the climbing
-   * charts follow the general ones rather than leading them.
+   * charts follow the general ones rather than leading them (unless Climbing is
+   * picked: `metricsFor`). Inside the group, what was climbed by grade leads, the
+   * question a climber opens the page with (#97, F3); volume and hard finger days
+   * follow.
    */
-  {
-    key: 'hardFingers',
-    group: 'Climbing',
-    kind: 'bar',
-    label: 'Hard finger days per week',
-    applies: (r) => has(r.disciplines, 'climbing'),
-    series: (r, plan) => {
-      const days = new Set(hardDays(r, plan))
-      // Each DATE once, in its week, however many sessions it held.
-      const firsts = new Set()
-      return byWeek(r, plan, e => {
-        if (!days.has(e.date) || firsts.has(e.date)) return 0
-        firsts.add(e.date)
-        return 1
-      })
-    },
-  },
-  {
-    key: 'climbs',
-    group: 'Climbing',
-    kind: 'bar',
-    label: 'Climbs per week',
-    help: 'Routes, problems and laps counted, described or not',
-    applies: (r) => has(r.disciplines, 'climbing'),
-    series: (r, plan) => byWeek(r, plan, e => {
-      const opt = optOf(plan, e)
-      return opt ? climbVolume(opt, e.data?.out || {}) : 0
-    }),
-  },
   /*
    * D12: what was climbed, by grade. A pyramid per ladder (V and routes are two
    * ladders), the sends solid and the climbs that did not go faint beside them,
@@ -475,9 +488,10 @@ export const METRICS = [
     group: 'Climbing',
     kind: 'line',
     label: 'Hardest boulder sent',
+    help: 'The best of each week, endurance and volume days left out',
     applies: (r) => has(r.disciplines, 'climbing'),
     fmtY: (v) => vRungLabel(Math.round(v)),
-    series: (r, plan) => perSession(r, sentOn(plan, 'v')),
+    series: (r, plan) => bestPerWeek(r, plan, sentOn(plan, 'v')),
   },
   {
     key: 'routePyramid',
@@ -493,6 +507,7 @@ export const METRICS = [
     group: 'Climbing',
     kind: 'line',
     label: 'Hardest route sent',
+    help: 'The best of each week, endurance and volume days left out',
     applies: (r) => has(r.disciplines, 'climbing'),
     // The axis is the ladder the log is written on (axisLadder): a plus/minus
     // log is not labelled with letter rungs it never used.
@@ -503,14 +518,42 @@ export const METRICS = [
     },
     series: (r, plan) => {
       const ladder = routeAxis(r, plan)
-      return perSession(r, (e) => {
-        const opt = optOf(plan, e)
-        const best = opt ? hardestSent(opt, e.data?.out || {}, 'yds') : null
+      return bestPerWeek(r, plan, (e) => {
+        const best = limitSent(plan, e, 'yds')
         return best === null ? null : indexOn(ladder, best)
       })
     },
   },
 
+  {
+    key: 'hardFingers',
+    group: 'Climbing',
+    kind: 'bar',
+    label: 'Hard finger days per week',
+    applies: (r) => has(r.disciplines, 'climbing'),
+    series: (r, plan) => {
+      const days = new Set(hardDays(r, plan))
+      // Each DATE once, in its week, however many sessions it held.
+      const firsts = new Set()
+      return byWeek(r, plan, e => {
+        if (!days.has(e.date) || firsts.has(e.date)) return 0
+        firsts.add(e.date)
+        return 1
+      })
+    },
+  },
+  {
+    key: 'climbs',
+    group: 'Climbing',
+    kind: 'bar',
+    label: 'Climbs per week',
+    help: 'Routes, problems and laps: the count, or the climbs described',
+    applies: (r) => has(r.disciplines, 'climbing'),
+    series: (r, plan) => byWeek(r, plan, e => {
+      const opt = optOf(plan, e)
+      return opt ? climbVolume(opt, e.data?.out || {}) : 0
+    }),
+  },
   {
     key: 'fingers',
     group: 'Climbing',
@@ -591,6 +634,13 @@ export function metricsFor(plan, resolved) {
     let g = groups.find(x => x.name === m.group)
     if (!g) { g = { name: m.group, metrics: [] }; groups.push(g) }
     g.metrics.push(m)
+  }
+  // Climbing follows the general charts on the whole page (§10.8). Once the
+  // person has PICKED Climbing it leads (#97, F3): they asked about climbing, and
+  // the pyramids sat two to four screens under three bars the unfiltered page has.
+  if (resolved?.scope?.activity === 'climbing') {
+    const at = groups.findIndex(g => g.name === 'Climbing')
+    if (at > 0) groups.unshift(...groups.splice(at, 1))
   }
   return groups
 }

@@ -16,6 +16,8 @@ import { DayStepper } from '../ui/DayStepper'
 import { NumInput } from './numinput'
 import { localIso } from '../lib/dates.js'
 import { measured, testResultFrom } from '../lib/tests.js'
+import { dateWords } from '../lib/vizscale.js'
+import { confirm } from '../ui/menu'
 
 /** The test series the ±CF_NOISE_PCT band belongs to: critical force and CFmin. */
 const CF_NOISED = new Set(['critical-force.cfKg', 'critical-force.cfMinKg'])
@@ -58,6 +60,9 @@ export function TestingTab({ plan, entries = [], upsertEntry }: { plan: any; ent
               const pts = results
                 .filter(r => !r.deleted && (measured as any)(r.data?.[m.key]) != null)
                 .map(r => ({ x: r.date, y: (measured as any)(r.data[m.key]) }))
+              // One result is a number and a date, not "a dot with an axis"
+              // (#97, F9f): the line starts at the second.
+              if (pts.length === 1) return <OneResult key={m.key} metric={m} point={pts[0]} />
               return pts.length ? (
                 <LineChart key={m.key} points={pts} label={m.label} unit={m.unit || ''}
                   color={SERIES[mi % SERIES.length]} goal={m.goal}
@@ -169,9 +174,28 @@ function RunnerSec({ title, children }: { title: string; children: React.ReactNo
   )
 }
 
+/** A test's only result so far: "Peak force · 52 kg · Mon 19 Oct". */
+function OneResult({ metric, point }: { metric: any; point: { x: string; y: number } }) {
+  return (
+    <View style={st.one}>
+      <T size={font.label} dim style={{ flex: 1 }}>{metric.label}</T>
+      <T size={font.title} weight={600} tabular>
+        {String(point.y)}{metric.unit ? <T size={font.label} dim>{` ${metric.unit}`}</T> : null}
+      </T>
+      <T size={font.caption} faint style={st.oneDate}>{(dateWords as any)(point.x, { withYear: true })}</T>
+    </View>
+  )
+}
+
 function TestRunner({ test, onSave, onDone }: { test: any; onSave: (e: any) => void; onDone: () => void }) {
   const [vals, setVals] = useState<Record<string, any>>({})
   const [date, setDate] = useState(todayIso)
+  // Leaving with numbers typed ASKS (#97, F8): Cancel sat beside Save, one thumb
+  // from the last box, and dropped every result without a word.
+  const typed = Object.values(vals).some((v) => v !== '' && v != null)
+  const cancel = async () => {
+    if (!typed || await confirm('Discard the results you typed?', { confirmLabel: 'Discard' })) onDone()
+  }
 
   /* What Save would write: nothing until a box holds a number (lib/tests.js).
      An empty result used to save, and as the newest one it hid the ceiling. */
@@ -222,11 +246,10 @@ function TestRunner({ test, onSave, onDone }: { test: any; onSave: (e: any) => v
               onChange={(v: any) => setVals(prev => ({ ...prev, [m.key]: v }))} />
           </Field>
         ))}
-        <View style={{ flexDirection: 'row', gap: space[2], justifyContent: 'flex-end' }}>
-          <Btn kind="secondary" title="Cancel" onPress={onDone} />
-          <Btn title="Save result" onPress={save} disabled={!result} />
-        </View>
-        {!result ? <T size={font.label} dim style={{ marginTop: space[2], textAlign: 'right' }}>Type at least one result to save it.</T> : null}
+        <Btn title="Save result" onPress={save} disabled={!result} />
+        {!result ? <T size={font.label} dim style={{ marginTop: space[2] }}>Type at least one result to save it.</T> : null}
+        {/* The way out is quiet and away from Save; with numbers in, it asks. */}
+        <Btn kind="quiet" title="Cancel" onPress={cancel} style={{ marginTop: space[4], alignSelf: 'flex-start' }} />
       </RunnerSec>
 
       {test.interpretation && (
@@ -318,6 +341,11 @@ export function WhyTab({ plan }: { plan: any }) {
   )
 }
 const st = StyleSheet.create({
+  one: {
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', gap: space[2],
+    paddingVertical: space[3], borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line,
+  },
+  oneDate: { flexBasis: '100%' },
   ceiling: {
     marginTop: space[4], padding: space[4], backgroundColor: colors.panel2,
     borderWidth: 1, borderColor: colors.line, borderRadius: radius.card,

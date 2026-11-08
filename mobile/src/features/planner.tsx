@@ -56,11 +56,13 @@ const { FOR_ME, forWords, forSomeoneElse, namesOf } = trainerLib as any
  * bar is gone and the keyboard's own Done editing is the way out; it comes
  * back once the keys have left.
  */
-export function StepPage({ children, foot = null, after = null }: {
+export function StepPage({ children, foot = null, after = null, scrollRef = null }: {
   children?: React.ReactNode
   foot?: React.ReactNode
   /** What the web renders after the sticky bar (the `.plan-fine` line). */
   after?: React.ReactNode
+  /** The page's scroller, for a step that moves the reader (the builder's Start from). */
+  scrollRef?: React.RefObject<ScrollView | null> | null
 }) {
   const insets = useSafeAreaInsets()
   const typing = useKeyboardShown()
@@ -68,6 +70,7 @@ export function StepPage({ children, foot = null, after = null }: {
   return (
     <View style={{ flex: 1 }}>
       <ScrollView
+        ref={scrollRef}
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: space.gutter, paddingBottom: showFoot ? space[4] : typing ? space[6] : space[6] + insets.bottom }}
         keyboardShouldPersistTaps="handled"
@@ -307,18 +310,28 @@ export function groupedKinds(plan: any) {
  * picked: the ask's "Add a kind" and the builder's "Start from". Labels only: a
  * kind's `hint` and `prompt` are written for the model and never reach the
  * hand-built route.
+ *
+ * `onPicked` (the builder's Start from, #95, C N4, the web's): a pick folds the
+ * list and hands the kind back, so the page can go to the block it made. Left
+ * open it was three screens of chips with the new block under all of them.
+ * Folded, its head says what was picked.
  */
-export function KindChips({ plan, picked = [], setPicked, title, style }: {
+export function KindChips({ plan, picked = [], setPicked, title, style, onPicked = null }: {
   plan: any; picked?: any[]; setPicked: (p: any[]) => void; title: string; style?: StyleProp<ViewStyle>
+  onPicked?: ((k: any) => void) | null
 }) {
   const groups = groupedKinds(plan)
   const has = (k: any) => picked.some((p: any) => p.key === k.key)
-  const toggle = (k: any) => setPicked(has(k) ? picked.filter((p: any) => p.key !== k.key) : [...picked, k])
+  const toggle = (k: any) => {
+    const adding = !has(k)
+    setPicked(adding ? [...picked, k] : picked.filter((p: any) => p.key !== k.key))
+    if (adding && onPicked) { setOpened(false); onPicked(k) }
+  }
   const known = new Set(groups.flatMap((g: any) => g.items.map((k: any) => k.key)))
   // A draft written before #59 may carry a "Something else" kind; it is shown, and can be taken off.
   const extra = picked.filter((k: any) => !known.has(k.key))
   const [opened, setOpened] = useState(false)
-  const shown = opened || picked.length > 0
+  const shown = opened || (!onPicked && picked.length > 0)
   const chip = (k: any) => <Chip key={k.key} out icon={k.icon || 'Dumbbell'} label={k.label} on={has(k)} onPress={() => toggle(k)} />
 
   return (
@@ -326,7 +339,9 @@ export function KindChips({ plan, picked = [], setPicked, title, style }: {
       <Press onPress={() => { tap(); setOpened(!shown) }} accessibilityRole="button"
         accessibilityState={{ expanded: shown }} style={st.foldHead}>
         <T size={font.body} weight={600} style={{ flex: 1 }}>{title}</T>
-        <T size={font.label} dim>{picked.length ? `${picked.length} picked` : 'Optional'}</T>
+        <T size={font.label} dim numberOfLines={1} style={{ flexShrink: 1 }}>
+          {!picked.length ? 'Optional' : onPicked ? picked.map((k: any) => k.label).join(' + ') : `${picked.length} picked`}
+        </T>
         <Icon name={shown ? 'ChevronUp' : 'ChevronDown'} size={16} color={colors.inkFaint} />
       </Press>
       {shown ? (
@@ -772,23 +787,35 @@ export function BuildStep({
 }: any) {
   const sets = (prescriptionSteps as any)(pres).length
   const empty = !(hasWork as any)(pres)
+  /* A Start-from pick folds the chips and makes a block: the page goes to the
+     editor once it has moved up into place (its onLayout after the fold). */
+  const scroller = useRef<ScrollView | null>(null)
+  const goToNew = useRef(false)
+  const editorAt = (y: number) => {
+    if (!goToNew.current) return
+    goToNew.current = false
+    scroller.current?.scrollTo({ y: Math.max(0, y - space[2]), animated: true })
+  }
 
   return (
-    <StepPage
+    <StepPage scrollRef={scroller}
       foot={<Btn icon="Plus" title={words.keep} disabled={!sets || busy} onPress={onKeep} />}
       after={!sets ? <T style={st.fine}>Add an exercise or an interval to keep it</T> : null}
     >
       {head}
       {empty && setPicked ? (
-        <KindChips plan={plan} picked={picked} setPicked={setPicked} title="Start from" style={{ marginBottom: space[4] }} />
+        <KindChips plan={plan} picked={picked} setPicked={setPicked} title="Start from" style={{ marginBottom: space[4] }}
+          onPicked={() => { goToNew.current = true; setTimeout(() => { goToNew.current = false }, 800) }} />
       ) : null}
       <SplitNote parts={(splitPrescription as any)((dropEmptyBlocks as any)(pres))} />
 
-      <PrescriptionEditor pres={pres} onChange={setPres} liftField={liftField} entries={entries}
-        categories={categories} onAddPiece={
-          (blockId: string, name: string, by: string, unit: string) =>
-            setPres((appendPiece as any)(pres, name, { blockId, by, unit }))
-        } />
+      <View onLayout={(e) => editorAt(e.nativeEvent.layout.y)}>
+        <PrescriptionEditor pres={pres} onChange={setPres} liftField={liftField} entries={entries}
+          categories={categories} onAddPiece={
+            (blockId: string, name: string, by: string, unit: string) =>
+              setPres((appendPiece as any)(pres, name, { blockId, by, unit }))
+          } />
+      </View>
 
       {fileAs ? <View style={{ marginTop: space[6] }}>{fileAs}</View> : null}
       {day ? <View style={{ marginTop: space[6] }}>{day}</View> : null}

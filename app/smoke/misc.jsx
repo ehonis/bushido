@@ -13,7 +13,7 @@ import { recentActivities, quickEntry } from '../src/lib/quicklog.js'
 import { ActivityChooser, activityGroups, activityFieldOf, climbingRows, climbingShortcut } from '../src/picker.jsx'
 import { climbingFolders, folderOf } from '../src/lib/folders.js'
 import {
-  plan, starter, example, entries, noop, TODAY, back, text, LIFT_FIELD, QUICK_LOG,
+  plan, starter, example, entries, noop, TODAY, back, text, LIFT_FIELD, QUICK_LOG, noClimbing,
 } from './fixtures.jsx'
 
 export default [
@@ -230,10 +230,20 @@ export default [
       if (t.lastIndexOf('Climbing') < t.indexOf('Running')) throw new Error('the Climbing group is not after the activities')
     }],
   ['ActivityChooser(the Climbing door is absent on a plan with no climbing)', null, () => {
-    if (climbingShortcut(example)) throw new Error('a Climbing door on the example plan')
-    const t = text(renderToString(<ActivityChooser plan={example} field={activityFieldOf(example)} onPick={noop}
+    if (climbingShortcut(noClimbing)) throw new Error('a Climbing door on a plan with no climbing')
+    const t = text(renderToString(<ActivityChooser plan={noClimbing} field={activityFieldOf(noClimbing)} onPick={noop}
       onPickCard={noop} onClose={noop} entries={QUICK_LOG} />))
-    if (t.includes('Bouldering · Rock climbing')) throw new Error('a Climbing door on the example plan')
+    if (t.includes('Bouldering · Rock climbing')) throw new Error('a Climbing door on a plan with no climbing')
+  }],
+  // A FRESH INSTALL can log a climb (#97, F4): the starter's Climbing door, and
+  // behind it both of its cards, each reachable by folder.
+  ['starter: ActivityChooser(the Climbing door leads to both climbing cards)', null, () => {
+    if (!climbingShortcut(starter)) throw new Error('no Climbing door on a fresh install')
+    const t = text(renderToString(<ActivityChooser plan={starter} field={activityFieldOf(starter)} onPick={noop}
+      onPickCard={noop} onClose={noop} initialFolder="_climbing" />))
+    for (const name of ['Bouldering', 'Rock climbing']) {
+      if (!new RegExp(`>${name}<`).test(t)) throw new Error(`no ${name} card behind the starter's Climbing door`)
+    }
   }],
   // Behind the door: every climbing card on one screen, by folder, each saying
   // its category, and found by the words a climber would type.

@@ -29,6 +29,7 @@ import {
   ROUTE_GRADES, routeLadder, gradeSystemOf, routeSystem, setRouteSystem, bandOf, bandLabel,
   outcomeOf, withOutcome, isClean, outcomesFor, triesOf, climbsOf, hardestSent, hardestTried,
   climbVolume, climbLine, bandsOf, detailOn, dropClimb, putClimb, climbSaid, saidIn, MAX_CLIMBS,
+  climbsCounted, untoldIn, climbTotals,
 } from './src/lib/grades.js'
 import {
   minutesFor, minutesOf, dayMinutes, resolveMinutes, asksItsOwnDuration, minutesSourceOf,
@@ -1310,9 +1311,11 @@ check('a session\'s climbs are read on the scale the plan declares, both list sh
 })
 
 check('a climbing session reads as one line: how many, and the hardest that went', () => {
+  // Two routes described of the eight the count had: the other six are the
+  // count standing in, not routes (regrade F1, #97).
   eq(climbLine(opt('fun-sport'), { sets: { routes: [{ reps: 8, climbs: [
     { grade: 10.3 }, { grade: 11.2, fell: true }, ...Array.from({ length: 6 }, () => blankClimb())] }] } }),
-  '8 routes · hardest 5.10+')
+  '2 routes · hardest 5.10+')
   eq(climbLine(opt('fun-boulder'), { sets: { problems: [{ reps: 1, climbs: [{ grade: 6, fell: true }] }] } }),
     '1 problem · tried V6', 'nothing sent says so')
   eq(climbLine(opt('fun-boulder'), { sets: { problems: [{ reps: 12 }] } }), '12 problems')
@@ -1338,6 +1341,36 @@ check('describing a session never shortens it, and removing a climb can be undon
   eq(putClimb(last, 0, { grade: 4 }).climbs.map(c => c.grade).join(), '4', 'and Undo brings it back')
   eq(saidIn([{ reps: 3, climbs: [blankClimb(), { grade: 4 }, { ...blankClimb(), style: 'slab' }] }]), 2)
   ok(!climbSaid(blankClimb()) && climbSaid({ outcome: 'flash' }) && climbSaid({ tries: 2 }))
+})
+
+check('with the detail on, the described climbs are the count, never the prefill (#97)', () => {
+  // The regrade's repro, on the seed's shape: "Log each problem" over the card's
+  // prefilled 10, three problems described. It read "10 problems" on the Log row
+  // and added 10 to Climbs per week.
+  const boulder = detailOn({ reps: opt('fun-boulder').logSpec.exercises[0].defaults.reps })
+  eq(boulder.climbs.length, 10, 'switching on keeps the count as the list (round-0 F8)')
+  const night = { ...boulder, climbs: boulder.climbs.map((c, i) => (i === 0 ? { ...c, grade: 3, outcome: 'send' }
+    : i === 1 ? { ...c, grade: 4, outcome: 'fell' } : i === 2 ? { ...c, grade: 4, outcome: 'fell' } : c)) }
+  eq(climbsCounted(night), 3)
+  eq(untoldIn(night), 7, 'the seven blanks are waiting, not climbed')
+  eq(climbVolume(opt('fun-boulder'), { sets: { problems: [night] } }), 3)
+  eq(climbLine(opt('fun-boulder'), { sets: { problems: [night] } }), '3 problems · hardest V3')
+  const foot = climbTotals([night])
+  eq(`${foot.count} ${foot.sent} ${foot.falls} ${foot.untold}`, '3 1 2 7')
+  // The second entry of the repro: 5 prefilled routes, 2 described. 5 for the week, not 15.
+  const routes = detailOn({ reps: 5 })
+  routes.climbs[0] = { ...blankClimb(), grade: 10.2, outcome: 'send' }
+  routes.climbs[1] = { ...blankClimb(), grade: 9.2 }
+  eq(climbVolume(opt('fun-sport'), { sets: { routes: [routes] } }), 2)
+  // Nothing described yet: the count stands, exactly as with the detail off.
+  eq(climbsCounted(detailOn({ reps: 10 })), 10)
+  eq(untoldIn(detailOn({ reps: 10 })), 0)
+  eq(climbsCounted({ reps: 12 }), 12, 'a count-only row is its count')
+  // Every described row in the seed is described whole, and reads as before.
+  eq(climbsCounted({ reps: 3, climbs: [{ grade: 4 }, { grade: 5 }, { grade: 6 }] }), 3)
+  // The doubled lead laps describe a lap by its grade.
+  eq(climbsCounted({ reps: 2, grades: [10.2, ''], climbs: [blankClimb(), blankClimb()] }), 1)
+  eq(climbsCounted({ reps: 2, grades: [10.2, 10.1] }), 2, 'no detail: the laps are the count')
 })
 
 check('a blank rep count still offers one picker, and a silly one is capped', () => {
@@ -1481,14 +1514,15 @@ check('lengths equal reps until something is actually down-climbed', () => {
   // cannot step the series on the day the user starts recording them.
   eq(lengthsIn([{ reps: 4 }]), 4, 'no detail at all')
   eq(lengthsIn([{ reps: 2, climbs: [blankClimb(), blankClimb()] }]), 2, 'detail, nothing marked')
-  eq(lengthsIn([{ reps: 2, climbs: [{ ...blankClimb(), down: 'only' }, blankClimb()] }]), 2,
-    'a pure down-climb is one length, not two')
+  eq(lengthsIn([{ reps: 2, climbs: [{ ...blankClimb(), down: 'only' }, blankClimb()] }]), 1,
+    'a pure down-climb is one length, not two, and the lap nobody described is not one (#97)')
   eq(lengthsIn([]), 0)
   eq(lengthsIn(undefined), 0)
   eq(downsIn([{ reps: 2 }]), 0, 'nothing said is not a down-climb')
-  // A row whose list is shorter than its reps still counts every rep — the user can
-  // switch the detail on halfway through a session.
-  eq(lengthsIn([{ reps: 5, climbs: [{ ...blankClimb(), down: 'both' }] }]), 6)
+  // A row whose list is shorter than its reps (an older shape): once a climb is
+  // described the described ones are the laps (#97), so one lap up and down is two.
+  eq(lengthsIn([{ reps: 5, climbs: [{ ...blankClimb(), down: 'both' }] }]), 2)
+  eq(lengthsIn([{ reps: 5, climbs: [blankClimb()] }]), 5, 'nothing described: the count stands')
 })
 
 check('a climb record logged before down-climbing existed reads as an ordinary lap', () => {
