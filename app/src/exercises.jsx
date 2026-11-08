@@ -38,7 +38,9 @@ import { acceptMinutesText, minutesText, numOrNull } from './lib/numtext.js'
 import {
   searchExercises, implementsFor, lastLift, catalogOf, exerciseOf, muscleName, measureFor,
   weightModesFor, weightPatch, nextWeightMode, rememberedWeightMode, weightModeWords, weightBoxOf,
+  implementChoices, implementLabel,
 } from './lib/lifts.js'
+import { setTicked, itemTicked, setHasNumber } from './lib/prescription.js'
 import { ExerciseBody, BodyMap, musclesOf, muscleWords } from './lib/bodymap.jsx'
 import { HowBody } from './howto.jsx'
 import { Popover } from './modal.jsx'
@@ -425,6 +427,78 @@ export function setWords(item, s) {
 /* --------------------------------------------------------------- one card */
 
 /**
+ * What it is loaded with (#79): the implements the exercise declares, the one it
+ * has now first, then "Other…" for the rest of the catalog. A squat used to show
+ * all nineteen (med ball, sled, rings…) as a row of chips under every card.
+ * Picking writes the implement in the mode the exercise was last logged in with
+ * it (`implementPick`).
+ */
+function ImplementChips({ liftField, item, entries, entryId, onPatch }) {
+  const [everything, setEverything] = useState(false)
+  const { shown, more } = implementChoices(liftField, item.exercise, item.implement)
+  const list = everything ? catalogOf(liftField).implements : shown
+  const sorted = [...list].sort((a, b) => (b.value === item.implement) - (a.value === item.implement))
+  return (
+    <div className="presc-impl" role="group" aria-label={`What ${item.name} is done with`}>
+      {sorted.map(i => (
+        <button key={i.value} type="button" className={`implchip ${item.implement === i.value ? 'on' : ''}`}
+          aria-pressed={item.implement === i.value}
+          onClick={() => {
+            const patch = implementPick(liftField, item, i, entries, entryId)
+            if (patch) onPatch(patch)
+          }}>
+          {i.label}
+        </button>
+      ))}
+      {more && !everything && (
+        <button type="button" className="implchip ghost" onClick={() => setEverything(true)}>Other…</button>
+      )}
+    </div>
+  )
+}
+
+/** Does this card offer a choice of implement at all? One declared is no choice. */
+const choosesImplement = (liftField, item) =>
+  Boolean(liftField && item.exercise && implementsFor(liftField, item.exercise).length > 1)
+
+/**
+ * A set's ✓ in doing mode (#79): "I did this set as it says". Before it is
+ * ticked it shows the set's number, so the row needs no number column and the
+ * two steppers keep the width; ticked, a check on the accent tint. It writes the
+ * same `typed` mark a number typed leaves (prescription.js `tickSet`), which is
+ * the log (D11). 44px, at the row's far end: nothing destructive beside it, and
+ * a miss is a tick that taps off again.
+ */
+export function SetTick({ n, on, onToggle, locked = false, empty = false, onPrompt = null }) {
+  /* A done plan's earlier day (`asWritten`): its sets ARE the log as written,
+     so the mark is read, not toggled; a number changed or a set removed is the
+     correction, as anywhere in the log. */
+  if (locked) {
+    return (
+      <span className={`presc-tick locked${on ? ' on' : ''}`} role="img" aria-label={on ? `Set ${n} done` : `Set ${n}, nothing logged`}>
+        {on ? <Icon name="Check" size={20} /> : <span className="presc-tickn">{n}</span>}
+      </span>
+    )
+  }
+  /* A set with no number has nothing to log, so its ✓ cannot be ticked: the tap
+     goes to the set's first box instead, which is what it is missing. */
+  if (empty && !on) {
+    return (
+      <button type="button" className="presc-tick empty" role="checkbox" aria-checked={false} aria-disabled="true"
+        aria-label={`Set ${n}: type what you did first`} onClick={onPrompt || undefined}>
+        <span className="presc-tickn">{n}</span>
+      </button>
+    )
+  }
+  return (
+    <button type="button" className={`presc-tick ${on ? 'on' : ''}`} role="checkbox" aria-checked={on}
+      aria-label={`Set ${n} done`} onClick={() => onToggle(!on)}>
+      {on ? <Icon name="Check" size={20} /> : <span className="presc-tickn">{n}</span>}
+    </button>
+  )
+}
+
+/**
  * Every set, editable, with thumbs in mind.
  *
  * Steppers rather than keyboards for reps and weight: the numbers move in
@@ -432,16 +506,28 @@ export function setWords(item, s) {
  * keyboard on a phone covers half the screen with the thing you are editing
  * underneath it. The value is still an input, so a genuinely odd number is one
  * tap and a type away.
+ *
+ * `doing` (#79, D9): the session sheet of a planned workout on its day or after,
+ * where the lifting is actually done. The card keeps what a set needs and
+ * nothing that is planning: the name, the implement as one small switch, last
+ * time, and per set the two numbers and a ✓ (`onTick`). Muscles in words and
+ * the implement chips stay the planner's; the body figure stays as the name's
+ * picture. `focus` opens the card when it becomes the next one to do.
  */
 export function ExerciseCard({
   item, liftField, entries = [], entryId = null, defaultOpen = false, defaultEditing = false, blank = null,
-  onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove,
+  onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove, doing = false, onTick = null, focus = false,
+  asWritten = false,
 }) {
   const [open, setOpen] = useState(defaultOpen)
   const [about, setAbout] = useState(false)
   // Removing is its own mode (#77): never a ✕ beside a stepper.
   const [editing, setEditing] = useState(defaultEditing)
-  const offered = liftField && item.exercise ? implementsFor(liftField, item.exercise) : []
+  // Doing mode keeps the implement behind its one switch until it is asked for.
+  const [choosing, setChoosing] = useState(false)
+  // The next exercise to do opens as the last one is ticked off.
+  useEffect(() => { if (focus) setOpen(true) }, [focus])
+  const chooses = choosesImplement(liftField, item)
   const muscles = musclesOf(liftField, item.exercise)
   /*
    * What the user did last time, while the user is still DECIDING the numbers.
@@ -461,9 +547,22 @@ export function ExerciseCard({
   // A mode other than the default, said under the name, so the summary beside it
   // stays short enough not to squeeze the name on a phone.
   const modeWords = item.kind === 'lift' ? weightModeWords(liftField, item) : null
+  const ticking = doing && onTick
+  const ticks = ticking ? item.sets.filter(s => setTicked(s, asWritten)).length : 0
+  const finished = ticking && itemTicked(item, asWritten)
+  const line = ticking && ticks && !finished
+    ? [item.line, `${ticks} of ${item.sets.length} done`].filter(Boolean).join(' · ')
+    : item.line
+  const lastTime = prior && (
+    <p className="presc-prior">
+      <Icon name="RotateCw" size={12} />
+      <span>last time ({prior.date}): <strong>{prior.summary}</strong>
+        {prior.implement ? ` · ${prior.implement}` : ''}</span>
+    </p>
+  )
 
   return (
-    <div className={`presc-item k-${item.kind || 'lift'}`}>
+    <div className={`presc-item k-${item.kind || 'lift'}${finished ? ' ticked' : ''}`}>
       {/*
         * The whole head folds the card, as it always has: cards start folded,
         * so this is the tap made most. A movement out of the catalog also has
@@ -476,13 +575,14 @@ export function ExerciseCard({
           <ExerciseBody field={liftField} exercise={item.exercise} name={item.name} size={30} />
           <span className="presc-itemname">
             {item.name}
-            {muscles && <span className="presc-muscles">{muscleWords(muscles)}</span>}
-            {modeWords && <span className="presc-mode">{modeWords}</span>}
+            {muscles && !doing && <span className="presc-muscles">{muscleWords(muscles)}</span>}
+            {modeWords && !doing && <span className="presc-mode">{modeWords}</span>}
             {/* The summary sits under the name, on one line, so the name has the
                 width (#63 follow-up: beside "60 s @ 70 lb, 45 s …" and the ⓘ, a
                 long name wrapped four lines). */}
-            {item.line && <span className="presc-itemline">{item.line}</span>}
+            {line && <span className="presc-itemline">{line}</span>}
           </span>
+          {finished && <span className="presc-itemdone" aria-label="All sets done"><Icon name="CircleCheck" size={16} /></span>}
           <span className={`alt-chev ${open ? 'open' : ''}`}><Icon name="ChevronDown" size={15} /></span>
         </button>
         {item.exercise && (
@@ -498,40 +598,28 @@ export function ExerciseCard({
         <>
           {item.note && <p className="sub presc-itemnote">{item.note}</p>}
 
-          {prior && (
-            <p className="presc-prior">
-              <Icon name="RotateCw" size={12} />
-              <span>last time ({prior.date}): <strong>{prior.summary}</strong>
-                {prior.implement ? ` · ${prior.implement}` : ''}</span>
-            </p>
-          )}
+          {doing ? (
+            /* One line under the head: what it is done with (the switch) and last time. */
+            <div className="presc-doingmeta">
+              {chooses && (
+                <button type="button" className={`implswitch ${choosing ? 'on' : ''}`} aria-expanded={choosing}
+                  aria-label={`${implementLabel(liftField, item.implement) || 'No equipment picked'}. Change what ${item.name} is done with`}
+                  onClick={() => setChoosing(v => !v)}>
+                  <span>{implementLabel(liftField, item.implement) || 'Equipment'}</span>
+                  <Icon name="ChevronDown" size={13} />
+                </button>
+              )}
+              {lastTime}
+            </div>
+          ) : lastTime}
 
           {/*
-            * What it is loaded with, on ONE line that scrolls.
-            *
-            * Nineteen implements wrapped is four rows of chips per exercise, and
-            * six exercises of that is a sheet you scroll past rather than read.
-            * The chosen one leads, so the answer is always the thing you can see
-            * without scrolling and the alternatives are a thumb-flick away.
-            *
-            * This replaced a native `<select>` on the log side. A select is one
-            * tap from a short list, which is what an OS picker is good at — but it
-            * is also a different control for the same question on two screens, and
-            * it hid the answer behind a tap where the chips state it.
+            * What it is loaded with, on ONE line that scrolls. The chosen one
+            * leads, so the answer is always the thing you can see without
+            * scrolling; the rest of the catalog is behind "Other…" (#79).
             */}
-          {offered.length > 1 && (
-            <div className="presc-impl">
-              {[...offered].sort((a, b) =>
-                (b.value === item.implement) - (a.value === item.implement)).map(i => (
-                <button key={i.value} className={`implchip ${item.implement === i.value ? 'on' : ''}`}
-                  onClick={() => {
-                    const patch = implementPick(liftField, item, i, entries, entryId)
-                    if (patch) onPatch(patch)
-                  }}>
-                  {i.label}
-                </button>
-              ))}
-            </div>
+          {chooses && (!doing || choosing) && (
+            <ImplementChips liftField={liftField} item={item} entries={entries} entryId={entryId} onPatch={onPatch} />
           )}
 
           {/*
@@ -542,6 +630,7 @@ export function ExerciseCard({
             * is now its number and its steppers, sharing the row (the number box
             * is the big target) and wrapping as a pair under the first when they
             * cannot fit. Removing a set or the exercise is Edit's, and has Undo.
+            * In doing mode the number is the set's ✓, at the row's end (#79).
             */}
           {editing ? (
             <div className="presc-sets presc-edit">
@@ -560,10 +649,10 @@ export function ExerciseCard({
               </div>
             </div>
           ) : (
-            <div className="presc-sets">
+            <div className={ticking ? 'presc-sets doing' : 'presc-sets'}>
               {item.sets.map((s, i) => (
-                <div key={s.id} className="presc-set">
-                  <span className="presc-setn">{i + 1}</span>
+                <div key={s.id} className={ticking && setTicked(s, asWritten) ? 'presc-set ticked' : 'presc-set'}>
+                  {!ticking && <span className="presc-setn">{i + 1}</span>}
                   <span className="presc-setfields">
                     {setFieldsFor(item, s).map(f => (
                       <Stepper key={f} {...boxFor(f, item, s)} value={s[f]} blank={blank}
@@ -578,6 +667,9 @@ export function ExerciseCard({
                         onChange={v => onPatchSet(s.id, { restSec: v })} />
                     )}
                   </span>
+                  {ticking && <SetTick n={i + 1} on={setTicked(s, asWritten)} locked={asWritten} onToggle={(v) => onTick(s.id, v)}
+                    empty={!setHasNumber(s)}
+                    onPrompt={(e) => e.currentTarget.closest('.presc-set')?.querySelector('input')?.focus()} />}
                 </div>
               ))}
             </div>
@@ -658,12 +750,18 @@ function ReorderRow({ item, liftField, first, last, moved, onSettled, onUp, onDo
  * and every workout starts collapsed except the first. Six cards open at once is four screens of steppers before you reach the
  * one you are about to do.
  *
- * `extra` is whatever belongs between the header and the cards and is NOT shared
- * — on the plan side that is the block's "counts toward" chip, which decides
- * where the session splits and means nothing to a logged workout. `foot` is the
- * same idea under the cards, and today it is the hand-built route's interval
- * adder. Both are hidden while reordering, because that mode exists to show names
- * and arrows and nothing else.
+ * `extra` is whatever belongs between the header and the cards and is NOT shared.
+ * `foot` is the same idea under the cards, and today it is the hand-built
+ * route's interval adder. Both are hidden while reordering, because that mode
+ * exists to show names and arrows and nothing else.
+ *
+ * On the plan side a block's own settings (#79) are its `menu`, a render
+ * function handed `{ reorder }` and drawn as the ⋯ at the end of the head;
+ * Reorder then lives in it instead of beside the count. `tag` is the one word
+ * the head shows of them ("Circuit", "Separate Run workout"); `lead` (a node,
+ * or a function handed the same) is what sits under the head: the open menu
+ * and the block's note. `doing` and `onTick` are the card's (doing
+ * mode, with `asWritten`); `focusId` is the card to open as it becomes the next one to do.
  */
 export function ExerciseSection({
   title, count, items, liftField, entries = [], entryId = null,
@@ -671,6 +769,7 @@ export function ExerciseSection({
   open = true, onToggle = null,
   onPatch, onPatchSet, onAddSet, onRemoveSet, onRemove,
   onMove = null, onAdd = null, extra = null, foot = null, note = null,
+  menu = null, tag = null, lead = null, doing = false, onTick = null, focusId = null, asWritten = false,
 }) {
   const [adding, setAdding] = useState(false)
   const [ordering, setOrdering] = useState(false)
@@ -687,6 +786,9 @@ export function ExerciseSection({
   const [added, setAdded] = useState(null)
 
   const move = (itemId, dir) => setMoved(onMove(itemId, dir))
+  const canOrder = Boolean(onMove && items.length > 1)
+  // What the block's menu and lead are handed: the way into reorder mode.
+  const ctl = { reorder: canOrder ? () => { setOrdering(true); setMoved(null) } : null }
 
   return (
     <div className={`presc-block ${open ? '' : 'shut'}`}>
@@ -706,15 +808,16 @@ export function ExerciseSection({
           * ("What did you lift?") and it collided with both.
           */}
         <span className="presc-blockmeta">
+          {tag && <span className="presc-blocktag">{tag}</span>}
           {count != null && <span className="presc-blockn">{count}</span>}
           {/*
             * Reorder is per SECTION, because that is the only place an order means
             * anything — on the plan side the warm-up's order and the main block's
             * order are separate questions, and moving a row between them would
             * move it to a different entry. Offered only where there is something
-            * to reorder.
+            * to reorder; on the plan side from the block's menu, and its Done here.
             */}
-          {onMove && open && items.length > 1 && (
+          {canOrder && open && (ordering || !menu) && (
             <button className={`presc-reorder ${ordering ? 'on' : ''}`}
               onClick={() => { setOrdering(v => !v); setMoved(null) }}
               aria-pressed={ordering}>
@@ -722,11 +825,13 @@ export function ExerciseSection({
               <span>{ordering ? 'Done' : 'Reorder'}</span>
             </button>
           )}
+          {menu && !ordering && menu(ctl)}
         </span>
       </div>
 
       {open && (
         <>
+          {!ordering && (typeof lead === 'function' ? lead(ctl) : lead)}
           {!ordering && extra}
 
           {ordering ? (
@@ -748,6 +853,8 @@ export function ExerciseSection({
               <ExerciseCard key={it.id} item={it} liftField={liftField}
                 entries={entries} entryId={entryId} blank={blank}
                 defaultOpen={it.id === firstOpenId || it.id === added}
+                doing={doing} asWritten={asWritten} onTick={onTick ? (setId, v) => onTick(it.id, setId, v) : null}
+                focus={Boolean(focusId) && it.id === focusId}
                 onPatch={(patch) => onPatch(it.id, patch)}
                 onPatchSet={(setId, patch) => onPatchSet(it.id, setId, patch)}
                 onAddSet={() => onAddSet(it.id)}

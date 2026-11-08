@@ -428,13 +428,16 @@ export function SessionDetails({ session, entry, entries, onSave, training, onTr
  * flags: the first one to close must not unlock the page under the second.
  */
 export function DetailsSheet({
-  session, entry, entries, onSave, onClose, training, onTraining = null,
+  session, entry, entries, onSave, onClose, training, onTraining = null, planTalk = null,
 }) {
   return (
     <Modal title="Edit this workout"
       sub={titleFor(session, entry?.data?.out, entry?.data?.plan)}
       icon="Pencil" onClose={onClose}
       footer={<button className="btn" onClick={onClose}>Done</button>}>
+      {/* Asking the model to change a planned workout (#79): planning, so here,
+          one layer up from the sets, while the workout is being done. */}
+      {planTalk}
       <SessionDetails session={session} entry={entry} entries={entries} onSave={onSave}
         training={training} onTraining={onTraining} />
     </Modal>
@@ -515,7 +518,18 @@ export function SessionLog({
   // ones with no measurable outputs at all.
   if (!declared.length && !hasSets && !entry) return null
 
+  /*
+   * ONE EDITOR (#79, D11). A planned workout's exercises are its plan, and the
+   * sets typed or ticked there are the log (`liftsDone`). Below it the form
+   * used to offer its own "What did you lift? Add an exercise" too: a second,
+   * empty list for the same workout, which read as "nothing logged" and gave a
+   * set two places to go. On an entry with a plan the lift field is left out,
+   * unless it already holds rows (a run of a mixed plan writes them): those are
+   * the log and still show.
+   */
+  const planHolds = Boolean(entry?.data?.plan?.blocks?.length)
   const fields = visibleOutputs(session, out, derive)
+    .filter(f => !(f.type === 'lifts' && planHolds && !(Array.isArray(out[f.key]) && out[f.key].length)))
 
   // Pruned on the way in, so what is stored and what is on screen can never
   // disagree — correcting a run to a lift takes its distance with it rather than

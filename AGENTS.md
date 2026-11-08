@@ -90,7 +90,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Test results | `app/src/lib/tests.js`, `app/src/lib/force.js` | A test session writes its result; the Testing panel (profile) and the CF ceiling read it. |
 | Activity catalog | `app/src/lib/activities.js`, `app/src/activitypicker.jsx` | 91 sports, their form shape, category, WHOOP/Strava names. Content-driven. |
 | Lifts | `app/src/lib/lifts.js`, `app/src/liftlog.jsx` | Catalog search (names, then descriptions), logged-lift shape, holds (`liftMeasure`), arithmetic, muscles in words (`muscleName`). `liftlog.jsx` is only an adapter. |
-| One exercise card | `app/src/exercises.jsx` | `ExerciseCard`, `ExerciseSection`, `ExercisePicker`, `ExerciseSheet` (what a movement is, #63), `Stepper`, `STEP`. **Shared by the lift log and the planner's editor.** |
+| One exercise card | `app/src/exercises.jsx` | `ExerciseCard`, `ExerciseSection`, `ExercisePicker`, `ExerciseSheet` (what a movement is, #63), `Stepper`, `STEP`, `SetTick` (a set's ✓ in doing mode, #79). **Shared by the lift log and the planner's editor.** |
 | Which fields a card asks | `app/src/lib/outputs.js` | `when` gates, `pruneHidden`, derived placeholders. |
 | Minutes | `app/src/lib/minutes.js` | Precedence of time sources; `minutesSourceOf()` is the single statement of it. |
 | Naming | `app/src/lib/naming.js` | `nameFor`, `titleFor`, `out.title`, quick-name chips. |
@@ -107,11 +107,11 @@ reasons behind the design, and the things that have been removed on purpose.
 | Session sheet / edit panel | `app/src/sessionlog.jsx` | `SessionLog`, `SessionDetails`, `DetailsSheet`, `NameField`. |
 | Writing a logged workout | `app/src/lib/sessionops.js` | `sessionOps({ plan, entries, upsertEntry, deleteEntry, toast })`: save (`applyOut` + the test result), remove (+ result, Undo), "just miles", done, run, plan. Today and the Log both write through it, on both platforms (#76); a sheet never builds its own entry write. |
 | The session sheet | `app/src/sheet.jsx` | `SessionSheet` (header, body, footer) and `runnable`; Today (`tabs.jsx`) opens it. The row meta line both use is `app/src/metaline.jsx`. Twin: `mobile/src/features/sheet.tsx`. |
-| Prescription editor | `app/src/editor.jsx` | `PrescriptionEditor`, its blocks and items, `PieceAdder`, `BlockQuota`: the one editor Plan a workout and the sheet share. Twin: `mobile/src/features/editor.tsx`. |
+| Prescription editor | `app/src/editor.jsx` | `PrescriptionEditor` (`doing` on the sheet, #79), its blocks and items, `BlockMenu` (a block's ⋯), `blockTag`, `PieceAdder`, `BlockQuota`: the one editor Plan a workout and the sheet share. Block operations are `addBlock`, `renameBlock`, `noteBlock`, `removeBlock`, `moveBlock` in `lib/prescription.js`. Twin: `mobile/src/features/editor.tsx` (the ⋯ is the system action sheet). |
 | Day switcher | `app/src/tabs.jsx` (`DaySwitcher`; `dayWords`, `isoShift` in `lib/dates.js`) | ‹ day › in words; Today's title and the rest day's date (§10.9). The phone's is `mobile/src/ui/DayStepper.tsx`. |
 | Session history | `app/src/lib/history.js` | `priorSessions`: which earlier entries are THIS workout ("The last 5 times you did this"). A card by its ids (`aka`, `priorIds`); a planned workout by its title or mostly the same exercises; a free-form one by its activity (#74). |
 | Toasts | `app/src/toast.jsx`, `app/src/lib/toast.js` | Mobile's API (`pushToast`, `pushError`) on the web: a removal's Undo, a failed save's Retry. |
-| Log feed | `app/src/log.jsx` | Newest first; the open sheet is keyed by ID. |
+| Log feed | `app/src/log.jsx` | Newest first; the open sheet is keyed by ID and is `LogSheet`: Today's `SessionSheet`, with no Start (#79). |
 | Progress | `app/src/lib/scope.js`, `app/src/lib/metrics.js`, `app/src/progress.jsx` | Charts declare when they apply. |
 | Gear | `app/src/lib/gear.js`, `app/src/gear.jsx`, `app/src/gearpicker.jsx` | Two origins (§6.9). |
 | Profile | `app/src/lib/profile.js`, `app/src/profile.jsx` | A `Popover`, not a `FullScreen`. Opens on a list of sections (`homePages`), each a page with a back button; Testing and Why (`testing.jsx`) are under Climbing. |
@@ -879,7 +879,9 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   own day only the sets typed into count (a plan done by one set is not every target
   lifted); from the next day on, every set with a number (done as written). Read, never
   written. A row names its exercise by `key` (`liftKeyOf` also reads an older row's
-  `exercise`). A control that says "did this set as planned" must write `typed`.
+  `exercise`). A control that says "did this set as planned" must write `typed`: the sheet's
+  ✓ does (`tickSet`, #79), and on a done plan's earlier day the ✓s are read, not toggled,
+  the way `liftsDone` reads it (`setTicked(s, asWritten)`).
 - **What a lift's weight means is switched on its label** (#58). The words under the
   weight box (lift log, planner editor, runner, web and phone) are a button when the
   implement has more than one meaning: dumbbell and kettlebell "per hand" / "1 DB"
@@ -1120,7 +1122,10 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
 - **Everything folds.** Only the first exercise in a session opens (plus the one just
   added). `PlanTalk` is collapsed with its turn count visible.
 - **Reorder is within a block** (`moveItem` returns the landing id, because ids are
-  positional; `moveLift` mints uids instead).
+  positional; `moveLift` mints uids instead). Blocks themselves move, and are added,
+  renamed, given a note and removed (with Undo), from the block's ⋯ (#79); the head keeps
+  one line of what is true of it (`blockTag`: "Circuit", and where it lands once
+  `splitPrescription` really makes more than one entry, `landsOf`).
 
 ### 6.8 Charts
 
@@ -1590,6 +1595,33 @@ pinned in `app/smoke/sheet.jsx` and `app/smoke/editor.jsx`:
   ± are 44px and the number box takes the row's spare width.
 - **Native toasts show over sheets.** iOS draws a presented sheet above the root, so every
   presented layer in `ui/Sheet.tsx` mounts its own `ToastHost` and only the topmost renders.
+
+### 10.11 The sheet is for doing (#79, D9)
+
+Lift workouts are done on the session sheet (14 of the owner's 21 plans were lift-only, and
+§10.4's "no runner for lift-only sessions" stands), but the sheet was a planning screen: the
+model's panel, a Circuit switch and a split fold per block, and nineteen implement chips sat
+above set 1, and a second, empty "What did you lift?" sat under the plan. Web and native,
+pinned in `app/smoke/sheet.jsx` and `app/smoke/editor.jsx`:
+
+- **Doing mode** (`PrescriptionEditor doing`): a planned workout on its day or after opens
+  on the first exercise with a set still to do (`firstUnticked`), and the next opens as it is
+  finished. Each card is the name, the implement as one small switch, last time, and per set
+  reps, weight and a ✓ (`SetTick`; it writes `typed`, so it is the log, D11, and touches a
+  plan for today, D10). A set with no number cannot be ticked (its ✓ goes to its first box),
+  so a ✓ always means logged. A block note is stored when its box is left (`noteDraft`). A done plan's earlier day reads as done as written (`asWritten`). A
+  day still to come is still planning and gets the planner's editor.
+- **Planning is one tap away, never above the sets.** A block's Circuit switch, where it
+  lands, rename, note, reorder, move and remove are its ⋯ (`BlockMenu`); asking the model is
+  behind the pencil (`DetailsSheet`, `planTalkWhere`) and only with a model on offer. A
+  block's note (the warm-up prose) shows under its head.
+- **One editor.** On an entry with a plan, the form leaves out its lift field unless it
+  already holds rows (a run of a mixed plan writes them).
+- **One sheet.** The Log opens `SessionSheet` (`LogSheet`), not a bare form: a planned
+  workout from the Log shows its plan, its done chip and its sharing, like Today; nothing is
+  started from history.
+- **Implements** lead with what the exercise declares (`implementChoices`), then Other….
+- A run under way or finished says **Carry on**, not Start.
 
 ## 11. Before you finish
 

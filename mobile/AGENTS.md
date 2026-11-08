@@ -139,6 +139,11 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
   removal of an exercise or a set has an Undo toast (`useUndoable` in `features/exercises.tsx`),
   worded by `lib/removal.js` (the web's, copied): never a claim about the other side of a
   synced workout.
+- **Doing mode and block menus (#79).** The sheet of a planned workout on its day or after
+  renders the editor with `doing` (a ✓ per set, `SetTick`, the first exercise to do open). A
+  block's ⋯ is `showMenu` (rename through `prompt`, a note, reorder, move, circuit, where it
+  lands as a second sheet, remove with Undo), where the web opens a panel in place. The Log
+  opens `SessionSheet` (`LogSheet` in `features/log.tsx`), as Today does.
 - Scrolling screens pad their foot by `FAB_CLEAR` (or `DOCK_CLEAR` with no + row) so nothing ends
   up under the floating bar.
 

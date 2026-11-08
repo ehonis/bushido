@@ -1467,6 +1467,94 @@ export const patchBlock = (pres, blockId, patch) => ({
   blocks: (pres.blocks || []).map(b => (b.id === blockId ? { ...b, ...patch } : b)),
 })
 
+/* ---------------------------------------------------- blocks, whole (#79)
+ *
+ * A block could only be what the plan arrived with: no "Finisher" added, no
+ * empty warm-up taken off, no "Main" renamed, no block moved. These are the
+ * block's own operations, behind its ⋯ menu in the editor. Ids are positional
+ * (`reindex`), so each hands back what the caller needs to find the block again.
+ * On a shared workout with sync on they are structure, like an exercise added
+ * or removed, and the server carries them (server/sharedsync.js, by uid).
+ */
+
+/** A new, empty block at the end, kept while it is empty (`keep`, see `blockSurvives`). */
+export function addBlock(pres, name = 'New block') {
+  const blocks = [...(pres?.blocks || []),
+    { id: 'new', name: str(name, 60) || 'New block', note: '', category: null, activity: null, items: [], keep: true }]
+  const next = reindex({ ...pres, blocks })
+  return { pres: next, blockId: next.blocks.at(-1).id }
+}
+
+/** A block's name, as typed. A blank name keeps the one it had. */
+export const renameBlock = (pres, blockId, name) => {
+  const said = str(name, 60)
+  return said ? patchBlock(pres, blockId, { name: said }) : pres
+}
+
+/**
+ * A block's note: the warm-up written as prose, read and edited where the block
+ * is. Trimmed here, so the editor calls it when the box is left (or the sheet
+ * closes), never per keystroke: a trim on every key ate the space being typed.
+ */
+export const noteBlock = (pres, blockId, note) => patchBlock(pres, blockId, { note: str(note, 300) })
+
+/** The block taken out, with everything in it (the editor offers Undo). */
+export const removeBlock = (pres, blockId) =>
+  reindex({ ...pres, blocks: (pres?.blocks || []).filter(b => b.id !== blockId) })
+
+/**
+ * One block up or down the workout. Moving it moves where the workout splits
+ * (`splitPrescription`), which is why it is the block's own action and not a
+ * drag. Off either end is a no-op that still answers.
+ */
+export function moveBlock(pres, blockId, dir) {
+  const blocks = [...(pres?.blocks || [])]
+  const at = blocks.findIndex(b => b.id === blockId)
+  const to = at + (dir === 'up' ? -1 : 1)
+  if (at < 0 || to < 0 || to >= blocks.length) return { pres, blockId }
+  ;[blocks[at], blocks[to]] = [blocks[to], blocks[at]]
+  return { pres: reindex({ ...pres, blocks }), blockId: `b${to}` }
+}
+
+/* ------------------------------------------------- a set, ticked off (#79)
+ *
+ * The sheet's doing mode has a ✓ on every set row: "I did this set as it
+ * says". That IS the log (D11, AGENTS.md §6.4 "Planned lifts are the log"), so
+ * the tick writes the same mark a typed number leaves (`typed`), which is what
+ * `liftsDone` reads on the plan's own day and what makes a plan for today
+ * touched, and so done (D10). Taking the tick off takes the mark: the numbers
+ * stay, as targets. A tick is never a number: nothing is copied anywhere, and a
+ * set with no number cannot be ticked (`setHasNumber`), because the log would
+ * hold nothing for it and a ✓ must always mean logged.
+ */
+export const tickSet = (pres, itemId, setId, on) =>
+  mapItem(pres, itemId, it => ({
+    ...it,
+    sets: it.sets.map(s => {
+      if (s.id !== setId) return s
+      if (on) return setHasNumber(s) ? { ...s, typed: true } : s
+      const { typed: _t, ...rest } = s
+      return rest
+    }),
+  }))
+
+/**
+ * Is this set done? Ticked (or typed into, the same mark) on the plan's own
+ * day. `asWritten` is a done plan whose day has passed: there every set with a
+ * number is the log, ticked or not, exactly as `liftsDone` reads it (lib/lifts.js).
+ */
+export const setTicked = (s, asWritten = false) => setHasNumber(s) && (asWritten || s?.typed === true)
+
+/** Does this set hold a number to log? A ✓ on one without is nothing logged. */
+export const setHasNumber = (s) => ['reps', 'weight', 'seconds', 'distance'].some(f => num(s?.[f]) !== null)
+
+/** Is every set of this item done? An item with no sets is not. */
+export const itemTicked = (it, asWritten = false) => (it?.sets || []).length > 0 && it.sets.every(s => setTicked(s, asWritten))
+
+/** The first item in the workout with a set still to do, or null when every one is done. */
+export const firstUnticked = (pres, asWritten = false) =>
+  (pres?.blocks || []).flatMap(b => b.items || []).find(it => !itemTicked(it, asWritten))?.id || null
+
 /**
  * A blank lift row, for adding a movement the planner did not think of. An
  * implement chosen for it starts in the weight mode the exercise was last

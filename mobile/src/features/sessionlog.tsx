@@ -368,13 +368,16 @@ export function SessionDetails({ session, entry, entries, onSave, training, onTr
  * A page sheet over the session sheet.
  */
 export function DetailsSheet({
-  session, entry, entries, onSave, onClose, training, onTraining = null,
+  session, entry, entries, onSave, onClose, training, onTraining = null, planTalk = null,
 }: any) {
   return (
     <Modal title="Edit this workout"
       sub={titleFor(session, entry?.data?.out, entry?.data?.plan)}
       icon="Pencil" onClose={onClose}
       footer={<Btn title="Done" flex onPress={onClose} />}>
+      {/* Asking the model to change a planned workout (#79): planning, so here,
+          one layer up from the sets, while the workout is being done. */}
+      {planTalk}
       <SessionDetails session={session} entry={entry} entries={entries} onSave={onSave}
         training={training} onTraining={onTraining} />
     </Modal>
@@ -430,7 +433,16 @@ export function SessionLog({
   // The catalog resolver, so a field may gate on what the CATALOG says about the
   // picked activity rather than on a list of ninety-one keys. See lib/outputs.js.
   const derive = useMemo(() => gateResolver(session), [session])
-  const fields: any[] = (visibleOutputs as any)(session, out, derive)
+  /*
+   * ONE EDITOR (#79, D11). A planned workout's exercises are its plan, and the
+   * sets typed or ticked there are the log (`liftsDone`). The form's own "What
+   * did you lift?" under it was a second, empty list for the same workout. On an
+   * entry with a plan the lift field is left out, unless it already holds rows
+   * (a run of a mixed plan writes them): those are the log and still show.
+   */
+  const planHolds = Boolean(entry?.data?.plan?.blocks?.length)
+  const fields: any[] = ((visibleOutputs as any)(session, out, derive) as any[])
+    .filter((f: any) => !(f.type === 'lifts' && planHolds && !(Array.isArray(out[f.key]) && out[f.key].length)))
 
   // Pruned on the way in, so what is stored and what is on screen can never
   // disagree — correcting a run to a lift takes its distance with it.

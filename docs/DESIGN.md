@@ -155,7 +155,7 @@ on every overhaul-2 issue (#73–#82).
 
 - **D9. Lift workouts are done on the session sheet.** A lift-only plan gets a "doing" mode on
   the sheet, not a runner (`AGENTS.md` §10.4, "the runner for lift-only sessions" is gone, still
-  stands).
+  stands). Built in #79: `AGENTS.md` §10.11.
 - **D10. A plan placed for today is not done until it is touched.** Touched is a set typed or
   logged, its run started, or Mark done. From the next day on it is done as before (D2). Earlier
   days are unchanged, and nothing stored is rewritten to get there.

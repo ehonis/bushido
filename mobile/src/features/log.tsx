@@ -26,13 +26,12 @@ import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture
 import { colors, font, radius, space } from '../theme'
 import { T } from '../ui/Text'
 import { Btn, Chip, Divider, Empty, Press, Row, SectionHeader, s as kit } from '../ui/kit'
-import { Modal } from '../ui/Sheet'
 import { confirm, showMenu } from '../ui/menu'
 import { impact, tap } from '../ui/haptics'
 import { Icon } from '../lib/icons'
 import { restStats } from '../lib/stats.js'
 import { optFor } from '../lib/menu.js'
-import { SessionLog, DetailsSheet } from './sessionlog'
+import { SessionSheet } from './sheet'
 import { isDone, isTraining } from '../lib/store.js'
 import { loggedMinutes } from '../lib/minutes.js'
 import { fromIso, localIso } from '../lib/dates.js'
@@ -115,8 +114,6 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }: any) 
    * A component holding a copy of a synced entry is a component showing the past.
    */
   const [openId, setOpenId] = useState<string | null>(null)
-  // The details layer, behind the pencil. See DetailsSheet in sessionlog.
-  const [editing, setEditing] = useState(false)
 
   const menu = plan?.dailyMenu || []
   // Today's operations (lib/sessionops.js). `undoIcon` null: the host draws Retry's arrow only.
@@ -270,42 +267,38 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }: any) 
         </View>
       ))}
 
-      {open?.opt && (() => {
-        /* Today's write paths, not a copy of them (lib/sessionops.js, #76): the
-           name, the load level, the minutes and the test result a test session
-           writes all follow the out, and a removal takes the result with it and
-           offers Undo. Before, this sheet spread the out and renamed, so a MVC-7
-           corrected here left its test result on the old number. */
-        const save = (out: any) => ops.saveOutputs(open.entry, out)
-        /* Only where the question makes sense: a commute is a ride, not a set of
-           max hangs. Driven by the discipline rather than by a list. */
-        const onTraining = ['bike', 'run', 'swim', 'other'].includes(open.discipline)
-          ? ops.setTraining(open.entry, open.opt)
-          : null
-        return (
-          <Modal title={open.name} sub={dayLabel(open.entry.date, today)} icon={open.icon}
-            onClose={() => { setOpenId(null); setEditing(false) }}
-            /*
-             * The SAME pencil and bin as the day's session sheet, because this is
-             * the same session seen from the feed. Delete goes through the
-             * confirmation screen every other delete in the app uses.
-             */
-            onRename={() => setEditing(true)}
-            onDelete={() => { setOpenId(null); setEditing(false); ops.removeSession(open.entry) }}
-            deleteLabel={DELETE_LABEL}
-            deleteBody={DELETE_BODY}>
-            <SessionLog session={open.opt} entry={open.entry} entries={entries} bare
-              onSave={save} />
-
-            {editing && (
-              <DetailsSheet session={open.opt} entry={open.entry} entries={entries}
-                onSave={save} training={open.entry.data?.training} onTraining={onTraining}
-                onClose={() => setEditing(false)} />
-            )}
-          </Modal>
-        )
-      })()}
+      {open?.opt && (
+        <LogSheet opt={open.opt} entry={open.entry} entries={entries} ops={ops} upsertEntry={upsertEntry}
+          rest={open.rest} discipline={open.discipline} onClose={() => setOpenId(null)} />
+      )}
     </>
+  )
+}
+
+/**
+ * A workout opened from the Log: THE SAME SHEET as Today's (#79, G F1), the
+ * web's `LogSheet`. The Log mounted a bare form, so a planned workout opened
+ * from here showed "What did you lift?" and none of its exercises, its done chip
+ * or its sharing. What differs is a parameter: the day is the entry's own, and
+ * nothing is run from history (no Start; the runner is Today's). The writes are
+ * Today's (lib/sessionops.js, #76).
+ */
+export function LogSheet({ opt, entry, entries, ops, upsertEntry, rest = false, discipline = null, onClose }: any) {
+  // Only where the question makes sense: a commute is a ride, not a set of max hangs.
+  const onTraining = ['bike', 'run', 'swim', 'other'].includes(discipline) ? ops.setTraining(entry, opt) : null
+  return (
+    <SessionSheet opt={opt} entry={entry} tone={rest ? 'rest' : undefined} entries={entries}
+      isFuture={Boolean(entry?.date) && entry.date > localIso()}
+      onLog={null}
+      onSave={(e: any, out: any) => ops.saveOutputs(e, out)}
+      onSavePlan={(e: any, pres: any) => ops.savePlan(e, pres)}
+      // Closed on removal, so an Undo puts the workout back in the feed.
+      onRemove={(e: any) => { onClose(); ops.removeSession(e) }}
+      onSetDone={(e: any, v: any) => ops.setDone(e, v)}
+      onSaveEntry={upsertEntry}
+      onStartWorkout={null}
+      onTraining={onTraining}
+      onClose={onClose} />
   )
 }
 
