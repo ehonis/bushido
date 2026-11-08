@@ -24,7 +24,9 @@ import { PrescriptionEditor } from './editor'
 import { UNDO_MS } from './exercises'
 import { PlanTalk } from './planner'
 import { usePlan } from '../lib/planctx.jsx'
-import { prescriptionLine, isLiftOnly } from '../lib/prescription.js'
+import { prescriptionLine, isLiftOnly, runOf } from '../lib/prescription.js'
+import { aiOffered } from '../lib/plannerapi.js'
+import { localIso } from '../lib/dates.js'
 import { hasWorkout } from '../lib/workout.js'
 import { loggedMinutes } from '../lib/minutes.js'
 import { titleFor } from '../lib/naming.js'
@@ -90,6 +92,13 @@ export function DoneChip({ done, whose = null, onToggle }: { done: boolean; whos
 }
 
 /**
+ * Where "Ask the model to change this" sits on a planned workout's sheet (#79,
+ * the web's `planTalkWhere`): nowhere without a model on offer; behind the
+ * pencil while doing; inline on a day still to come.
+ */
+export const planTalkWhere = ({ ai, doing }: { ai: boolean; doing: boolean }) => (!ai ? null : doing ? 'details' : 'sheet')
+
+/**
  * One session, opened from the day list. This is the ONLY place the full
  * protocol appears — the dashboard stays a list of names.
  */
@@ -123,6 +132,18 @@ export function SessionSheet({
   // The prescription, if this session has one. Its presence turns the sheet from
   // a protocol you read into a workout you edit.
   const pres = entry?.data?.plan || null
+  /*
+   * DOING MODE (#79, D9). A planned workout on its day or after is where the
+   * lifting is done, so the sheet opens on the work: the first exercise with a
+   * set to do, a ✓ per set, and the planning (the block's circuit and split, the
+   * implement chips, asking the model) a tap away behind the ⋯ and the pencil.
+   * A day still to come is still being planned.
+   */
+  const doing = Boolean(pres) && !isFuture
+  // A done plan on an earlier day is the log as written (`liftsDone`): its ✓s are read.
+  const asWritten = (e: any) => Boolean(e?.date && e.date < localIso() && isDone(e))
+  // Asking the model to change it, only where a model is on offer (#55, D F9).
+  const ai = (aiOffered as any)(me?.features)
   const thePlan: any = usePlan()
   const liftField = (liftFieldOf as any)(thePlan)
 
@@ -243,8 +264,11 @@ export function SessionSheet({
    * card on the day. Done is the chip under the title (`DoneChip`); a day still
    * to come has no done state to flip.
    */
+  /* A run already under way, or finished and reopened by Start (#75), is carried
+     on, not started: the runner opens where it was. */
+  const startWords = (e: any) => ((runOf as any)(e)?.startedAt ? 'Carry on' : pres ? 'Start the workout' : 'Start workout')
   const start = (side: string | null = null) => (
-    <Btn icon="Play" title={pres ? 'Start the workout' : 'Start workout'} flex
+    <Btn icon="Play" title={startWords(side ? theirs.entry : entry)} flex
       onPress={() => { setDirty(true); onStartWorkout?.(opt, side) }} />
   )
   let footer: React.ReactNode = null
@@ -267,12 +291,16 @@ export function SessionSheet({
   } else {
     /* A planned session always offers the runner, whatever the CARD declares.
        Not "while not done": today's session is done before it starts. */
-    const startable = !isFuture && onLog && onStartWorkout && runnable(opt, pres) && canStart(entry)
-    if (planned && !isFuture && onLog) status = <DoneChip done={done} onToggle={flipMine} />
+    const startable = !isFuture && planned && onStartWorkout && runnable(opt, pres) && canStart(entry)
+    if (planned && !isFuture && onSetDone) status = <DoneChip done={done} onToggle={flipMine} />
     if (startable) footer = <View style={st.sheetFoot}>{start()}</View>
   }
   /* The other sides of a synced workout, for a removal toast's one line about them
      (lib/removal.js: never a claim about what happened there). */
+  const planTalk = pres ? (
+    <PlanTalk pres={pres} compact entries={entries} entryId={entry?.id}
+      onChange={(next: any) => { setDirty(true); onSavePlan?.(latestEntry.current, next) }} />
+  ) : null
   const syncedWith = sidePerson
     ? (synced ? ['you'] : null)
     : (() => { const s = on.filter((p) => isSynced(entry, p.id)).map((p) => p.name); return s.length ? s : null })()
@@ -303,7 +331,7 @@ export function SessionSheet({
          looking at, so it belongs where the session's title is. */
       onRename={planned && !isFuture && !sidePerson ? () => setRenaming(true) : null}
       onDelete={onRemove && entry && !sidePerson ? () => onRemove(entry) : null}
-      deleteLabel="Remove from today"
+      deleteLabel={entry?.date && entry.date !== localIso() ? 'Remove this workout' : 'Remove from today'}
       footer={footer}
     >
       {on.map((p) => <SyncToggle key={p.id} person={p} on={isSynced(entry, p.id)} onChange={(v) => setSync(p, v)} />)}
@@ -333,7 +361,8 @@ export function SessionSheet({
              exercises, with their own numbers, and "last time" from THEIR log. */
           plan={theirPres ? (
             <PrescriptionEditor pres={theirPres} liftField={liftField} entries={theirLog.entries} entryId={theirs.entry?.id}
-              categories={thePlan?.quotaCategories || []} onChange={saveTheirPlan} syncedWith={syncedWith} compact />
+              categories={thePlan?.quotaCategories || []} onChange={saveTheirPlan} syncedWith={syncedWith} compact
+              doing={!isFuture} asWritten={asWritten(theirs.entry)} />
           ) : null} />
       ) : (<>
       {/* The "MAIN SESSION" / "ADDED SESSION" strap is gone (2026-09-21): it
@@ -356,12 +385,13 @@ export function SessionSheet({
         */}
       {pres ? (
         <>
-          {/* Still talkable-to after it lands. The thread lives on the entry. */}
-          <PlanTalk pres={pres} compact entries={entries} entryId={entry?.id}
-            onChange={(next: any) => { setDirty(true); onSavePlan?.(latestEntry.current, next) }} />
+          {/* Still talkable-to after it lands. The thread lives on the entry. While
+              doing it, that is planning: behind the pencil (`DetailsSheet`). */}
+          {planTalkWhere({ ai, doing }) === 'sheet' ? planTalk : null}
           <PrescriptionEditor pres={pres} liftField={liftField}
             entries={entries} entryId={entry?.id} categories={thePlan?.quotaCategories || []}
-            onChange={(next: any) => { setDirty(true); onSavePlan?.(latestEntry.current, next) }} syncedWith={syncedWith} compact />
+            onChange={(next: any) => { setDirty(true); onSavePlan?.(latestEntry.current, next) }} syncedWith={syncedWith} compact
+            doing={doing} asWritten={asWritten(entry)} />
           {pres.notes?.length > 0 && (
             <View style={{ marginTop: 16, gap: 7 }}>
               {pres.notes.map((n: string, i: number) => (
@@ -394,7 +424,7 @@ export function SessionSheet({
       {/* Any workout can use a clock; a card that declares one offers it as a
           preset. A tool, so a row at the foot of the sheet. One modal at a time
           on iOS: the sheet goes, then the timer comes. */}
-      {!isFuture && onLog && opt.role !== 'rest' ? (
+      {!isFuture && (planned || onLog) && opt.role !== 'rest' ? (
         <View style={st.tools}>
           <Row icon="Timer" label="Interval timer"
             onPress={() => { const req = timerRequestFor(opt, entry); onClose(); openTimerAfterSheet(req) }} />
@@ -408,6 +438,7 @@ export function SessionSheet({
           /* Only where the question makes sense — a commute is a ride, not a set
              of max hangs. Driven by the discipline rather than by a list. */
           onTraining={onTraining}
+          planTalk={planTalkWhere({ ai, doing }) === 'details' ? planTalk : null}
           onClose={() => setRenaming(false)} />
       )}
       </>)}

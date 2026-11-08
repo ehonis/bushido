@@ -33,6 +33,8 @@ import {
   Search,
   // What a lift's weight means, switched on its label (#58).
   ArrowLeftRight,
+  // A block's own menu and its moves (#79).
+  Ellipsis, ArrowUp, ArrowDown,
   // Aliased: an unaliased `Infinity` import shadows the global inside this
   // module, which is a trap for whoever next edits it.
   Infinity as InfinityIcon,
@@ -56,6 +58,7 @@ const REGISTRY = {
   Copy,
   ChevronLeft, ChevronUp, Search,
   SkipBack, ArrowLeftRight,
+  Ellipsis, ArrowUp, ArrowDown,
   Infinity: InfinityIcon,
 }
 

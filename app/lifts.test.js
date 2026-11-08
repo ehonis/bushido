@@ -25,7 +25,7 @@ import {
   liftsIn, liftSets, liftReps, liftVolume, liftSummary, liftsLine, lastLift, LIFT_FIELD,
   weightModesFor, weightModeOf, weightLabelOf, weightPatch, nextWeightMode, rememberedWeightMode,
   weightModeWords, liftFieldIn, weightBoxOf, liftMeasure, measureFor, muscleName, blankSet, canSwitchMeasure,
-  liftsDone, planLifts, liftedLine,
+  liftsDone, planLifts, liftedLine, implementChoices,
 } from './src/lib/lifts.js'
 import { isRepeatable, extraEntryId } from './src/lib/store.js'
 import { gateResolver, catalogOf as activityCatalog } from './src/lib/activities.js'
@@ -947,6 +947,24 @@ check('D11: weight memory reads a done plan, the newest deciding', () => {
 check('D11: the row line counts a done plan’s lifting', () => {
   eq(liftedLine(plannedOn('2026-11-07'), liftField, D11_TODAY), '1 exercise · 3 sets · 2,700 lb')
   eq(liftedLine(plannedOn(D11_TODAY, { done: false }), liftField, D11_TODAY), '', 'an untouched plan said what was lifted')
+})
+
+check('implementChoices: what the exercise declares, then Other… (#79)', () => {
+  const all = catalogOf(liftField).implements
+  const declares = liftField.exercises.find(e => Array.isArray(e.implements) && e.implements.length >= 2 && e.implements.length < all.length)
+  const c = implementChoices(liftField, declares.key, declares.implements[0])
+  eq(c.shown.map(i => i.value), implementsFor(liftField, declares.key).map(i => i.value), 'not the declared ones')
+  ok(c.shown.length < all.length, 'every implement offered up front')
+  ok(c.more, 'no Other… behind them')
+  // The one it has now, even when the exercise does not declare it, stays visible.
+  const odd = all.find(i => !declares.implements.includes(i.value))
+  const kept = implementChoices(liftField, declares.key, odd.value)
+  eq(kept.shown[0].value, odd.value, 'the implement it has went behind Other…')
+  // An exercise that declares nothing offers what it has, and Other… for the rest.
+  const none = { ...liftField, exercises: [{ key: 'thing', name: 'Thing', group: 'Other' }] }
+  eq(implementChoices(none, 'thing', null).shown.length, 0, 'an undeclared exercise offered the whole list')
+  eq(implementChoices(none, 'thing', all[0].value).shown.map(i => i.value), [all[0].value])
+  ok(implementChoices(none, 'thing', null).more)
 })
 
 console.log(failed ? `\n${failed} lift/output test(s) failed` : '\nall lift and output tests pass')

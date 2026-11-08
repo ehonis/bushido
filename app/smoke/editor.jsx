@@ -3,12 +3,12 @@
  * unchanged and in their old relative order. A case is [name, element | null, assert?].
  */
 import { renderToString } from 'react-dom/server'
-import { PrescriptionEditor } from '../src/editor.jsx'
-import { normalizePrescription, setCircuit } from '../src/lib/prescription.js'
+import { PrescriptionEditor, BlockMenu, blockTag, noteDraft, landsOf } from '../src/editor.jsx'
+import { normalizePrescription, setCircuit, noteBlock, tickSet, setTicked, addSet } from '../src/lib/prescription.js'
 import { SessionLog } from '../src/sessionlog.jsx'
 import { readFileSync } from 'node:fs'
 import * as EXERCISES from '../src/exercises.jsx'
-import { ExercisePicker, ExerciseSheet, ExerciseCard, STEP, undoControl, UNDO_MS } from '../src/exercises.jsx'
+import { ExercisePicker, ExerciseSheet, ExerciseCard, SetTick, STEP, undoControl, UNDO_MS } from '../src/exercises.jsx'
 import { removalWords, syncLine } from '../src/lib/removal.js'
 import { searchExercises } from '../src/lib/lifts.js'
 import {
@@ -242,9 +242,12 @@ export default [
     ] }, { liftField: LIFT_FIELD })
     const html = renderToString(<PrescriptionEditor pres={pres} liftField={LIFT_FIELD} onChange={noop} />)
     const t = text(html)
-    const switches = [...html.matchAll(/<input type="checkbox" role="switch" class="switch"([^>]*)>/g)].map(m => /checked/.test(m[1]))
-    if (switches.join() !== 'true,false') throw new Error(`the Circuit switch should be on for the circuit and off for the plain block: ${switches}`)
-    if (!/Timed, one exercise after another/.test(t)) throw new Error('the switch does not say what a circuit is')
+    // The switch moved into each block's ⋯ (#79): the circuit says so on its head, and
+    // no block carries a full-width switch any more. `BlockMenu(…)` pins the new address.
+    if (/role="switch"/.test(html)) throw new Error('a full-width Circuit switch is back on a block')
+    if (!/class="presc-blocktag">Circuit</.test(html)) throw new Error('the circuit block does not say it is one')
+    if ((html.match(/class="presc-blocktag"/g) || []).length !== 1) throw new Error('the plain block claims a tag')
+    if ((html.match(/aria-label="[^"]*: block options"/g) || []).length !== 2) throw new Error('not every block has its ⋯')
     if (!/aria-label="Circuit timing"/.test(html)) throw new Error('no row of circuit steppers')
     for (const w of ['Work', 'Rest', 'Rounds', '40s', '20s', '3 rounds', 'Crunch', 'Plank', '1:00', '12 reps', 'Add an exercise']) {
       if (!t.includes(w)) throw new Error(`no "${w}" in the circuit block`)
@@ -362,5 +365,109 @@ export default [
     if (base < 0 || far < base) throw new Error('nothing pushes Edit to the far right past `.presc-itemfoot .btn.quiet`')
     if (/\.stepper-btn \{[^}]*width: 40px/.test(css)) throw new Error('the ± buttons are under 44px again')
     if (/\.presc-setx/.test(css)) throw new Error('the set row’s ✕ is styled again')
+  }],
+  /*
+   * A BLOCK'S OWN SETTINGS (#79). Every block carried a full-width Circuit switch
+   * and the split fold; a block could not be renamed, given a note, moved or
+   * removed. All of it is the block's ⋯ now: reachability, every control at its
+   * one address. The head keeps what is true of it (`blockTag`).
+   */
+  ['BlockMenu(every block setting is reachable: name, note, reorder, move, circuit, where it lands, remove)', null, () => {
+    const b = { id: 'b1', name: 'Main', note: '', category: 'lift', items: [] }
+    const html = renderToString(<BlockMenu block={b} first={false} last={false} only={false}
+      categories={plan.quotaCategories} onRename={noop} onNote={noop} onCircuit={noop} onQuota={noop}
+      onReorder={noop} onMove={noop} onRemove={noop} onClose={noop} />)
+    const t = text(html)
+    if (!/<input value="Main"/.test(html)) throw new Error('no way to rename the block')
+    for (const w of ['Add a note', 'Reorder exercises', 'Move block up', 'Move block down', 'Circuit',
+      'Where it lands', 'Part of the workout beside it', 'Remove block', 'Done']) {
+      if (!t.includes(w)) throw new Error(`the block menu has no "${w}"`)
+    }
+    const lift = plan.quotaCategories.find(c => c.key === 'lift')
+    if (!new RegExp(`aria-pressed="true"[^>]*>(?:(?!</button>).)*${lift.name}</button>`).test(html)) throw new Error('the block\u2019s own split is not marked')
+    // Ends and the only block: nothing that cannot be done is offered.
+    const one = renderToString(<BlockMenu block={{ ...b, note: 'x' }} first last only categories={[]}
+      onRename={noop} onNote={noop} onCircuit={noop} onQuota={noop} onMove={noop} onRemove={noop} onClose={noop} />)
+    if (/Move block|Remove block|Reorder exercises/.test(one)) throw new Error('the only block offers a move, a removal or a reorder')
+    if (!/Edit the note/.test(one)) throw new Error('a note that exists is not offered for editing')
+  }],
+  ['PrescriptionEditor(the block head: a ⋯ and what is true of it; the note shown; Add a block last)', null, () => {
+    const html = renderToString(<PrescriptionEditor pres={TRIP} liftField={LIFT_FIELD} categories={plan.quotaCategories} onChange={noop} />)
+    if (/class="cx-switch"|<details class="blockquota/.test(html)) throw new Error('a block grew its full-width switch or split fold back')
+    if ((html.match(/: block options"/g) || []).length !== TRIP.blocks.length) throw new Error('not every block has its ⋯')
+    if (!/<textarea[^>]*aria-label="Block note"[^>]*>Five easy minutes/.test(html)) throw new Error('the warm-up note is not editable where the block is')
+    if (html.lastIndexOf('Add a block') < html.lastIndexOf('presc-block')) throw new Error('Add a block is not last')
+    if (blockTag(TRIP.blocks[0], TRIP, plan.quotaCategories) !== 'Part of the workout beside it') throw new Error('a warm-up does not say where it lands')
+    if (!/^A separate .* workout$/.test(blockTag(TRIP.blocks[1], TRIP, plan.quotaCategories))) throw new Error('a split block does not say it is its own workout')
+    const single = { ...TRIP, blocks: TRIP.blocks.map(b => ({ ...b, category: null })) }
+    if (blockTag(single.blocks[0], single, plan.quotaCategories) !== null) throw new Error('a workout that does not split talks about splitting')
+  }],
+  /*
+   * IMPLEMENTS (#79, C F15): the ones the exercise declares, then Other… for the
+   * rest of the catalog. A curl offered all nineteen, sled and rings included.
+   */
+  ['ExerciseCard(implements: the declared ones and Other…, not the whole catalog)', null, () => {
+    const curl = LIFT_FIELD.exercises.find(e => e.key === 'barbell-curl')
+    const item = { id: 'i', kind: 'lift', name: curl.name, exercise: curl.key, implement: 'barbell', sets: [{ id: 's', reps: 10, weight: 50 }] }
+    const html = renderToString(<ExerciseCard item={item} liftField={LIFT_FIELD} defaultOpen onPatch={noop} onPatchSet={noop} onAddSet={noop} onRemoveSet={noop} onRemove={noop} />)
+    const chips = (html.match(/class="implchip(?: on| )?"/g) || []).length
+    if (chips !== curl.implements.length) throw new Error(`${chips} implements offered, ${curl.implements.length} declared`)
+    if (!/class="implchip ghost"[^>]*>Other…</.test(html)) throw new Error('no Other… for the rest')
+    if (/>Sled<|>Rings</.test(html)) throw new Error('the whole catalog is offered up front')
+    // Doing: the chips are behind one switch that says what it is now.
+    const doing = renderToString(<ExerciseCard item={item} liftField={LIFT_FIELD} defaultOpen doing onTick={noop} onPatch={noop} onPatchSet={noop} onAddSet={noop} onRemoveSet={noop} onRemove={noop} />)
+    if (/class="presc-impl"/.test(doing)) throw new Error('the implement chips are open while doing')
+    if (!/class="implswitch[^"]*"[^>]*><span>Barbell</.test(doing)) throw new Error('the implement switch does not say what it is')
+  }],
+  ['SetTick(a set’s ✓: its number until ticked, a check after; one tap flips it)', null, () => {
+    const off = renderToString(<SetTick n={2} on={false} onToggle={noop} />)
+    const on = renderToString(<SetTick n={2} on onToggle={noop} />)
+    if (!/aria-checked="false"[^>]*aria-label="Set 2 done"[^>]*><span class="presc-tickn">2</.test(off)) throw new Error('an unticked set does not show its number')
+    if (!/class="presc-tick on"[^>]*aria-checked="true"/.test(on) || /presc-tickn/.test(on)) throw new Error('a ticked set does not show its check')
+    let got = null
+    SetTick({ n: 1, on: false, onToggle: (v) => { got = v } }).props.onClick()
+    if (got !== true) throw new Error('a tap on an unticked set does not tick it')
+  }],
+  /* A note is stored when its box is left, never per keystroke: `noteBlock` trims,
+     and a trim on every key ate the space being typed. */
+  ['noteDraft(a block note keeps its spaces and lines while written; stored on leaving)', null, () => {
+    let pres = normalizePrescription({ title: 'P', blocks: [{ name: 'Warm-up', note: 'x', items: [] }, { name: 'M', items: [{ kind: 'lift', exercise: SQUAT.key, sets: [{ reps: 5 }] }] }] }, { liftField: LIFT_FIELD })
+    const writes = []
+    const d = noteDraft((v) => { writes.push(v); pres = noteBlock(pres, 'b0', v) })
+    let typed = ''
+    for (const ch of 'Bike 5 min,\nthen rows ') { typed += ch; d.type(typed) }
+    if (writes.length) throw new Error('the note was stored (and trimmed) while it was being typed')
+    d.leave()
+    if (pres.blocks[0].note !== 'Bike 5 min,\nthen rows') throw new Error(`stored "${pres.blocks[0].note}"`)
+    d.leave()
+    if (writes.length !== 1) throw new Error('leaving twice stored twice')
+  }],
+  /* A ✓ always means logged: a set with nothing in it cannot be ticked, and its ✓
+     goes to the set's first box instead. */
+  ['SetTick(a set with no number: not tickable, and the tap goes to its box)', null, () => {
+    const pres = normalizePrescription({ title: 'P', blocks: [{ name: 'M', items: [{ kind: 'lift', exercise: SQUAT.key, sets: [{ reps: null, weight: null }] }] }] }, { liftField: LIFT_FIELD })
+      || { v: 1, title: 'P', blocks: [{ id: 'b0', name: 'M', note: '', items: [{ id: 'b0i0', kind: 'lift', name: 'Squat', exercise: SQUAT.key, sets: [{ id: 'b0i0s0', reps: null, weight: null }] }] }] }
+    const ticked = tickSet(pres, 'b0i0', 'b0i0s0', true)
+    if (ticked.blocks[0].items[0].sets[0].typed) throw new Error('a blank set was ticked: a ✓ that logs nothing')
+    if (setTicked({ typed: true, reps: null, weight: null })) throw new Error('a typed-but-empty set reads as done')
+    const html = renderToString(<SetTick n={1} on={false} empty onToggle={noop} onPrompt={noop} />)
+    if (!/aria-disabled="true"/.test(html) || !/type what you did first/.test(html)) throw new Error('a blank set’s ✓ does not say what it needs')
+    let prompted = false; let toggled = false
+    SetTick({ n: 1, on: false, empty: true, onToggle: () => { toggled = true }, onPrompt: () => { prompted = true } }).props.onClick()
+    if (toggled || !prompted) throw new Error('a blank set’s ✓ ticks instead of asking for the number')
+  }],
+  /* "A separate … workout" only where splitPrescription really makes one. */
+  ['landsOf(where a block lands follows splitPrescription: one block, merged blocks, real splits)', null, () => {
+    const cats = plan.quotaCategories
+    const mk = (blocks) => normalizePrescription({ title: 'T', blocks: blocks.map(([name, category]) => ({ name, category, items: [{ kind: 'lift', exercise: SQUAT.key, sets: [{ reps: 5 }] }] })) }, { liftField: LIFT_FIELD })
+    const one = mk([['Legs', 'lift']])
+    if (blockTag(one.blocks[0], one, cats) !== null) throw new Error('a single block says it is a separate workout')
+    const merged = mk([['Main', 'lift'], ['Accessory', 'lift']])
+    if (blockTag(merged.blocks[1], merged, cats) !== null) throw new Error('blocks that merge into one entry talk about splitting')
+    const trip = mk([['Warm-up', null], ['Main', 'lift'], ['Accessory', 'lift'], ['Run home', 'run']])
+    const t = trip.blocks.map(b => blockTag(b, trip, cats))
+    if (!/^A separate .* workout$/.test(t[1]) || !/^A separate .* workout$/.test(t[3])) throw new Error(`the workouts that open an entry do not say so: ${t}`)
+    if (t[0] !== 'Part of the workout beside it' || t[2] !== 'Part of the workout beside it') throw new Error(`a block that joins its neighbour claims its own entry: ${t}`)
+    if (landsOf(trip).size !== 4) throw new Error('not every block of a split workout says where it lands')
   }],
 ]

@@ -5,10 +5,12 @@
 import { renderToString } from 'react-dom/server'
 import { readFileSync } from 'node:fs'
 import { Modal, isTextEntry, footerShown, sheetDismissable, EDIT_SETTLE_MS } from '../src/modal.jsx'
-import { SessionSheet } from '../src/sheet.jsx'
+import { SessionSheet, planTalkWhere } from '../src/sheet.jsx'
+import { LogSheet } from '../src/log.jsx'
+import { sessionOps } from '../src/lib/sessionops.js'
 import { WorkoutRunner } from '../src/runner.jsx'
 import { climbingFolders } from '../src/lib/folders.js'
-import { normalizePrescription, emptyRun, setCircuit } from '../src/lib/prescription.js'
+import { normalizePrescription, emptyRun, setCircuit, tickSet } from '../src/lib/prescription.js'
 import { PlanProvider } from '../src/lib/planctx.jsx'
 import { SessionLog, NameField, SessionDetails } from '../src/sessionlog.jsx'
 import { SetLog, withoutClimb, withClimbBack } from '../src/setlog.jsx'
@@ -766,8 +768,9 @@ export default [
       if (!t.includes(PRESCRIPTION.title)) throw new Error('the sheet is not titled by the plan')
       // This one has a bike piece in it, so there is a clock to run.
       if (!/Start the workout/.test(t)) throw new Error('no way into the runner from the sheet')
-      // The reasoning is one tap away rather than on screen — see PlanTalk above.
-      if (!/Why this session/.test(t)) throw new Error('no way to reach the reasoning')
+      // Asking the model is planning: on the day it is done it is behind the pencil
+      // (#79, `planTalkWhere`), not above the first set.
+      if (/Why this session|Ask the model/.test(t)) throw new Error('the model panel is back above the sets while doing')
       // Every exercise open at once is four screens of steppers before the one the user
       // is about to do. Only the first opens.
       if ((html.match(/class="presc-sets"/g) || []).length > 1) {
@@ -850,7 +853,8 @@ export default [
     // A run finished today is reopened by Start (#75); on an earlier day, once
     // done, nothing is left to start: no footer at all, rather than a Close.
     const finished = foot(sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: true, run: { startedAt: 1, endedAt: 2 } } }))
-    if (!/Start the workout/.test(finished || '') || />Close</.test(finished || '')) throw new Error('a run finished today cannot be reopened, or Close came back')
+    // A run under way or finished is carried on, not started again (#79).
+    if (!/Carry on/.test(finished || '') || /Start the workout/.test(finished || '') || />Close</.test(finished || '')) throw new Error('a run finished today cannot be reopened as Carry on, or Close came back')
     const past = sheet({ ...PLANNED_ENTRY, date: '2026-01-05', data: { ...PLANNED_ENTRY.data, done: true, run: { startedAt: 1, endedAt: 2 } } })
     if (foot(past) !== null) throw new Error(`a sheet with nothing to start still has a footer: ${text(foot(past))}`)
     const later = sheet({ ...PLANNED_ENTRY, date: '2999-01-01', data: { ...PLANNED_ENTRY.data, done: false } }, true)
@@ -1029,5 +1033,114 @@ export default [
       if (!t.includes(w)) throw new Error(`no "${w}" on the circuit's run screen`)
     }
     if (!/aria-label="Stop the circuit"/.test(html)) throw new Error('the stop does not say it stops the circuit')
+  }],
+  /*
+   * DOING MODE (#79, D9). Lift workouts are done on the sheet, so a planned
+   * workout on its day opens on the work: the first exercise with a set still to
+   * do is the one open card (the row, all ticked, is folded with its check), every
+   * set has a ✓, and what is planning has moved. Pinned on both sides: absent from
+   * the body (the Circuit switch, the split fold, the implement chips, the model's
+   * panel, the second "What did you lift?" list), present at the new address (each
+   * block's ⋯, the implement switch, the pencil for the model: `planTalkWhere`).
+   */
+  ['SessionSheet(doing: a planned Pull opens on the first exercise not done, a ✓ per set, the planning behind the ⋯)', null, () => {
+    const lift = (exercise, n, w) => ({ kind: 'lift', exercise, implement: 'cable', sets: Array.from({ length: n }, () => ({ reps: 10, weight: w })) })
+    let pres = normalizePrescription({ title: 'Pull', category: 'lift', activity: 'lift', blocks: [
+      { name: 'Warm-up', note: 'Five minutes on the rower, then band pull-aparts.', items: [] },
+      { name: 'Main', category: 'lift', items: [lift('lat-pulldown', 2, 100), lift('barbell-curl', 3, 50), lift('face-pull', 3, 30)] },
+    ] }, { liftField: LIFT_FIELD })
+    pres = tickSet(tickSet(pres, 'b1i0', 'b1i0s0', true), 'b1i0', 'b1i0s1', true)
+    const entry = { ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, plan: pres, name: 'Pull' } }
+    const html = renderToString(
+      <PlanProvider plan={plan}>
+        <SessionSheet opt={PLANNED_CARD} entry={entry} entries={rich} isFuture={false}
+          onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={noop} onSaveEntry={null} onClose={noop} />
+      </PlanProvider>)
+    const t = text(html)
+    const open = html.match(/class="presc-sets doing"/g) || []
+    if (open.length !== 1) throw new Error(`one card should be open, the next to do; ${open.length} are`)
+    const curl = html.indexOf('Barbell curl')
+    const sets = html.indexOf('class="presc-sets doing"')
+    if (!(curl > 0 && sets > curl && sets < html.indexOf('Face pull'))) throw new Error('the open card is not the first exercise with a set to do')
+    if ((html.match(/aria-label="Set \d done"/g) || []).length !== 3) throw new Error('the open exercise does not have a ✓ per set')
+    if (!/role="checkbox" aria-checked="false" aria-label="Set 1 done"/.test(html)) throw new Error('a set’s ✓ is not a checkbox that says which set')
+    if (!/aria-label="All sets done"/.test(html)) throw new Error('the finished exercise does not say it is done')
+    if (!/2 sets/.test(t) && !/Lat pulldown/.test(t)) throw new Error('the finished exercise vanished')
+    // Old addresses: nothing that is planning sits between the head and the first set.
+    for (const [what, re] of [['the Circuit switch', /class="cx-switch"/], ['the split fold', /class="blockquota/],
+      ['the implement chips', /class="presc-impl"/], ['the model’s panel', /Why this session|Ask the model/],
+      ['the second lift list', /What did you lift\?/], ['muscles in words', /class="presc-muscles"/]]) {
+      if (re.test(html)) throw new Error(`${what} is still on the doing sheet`)
+    }
+    // New addresses.
+    if (!/aria-label="Main: block options"/.test(html) || !/aria-label="Warm-up: block options"/.test(html)) throw new Error('a block lost its ⋯')
+    if (!/class="implswitch/.test(html)) throw new Error('no implement switch on the open card')
+    if (!/<p class="presc-blocknote">Five minutes on the rower/.test(html)) throw new Error('the warm-up’s note is not shown')
+    if (!/Add a block/.test(t)) throw new Error('no way to add a block')
+    if (planTalkWhere({ ai: true, doing: true }) !== 'details') throw new Error('the model is not behind the pencil while doing')
+  }],
+  /* A done plan's earlier day is the log as written (D11, `liftsDone`): its sets
+     read as done, the ✓s are not toggles, and no card opens (all done). */
+  ['SessionSheet(an earlier, done planned day: every numbered set reads done, nothing to tick)', null, () => {
+    const day = back(2)
+    const html = renderToString(
+      <PlanProvider plan={plan}>
+        <SessionSheet opt={PLANNED_CARD} entry={{ ...PLANNED_ENTRY, id: `daily-${day}`, date: day, data: { ...PLANNED_ENTRY.data, done: true } }}
+          entries={rich} isFuture={false} onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={noop} onClose={noop} />
+      </PlanProvider>)
+    if (/role="checkbox"[^>]*aria-label="Set \d done"/.test(html)) throw new Error('a past day\u2019s sets are toggles')
+    if (/class="presc-sets doing"/.test(html)) throw new Error('a card opened on a day where everything is done')
+    if (!/aria-label="All sets done"/.test(html)) throw new Error('the exercises do not read as done')
+  }],
+  ['planTalkWhere(the model: nowhere without one, behind the pencil while doing, inline while planning)', null, () => {
+    if (planTalkWhere({ ai: false, doing: true }) !== null || planTalkWhere({ ai: false, doing: false }) !== null) throw new Error('offered with no model')
+    if (planTalkWhere({ ai: true, doing: false }) !== 'sheet') throw new Error('a day still to come lost its inline panel')
+  }],
+  ['SessionSheet(a day still to come is still planning: no ✓, no doing)', null, () => {
+    const html = renderToString(
+      <PlanProvider plan={plan}>
+        <SessionSheet opt={PLANNED_CARD} entry={{ ...PLANNED_ENTRY, date: back(-3) }} entries={rich} isFuture
+          onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={null} onClose={noop} />
+      </PlanProvider>)
+    if (/presc-tick|presc-sets doing/.test(html)) throw new Error('a plan for a later day has ✓s to tick')
+    if (!/class="presc-sets"/.test(html)) throw new Error('the plan is not editable')
+  }],
+  /*
+   * ONE SHEET (#79, G F1). The Log mounted a bare form, so the same planned
+   * workout opened from the Log showed "What did you lift?" and none of its
+   * exercises. Now it is the same SessionSheet: the plan, its ⋯s, the done chip.
+   */
+  ['LogSheet(the Log opens the same sheet as Today: the plan, its blocks, the done chip; no second lift list)', null, () => {
+    const ops = sessionOps({ plan, entries: rich, upsertEntry: noop, deleteEntry: noop })
+    const entry = { ...PLANNED_ENTRY, date: back(2), id: `daily-${back(2)}` }
+    const fromLog = renderToString(<PlanProvider plan={plan}>
+      <LogSheet opt={PLANNED_CARD} entry={entry} entries={rich} ops={ops} upsertEntry={noop} onClose={noop} />
+    </PlanProvider>)
+    const fromToday = renderToString(<PlanProvider plan={plan}>
+      <SessionSheet opt={PLANNED_CARD} entry={entry} entries={rich} isFuture={false}
+        onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={noop} onClose={noop} />
+    </PlanProvider>)
+    const exercise = PRESCRIPTION.blocks.flatMap(b => b.items).find(it => it.kind === 'lift')?.name
+    for (const [where, html] of [['the Log', fromLog], ['Today', fromToday]]) {
+      if (!html.includes(exercise)) throw new Error(`${where}: the planned exercises are not on the sheet`)
+      if (!/: block options"/.test(html)) throw new Error(`${where}: no block menu`)
+      if (!/class="done-chip/.test(html)) throw new Error(`${where}: no done chip`)
+      if (/What did you lift\?/.test(html)) throw new Error(`${where}: a second, empty lift list`)
+      if (!/aria-label="Edit this workout"/.test(html)) throw new Error(`${where}: no pencil`)
+    }
+    // Running is Today's: history offers no Start.
+    if (/Start the workout|Carry on/.test(fromLog)) throw new Error('the Log offers to start a workout')
+    if (!/Remove this workout/.test(fromLog)) throw new Error('an earlier day’s bin says "from today"')
+  }],
+  ['SessionLog(a planned entry: no second "What did you lift?"; rows a run logged still show)', null, () => {
+    const bare = renderToString(<SessionLog session={PLANNED_CARD} entry={PLANNED_ENTRY} entries={[]} onSave={noop} />)
+    if (/What did you lift\?/.test(bare)) throw new Error('the empty second lift list is back under the plan')
+    const logged = { ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, out: { ...PLANNED_ENTRY.data.out, lifts: [
+      { uid: 'b1i0', key: SQUAT.key, name: SQUAT.name, implement: 'barbell', sets: [{ reps: 5, weight: 185 }] }] } } }
+    const kept = renderToString(<SessionLog session={PLANNED_CARD} entry={logged} entries={[]} onSave={noop} />)
+    if (!kept.includes(SQUAT.name)) throw new Error('logged rows on a planned entry were hidden')
+    // A free-form lift (no plan) still asks.
+    const free = renderToString(<SessionLog session={otherCard} entry={{ id: 'f', kind: 'daily', date: TODAY, data: { optId: 'log-workout', out: { activity: 'lift' } } }} entries={[]} onSave={noop} />)
+    if (!/What did you lift\?/.test(free)) throw new Error('a free-form lift lost its lift list')
   }],
 ]

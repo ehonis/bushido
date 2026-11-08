@@ -19,9 +19,10 @@ import {
   patchSet, addSet, addSetLike, removeSet, setCircuit, removeItem, appendLift, reindex, setFieldsFor,
   splitPrescription, moveItem, isLiftOnly,
   blankPrescription, appendPiece, dropEmptyBlocks, patchItem, reviseWeightModes, followWeightModes, patchRunItem,
-  measureOfItem,
+  measureOfItem, addBlock, renameBlock, noteBlock, removeBlock, moveBlock, tickSet, setTicked, itemTicked, firstUnticked,
+  patchBlock,
 } from './src/lib/prescription.js'
-import { liftVolume, liftsIn, liftSummary, rememberedWeightMode } from './src/lib/lifts.js'
+import { liftVolume, liftsIn, liftSummary, rememberedWeightMode, liftsDone } from './src/lib/lifts.js'
 import { createRequire } from 'node:module'
 
 const plan = JSON.parse(readFileSync(new URL('../test/fixtures/plan.json', import.meta.url), 'utf8'))
@@ -970,6 +971,115 @@ t('an uncategorised circuit beside a categorised lift block makes the plan runna
   }, { liftField }), 'b1', true)
   assert.ok(pres.blocks[1].circuit && !pres.blocks[1].category, 'the fixture is not the shape it says')
   assert.equal(isLiftOnly(pres), false, 'its circuit can never run on its clock')
+})
+
+/* ---------------------------------------------- block operations (#79) */
+
+const threeBlocks = () => normalizePrescription({
+  title: 'Pull', blocks: [
+    { name: 'Warm-up', note: '5 min easy row', items: [] },
+    { name: 'Main', category: 'lift', items: [{ kind: 'lift', exercise: KNOWN, sets: [{ reps: 10, weight: 90 }, { reps: 10, weight: 90 }] }] },
+    { name: 'Finisher', items: [{ kind: 'lift', exercise: KNOWN, sets: [{ reps: 15 }] }] },
+  ],
+}, { liftField })
+
+t('addBlock puts an empty block at the end, and it survives an edit elsewhere', () => {
+  const { pres, blockId } = addBlock(threeBlocks(), 'Core')
+  assert.equal(pres.blocks.length, 4)
+  assert.equal(blockId, 'b3')
+  assert.equal(pres.blocks[3].name, 'Core')
+  assert.deepEqual(pres.blocks[3].items, [])
+  const edited = patchSet(pres, 'b1i0', 'b1i0s0', { reps: 8 })
+  assert.equal(edited.blocks.length, 4, 'an edit to another block deleted the new, empty one')
+  assert.equal(addBlock(threeBlocks(), '   ').pres.blocks[3].name, 'New block', 'a blank name')
+  // The planner keeps none of it if it stays empty.
+  assert.equal(dropEmptyBlocks(pres).blocks.length, 3)
+})
+
+t('renameBlock takes the typed name, and a blank keeps the old one', () => {
+  const p = threeBlocks()
+  assert.equal(renameBlock(p, 'b1', '  Back  ').blocks[1].name, 'Back')
+  assert.equal(renameBlock(p, 'b1', '   ').blocks[1].name, 'Main')
+})
+
+t('noteBlock writes the warm-up prose, and a note-only block survives', () => {
+  const p = noteBlock(threeBlocks(), 'b0', '10 min bike, then band pull-aparts')
+  assert.equal(p.blocks[0].note, '10 min bike, then band pull-aparts')
+  assert.equal(patchSet(p, 'b1i0', 'b1i0s0', { reps: 9 }).blocks[0].note, '10 min bike, then band pull-aparts')
+})
+
+t('removeBlock takes the block and what is in it; the rest renumber', () => {
+  const p = removeBlock(threeBlocks(), 'b0')
+  assert.deepEqual(p.blocks.map(b => b.name), ['Main', 'Finisher'])
+  assert.equal(p.blocks[0].id, 'b0')
+  assert.equal(p.blocks[0].items[0].id, 'b0i0')
+  assert.equal(p.blocks[0].items[0].sets[1].id, 'b0i0s1')
+})
+
+t('moveBlock moves one block and says where it landed; off the ends is a no-op', () => {
+  const p = threeBlocks()
+  const down = moveBlock(p, 'b0', 'down')
+  assert.deepEqual(down.pres.blocks.map(b => b.name), ['Main', 'Warm-up', 'Finisher'])
+  assert.equal(down.blockId, 'b1')
+  assert.equal(down.pres.blocks[0].items[0].id, 'b0i0', 'the items are not renumbered with their block')
+  const up = moveBlock(p, 'b2', 'up')
+  assert.deepEqual(up.pres.blocks.map(b => b.name), ['Warm-up', 'Finisher', 'Main'])
+  assert.equal(moveBlock(p, 'b0', 'up').pres, p)
+  assert.equal(moveBlock(p, 'b2', 'down').pres, p)
+})
+
+t('tickSet marks a set done with the typed mark, and takes it off again; numbers never move', () => {
+  const p = threeBlocks()
+  const on = tickSet(p, 'b1i0', 'b1i0s0', true)
+  const s = on.blocks[1].items[0].sets[0]
+  assert.equal(s.typed, true, 'a tick is the log: it must write typed')
+  assert.equal(s.reps, 10)
+  assert.equal(s.weight, 90)
+  assert.ok(setTicked(s))
+  assert.equal(on.blocks[1].items[0].sets[1].typed, undefined, 'the tick reached another set')
+  const off = tickSet(on, 'b1i0', 'b1i0s0', false)
+  assert.equal('typed' in off.blocks[1].items[0].sets[0], false)
+  assert.equal(off.blocks[1].items[0].sets[0].weight, 90)
+  // A number typed is ticked too: the same mark.
+  assert.ok(setTicked(patchSet(p, 'b1i0', 'b1i0s1', { weight: 95 }).blocks[1].items[0].sets[1]))
+})
+
+t('firstUnticked is the first exercise with a set to do; null once every set is ticked', () => {
+  let p = threeBlocks()
+  assert.equal(firstUnticked(p), 'b1i0')
+  p = tickSet(tickSet(p, 'b1i0', 'b1i0s0', true), 'b1i0', 'b1i0s1', true)
+  assert.ok(itemTicked(p.blocks[1].items[0]))
+  assert.equal(firstUnticked(p), 'b2i0')
+  p = tickSet(p, 'b2i0', 'b2i0s0', true)
+  assert.equal(firstUnticked(p), null)
+  assert.equal(itemTicked({ sets: [] }), false, 'an item with no sets is not done')
+})
+
+t('asWritten: on a done plan\'s earlier day every set with a number is done, as liftsDone reads it', () => {
+  const p = threeBlocks()
+  assert.equal(setTicked(p.blocks[1].items[0].sets[0]), false, 'untyped on its own day')
+  assert.equal(setTicked(p.blocks[1].items[0].sets[0], true), true, 'a numbered set on a passed day is the log')
+  assert.equal(setTicked({ reps: null, weight: null }, true), false, 'a blank set is nothing logged')
+  assert.equal(firstUnticked(p, true), null, 'a done past plan opens on nothing: every exercise is done')
+  const blank = patchSet(p, 'b2i0', 'b2i0s0', { reps: null })
+  assert.equal(firstUnticked(blank, true), 'b2i0', 'the exercise with a blank set is still to do')
+  // The same answer liftsDone gives for that day.
+  const day = '2026-11-07'
+  const e = { id: `daily-${day}`, kind: 'daily', date: day, done: true, data: { optId: 'planned', plan: p, out: {} } }
+  const lifted = liftsDone(e, '2026-11-08').reduce((n, r) => n + r.sets.length, 0)
+  const ticked = p.blocks.flatMap(b => b.items).flatMap(it => it.sets).filter(st => setTicked(st, true)).length
+  assert.equal(ticked, lifted, 'the sheet and the log disagree about what was done')
+})
+
+t('a tick on a plan for today makes it the log: liftsDone sees the ticked set', () => {
+  const day = '2026-11-08'
+  const entry = (pres) => ({ id: `daily-${day}`, kind: 'daily', date: day, done: false, data: { optId: 'planned', plan: pres, out: {} } })
+  const p = threeBlocks()
+  assert.equal(liftsDone(entry(p), day).length, 0, 'an untouched plan for today is not lifted yet')
+  const rows = liftsDone(entry(tickSet(p, 'b1i0', 'b1i0s0', true)), day)
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].sets.length, 1, 'only the ticked set')
+  assert.equal(Number(rows[0].sets[0].weight), 90)
 })
 
 console.log(`prescription: ${pass} checks passed`)

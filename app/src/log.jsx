@@ -34,8 +34,7 @@ import { restStats } from './lib/stats.js'
 import { useMemo, useState } from 'react'
 import { optFor } from './lib/menu.js'
 import { Icon } from './lib/icons.jsx'
-import { SessionLog, DetailsSheet } from './sessionlog.jsx'
-import { Modal } from './modal.jsx'
+import { SessionSheet } from './sheet.jsx'
 import { isDone, isTraining } from './lib/store.js'
 import { loggedMinutes } from './lib/minutes.js'
 import { fromIso, localIso } from './lib/dates.js'
@@ -123,8 +122,6 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }) {
    * is a component showing the past.
    */
   const [openId, setOpenId] = useState(null)
-  // The details layer, behind the pencil. See DetailsSheet in sessionlog.jsx.
-  const [editing, setEditing] = useState(false)
 
   const menu = plan?.dailyMenu || []
   const ops = sessionOps({ plan, entries, upsertEntry, deleteEntry, toast: pushToast, undoIcon: Undo2 })
@@ -320,46 +317,41 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }) {
         </section>
       ))}
 
-      {open?.opt && (() => {
-        /* Today's write paths, not a copy of them (lib/sessionops.js, #76): the
-           name, the load level, the minutes and the test result a test session
-           writes all follow the out, and a removal takes the result with it and
-           offers Undo. Before, this sheet spread the out and renamed, so a MVC-7
-           corrected here left its test result on the old number. */
-        const save = (out) => ops.saveOutputs(open.entry, out)
-        /* Only where the question makes sense: a commute is a ride, not a set of
-           max hangs. Driven by the discipline rather than by a list. */
-        const onTraining = ['bike', 'run', 'swim', 'other'].includes(open.discipline)
-          ? ops.setTraining(open.entry, open.opt)
-          : null
-        return (
-          <Modal title={open.name} sub={dayLabel(open.entry.date, today)} icon={open.icon}
-            onClose={() => { setOpenId(null); setEditing(false) }}
-            /*
-              * The SAME pencil and the same bin as the day's session sheet,
-              * because this is the same session seen from the feed. The name, the
-              * gear, "just miles" and time spent live behind the pencil since
-              * 2026-09-21 and this sheet would otherwise have lost them outright.
-              *
-              * Delete moved off a footer link at the same time. It used to fire
-              * immediately; through the header it goes through the confirmation
-              * screen every other delete in the app uses.
-              */
-            onRename={() => setEditing(true)}
-            onDelete={() => { setOpenId(null); setEditing(false); ops.removeSession(open.entry) }}
-            deleteLabel="Delete this workout"
-            deleteBody="It goes out of the log, out of your training load and off the streak. The measurement it carries goes with it.">
-            <SessionLog session={open.opt} entry={open.entry} entries={entries} bare
-              onSave={save} />
-
-            {editing && (
-              <DetailsSheet session={open.opt} entry={open.entry} entries={entries}
-                onSave={save} training={open.entry.data?.training} onTraining={onTraining}
-                onClose={() => setEditing(false)} />
-            )}
-          </Modal>
-        )
-      })()}
+      {open?.opt && (
+        <LogSheet opt={open.opt} entry={open.entry} entries={entries} ops={ops} upsertEntry={upsertEntry}
+          rest={open.rest} discipline={open.discipline} onClose={() => setOpenId(null)} />
+      )}
     </>
+  )
+}
+
+
+/**
+ * A workout opened from the Log: THE SAME SHEET as Today's (#79, G F1), not a
+ * second composition of it. The Log mounted a bare form, so a planned workout
+ * opened from here showed "What did you lift?" and none of its exercises, its
+ * done chip or its sharing, while the same entry from Today showed all of them.
+ * What differs is a parameter: the day is the entry's own, and nothing is run
+ * from history (no Start; the runner is Today's). The writes are Today's too
+ * (lib/sessionops.js, #76): the name, the load level, the minutes and the test
+ * result follow the out, and a removal takes the result with it, with Undo.
+ */
+export function LogSheet({ opt, entry, entries, ops, upsertEntry, rest = false, discipline = null, onClose }) {
+  // Only where the question makes sense: a commute is a ride, not a set of
+  // max hangs. Driven by the discipline rather than by a list.
+  const onTraining = ['bike', 'run', 'swim', 'other'].includes(discipline) ? ops.setTraining(entry, opt) : null
+  return (
+    <SessionSheet opt={opt} entry={entry} tone={rest ? 'rest' : null} entries={entries}
+      isFuture={Boolean(entry?.date) && entry.date > todayIso()}
+      onLog={null}
+      onSave={(e, out) => ops.saveOutputs(e, out)}
+      onSavePlan={(e, pres) => ops.savePlan(e, pres)}
+      // Closed on removal, so an Undo puts the workout back in the feed.
+      onRemove={(e) => { onClose(); ops.removeSession(e) }}
+      onSetDone={(e, v) => ops.setDone(e, v)}
+      onSaveEntry={upsertEntry}
+      onStartWorkout={null}
+      onTraining={onTraining}
+      onClose={onClose} />
   )
 }

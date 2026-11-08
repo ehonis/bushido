@@ -141,6 +141,23 @@ export function implementsFor(field, key) {
   return all.filter(i => set.has(i.value))
 }
 
+/**
+ * What a lift's card offers before "Other…" (#79): the implements its exercise
+ * declares, plus the one it has now when that is not among them. An exercise
+ * that declares none offers only what it has. A squat showed all nineteen
+ * implements (med ball, sled, rings…) because `implementsFor` falls back to
+ * every one; that fallback stays for picking, and the card leads with these.
+ * `more` says whether "Other…" holds anything else.
+ */
+export function implementChoices(field, key, current = null) {
+  const { implements: all } = catalogOf(field)
+  const only = exerciseOf(field, key)?.implements
+  const declared = Array.isArray(only) && only.length ? implementsFor(field, key) : []
+  const own = current && !declared.some(i => i.value === current) ? all.filter(i => i.value === current) : []
+  const shown = [...own, ...declared]
+  return { shown, more: all.some(i => !shown.some(s => s.value === i.value)) }
+}
+
 const implementOf = (field, value) => catalogOf(field).implements.find(i => i.value === value) || null
 
 /** "Dumbbell", or the raw value if the catalog no longer knows it. */

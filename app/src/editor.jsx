@@ -6,13 +6,14 @@
  * so the flow and the editor are separate files; mobile/src/features/editor.tsx is
  * its twin.
  */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
 import {
   prescriptionSteps, itemLine, setLine, patchSet, addSet, removeSet, removeItem, patchItem,
   patchBlock, appendLift, moveItem, setCircuit, setTiming, circuitTiming,
+  addBlock, renameBlock, noteBlock, removeBlock, moveBlock, tickSet, firstUnticked, splitPrescription,
 } from './lib/prescription.js'
-import { removalWords } from './lib/removal.js'
+import { removalWords, syncLine } from './lib/removal.js'
 import { ExerciseSection, useUndoable } from './exercises.jsx'
 import { CircuitSteppers, CircuitList, SecondsRow } from './circuit.jsx'
 
@@ -84,15 +85,9 @@ function PieceAdder({ unit, onAdd }) {
  */
 function BlockQuota({ categories, value, onChange }) {
   if (!categories.length) return null
-  const picked = categories.find(c => c.key === value) || null
   return (
-    <details className="blockquota">
-      <summary>
-        <Icon name="Target" size={12} />
-        <span>
-          {picked ? <>A separate <strong>{picked.name}</strong> workout</> : 'Part of the workout beside it'}
-        </span>
-      </summary>
+    <div className="blockquota" role="group" aria-label="Where this block lands">
+      <span className="blockmenu-label">Where it lands: part of the workout beside it, or a separate one</span>
       <div className="blockquota-chips">
         <button className={`implchip ${!value ? 'on' : ''}`}
           onClick={() => onChange(null)} aria-pressed={!value}>
@@ -105,8 +100,40 @@ function BlockQuota({ categories, value, onChange }) {
           </button>
         ))}
       </div>
-    </details>
+    </div>
   )
+}
+
+/**
+ * What a block's head says of its settings (#79), since the controls moved into
+ * its ⋯: "Circuit", and where it lands. The split is never hidden (G F8): once
+ * the workout really splits (`landsOf`), every block says which it is, "A
+ * separate Lift workout" or "Part of the workout beside it". A workout that
+ * lands as one entry says nothing about it.
+ */
+export function blockTag(block, pres, categories = []) {
+  const lands = categories.length ? landsOf(pres).get(block?.id) : null
+  const cat = lands === 'own' ? categories.find(c => c.key === block.category) : null
+  const words = cat ? `A separate ${cat.name} workout` : lands === 'beside' ? 'Part of the workout beside it' : null
+  return [block?.circuit ? 'Circuit' : null, words].filter(Boolean).join(' · ') || null
+}
+
+/**
+ * Where each block lands, by `splitPrescription`'s own rule: nothing when the
+ * workout stays one entry; otherwise the block that opens a workout of its
+ * category is `own`, and every other block (a warm-up, a second block of the
+ * same category that merges into it) is `beside`.
+ */
+export function landsOf(pres) {
+  const out = new Map()
+  if (splitPrescription(pres).length < 2) return out
+  let open = null
+  for (const b of pres.blocks || []) {
+    const own = Boolean(b.category) && b.category !== open
+    if (b.category) open = b.category
+    out.set(b.id, own ? 'own' : 'beside')
+  }
+  return out
 }
 
 /**
@@ -155,7 +182,7 @@ const loadOf = (it) => {
   return w !== null && w !== undefined && w !== '' ? `${w} ${it.weightLabel || 'lb'}` : null
 }
 
-function CircuitBlock({ block: b, pres, onChange, onDrop, liftField, entries, entryId, open, onToggle, extra }) {
+function CircuitBlock({ block: b, pres, onChange, onDrop, liftField, entries, entryId, open, onToggle, extra, menu = null, tag = null, lead = null }) {
   const [more, setMore] = useState(false)
   const c = b.circuit
   const items = b.items.map(it => ({ id: it.id, key: it.exercise, name: it.name, timing: circuitTiming(it), load: loadOf(it) }))
@@ -167,10 +194,15 @@ function CircuitBlock({ block: b, pres, onChange, onDrop, liftField, entries, en
           <span className={`alt-chev ${open ? 'open' : ''}`}><Icon name="ChevronDown" size={14} /></span>
           <h3>{b.name}</h3>
         </button>
-        <span className="presc-blockmeta"><span className="presc-blockn">{setCount(b)}</span></span>
+        <span className="presc-blockmeta">
+          {tag && <span className="presc-blocktag">{tag}</span>}
+          <span className="presc-blockn">{setCount(b)}</span>
+          {menu && menu({ reorder: null })}
+        </span>
       </div>
       {open && (
         <>
+          {lead}
           {extra}
           <CircuitSteppers circuit={c} onChange={timing} />
           <button type="button" className="btn quiet it-more" aria-expanded={more} onClick={() => setMore(!more)}>
@@ -196,6 +228,113 @@ function CircuitBlock({ block: b, pres, onChange, onDrop, liftField, entries, en
 
 
 /**
+ * A BLOCK'S OWN SETTINGS, behind its ⋯ (#79). Every block used to carry a
+ * full-width Circuit switch and the "Part of the workout beside it" fold, even
+ * a run and an empty warm-up, so before the first set of a planned Pull came
+ * two rows of planning per block (C F14, G F8). They live here now, with what
+ * a block could not do at all before: be renamed, given a note, moved, removed.
+ * The head keeps one word of it (`blockTag`). Opens in place under the head,
+ * one at a time; Remove is last, apart from the rest, and has Undo.
+ */
+export function BlockMenu({
+  block: b, first, last, only, categories = [], onRename, onNote, onCircuit, onQuota,
+  onReorder = null, onMove, onRemove, onClose,
+}) {
+  const [name, setName] = useState(b.name)
+  useEffect(() => setName(b.name), [b.name])
+  const commit = () => { if (name.trim() && name.trim() !== b.name) onRename(name); else setName(b.name) }
+  return (
+    <div className="blockmenu" role="group" aria-label={`${b.name}: block options`}>
+      <label className="field blockmenu-name">
+        <span>Name</span>
+        <input value={name} onChange={e => setName(e.target.value)} onBlur={commit}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit() } }} />
+      </label>
+      <div className="list blockmenu-list">
+        <button type="button" className="list-row" onClick={onNote}>
+          <Icon name="NotebookPen" size={18} />
+          <span className="list-row-main"><span className="list-row-title">{b.note ? 'Edit the note' : 'Add a note'}</span></span>
+        </button>
+        {onReorder && (
+          <button type="button" className="list-row" onClick={onReorder}>
+            <Icon name="ArrowUpDown" size={18} />
+            <span className="list-row-main"><span className="list-row-title">Reorder exercises</span></span>
+          </button>
+        )}
+        {!first && (
+          <button type="button" className="list-row" onClick={() => onMove('up')}>
+            <Icon name="ArrowUp" size={18} />
+            <span className="list-row-main"><span className="list-row-title">Move block up</span></span>
+          </button>
+        )}
+        {!last && (
+          <button type="button" className="list-row" onClick={() => onMove('down')}>
+            <Icon name="ArrowDown" size={18} />
+            <span className="list-row-main"><span className="list-row-title">Move block down</span></span>
+          </button>
+        )}
+      </div>
+      <CircuitSwitch on={Boolean(b.circuit)} onChange={onCircuit} />
+      <BlockQuota categories={categories} value={b.category} onChange={onQuota} />
+      <div className="blockmenu-foot">
+        {!only && (
+          <button type="button" className="btn quiet blockmenu-rm" onClick={onRemove}>
+            <Icon name="Trash2" size={16} /> Remove block
+          </button>
+        )}
+        <button type="button" className="btn secondary blockmenu-done" onClick={onClose}>
+          <Icon name="Check" size={16} /> Done
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * A block's note: the warm-up the model wrote as prose ("5 min easy bike, then
+ * leg swings"), which the editor never showed, so a warm-up read as an empty
+ * block (C F8). Read under the head; a box while it is being written, which is
+ * always in planning and in doing only when asked for from the ⋯ (`editing`).
+ */
+/**
+ * A note being written: its text is held, not stored, until the box is left or
+ * the sheet closes (`leave`). Stored per keystroke, `noteBlock`'s trim ate the
+ * space being typed ("…aparts then rows" became "…apartsthenrows").
+ */
+export function noteDraft(commit) {
+  let pending = null
+  return {
+    type: (v) => { pending = v },
+    held: () => pending !== null,
+    leave: () => {
+      if (pending === null) return
+      const v = pending
+      pending = null
+      commit(v)
+    },
+  }
+}
+
+function BlockNote({ note, editing, asked = false, onCommit, onFocus, onDone }) {
+  const [text, setText] = useState(note || '')
+  const commit = useRef(onCommit)
+  commit.current = onCommit
+  const draft = useRef(null)
+  if (!draft.current) draft.current = noteDraft((v) => commit.current(v))
+  useEffect(() => { if (!draft.current.held()) setText(note || '') }, [note])
+  // The sheet closing under the box stores what was written.
+  useEffect(() => () => draft.current.leave(), [])
+  if (!editing) return note ? <p className="presc-blocknote">{note}</p> : null
+  return (
+    <div className="presc-blocknote-edit">
+      <textarea rows={2} value={text} aria-label="Block note" placeholder="A note: a warm-up, a cue, how to pace it"
+        autoFocus={asked} onFocus={onFocus} onBlur={() => { draft.current.leave(); onDone?.() }}
+        onChange={e => { draft.current.type(e.target.value); setText(e.target.value) }} />
+    </div>
+  )
+}
+
+/**
  * The id of the exercise `appendLift` just put at the end of block `blockId`.
  * Found by the block's PLACE, which re-minting keeps, never by its name: two
  * blocks called "Main" opened the wrong card (#78, C F17).
@@ -207,36 +346,29 @@ export function addedId(before, next, blockId) {
 }
 
 /**
- * Every set, editable, with thumbs in mind.
- *
- * Steppers rather than keyboards for reps and weight: the numbers move in
- * predictable increments (a rep at a time, five pounds at a time) and a numeric
- * keyboard on a phone covers half the screen with the thing you are editing
- * underneath it. The value is still an input, so a genuinely odd number is one
- * tap and a type away.
- *
- * Shared by the review step and the session sheet on purpose. Editing a plan
- * the way a session is already edited means the same editor in both places, not
- * two that agree today.
- */
-/**
  * Every set of a planned session, editable, with thumbs in mind.
  *
  * THE SAME COMPONENT THE LOG FORM USES, since 2026-09-21: planned and logged
  * workouts should look exactly the same, and where they differed the plan side
- * won. So the card,
- * the fold, the implement chips, the steppers, the picker and reorder mode all
- * live in `exercises.jsx` and this file only says what a BLOCK is. What is left
- * here is the one thing the log has no counterpart for: `BlockQuota`, which
- * decides where a session splits.
+ * won. So the card, the fold, the implement chips, the steppers, the picker and
+ * reorder mode all live in `exercises.jsx` and this file only says what a BLOCK
+ * is: its menu (`BlockMenu`, #79), its note, and where the session splits.
  *
  * Shared by the review step and the session sheet on purpose. Editing a plan
  * the way a session is already edited means the same editor in every place, not
  * several that agree today.
+ *
+ * `doing` (#79, D9): the session sheet of a planned workout on its day or
+ * after, where lifting is done. One exercise opens, the first with a set still
+ * to do (`firstUnticked`), and the next opens as it is finished; every set has
+ * a ✓ (`tickSet`, the log); the cards drop what is planning (exercises.jsx).
+ * `asWritten`: a done plan whose day has passed, where every set with a number
+ * is already the log (`liftsDone`), so its ✓s are read, not toggled.
+ * Block settings are the ⋯ in both modes.
  */
 export function PrescriptionEditor({
   pres, onChange: emit, liftField, entries = [], entryId = null, categories = [], compact = false,
-  canReorder = true, onAddPiece = null, syncedWith = null,
+  canReorder = true, onAddPiece = null, syncedWith = null, doing = false, asWritten = false,
 }) {
   // Every write goes through `onChange`; a removal through `remove`, which offers
   // Undo (#77). `syncedWith` names the other sides of a synced workout, for the
@@ -249,29 +381,70 @@ export function PrescriptionEditor({
   }
   const dropItem = (id) => remove(removeItem(pres, id), removalWords(itemOf(id), null, { syncedWith }))
   const [shut, setShut] = useState(() => new Set())  // blockIds folded away
+  // The block whose ⋯ is open (one at a time), and the one whose note is being written.
+  const [menuFor, setMenuFor] = useState(null)
+  const [noteFor, setNoteFor] = useState(null)
 
   const total = prescriptionSteps(pres).length
-  // ONE exercise starts open and it is the first in the SESSION, not the first in
+  const blocks = pres.blocks || []
+  // ONE exercise starts open. Planning: the first in the SESSION, not the first in
   // each block — six open cards is four screens of steppers to scroll past.
-  const firstItemId = (pres?.blocks || []).flatMap(b => b.items || [])[0]?.id || null
+  // Doing: the first with a set still to do, which is where the workout is.
+  const allItems = blocks.flatMap(b => b.items || [])
+  const next = doing ? firstUnticked(pres, asWritten) : null
+  const firstItemId = doing ? next : allItems[0]?.id || null
 
   const toggleBlock = (id) => setShut(s => {
-    const next = new Set(s)
-    if (next.has(id)) next.delete(id); else next.add(id)
-    return next
+    const n = new Set(s)
+    if (n.has(id)) n.delete(id); else n.add(id)
+    return n
   })
+  // A block op renumbers blocks, so what is folded or open is let go rather than
+  // left pointing at whichever block took its place.
+  const regroup = (p) => { setShut(new Set()); setMenuFor(null); setNoteFor(null); onChange(p) }
+  const dropBlock = (b) => {
+    const words = `Removed ${b.name}`
+    setMenuFor(null)
+    setShut(new Set())
+    remove(removeBlock(pres, b.id), syncedWith?.length ? `${words}. ${syncLine(syncedWith)}` : words)
+  }
+
+  const menuOf = (b) => () => (
+    <button type="button" className={`iconbtn presc-blockmore ${menuFor === b.id ? 'on' : ''}`}
+      aria-expanded={menuFor === b.id} aria-label={`${b.name}: block options`}
+      onClick={() => setMenuFor(menuFor === b.id ? null : b.id)}>
+      <Icon name="Ellipsis" size={18} />
+    </button>
+  )
+  // Under the head: the open ⋯ (handed the section's Reorder) and the block's note.
+  const leadOf = (b, bi) => ({ reorder = null } = {}) => (
+    <>
+      {menuFor === b.id && (
+        <BlockMenu block={b} first={bi === 0} last={bi === blocks.length - 1} only={blocks.length === 1}
+          categories={categories}
+          onRename={(name) => onChange(renameBlock(pres, b.id, name))}
+          onNote={() => { setNoteFor(b.id); setMenuFor(null) }}
+          onCircuit={(on) => onChange(setCircuit(pres, b.id, on))}
+          onQuota={(key) => onChange(patchBlock(pres, b.id, { category: key }))}
+          onReorder={reorder ? () => { setMenuFor(null); reorder() } : null}
+          onMove={(dir) => { const r = moveBlock(pres, b.id, dir); regroup(r.pres); setMenuFor(r.blockId) }}
+          onRemove={() => dropBlock(b)}
+          onClose={() => setMenuFor(null)} />
+      )}
+      {/* Planning shows a note as its box; doing reads it, and the ⋯ opens the box. */}
+      <BlockNote note={b.note} editing={noteFor === b.id || (!doing && Boolean(b.note))} asked={noteFor === b.id}
+        onCommit={(v) => onChange(noteBlock(pres, b.id, v))}
+        onFocus={() => setNoteFor(b.id)} onDone={() => setNoteFor(null)} />
+    </>
+  )
 
   return (
-    <div className={`presc ${compact ? 'compact' : ''}`}>
-      {(pres.blocks || []).map(b => (b.circuit ? (
+    <div className={`presc ${compact ? 'compact' : ''} ${doing ? 'doing' : ''}`}>
+      {blocks.map((b, bi) => (b.circuit ? (
         <CircuitBlock key={b.id} block={b} pres={pres} onChange={onChange} onDrop={dropItem} liftField={liftField}
           entries={entries} entryId={entryId}
           open={!shut.has(b.id)} onToggle={() => toggleBlock(b.id)}
-          extra={<>
-            <CircuitSwitch on onChange={(on) => onChange(setCircuit(pres, b.id, on))} />
-            <BlockQuota categories={categories} value={b.category}
-              onChange={(key) => onChange(patchBlock(pres, b.id, { category: key }))} />
-          </>} />
+          menu={menuOf(b)} tag={blockTag(b, pres, categories)} lead={leadOf(b, bi)()} />
       ) : (
         <ExerciseSection key={b.id}
           title={b.name}
@@ -280,11 +453,9 @@ export function PrescriptionEditor({
           liftField={liftField} entries={entries} entryId={entryId}
           firstOpenId={firstItemId}
           open={!shut.has(b.id)} onToggle={() => toggleBlock(b.id)}
-          extra={<>
-            <CircuitSwitch on={false} onChange={(on) => onChange(setCircuit(pres, b.id, on))} />
-            <BlockQuota categories={categories} value={b.category}
-              onChange={(key) => onChange(patchBlock(pres, b.id, { category: key }))} />
-          </>}
+          menu={menuOf(b)} tag={blockTag(b, pres, categories)} lead={leadOf(b, bi)}
+          doing={doing} asWritten={asWritten} focusId={next}
+          onTick={doing ? (id, setId, v) => onChange(tickSet(pres, id, setId, v)) : null}
           /* The hand-built route only. A session the model wrote already has its
              intervals in it, and the place to change one is the card. */
           foot={onAddPiece
@@ -304,16 +475,22 @@ export function PrescriptionEditor({
           /* Same as the log form: the exercise the user just added opens. `appendLift`
              re-mints every id, and the new one is always last in its block. */
           onAdd={(key) => {
-            const next = appendLift(pres, liftField, key, { blockId: b.id, entries, excludeId: entryId })
-            onChange(next)
-            return addedId(pres, next, b.id)
+            const n = appendLift(pres, liftField, key, { blockId: b.id, entries, excludeId: entryId })
+            onChange(n)
+            return addedId(pres, n, b.id)
           }} />
       )))}
+      {/* A block of its own: a finisher, a cool-down. Last, under everything, and
+          its name and the rest are its ⋯, opened for it. */}
+      <button type="button" className="btn quiet presc-addblock"
+        onClick={() => { const r = addBlock(pres); regroup(r.pres); setMenuFor(r.blockId) }}>
+        <Icon name="Plus" size={16} /> Add a block
+      </button>
       {/* Only where there is nothing to be done about it. A session the user is still
           building is empty because the user has not started, and every block on the
           screen is already offering them the two ways in. */}
       {!total && !onAddPiece && (
-        <p className="sub">Nothing left in this workout. Redo it, or close and start again.</p>
+        <p className="sub">Nothing left in this workout. Add an exercise to a block, or a block.</p>
       )}
     </div>
   )
