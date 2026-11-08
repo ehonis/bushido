@@ -234,9 +234,18 @@
 .how-sheetbody .how-body { padding: 0; }
 
 .how-fig {
-  height: 132px; margin-bottom: var(--sp-4); padding: var(--sp-2);
+  display: flex; gap: var(--sp-2); justify-content: center;
+  height: 176px; margin-bottom: var(--sp-4); padding: var(--sp-2);
   background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-control);
   color: var(--ink);
+}
+/* The figure takes the room the close-up leaves; the close-up (a finger on the
+   edge, the tall back) sits beside it at the card's full height, so it is read
+   at a real size instead of as a 35px corner (#109). */
+.how-fig > .fig { flex: 1 1 auto; min-width: 0; width: auto; }
+.how-detail {
+  flex: 0 0 auto; width: auto; height: 100%; padding: var(--sp-2);
+  background: var(--panel); border-radius: var(--r-control);
 }
 .how-gist {
   margin: 0 0 var(--sp-3); font-size: var(--fs-body); line-height: 1.5; font-weight: 500; color: var(--ink);

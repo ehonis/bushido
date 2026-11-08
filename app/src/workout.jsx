@@ -27,7 +27,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
-import { Figure } from './lib/figures.jsx'
+import { Figure, mirrored } from './lib/figures.jsx'
 import { HowRow, HowSheet, HowBody } from './howto.jsx'
 import { CUES, primeAudio, resumeAudio, acquireWakeLock, releaseWakeLock } from './lib/cues.js'
 import {
@@ -454,7 +454,7 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onPause,
     <div className={`wo-face p-${phase} ${paused ? 'paused' : ''}`}>
       {step.how && !reading && (
         <button className="wo-how" onClick={onHow}>
-          <span className="wo-howfig"><Figure name={step.how.figure} detail={false} /></span>
+          <span className="wo-howfig"><Figure name={step.how.figure} mirror={mirrored(step.how.figure, step.exName)} /></span>
           <span className="wo-howgist">{step.how.gist}</span>
           <span className="wo-howmore">How</span>
         </button>
@@ -488,7 +488,7 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onPause,
           <div className="section-head wo-hownexth">
             <h3>Next up: {step.exName}</h3>
           </div>
-          <HowBody how={step.how} />
+          <HowBody how={step.how} name={step.exName} />
         </div>
       )}
 

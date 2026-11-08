@@ -41,7 +41,7 @@ import { impact, success, tap, warn } from '../ui/haptics'
 import { confirm } from '../ui/menu'
 import { Icon } from '../lib/icons'
 import { onForeground } from '../lib/foreground'
-import { Figure } from '../lib/figures'
+import { Figure, mirrored } from '../lib/figures'
 import { HowRow, HowSheet, HowBody } from './howto'
 import { NumInput } from './numinput'
 import { CUES, primeAudio, resumeAudio, acquireWakeLock, releaseWakeLock } from '../lib/cues'
@@ -556,7 +556,7 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onSkip, 
     <View style={st.face}>
       {step.how && !reading ? (
         <Press onPress={onHow} style={st.how} accessibilityRole="button" accessibilityLabel={`How to do ${step.exName}`}>
-          <Figure name={step.how.figure} color={colors.accent} detail={false} style={st.howFig} />
+          <Figure name={step.how.figure} color={colors.accent} mirror={mirrored(step.how.figure, step.exName)} style={st.howFig} />
           <T size={font.label} dim style={{ flex: 1, minWidth: 0 }}>{step.how.gist}</T>
           <View style={st.howMore}><T size={font.label} weight={600}>How</T></View>
         </Press>
@@ -589,7 +589,7 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onSkip, 
       {reading ? (
         <View style={st.howNext}>
           <SectionHeader title={`Next up: ${step.exName}`} style={st.howNextHead} />
-          <HowBody how={step.how} />
+          <HowBody how={step.how} name={step.exName} />
         </View>
       ) : null}
     </View>
