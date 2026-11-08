@@ -556,7 +556,7 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onSkip, 
     <View style={st.face}>
       {step.how && !reading ? (
         <Press onPress={onHow} style={st.how} accessibilityRole="button" accessibilityLabel={`How to do ${step.exName}`}>
-          <Figure name={step.how.figure} color={colors.accent} style={st.howFig} />
+          <Figure name={step.how.figure} color={colors.accent} detail={false} style={st.howFig} />
           <T size={font.label} dim style={{ flex: 1, minWidth: 0 }}>{step.how.gist}</T>
           <View style={st.howMore}><T size={font.label} weight={600}>How</T></View>
         </Press>

@@ -25,7 +25,7 @@ const SERVER = join(ROOT, 'server')
 const APP_SUITES = [
   'test:handoff', 'palette', 'test:fingers', 'test:streak', 'test:gear', 'test:progress',
   'test:workout', 'test:circuit', 'test:tests', 'test:sessionops', 'test:lifts', 'test:presc', 'test:naming',
-  'test:md', 'test:starter', 'test:exercises', 'test:signout', 'test:whoami', 'test:shared',
+  'test:md', 'test:figures', 'test:starter', 'test:exercises', 'test:signout', 'test:whoami', 'test:shared',
   'test:trainer', 'test:drafts', 'test:planflow', 'test:editing', 'test:blockmenu', 'test:runflow', 'test:runner', 'test:native', 'test:merge', 'test:targets', 'test:done', 'test:history', 'test:libsync', 'test:cycles', 'smoke',
 ]
 

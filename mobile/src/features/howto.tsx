@@ -103,7 +103,7 @@ export function HowRow({ exercise, open, onToggle, meta }: { exercise: any; open
   return (
     <View style={[s.row, open && s.rowOn]}>
       <Press haptic style={s.head} onPress={onToggle} accessibilityRole="button" accessibilityState={{ expanded: !!open }}>
-        <View style={s.thumb}><Figure name={how?.figure} color={open ? colors.accent : colors.inkDim} /></View>
+        <View style={s.thumb}><Figure name={how?.figure} color={open ? colors.accent : colors.inkDim} detail={false} /></View>
         <View style={s.heads}>
           <T size={font.body} weight={600}>{exercise.name}</T>
           {how?.gist ? <T size={font.caption} dim numberOfLines={open ? 3 : 2}>{how.gist}</T> : null}
@@ -113,7 +113,7 @@ export function HowRow({ exercise, open, onToggle, meta }: { exercise: any; open
           <Icon name="ChevronDown" size={17} color={open ? colors.accent : colors.inkFaint} />
         </View>
       </Press>
-      {open && how ? <HowBody how={how} showFigure={false} style={s.body} /> : null}
+      {open && how ? <HowBody how={how} style={s.body} /> : null}
       {open && !how ? (
         <T size={font.label} faint style={s.none}>
           No step-by-step for this one yet — the full protocol is in the sections above.

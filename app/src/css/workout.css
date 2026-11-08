@@ -83,7 +83,7 @@ button.btn.quiet.wo-sound { align-self: center; }
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-control);
   color: inherit; font: inherit;
 }
-.wo-howfig { flex: 0 0 auto; width: 44px; height: 38px; color: var(--accent); }
+.wo-howfig { flex: 0 0 auto; width: 44px; height: 38px; color: var(--accent); --fig-cue: var(--ink); }
 .wo-howgist { flex: 1; min-width: 0; font-size: var(--fs-label); line-height: 1.4; color: var(--ink-dim); }
 .wo-howmore {
   flex: 0 0 auto; font-size: var(--fs-label); font-weight: 600; color: var(--ink);

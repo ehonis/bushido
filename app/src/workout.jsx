@@ -454,7 +454,7 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onPause,
     <div className={`wo-face p-${phase} ${paused ? 'paused' : ''}`}>
       {step.how && !reading && (
         <button className="wo-how" onClick={onHow}>
-          <span className="wo-howfig"><Figure name={step.how.figure} /></span>
+          <span className="wo-howfig"><Figure name={step.how.figure} detail={false} /></span>
           <span className="wo-howgist">{step.how.gist}</span>
           <span className="wo-howmore">How</span>
         </button>
