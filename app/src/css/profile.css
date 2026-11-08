@@ -10,11 +10,11 @@
  * went with that pass.
  */
 
-code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: var(--fs-small); }
+code { background: var(--panel-2); padding: 1px var(--sp-1); border-radius: var(--r-mark); font-size: var(--fs-label); }
 
 /* Which service a logged workout came from, on the Log feed (log.jsx). */
 .srcpip {
-  padding: 1px var(--sp-1); border-radius: 4px; font-size: var(--fs-micro);
+  padding: 1px var(--sp-1); border-radius: var(--r-mark); font-size: var(--fs-caption);
   border: 1px solid var(--line); color: var(--ink-dim);
 }
 .srcpip.whoop { border-color: color-mix(in oklab, var(--series-1) 45%, var(--line)); }
@@ -49,7 +49,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 /* ------------------------------------------------------ the facts form */
 
 .factgrid { display: grid; gap: var(--sp-3); margin-top: var(--sp-3); }
-.fact-label { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.fact-label { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
 /* A value shown on the user's behalf says where it came from (AGENTS.md §6.4). */
 .fact-from { font-size: var(--fs-caption); color: var(--ink-faint); }
 .fact-hint { font-size: var(--fs-caption); color: var(--ink-faint); }
@@ -57,7 +57,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 
 /* -------------------------------------------------------------- testing */
 
-.deflist { display: grid; grid-template-columns: minmax(96px, auto) 1fr; gap: var(--sp-2) var(--sp-3); margin: 0; font-size: var(--fs-small); }
+.deflist { display: grid; grid-template-columns: minmax(96px, auto) 1fr; gap: var(--sp-2) var(--sp-3); margin: 0; font-size: var(--fs-label); }
 .deflist dt { color: var(--ink-dim); }
 .deflist dd { margin: 0; }
 .test-run { margin-top: var(--sp-3); }
@@ -66,9 +66,9 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .runner-sec { margin-bottom: var(--sp-4); }
 .runner-sec .section-head { margin: var(--sp-4) 0 var(--sp-2); }
 .runner-sec p { margin: 0; }
-.runner-sec.caution ul { margin: 0; padding-left: 18px; color: var(--ink-dim); }
+.runner-sec.caution ul { margin: 0; padding-left: var(--sp-4); color: var(--ink-dim); }
 .runner-sec .field + .field { margin-top: var(--sp-3); }
-.steps { margin: 0; padding-left: 20px; }
+.steps { margin: 0; padding-left: var(--sp-6); }
 .steps li { margin-bottom: var(--sp-2); }
 
 /* The number the test exists to produce: what to set the gauge to. */
@@ -81,9 +81,9 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .ceiling-date { margin-left: auto; font-weight: 400; font-size: var(--fs-caption); color: var(--ink-dim); }
 .ceiling-nums { display: flex; gap: var(--sp-6); flex-wrap: wrap; margin-bottom: var(--sp-4); }
 .ceiling-big { display: flex; flex-direction: column; gap: 2px; }
-.ceiling-big strong { font-size: var(--fs-display); font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.ceiling-big strong { font-size: var(--fs-stat); font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
 .ceiling-big.accent strong { color: var(--accent); }
-.ceiling-big span { font-size: var(--fs-caption); color: var(--ink-dim); }
+.ceiling-big span { font-size: var(--fs-label); color: var(--ink-dim); }
 
 /* ----------------------------------------------------------------- why */
 
@@ -102,8 +102,8 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .ev-src { margin: var(--sp-2) 0 0; font-size: var(--fs-caption); color: var(--ink-faint); }
 
 .disagree { border-top: 1px solid var(--line); padding-top: var(--sp-2); }
-.disagree summary { font-size: var(--fs-small); color: var(--ink-dim); cursor: pointer; min-height: var(--tap); display: flex; align-items: center; }
-.disagree p { margin: 6px 0 0; font-size: var(--fs-small); color: var(--ink-dim); }
+.disagree summary { font-size: var(--fs-label); color: var(--ink-dim); cursor: pointer; min-height: var(--tap); display: flex; align-items: center; }
+.disagree p { margin: var(--sp-2) 0 0; font-size: var(--fs-label); color: var(--ink-dim); }
 
 /* ----------------------------------------------------------------- gear */
 
@@ -111,9 +111,9 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .gear-row .list-row-meta { white-space: normal; }
 /* The mileage gap, said out loud — see GearRow. */
 .gear-gap { color: var(--warn); }
-.gear-num { flex: none; text-align: right; color: var(--ink-dim); font-size: var(--fs-small); font-variant-numeric: tabular-nums; display: grid; justify-items: end; }
+.gear-num { flex: none; text-align: right; color: var(--ink-dim); font-size: var(--fs-label); font-variant-numeric: tabular-nums; display: grid; justify-items: end; }
 .gear-num strong { color: var(--ink); font-size: var(--fs-title); font-weight: 600; }
-.gear-num .sub { font-size: var(--fs-caption); }
+.gear-num .sub { font-size: var(--fs-label); }
 .gear-form .field { margin-top: var(--sp-3); }
 .gear-form .row { margin-top: 0; }
 .gear-form .list { margin-top: var(--sp-3); }
@@ -137,16 +137,22 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 /* ------------------------------------------------------- the screen readout */
 
 .screen-grid {
-  display: grid; grid-template-columns: auto 1fr; gap: 6px var(--sp-3); margin: var(--sp-2) 0;
-  font-size: var(--fs-small); font-variant-numeric: tabular-nums;
+  display: grid; grid-template-columns: auto 1fr; gap: var(--sp-2) var(--sp-3); margin: var(--sp-2) 0;
+  font-size: var(--fs-label); font-variant-numeric: tabular-nums;
 }
 .screen-grid dt { color: var(--ink-dim); }
 .screen-grid dd { margin: 0; color: var(--ink); }
-.screen-verdict { margin: 0; display: flex; gap: 6px; align-items: flex-start; }
-.screen-verdict svg { flex: 0 0 auto; margin-top: 3px; }
+.screen-verdict { margin: 0; display: flex; gap: var(--sp-2); align-items: flex-start; }
+.screen-verdict svg { flex: 0 0 auto; margin-top: var(--sp-1); }
 
 /* A group on a profile page. The popover already contains them, so they are
    divided by a hairline rather than boxed: a card in a sheet is a box in a box. */
 .prof-sec + .prof-sec, .list + .prof-sec, .prof-sec + .list { border-top: 1px solid var(--line); margin-top: var(--sp-4); padding-top: var(--sp-4); }
 .prof-sec > .section-head:first-child { margin-top: 0; }
 .prof-sec > h2 { font-size: var(--fs-title); font-weight: 600; line-height: var(--lh-tight); margin: 0 0 var(--sp-1); }
+
+/* Troubleshooting (#82): the screen probe, folded at the foot of Settings. */
+.prof-trouble { margin-top: var(--sp-6); }
+.prof-trouble > summary { list-style: none; }
+.prof-trouble > summary::-webkit-details-marker { display: none; }
+.prof-trouble[open] > summary .list-row-chev { transform: rotate(180deg); }

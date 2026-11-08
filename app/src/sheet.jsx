@@ -85,10 +85,13 @@ export const planTalkWhere = ({ ai, doing }) => (!ai ? null : doing ? 'details' 
  * that shows you three complete protocols at once is a dashboard you scroll
  * past instead of reading.
  */
+/** The day a card is put on, as the button says it: "Add to Today", "Add to Sat, Oct 24" (#82). */
+const dayTitle = (iso) => (iso ? dayWords(iso) : 'Today')
+
 export function SessionSheet({
   opt, entry, tone, entries, isFuture,
   onLog, onSave, onSavePlan = null, onRemove, onSetDone, onClose, onStartWorkout,
-  onTraining = null, onSaveEntry = null, me = currentMe(),
+  onTraining = null, onSaveEntry = null, me = currentMe(), day = null,
 }) {
   // Locks the sheet to the X button once you've touched the form. See modal.jsx.
   const [dirty, setDirty] = useState(false)
@@ -197,7 +200,7 @@ export function SessionSheet({
    */
   /* A run already under way, or finished and reopened by Start (#75), is carried
      on, not started: the runner opens where it was. */
-  const startWords = (e) => (runOf(e)?.startedAt ? 'Carry on' : pres ? 'Start the workout' : 'Start workout')
+  const startWords = (e) => (runOf(e)?.startedAt ? 'Carry on' : 'Start workout')
   const start = (side = null) => (
     <SheetStart label={startWords(side ? theirs.entry : entry)} onStart={() => { setDirty(true); onStartWorkout(opt, side) }} />
   )
@@ -215,7 +218,7 @@ export function SessionSheet({
     footer = (
       <div className="sheet-foot">
         <button type="button" className="btn" onClick={() => { setDirty(true); onLog(opt) }}>
-          {opt.role === 'rest' ? 'Take a rest day' : 'Add to today'}
+          {opt.role === 'rest' ? 'Take a rest day' : `Add to ${dayTitle(day)}`}
         </button>
       </div>
     )
@@ -262,7 +265,7 @@ export function SessionSheet({
          looking at, so it belongs where the session's title is. */
       onRename={planned && !isFuture && !sidePerson ? () => setRenaming(true) : null}
       onDelete={onRemove && entry && !sidePerson ? () => onRemove(entry) : null}
-      deleteLabel={entry?.date && entry.date !== localIso() ? 'Remove this workout' : 'Remove from today'}
+      deleteLabel="Remove workout"
       footer={footer}
     >
       {/* Whose copy this sheet is filling in, pinned while the sheet scrolls. Only on a shared workout. */}

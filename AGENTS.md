@@ -81,7 +81,7 @@ reasons behind the design, and the things that have been removed on purpose.
 
 | Thing | Path | Notes |
 |---|---|---|
-| Render smoke suite | `app/smoke/` | `npm run smoke` in `app/`. Mounts every tab and session viewer against real content: one file of cases per area (`today.jsx`, `sheet.jsx`, `editor.jsx`, `planner.jsx`, `runner.jsx`, `workout.jsx`, `timer.jsx`, `log.jsx`, `progress.jsx`, `profile.jsx`, `people.jsx`, `misc.jsx`), shared `fixtures.jsx`, one runner `index.jsx`. |
+| Render smoke suite | `app/smoke/` | `npm run smoke` in `app/`. Mounts every tab and session viewer against real content: one file of cases per area (`today.jsx`, `sheet.jsx`, `editor.jsx`, `planner.jsx`, `runner.jsx`, `workout.jsx`, `timer.jsx`, `log.jsx`, `progress.jsx`, `profile.jsx`, `people.jsx`, `misc.jsx`, `system.jsx`: the visual system), shared `fixtures.jsx`, one runner `index.jsx`. |
 | Store, merge, `isDone`, `markDone`, `doneWhenPlaced`, `isTraining`, entry ids | `app/src/lib/store.js` | The server's word-for-word copy of `isDone` is in `server/notify-facts.js` (§4). |
 | Session lookup | `app/src/lib/menu.js` | `optFor(menu, optId)`; renamed cards declare old ids as `aka`. |
 | Categories | `app/src/lib/category.js` | `categoryOf`, `disciplineOf`: what an entry files under, for the Log filter and Progress. |
@@ -118,7 +118,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Number inputs | `app/src/numinput.jsx`, `app/src/lib/numtext.js` | Text inputs that own their text (§6.4). |
 | Body diagram | `app/src/lib/bodymap.jsx`, `app/muscles.build.mjs` | `react-body-highlighter` + `free-exercise-db`; nothing hand-drawn. |
 | How-to figures | `app/src/howto.jsx`, `app/src/lib/figures.jsx` | Registry of SVG figures named by content. |
-| Palette | `app/src/styles.css` `:root`, `app/validate_palette.js` | `npm run palette`; a real gate (§6.10). |
+| Palette | `app/src/styles.css` `:root`, `app/validate_palette.js` | `npm run palette`; a real gate (§6.10). The rest of the token contract is pinned by `app/smoke/system.jsx` (§10.12). |
 | Styles | `app/src/styles.css` (tokens, base components, shell), `app/src/css/<area>.css` (each screen area's rules, one owner each), `app/src/timer.css` | A new rule goes in its area's file (`sheet.css`, `today.css`, `planner.css`, `editor.css`, `runner.css`, `workout.css`, …); `main.jsx` imports them in cascade order. See `docs/DESIGN.md`, "Visual system". |
 | Notifications client | `app/src/lib/push.js`, `app/src/notifications.jsx` | |
 | Device screen probe | `app/src/screeninfo.jsx` | Measures the iOS safe-area bug on the device (§10.5). |
@@ -437,7 +437,7 @@ section keeps only the keys `blank()` names, so a removed setting is dropped on 
     exercise's "last time" and the session history come from THEIR log
     (`/api/people/:id/state`), labelled with their name. Their copy is re-read every few
     seconds while open, so the other phone's changes appear. Their side of a planned
-    session shows their plan in the same editor, and "Start the workout" opens the sides
+    session shows their plan in the same editor, and "Start workout" opens the sides
     runner on their side.
   - The owner's sheet reads and writes the copy through `/api/people/:id/entry`, never
     through the owner's store or cache, so logs still never mix on a device. The server
@@ -618,7 +618,7 @@ override, and its absence must render exactly like the app before it existed.
 - **Done once something is done on it or its day has passed, unless marked undone**
   (docs/DESIGN.md D2 since 2026-10-25; the owner's D10 since #74). A workout LOGGED on
   today or an earlier day is written `done: true` (`doneWhenPlaced`). A PLAN kept for
-  today (`placeEntries` with `data.plan`: Plan a workout, the timer's "Put it on today", a
+  today (`placeEntries` with `data.plan`: Plan a workout, the timer's "Add to Today", a
   plan for someone else) and anything put on a later day is written `done: false`, and
   `isDone()` reads that as not done while its day is to come; ON its day, done once it is
   `touched` (a number logged on it or typed into its plan's sets, `loggedOn`; its run
@@ -1088,8 +1088,8 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   same editor, the same entry. `BuildStep` has nothing that claims a model reasoned about
   it; the revise panel on the entry still works for either.
 - **A plan lands on a day the user picks** (#78): the day Today is showing, or any later
-  one, never earlier (that is Log a workout's), and the keep button says it ("Put it on
-  tomorrow", `forWords(who, day)`). A plan for a later day tells the model which day it is
+  one, never earlier (that is Log a workout's), and the keep button says it ("Add to
+  Tomorrow", `forWords(who, day)`). A plan for a later day tells the model which day it is
   for (`plannerContext({ day })`), and its last screen offers no Start. Whether it reads as
   done is the store's rule (§4), through the same keep paths.
 - **Back never throws a hand-built workout away silently** (`backOf` in lib/planflow.js):
@@ -1100,7 +1100,7 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   page loses nothing; the first screen lists drafts and reopens one at its step
   (`draftStep`); keeping one places it as always and then discards it. A draft whose run
   is not in this process (a restart) reads as failed with a retry, never "working".
-- **A draft is kept once.** "Put it on today" claims it first (`POST …/keep`; a second
+- **A draft is kept once.** "Add to Today" claims it first (`POST …/keep`; a second
   device is refused and sent back to the list), and the placed plan carries
   `data.plan.draftId`. A draft whose id is on an entry is on a day: the app does not offer
   it and the server deletes it, which is what retires a draft kept offline.
@@ -1114,7 +1114,7 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   are the most sets any had (3 × 15 crunches is three rounds of fifteen); off, plain
   sets, with the timing waiting on the block as `wasCircuit` so on again restores it
   (`dropEmptyBlocks` drops it when the plan is kept). `blockTimer(block)` is the timer config, so a plan's circuit and the same preset
-  are one program, and "Put it on today" from the timer is `circuitPlan`, the same plan.
+  are one program, and "Add to Today" from the timer is `circuitPlan`, the same plan.
   The model may write one (`circuit` in the reply schema, the prompt's CIRCUIT
   paragraph); `noLoads` still applies. A circuit's timing is shared STRUCTURE in a synced
   workout (`server/sharedsync.js` `circuitOf`, kept out of `BLOCK_KEYS` so stored bases
@@ -1673,6 +1673,30 @@ footer. Web and native, pinned in `app/smoke/people.jsx`:
   adds a hold, a ride an interval, a swim a swim set.
 - **Data safety, first**: a weight on a shared copy is that person's log, typed mark or not
   (§3, `ownWeight`).
+
+### 10.12 One feel (#82, 2026-11-08)
+
+The last fix of overhaul 2: the G-visual-ia token contract on both platforms at once. Look
+only; behaviour did not change. Pinned by `app/smoke/system.jsx` (and the cases named):
+
+- **One size per role**, the same numbers in `styles.css` and `mobile/src/theme.ts`: caption
+  12 (timestamps, ticks, provenance only), label 14 (anything read to choose the next tap:
+  units, modes, field labels, chips), body 16, title 18, screen 24, stat 32, the live clocks
+  88–160 and the runner's set in progress 56. The desktop changes layout, never type. Every
+  font size, radius and space in every stylesheet and native screen is a token; the retired
+  ones (11/13/15/17/22, `--sp-5`, `radius.sm`…) fail the suite.
+- **Targets**: 44 the floor for everything pressed on its own (filter chips and segments were
+  36/38), 48 buttons and fields, 56 rows and a running workout's primary.
+- **Four buttons**: primary, secondary (ghost folded in), quiet, destructive (was `bad`).
+- **Layout matrix** (docs/DESIGN.md "Layout"): at 1024 and up the shell caps at 1120, the Log is
+  a 680 reading column and Progress lays charts out side by side; `main[data-tab]` carries it.
+- **The sheet header** (#91's review): a title row whose context line never wraps, and the
+  state row (done chip, sharing) across the full width under it
+  (`SessionSheet(header at 390 on an older day…)`).
+- **One name per action**: Add to <the day>, Start workout, Finish workout, Remove workout,
+  Done editing (`copy(one name per action…)`). The screen probe is under Troubleshooting.
+- `scripts/test.mjs` refuses a test file or a test-running script that no listed suite runs,
+  whatever its name (it saw only `test:*` names).
 
 ## 11. Before you finish
 

@@ -26,6 +26,7 @@ import {
 import { removalWords } from '../lib/removal.js'
 import { ExerciseSection, useUndoable } from './exercises'
 import { Btn } from '../ui/kit'
+import { space } from '../theme'
 
 /**
  * A logged lift, in the shape `ExerciseCard` reads. `kind: 'lift'` makes
@@ -95,9 +96,9 @@ export function LiftLog({ field, out, entries = [], entryId = null, onSave, hint
   })))
 
   return (
-    <View style={{ gap: 14 }}>
+    <View style={{ gap: space[4] }}>
       {!list.length && yours.length > 0 && (
-        <Btn kind="ghost" title={`Same exercises as you (${yours.length}), numbers blank`} onPress={startFromYours} />
+        <Btn kind="secondary" title={`Same exercises as you (${yours.length}), numbers blank`} onPress={startFromYours} />
       )}
       <ExerciseSection
         title={field.label || 'What did you lift?'}

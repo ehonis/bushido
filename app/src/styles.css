@@ -1,3 +1,6 @@
+/* A dark app: native controls (pickers, scrollbars, autofill) draw dark too. */
+:root { color-scheme: dark; }
+
 :root {
   /*
    * CARBON — chosen out of three rendered options to replace the warm-dark
@@ -52,39 +55,65 @@
   --toast-success: #2f7a2f;
   --toast-info: #2b6aa8;
 
-  /* Type. Seven sizes; the CSS had twenty-seven. --fs-micro is for the dock's
-     labels and chart ticks only, never for something a person has to read to
-     decide. Weights are 400, 500 and 600; nothing is uppercase. */
+  /* Type: one size per ROLE (#82, the G-visual-ia contract), the same numbers
+     in mobile/src/theme.ts `font` and `leading`. Nothing a person reads to
+     choose the next tap is under 14 (a label); 12 is for timestamps, chart
+     ticks and where a number came from, nothing else. The desktop uses the same
+     sizes: it changes layout, never shrinks a title. Weights 400, 500 and 600;
+     nothing is uppercase or letter-spaced. Every font-size in app/src is one of
+     these (`app/smoke/misc.jsx`, "the type scale"). */
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --fs-micro: 11px;
-  --fs-caption: 12px;
-  --fs-small: 13px;
-  --fs-body: 15px;
-  --fs-input: 16px;
-  --fs-title: 17px;
-  --fs-heading: 22px;
-  --fs-display: 32px;
+  --fs-caption: 12px;  /* timestamps, chart ticks, provenance */
+  --fs-label: 14px;    /* field labels, units, chips, a line under a title */
+  --fs-body: 16px;     /* prose, list rows, buttons, section heads (600) */
+  --fs-input: 16px;    /* every input: iOS zooms the page under 16 */
+  --fs-title: 18px;    /* a card's or a sheet's title */
+  --fs-screen: 24px;   /* a screen's own title: Today, a task's head */
+  --fs-stat: 32px;     /* the one headline number on a screen */
+  /* The live clocks (runner rest, interval timer, workout mode): the only
+     display size, as wide as the screen allows. */
+  --fs-clock-min: 88px;
+  --fs-clock: clamp(var(--fs-clock-min), 34vw, 160px);
+  /* The number of the set in progress in the runner (reps, a weight), between
+     two 64px steppers and read off the floor: the clocks' family, at the size
+     that fits between them at 390. */
+  --fs-live: 56px;
+  --lh-caption: 16px;
+  --lh-label: 20px;
+  --lh-body: 1.5;      /* 24px at 16; a ratio because the body inherits it */
+  --lh-action: 22px;   /* buttons and section heads */
+  --lh-title: 24px;
+  --lh-screen: 30px;
+  --lh-stat: 38px;
   --lh-tight: 1.25;
-  --lh-body: 1.5;
 
-  /* Space, on a 4px grid. --gutter is the screen's side margin. */
+  /* Space: 4, 8, 12, 16, 24, 32 and nothing between. --gutter is the
+     screen's side margin (24 on a desktop), --pad-card a card's inset. */
   --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;
   --sp-4: 16px;
-  --sp-5: 20px;
   --sp-6: 24px;
   --sp-8: 32px;
   --gutter: 16px;
+  --pad-card: 16px;
 
-  /* Radius, one rule: controls 10, containers 12, sheets 20, chips and round
-     buttons pill. --radius stays as the container value for older rules. */
+  /* Radius, one rule: controls 10, containers 12, overlays 20, a pill for
+     chips, avatars, the person switch and the dock. --r-mark is for marks
+     inside a control (a chart bar, a progress track, a tag), not a surface. */
+  --r-mark: 4px;
   --r-control: 10px;
   --r-card: 12px;
   --r-sheet: 20px;
   --r-pill: 999px;
   --radius: var(--r-card);
+
+  /* Targets. 44 is the floor for anything pressed on its own; buttons and
+     fields are 48, a list row 56, the primary of a running workout 56. */
   --tap: 44px;
+  --h-control: 48px;
+  --h-row: 56px;
+  --h-run: 56px;
 
   /* Elevation. Cards are flat (a line, no shadow). Only things that float over
      the page cast one: the dock and the + (2), sheets and menus (3). */
@@ -165,7 +194,7 @@ button, a, input, select, label { touch-action: manipulation; }
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  min-height: 56px;
+  min-height: var(--h-row);
   padding: var(--sp-2) var(--gutter);
   padding-top: max(var(--sp-2), env(safe-area-inset-top));
   background: linear-gradient(var(--bg) 80%, transparent);
@@ -198,7 +227,7 @@ button, a, input, select, label { touch-action: manipulation; }
   border: 1px solid var(--accent-line);
   border-radius: var(--r-card);
   background: var(--accent-soft);
-  font-size: var(--fs-small);
+  font-size: var(--fs-label);
 }
 .acting > svg { color: var(--accent); flex: none; }
 .acting > span { flex: 1; min-width: 0; }
@@ -238,13 +267,13 @@ button, a, input, select, label { touch-action: manipulation; }
 .pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: var(--sp-2);
+  font-size: var(--fs-caption);
   color: var(--ink-dim);
   border: 1px solid var(--line);
   background: var(--panel);
-  border-radius: 999px;
-  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  padding: var(--sp-1) var(--sp-2);
   white-space: nowrap;
 }
 
@@ -266,7 +295,7 @@ button, a, input, select, label { touch-action: manipulation; }
   gap: 2px;
   overflow-x: auto;
   scrollbar-width: none;
-  padding: 0 10px 8px;
+  padding: 0 var(--sp-2) var(--sp-2);
   background: var(--bg);
   border-bottom: 1px solid var(--line);
 }
@@ -333,7 +362,7 @@ button, a, input, select, label { touch-action: manipulation; }
     align-items: stretch;
     gap: 2px;
     overflow: visible;
-    padding: 5px;
+    padding: var(--sp-1);
     border: 1px solid rgb(255 255 255 / 0.12);
     border-radius: var(--r-pill);
     background: color-mix(in oklab, var(--panel) 92%, transparent);
@@ -382,7 +411,7 @@ button, a, input, select, label { touch-action: manipulation; }
     /* --ink-faint is legible against a flat panel; against blurred, moving
        content it isn't, so inactive tabs sit a step brighter on the glass. */
     color: var(--ink-dim);
-    font-size: var(--fs-micro);
+    font-size: var(--fs-caption);
     font-weight: 600;
     padding: 0 2px;
     border-radius: var(--r-pill);
@@ -399,8 +428,8 @@ button, a, input, select, label { touch-action: manipulation; }
     background: rgb(255 255 255 / 0.09);
   }
   .tab[aria-selected='true'] .tab-ico { color: var(--accent); }
-  /* Three tabs have room for a label a step bigger than seven did. */
-  .app:not([data-dock='wide']) .tab-label { font-size: var(--fs-caption); }
+  /* Three tabs have room for a label at the label size. */
+  .app:not([data-dock='wide']) .tab-label { font-size: var(--fs-label); }
 
   /* Clear the floating bar so the last card is never trapped under it. The
      selector is `.app > main` rather than `main` on purpose: the base rule below
@@ -408,13 +437,13 @@ button, a, input, select, label { touch-action: manipulation; }
      beating this one — the old bar had the same bug and the last card really was
      sitting under it. The wide layout also clears the + row above the bar. */
   .app > main { padding-bottom: calc(var(--dock-clear) + env(safe-area-inset-bottom)); }
-  .app[data-dock='wide'] > main { padding-bottom: calc(var(--dock-clear) + 76px + env(safe-area-inset-bottom)); }
+  .app[data-dock='wide'] > main { padding-bottom: calc(var(--dock-clear) + var(--dock-h) + var(--sp-4) + env(safe-area-inset-bottom)); }
 
 }
 
 /* ------------------------------------------------------------------ body */
 
-main { flex: 1; padding: var(--sp-4) var(--gutter) 48px; }
+main { flex: 1; padding: var(--sp-4) var(--gutter) calc(var(--sp-8) + var(--sp-4)); }
 
 /*
  * THE BASE COMPONENTS. Each one is a pattern in docs/DESIGN.md with a twin of
@@ -427,16 +456,16 @@ main { flex: 1; padding: var(--sp-4) var(--gutter) 48px; }
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--r-card);
-  padding: var(--sp-4);
+  padding: var(--pad-card);
   margin-bottom: var(--sp-3);
 }
 
 /* A card's title is a title: bigger than the body under it, never smaller. */
-.card h2 { font-size: var(--fs-title); font-weight: 600; line-height: var(--lh-tight); margin: 0 0 var(--sp-1); }
+.card h2 { font-size: var(--fs-title); font-weight: 600; line-height: var(--lh-title); margin: 0 0 var(--sp-1); }
 .card p.sub { margin: 0 0 var(--sp-3); }
 
 /* Secondary text: the line under a title, a hint under a field. */
-.sub { color: var(--ink-dim); font-size: var(--fs-small); line-height: 1.45; }
+.sub { color: var(--ink-dim); font-size: var(--fs-label); line-height: var(--lh-label); }
 
 /* Section header: a title for a group inside a screen or a card, in sentence
    case, with an optional count or action at the right. Replaces the small
@@ -446,7 +475,7 @@ main { flex: 1; padding: var(--sp-4) var(--gutter) 48px; }
   margin: var(--sp-6) 0 var(--sp-2);
 }
 .section-head:first-child { margin-top: 0; }
-.section-head h3 { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-body); font-weight: 600; }
+.section-head h3 { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-body); line-height: var(--lh-action); font-weight: 600; }
 .section-head .sub { margin: 0; flex: none; }
 
 /* List: rows inside a card, divided by inset hairlines. A row is one thing you
@@ -454,14 +483,15 @@ main { flex: 1; padding: var(--sp-4) var(--gutter) 48px; }
 .list { display: flex; flex-direction: column; }
 .list-row {
   display: flex; align-items: center; gap: var(--sp-3);
-  width: 100%; min-height: 52px; padding: var(--sp-2) 0;
+  width: 100%; min-height: var(--h-row); padding: var(--sp-2) 0;
   background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
 .list-row + .list-row { border-top: 1px solid var(--line); }
 .list-row > svg:first-child { color: var(--ink-dim); flex: none; }
 .list-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.list-row-title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.list-row-meta { font-size: var(--fs-small); color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+/* A long title wraps rather than losing its end; the meta stays readable. */
+.list-row-title { font-weight: 500; overflow-wrap: anywhere; }
+.list-row-meta { font-size: var(--fs-label); color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 .list-row-chev { color: var(--ink-faint); flex: none; }
 
 /* Empty state: says what goes here and offers the one way to put it there. */
@@ -470,7 +500,7 @@ main { flex: 1; padding: var(--sp-4) var(--gutter) 48px; }
   color: var(--ink-dim);
   font-size: var(--fs-body);
   text-align: center;
-  padding: var(--sp-8) var(--sp-5);
+  padding: var(--sp-8) var(--sp-6);
   border: 1px dashed var(--line-strong);
   border-radius: var(--r-card);
 }
@@ -478,10 +508,10 @@ main { flex: 1; padding: var(--sp-4) var(--gutter) 48px; }
 
 /* --------------------------------------------------------------- controls */
 
-.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.row { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: flex-end; }
 
 /* Field: the label above its control, helper text under it. */
-label.field { display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-small); color: var(--ink-dim); flex: 1 1 110px; }
+label.field { display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--fs-label); color: var(--ink-dim); flex: 1 1 110px; }
 
 input, select, textarea {
   font: inherit;
@@ -492,8 +522,8 @@ input, select, textarea {
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: var(--r-control);
-  padding: 10px 12px;
-  min-height: var(--tap);
+  padding: var(--sp-2) var(--sp-3);
+  min-height: var(--h-control);
   width: 100%;
 }
 input::placeholder, textarea::placeholder { color: var(--ink-faint); }
@@ -501,29 +531,34 @@ input::placeholder, textarea::placeholder { color: var(--ink-faint); }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 /*
- * Buttons. One primary per screen (the accent, filled). Secondary is a solid
- * neutral for the other real choice; ghost is outlined for "back out" and
- * "cancel"; quiet is text for a minor action; bad is a destructive confirm.
- * All are 44px tall, one line, a verb.
+ * Buttons: four kinds, the same four on the phone (kit.tsx `Btn`). Primary is
+ * the one consequential next action on a screen (the accent, filled; never
+ * Close). Secondary is a solid neutral for any other real choice, backing out
+ * included (Cancel, Keep it, Keep going). Quiet is text for a minor action.
+ * Destructive is the verb of a removal, only on the screen that asks first.
+ * 48px tall (`--h-control`), one line, a verb; `.run` is a running workout's
+ * primary at 56. Pressed settles 1px in 120ms; disabled is 40%.
  */
 button.btn {
   display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2);
   font: inherit;
   font-weight: 600;
+  line-height: var(--lh-action);
   color: var(--on-accent);
   background: var(--accent);
   border: 1px solid var(--accent);
   border-radius: var(--r-control);
   padding: 0 var(--sp-4);
-  min-height: var(--tap);
+  min-height: var(--h-control);
   cursor: pointer;
   white-space: nowrap;
   transition: transform var(--dur-fast) var(--ease-out), filter var(--dur-fast) var(--ease-out);
 }
 button.btn:hover { filter: brightness(1.06); }
 button.btn.secondary { background: var(--panel-3); color: var(--ink); border-color: var(--line-strong); }
-button.btn.ghost { background: transparent; color: var(--ink-dim); border: 1px solid var(--line-strong); }
 button.btn.quiet { background: transparent; color: var(--ink-dim); border-color: transparent; padding: 0 var(--sp-3); }
+button.btn.destructive { background: var(--viz-crit); color: var(--bg); border-color: var(--viz-crit); }
+button.btn.run { min-height: var(--h-run); font-size: var(--fs-title); }
 button.btn:active { transform: translateY(1px); }
 
 /* Icon button: a 44px square with only an icon, and an aria-label always.
@@ -539,30 +574,41 @@ button.btn:active { transform: translateY(1px); }
 .iconbtn:hover, .modal-btn:hover { color: var(--ink); background: var(--panel-3); }
 .iconbtn:active, .modal-btn:active { background: var(--panel-3); }
 
+/* Bordered icon button: a rounded square for a control that must read as one
+   on its own (the ± beside a number). The phone's `IconBtn bordered`. */
+.qbtn {
+  width: var(--tap); height: var(--tap);
+  display: grid; place-items: center;
+  background: none; border: 1px solid var(--line); border-radius: var(--radius);
+  color: var(--ink); cursor: pointer;
+}
+.qbtn:disabled { opacity: 0.3; cursor: default; }
+.qbtn:not(:disabled):active { background: var(--panel-2); }
+
 /* ----------------------------------------------------------------- table */
 
-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-th { text-align: left; font-weight: 500; color: var(--ink-faint); font-size: 12px; padding: 6px 8px; }
-td { padding: 9px 8px; border-top: 1px solid var(--line); }
+table { width: 100%; border-collapse: collapse; font-size: var(--fs-label); }
+th { text-align: left; font-weight: 500; color: var(--ink-faint); font-size: var(--fs-label); padding: var(--sp-2) var(--sp-2); }
+td { padding: var(--sp-2) var(--sp-2); border-top: 1px solid var(--line); }
 td.num { font-variant-numeric: tabular-nums; }
 .card.note { border-left: 2px solid var(--accent); }
 
 /* --------------------------------------------------------------- evidence */
 
-.filters { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.filters { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-3); flex-wrap: wrap; }
 
 /* ------------------------------------------------------------ icons / nav */
 
-.tab { display: inline-flex; align-items: center; gap: 7px; }
+.tab { display: inline-flex; align-items: center; gap: var(--sp-2); }
 .tab-ico { flex: 0 0 auto; opacity: 0.75; }
 .tab[aria-selected='true'] .tab-ico { opacity: 1; }
 
 @media (max-width: 719px) {
-  /* Icon over label: 6 tabs across a 375px screen have ~60px each, and a glyph
-     reads faster than 11px text when you're glancing at it mid-session. */
-  .tab { flex-direction: column; gap: 3px; }
+  /* Icon over label: a glyph reads faster than text when you're glancing at
+     it mid-session. Seven tabs (the wide dock) get the caption size. */
+  .tab { flex-direction: column; gap: var(--sp-1); }
   .tab-label {
-    font-size: var(--fs-micro); line-height: 1.1;
+    font-size: var(--fs-caption); line-height: 1.1;
     max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
 }
@@ -570,17 +616,17 @@ td.num { font-variant-numeric: tabular-nums; }
 /* Inline glyphs sit on the text baseline rather than floating above it. */
 .rec-tag svg, .rec-meta svg, .rec-why svg, .opt-name svg, .ev-badge svg { vertical-align: -2px; }
 
-/* Chip: a filter or a short answer, pill-shaped. 36px tall in a filter row
-   (the row's gap keeps a miss from landing on a neighbour); an answer to a
-   question is `.out-chip`, the same pill at 44px. Selected is the accent tint,
+/* Chip: a filter or a short answer, pill-shaped, 44px tall like every
+   independent target (#82: filter chips were 36); an answer to a question is
+   `.out-chip`, the same pill. Selected is the accent tint,
    never colour alone: the border and fill change too. Used by every screen, so
    it is a base component here rather than an area's (#55; the split, #39, had
    left it in profile.css). */
 .chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  font: inherit; font-size: var(--fs-small); color: var(--ink-dim); background: var(--panel-2);
+  display: inline-flex; align-items: center; gap: var(--sp-2);
+  font: inherit; font-size: var(--fs-label); color: var(--ink-dim); background: var(--panel-2);
   border: 1px solid var(--line); border-radius: var(--r-pill); padding: 0 var(--sp-3);
-  cursor: pointer; min-height: 36px; white-space: nowrap;
+  cursor: pointer; min-height: var(--tap); white-space: nowrap;
 }
 .chip:hover { color: var(--ink); }
 .chip.on { color: var(--ink); border-color: var(--accent-line); background: var(--accent-soft); }
@@ -604,12 +650,12 @@ td.num { font-variant-numeric: tabular-nums; }
 
 /* ------------------------------------------------------- choice chips */
 
-.out-choices { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
+.out-choices { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-2); }
 .out-chip {
-  display: inline-flex; align-items: center; gap: 6px;
+  display: inline-flex; align-items: center; gap: var(--sp-2);
   min-height: var(--tap); padding: 0 var(--sp-3);
   background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-pill);
-  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); cursor: pointer;
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-label); cursor: pointer;
 }
 .out-chip svg { color: var(--ink-faint); }
 .out-chip.on {
@@ -618,36 +664,28 @@ td.num { font-variant-numeric: tabular-nums; }
   color: var(--ink);
 }
 .out-chip.on svg { color: var(--accent); }
-.blurb-head h2 { flex: 1; margin-bottom: 8px; }
+.blurb-head h2 { flex: 1; margin-bottom: var(--sp-2); }
 
 /* --------------------------------------------------------- segmented control */
 
 /* Segmented: two to four mutually exclusive views of the same thing. The
    selected segment is a raised surface, not a colour. */
-.seg { display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--line);
-  border-radius: var(--r-control); padding: 3px; margin-bottom: var(--sp-3); }
+.seg { display: flex; gap: var(--sp-1); background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-control); padding: var(--sp-1); margin-bottom: var(--sp-3); }
 .seg button {
-  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  background: transparent; border: 0; border-radius: 8px; color: var(--ink-dim);
-  font: inherit; font-size: var(--fs-small); font-weight: 500; padding: 0 var(--sp-2); min-height: 38px; cursor: pointer;
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2);
+  background: transparent; border: 0; border-radius: var(--r-control); color: var(--ink-dim);
+  font: inherit; font-size: var(--fs-label); font-weight: 500; padding: 0 var(--sp-2); min-height: var(--tap); cursor: pointer;
 }
 .seg button.on { background: var(--panel-3); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); }
-/* `.seg.tap`: segments a full 44px tall, for a control pressed on its own
-   rather than read as a view switch beside a title (the sleep range). */
-.seg.tap button { min-height: var(--tap); }
+/* Every segment is 44px tall (#82); `.seg.tap`, which used to make them so
+   for one pressed on its own (the sleep range), now changes nothing. */
 .seg button:hover:not(.on) { color: var(--ink-dim); }
 
-/* ============================================================== DESKTOP =====
-   Mobile-first stays the default. Above 1024px the real readability problem is
-   LINE LENGTH — 860px of 15px text runs ~110 characters, well past the 55–75
-   that reads comfortably. So prose gets capped in ch, the shell gets wider so
-   charts and tables have room, and the page splits into two columns.
-   ========================================================================== */
-
 .timing {
-  display: flex; align-items: center; gap: 7px; margin: 12px 0 0;
-  font-size: 13px; color: var(--ink-dim);
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px;
+  display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-3) 0 0;
+  font-size: var(--fs-label); color: var(--ink-dim);
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-control); padding: var(--sp-2) var(--sp-3);
 }
 .timing strong { color: var(--ink); font-variant-numeric: tabular-nums; }
 
@@ -656,43 +694,53 @@ td.num { font-variant-numeric: tabular-nums; }
 
 .pagegrid { display: block; }
 .col-side > .card:last-child { margin-bottom: 0; }
-
-/* The log page is one column on a phone and stays that way here; the desktop
-   breakpoint below is what turns it into a grid. */
-.proggrid { display: block; }
-.chartgrid { display: block; }
 button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* ============================================================== DESKTOP =====
+   THE LAYOUT MATRIX (#82, docs/DESIGN.md "Layout"). Mobile-first stays the
+   default. The desktop changes LAYOUT, never type: the sizes are the phone's,
+   so a card's title is never smaller than its contents (it was 15px here, under
+   16px text). Under 720 a sheet is a phone sheet and a task is full screen. At
+   720 and up a sheet is a centred box capped at 640, a full-screen task's
+   content 680, a reference popover 480. At 1024 and up the shell caps at 1120
+   with a 24px gutter and 24px card insets, and each tab uses the room for what
+   it holds: Today is the day beside its context, the Log is one reading column
+   of 680 (rows stretched over 1100px put a title far from its chevron), and
+   Progress lays its charts out side by side, two columns of at least 320.
+   ========================================================================== */
 @media (min-width: 1024px) {
-  body { font-size: 16px; line-height: 1.6; }
+  :root { --gutter: 24px; --pad-card: 24px; }
 
-  .app { max-width: 1180px; }
-  main { padding: 22px 28px 64px; }
+  .app { max-width: 1120px; }
+  main { padding: var(--sp-6) var(--gutter) var(--sp-8); }
 
-  /* Session on the left where you read it; context and logging on the right. */
+  /* Today: the day on the left where you read it; context on the right. */
   .pagegrid {
     display: grid;
     grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
-    gap: 22px;
+    gap: var(--sp-6);
     align-items: start;
   }
   .col-side { position: sticky; top: 104px; }
 
-  /* Cap the measure. This is the actual fix for "hard to read on desktop". */
-  .card p.sub, .rec-dose, .rec-why, .sess-list, .timing span,
-  .deflist dd, .ev-body, .ev-do, .ev-note p, .opt-dose, .opt-when,
-  .rules li, .gear-why, .tripday-b, .timer-note, .sess-log { max-width: 74ch; }
+  /* The Log: one reading column. */
+  main[data-tab='log'] > * { max-width: 680px; margin-inline: auto; }
 
-  .card { padding: 20px 22px; }
-  .card h2 { font-size: 15px; margin-bottom: 6px; }
+  /* Progress: the headline and the filters across the top, then each group's
+     charts as peers, two to a row. */
+  main[data-tab='progress'] .progcard {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    column-gap: var(--sp-8);
+  }
+  main[data-tab='progress'] .progcard > h2 { grid-column: 1 / -1; }
+  main[data-tab='progress'] .progcard > .metric { margin-top: var(--sp-3); padding-top: 0; border-top: 0; }
+
+  /* Cap the measure: prose past ~75 characters is hard to read. */
+  .card p.sub, .sess-list, .timing span, .deflist dd, .ev-body, .ev-do, .ev-note p,
+  .rules li, .gear-why, .timer-note, .sess-log { max-width: 74ch; }
 
   /* Hover affordances only make sense with a pointer. */
   .opt:hover, .gear-row:hover { background: color-mix(in oklab, var(--ink) 3%, transparent); }
-  .tab { font-size: 15px; }
-}
-
-@media (min-width: 1400px) {
-  .app { max-width: 1320px; }
 }
 
 /* A pointer means tooltips and hover states are real; touch devices get bigger
@@ -720,7 +768,7 @@ button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
      app's layout viewport is already SHORT by the top inset (see .screen-card in
      profile.jsx and AGENTS.md §10), so every pixel spent up here is a pixel the
      sheet does not have. */
-  padding-top: max(24px, calc(env(safe-area-inset-top) + 12px));
+  padding-top: max(var(--sp-6), calc(env(safe-area-inset-top) + var(--sp-3)));
 }
 
 /*
@@ -738,28 +786,39 @@ button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 @keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } }
 
-/* Sheet header: icon (optional), title over one line of context, then up to
-   three icon buttons with the close last. The title is the biggest text in the
-   sheet; nothing above it competes. */
+/* Sheet header: a title row (icon, the title over ONE line of context, then up
+   to three icon buttons with the close last), and under it the state row
+   across the full width (the done chip, who it is shared with). The context
+   line never wraps: beside three 44px buttons it ellipsizes, so the header is
+   the same height on every day (#82). The title is the biggest text in the
+   sheet and may wrap to two lines; nothing above it competes. */
 .modal-head {
-  display: flex; align-items: center; gap: var(--sp-3);
+  display: flex; flex-direction: column;
   padding: var(--sp-3) var(--sp-2) var(--sp-3) var(--sp-4);
   border-bottom: 1px solid var(--line); flex: 0 0 auto;
 }
+.modal-headrow { display: flex; align-items: center; gap: var(--sp-3); }
 .modal-ico {
   flex: 0 0 auto; width: 40px; height: 40px; border-radius: var(--r-control); display: grid; place-items: center;
   background: var(--accent-soft); color: var(--accent);
 }
 .modal-titles { flex: 1; min-width: 0; }
-.modal-title { font-size: var(--fs-title); font-weight: 600; line-height: var(--lh-tight); }
-.modal-sub { font-size: var(--fs-small); color: var(--ink-dim); margin-top: 2px; }
+.modal-title { font-size: var(--fs-title); font-weight: 600; line-height: var(--lh-title); }
+.modal-sub {
+  font-size: var(--fs-label); line-height: var(--lh-label); color: var(--ink-dim); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 /* A state you can flip, under the title (the session sheet's done chip, #77). */
-.modal-status { display: flex; margin-top: var(--sp-2); }
+.modal-status { display: flex; margin-top: var(--sp-2); padding-right: var(--sp-2); }
+/* On a phone the icon well gives way to the bin and the pencil. */
+@media (max-width: 479px) {
+  .modal-head.full .modal-ico { display: none; }
+}
 .modal-body {
   flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain;
   padding: var(--sp-4); -webkit-overflow-scrolling: touch;
 }
-.modal-body .sess { margin-top: 4px; }
+.modal-body .sess { margin-top: var(--sp-1); }
 /* Sheet footer: the sheet's one primary action, full width, with at most one
    ghost beside it. Pinned, so the action is never below the fold. Never Close
    (the header X closes), and not rendered at all while a box in the sheet has
@@ -771,10 +830,10 @@ button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
   padding-bottom: max(var(--sp-3), env(safe-area-inset-bottom));
 }
 .modal-foot .btn { flex: 1; }
-.modal-foot .btn.ghost { flex: 0 0 auto; }
+.modal-foot .btn.secondary { flex: 0 0 auto; }
 
 @media (min-width: 720px) {
-  .modal-scrim { align-items: center; padding: 24px; }
+  .modal-scrim { align-items: center; padding: var(--sp-6); }
   .modal { border-radius: var(--r-sheet); border-bottom: 1px solid var(--line); max-height: 100%; }
 }
 
@@ -803,13 +862,12 @@ button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
  * one thing to answer — and its buttons are where this app always puts buttons,
  * which a native confirm() cannot promise on a phone.
  */
-.confirm { padding: 18px 4px 8px; text-align: center; }
+.confirm { padding: var(--sp-4) var(--sp-1) var(--sp-2); text-align: center; }
 .confirm-ico { display: inline-flex; color: var(--viz-crit); }
-.confirm h3 { margin: 10px 0 6px; font-size: 17px; }
+.confirm h3 { margin: var(--sp-2) 0 var(--sp-2); font-size: var(--fs-title); }
 .confirm .sub { margin: 0 auto; max-width: 30em; }
-.confirm-acts { display: flex; gap: 10px; margin-top: 20px; }
+.confirm-acts { display: flex; gap: var(--sp-2); margin-top: var(--sp-6); }
 .confirm-acts .btn { flex: 1; }
-button.btn.bad { background: var(--viz-crit); color: var(--bg); border-color: var(--viz-crit); }
 .modal-foot .btn { flex: 1; }
 
 /* ------------------------------------------------------------- fullscreen */
@@ -827,7 +885,7 @@ button.btn.bad { background: var(--viz-crit); color: var(--bg); border-color: va
   /* A little past the inset, not flush to it: iOS 26 draws its status-bar glass
      a few pixels below the inset and a back button sitting on that line is a
      back button you cannot read. Same reason the sheet above keeps a gap. */
-  padding-top: max(12px, calc(env(safe-area-inset-top) + 8px));
+  padding-top: max(var(--sp-3), calc(env(safe-area-inset-top) + var(--sp-2)));
 }
 .fs-ico {
   flex: 0 0 auto; width: 40px; height: 40px; border-radius: var(--r-control); display: grid; place-items: center;
@@ -846,20 +904,20 @@ button.btn.bad { background: var(--viz-crit); color: var(--bg); border-color: va
 
 /* A full screen's sections are the segmented control, laid edge to edge. */
 .fs-tabs {
-  flex: 0 0 auto; display: flex; gap: 4px; padding: var(--sp-2) var(--sp-4);
+  flex: 0 0 auto; display: flex; gap: var(--sp-1); padding: var(--sp-2) var(--sp-4);
   border-bottom: 1px solid var(--line);
 }
 .fs-tab {
-  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2);
   background: transparent; border: 0; border-radius: var(--r-control);
-  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); font-weight: 500;
-  padding: 0 6px; min-height: var(--tap); cursor: pointer;
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-label); font-weight: 500;
+  padding: 0 var(--sp-2); min-height: var(--tap); cursor: pointer;
 }
 .fs-tab.on { color: var(--ink); background: var(--panel-3); box-shadow: inset 0 0 0 1px var(--line-strong); }
 
 .fs-body {
   flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain;
-  padding: 16px 16px calc(28px + env(safe-area-inset-bottom));
+  padding: var(--sp-4) var(--sp-4) calc(var(--sp-8) + env(safe-area-inset-bottom));
   -webkit-overflow-scrolling: touch;
 }
 /* While a box on a full screen has focus its committing bar steps aside, as a
@@ -870,11 +928,11 @@ button.btn.bad { background: var(--viz-crit); color: var(--bg); border-color: va
 .fs-body .outlog { margin-top: 0; border-top: 0; padding-top: 0; }
 
 /* Roomier type, because this exists to be readable at arm's length mid-set. */
-.v-full .step-body { font-size: 16px; line-height: 1.6; }
-.v-full .step { padding: 14px; }
-.v-full .step-n { width: 26px; height: 26px; font-size: 12px; }
-.v-full .bullets-list { font-size: 16px; line-height: 1.6; }
-.v-full .sect-chip { font-size: 13px; padding: 9px 14px; }
+.v-full .step-body { font-size: var(--fs-body); line-height: 1.6; }
+.v-full .step { padding: var(--sp-4); }
+.v-full .step-n { width: 26px; height: 26px; font-size: var(--fs-caption); }
+.v-full .bullets-list { font-size: var(--fs-body); line-height: 1.6; }
+.v-full .sect-chip { font-size: var(--fs-label); padding: var(--sp-2) var(--sp-4); }
 
 @media (min-width: 720px) {
   .fs { inset: 24px; border-radius: var(--r-sheet); border: 1px solid var(--line); box-shadow: var(--elev-3); }
@@ -893,24 +951,24 @@ button.btn.bad { background: var(--viz-crit); color: var(--bg); border-color: va
    alone; the name and the chevron come back where there is room for them. */
 .mebtn {
   display: flex; align-items: center; gap: var(--sp-2);
-  min-height: var(--tap); padding: 0 var(--sp-2) 0 6px;
+  min-height: var(--tap); padding: 0 var(--sp-2) 0 var(--sp-2);
   background: transparent; border: 1px solid transparent; border-radius: var(--r-pill);
-  color: var(--ink); font: inherit; font-size: var(--fs-small); cursor: pointer;
+  color: var(--ink); font: inherit; font-size: var(--fs-label); cursor: pointer;
 }
 .mebtn:hover { background: var(--panel-2); border-color: var(--line); }
 .mebtn-av { position: relative; width: 32px; height: 32px; flex: none; }
-.mebtn-av img { width: 32px; height: 32px; border-radius: 999px; object-fit: cover; display: block; }
+.mebtn-av img { width: 32px; height: 32px; border-radius: var(--r-pill); object-fit: cover; display: block; }
 .mebtn-ini {
-  width: 32px; height: 32px; border-radius: 999px;
+  width: 32px; height: 32px; border-radius: var(--r-pill);
   display: grid; place-items: center;
-  background: var(--panel-3); color: var(--ink); font-size: var(--fs-small); font-weight: 600;
+  background: var(--panel-3); color: var(--ink); font-size: var(--fs-label); font-weight: 600;
   box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 .pop-av .mebtn-ini { width: 40px; height: 40px; font-size: var(--fs-body); }
 /* The sync state survives as a dot. Green is fine; anything else is worth opening. */
 .mebtn-dot {
   position: absolute; right: -1px; bottom: -1px;
-  width: 10px; height: 10px; border-radius: 999px;
+  width: 10px; height: 10px; border-radius: var(--r-pill);
   border: 2px solid var(--bg); background: var(--good);
 }
 .mebtn-dot.offline { background: var(--bad); }
@@ -919,7 +977,7 @@ button.btn.bad { background: var(--viz-crit); color: var(--bg); border-color: va
 .mebtn-chev { color: var(--ink-faint); flex: none; }
 @media (max-width: 420px) {
   .mebtn-name, .mebtn-chev { display: none; }
-  .mebtn { padding: 0 6px; }
+  .mebtn { padding: 0 var(--sp-2); }
 }
 
 /* ------------------------------------------------ the profile popover
@@ -937,7 +995,7 @@ button.btn.bad { background: var(--viz-crit); color: var(--bg); border-color: va
 }
 .pop {
   position: fixed;
-  width: min(640px, calc(100vw - 16px));
+  width: min(480px, calc(100vw - 16px));
   max-height: min(78vh, 720px);
   display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--line);
@@ -955,10 +1013,10 @@ button.btn.bad { background: var(--viz-crit); color: var(--bg); border-color: va
   border-bottom: 1px solid var(--line); flex: none;
 }
 .pop-av { flex: none; }
-.pop-av img { width: 36px; height: 36px; border-radius: 999px; object-fit: cover; display: block; }
+.pop-av img { width: 36px; height: 36px; border-radius: var(--r-pill); object-fit: cover; display: block; }
 .pop-who { display: grid; gap: 1px; min-width: 0; flex: 1; }
 .pop-who strong { font-size: var(--fs-title); font-weight: 600; }
-.pop-who .sub { margin: 0; font-size: var(--fs-caption); }
+.pop-who .sub { margin: 0; font-size: var(--fs-label); }
 /* The popover's close is the base icon button, at its full 44px. */
 .pop-x {
   width: var(--tap); height: var(--tap); display: grid; place-items: center; flex: none;
@@ -966,40 +1024,17 @@ button.btn.bad { background: var(--viz-crit); color: var(--bg); border-color: va
 }
 .pop-x:hover { color: var(--ink); background: var(--panel-3); }
 
-.pop-split { display: flex; min-height: 0; flex: 1; }
-
-/* The sections, as a rail. Six of them across the top of a wide panel is what
-   the full-screen version did wrong; down the side they stay legible and the
-   content keeps its width. */
-.pop-rail {
-  flex: none; width: 148px; padding: 8px;
-  border-right: 1px solid var(--line);
-  display: flex; flex-direction: column; gap: 2px;
-  overflow-y: auto;
-}
-.pop-railbtn {
-  display: flex; align-items: center; gap: 9px;
-  min-height: 38px; padding: 0 10px; width: 100%;
-  background: none; border: none; border-radius: 8px;
-  color: var(--ink-dim); font: inherit; font-size: 13px;
-  text-align: left; cursor: pointer;
-}
-.pop-railbtn:hover { background: var(--panel-2); color: var(--ink); }
-.pop-railbtn.on { background: var(--panel-3); color: var(--ink); }
-.pop-railbtn.on svg { color: var(--accent); }
-.pop-railbtn svg { flex: none; }
-
 /* `min-height: 0` is load-bearing, not tidiness. A flex item defaults to
    `min-height: auto`, which refuses to shrink below its content — so in the
-   COLUMN layout the phone uses (.pop-split flips at 640px) this box grew past
+   column layout a phone sheet uses this box grew past
    the sheet and .pop's `overflow: hidden` clipped it, with nothing scrollable.
    On desktop the split is a row, `min-width` is the axis that matters, and the
    same rule looked fine. Only a section tall enough to overflow shows it. */
-.pop-body { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 12px; }
+.pop-body { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: var(--sp-3); }
 /* Inside a panel this size the cards are already contained — a second border
    around each one is a box in a box. */
-.pop-body .card { border: none; background: none; padding: 0 0 18px; margin: 0; }
-.pop-body .card + .card { border-top: 1px solid var(--line); padding-top: 16px; }
+.pop-body .card { border: none; background: none; padding: 0 0 var(--sp-4); margin: 0; }
+.pop-body .card + .card { border-top: 1px solid var(--line); padding-top: var(--sp-4); }
 .pop-body .factgrid { grid-template-columns: 1fr 1fr; }
 
 /* A phone: a sheet from the bottom, sections across the top. */
@@ -1011,19 +1046,12 @@ button.btn.bad { background: var(--viz-crit); color: var(--bg); border-color: va
     border-radius: var(--r-sheet) var(--r-sheet) 0 0; border-bottom: none;
     padding-bottom: env(safe-area-inset-bottom);
   }
-  .pop-split { flex-direction: column; min-height: 0; }
   .pop-body {
     /* Momentum scrolling, and don't hand the scroll to the page underneath when
        the list hits its end — on iOS that drags the whole app behind the sheet. */
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
   }
-  .pop-rail {
-    width: 100%; flex-direction: row; gap: 4px;
-    border-right: none; border-bottom: 1px solid var(--line);
-    overflow-x: auto; -webkit-overflow-scrolling: touch;
-  }
-  .pop-railbtn { width: auto; min-height: var(--tap); white-space: nowrap; }
   .pop-body .factgrid { grid-template-columns: 1fr; }
 }
 
@@ -1037,7 +1065,7 @@ button.btn.bad { background: var(--viz-crit); color: var(--bg); border-color: va
 .fabs {
   position: fixed; right: 18px; z-index: 40;
   bottom: calc(18px + env(safe-area-inset-bottom));
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: var(--sp-2);
 }
 
 /* The + is the app's one primary action, on every screen that has it: the
@@ -1052,14 +1080,6 @@ button.btn.bad { background: var(--viz-crit); color: var(--bg); border-color: va
 .fab.plus { background: var(--accent); color: var(--on-accent); }
 .fab.plus:hover { filter: brightness(1.06); }
 .fab.plus:active { transform: scale(0.96); }
-
-.fabs .coachfab {
-  position: static; bottom: auto; right: auto;
-  width: 48px; height: 48px;
-  background: var(--panel); color: var(--accent);
-  border: 1px solid var(--line);
-}
-.fabs .coachfab:hover { background: var(--panel-2); filter: none; }
 
 body.layer-open .fabs { display: none; }
 
@@ -1076,7 +1096,7 @@ body.layer-open .fabs { display: none; }
   .fab.plus { width: var(--dock-h); height: var(--dock-h); }
   .app[data-dock='wide'] .fabs {
     flex-direction: row; align-items: center;
-    bottom: calc(76px + env(safe-area-inset-bottom));
+    bottom: calc(var(--dock-h) + var(--sp-4) + env(safe-area-inset-bottom));
   }
   .app[data-dock='wide'] .fab.plus { width: 56px; height: 56px; }
 }
@@ -1106,7 +1126,7 @@ body.layer-open .fabs { display: none; }
 }
 .fabmenu-row:hover, .fabmenu-row:active { background: var(--panel-2); }
 .fabmenu-ico {
-  flex: 0 0 auto; width: 44px; height: 44px; border-radius: var(--r-control);
+  flex: 0 0 auto; width: 44px; height: var(--tap); border-radius: var(--r-control);
   display: grid; place-items: center;
   background: var(--panel-3); color: var(--ink-dim);
 }
@@ -1114,7 +1134,7 @@ body.layer-open .fabs { display: none; }
 .fabmenu-ico.log { background: var(--accent-soft); color: var(--accent); }
 .fabmenu-body { display: grid; gap: 2px; min-width: 0; }
 .fabmenu-body strong { font-size: var(--fs-body); font-weight: 600; }
-.fabmenu-body .sub { font-size: var(--fs-small); line-height: 1.4; }
+.fabmenu-body .sub { font-size: var(--fs-label); line-height: 1.4; }
 .fabmenu-cancel {
   min-height: var(--tap); margin-top: var(--sp-1); background: var(--panel-2); border: 0; border-radius: var(--r-card);
   color: var(--ink); font: inherit; font-weight: 600; cursor: pointer;

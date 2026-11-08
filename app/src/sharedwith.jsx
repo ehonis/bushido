@@ -95,7 +95,7 @@ export function SharePanel({ entry, on = [], people = [], busy = null, error = n
               </div>
               <SyncToggle person={p} on={synced} onChange={(v) => onSync(p, v)} />
               {!synced && onCopy && hasExercises(entry) && (
-                <button type="button" className="btn ghost" disabled={Boolean(busy)} onClick={() => onCopy(p)}>
+                <button type="button" className="btn secondary" disabled={Boolean(busy)} onClick={() => onCopy(p)}>
                   <Icon name="Copy" size={16} /> Copy my exercises to {p.name}
                 </button>
               )}

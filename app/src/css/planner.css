@@ -17,11 +17,11 @@
 
 /* A turn is an agent reading files; it can take a while, and silence for two
    minutes reads as a broken box. */
-.thinking { display: flex; align-items: center; gap: 10px; }
-.thinking .sub { margin: 0; font-size: var(--fs-small); }
-.coachdots { display: inline-flex; gap: 4px; }
+.thinking { display: flex; align-items: center; gap: var(--sp-2); }
+.thinking .sub { margin: 0; font-size: var(--fs-label); }
+.coachdots { display: inline-flex; gap: var(--sp-1); }
 .coachdots i {
-  width: 6px; height: 6px; border-radius: 999px; background: var(--accent);
+  width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--accent);
   animation: coachpulse 1.2s ease-in-out infinite;
 }
 .coachdots i:nth-child(2) { animation-delay: .18s }
@@ -32,24 +32,24 @@
    document, so a heading is a size step rather than a section break. */
 .md > *:first-child { margin-top: 0; }
 .md > *:last-child { margin-bottom: 0; }
-.md p { margin: 0 0 10px; }
-.md h3, .md h4, .md h5, .md h6 { margin: 14px 0 6px; font-size: var(--fs-body); color: var(--ink); }
-.md ul, .md ol { margin: 0 0 10px; padding-left: 20px; }
-.md li { margin: 3px 0; }
+.md p { margin: 0 0 var(--sp-2); }
+.md h3, .md h4, .md h5, .md h6 { margin: var(--sp-4) 0 var(--sp-2); font-size: var(--fs-body); color: var(--ink); }
+.md ul, .md ol { margin: 0 0 var(--sp-2); padding-left: var(--sp-6); }
+.md li { margin: var(--sp-1) 0; }
 .md li::marker { color: var(--ink-faint); }
 .md strong { color: var(--ink); font-weight: 650; }
 .md em { color: var(--ink); }
 .md code {
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px;
-  padding: 1px 5px; font-size: 0.88em;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-mark);
+  padding: 1px var(--sp-1); font-size: var(--fs-label);
 }
 .md pre {
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
-  padding: 10px; overflow-x: auto; margin: 0 0 10px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-control);
+  padding: var(--sp-2); overflow-x: auto; margin: 0 0 var(--sp-2);
 }
 .md pre code { background: none; border: none; padding: 0; }
 .md blockquote {
-  margin: 0 0 10px; padding-left: 12px;
+  margin: 0 0 var(--sp-2); padding-left: var(--sp-3);
   border-left: 2px solid var(--line); color: var(--ink-dim);
 }
 .md a { color: var(--accent); }
@@ -87,13 +87,13 @@
   display: inline-flex; align-items: center; gap: var(--sp-2);
   min-height: var(--tap); padding: 0 var(--sp-3) 0 var(--sp-1);
   border: 1px solid var(--accent-line); border-radius: var(--r-pill); background: var(--accent-soft);
-  color: var(--ink-dim); font-size: var(--fs-small);
+  color: var(--ink-dim); font-size: var(--fs-label);
 }
-.minother input { width: 4.5ch; min-height: 36px; padding: 0 var(--sp-2); font-size: var(--fs-body); text-align: center; font-variant-numeric: tabular-nums; }
+.minother input { width: 4.5ch; min-height: var(--tap); padding: 0 var(--sp-2); font-size: var(--fs-body); text-align: center; font-variant-numeric: tabular-nums; }
 
 /* Which day it goes on (#78): a label beside the same ‹ day › as the rest day's form. */
 .planday { display: flex; align-items: center; gap: var(--sp-3); }
-.planday-label { flex: none; font-size: var(--fs-small); font-weight: 500; color: var(--ink-dim); }
+.planday-label { flex: none; font-size: var(--fs-label); font-weight: 500; color: var(--ink-dim); }
 .planday .dayswitch { flex: 1; min-width: 0; }
 .planday .dayswitch .iconbtn { width: var(--tap); height: var(--tap); }
 .plan-dayfoot { margin-top: var(--sp-6); }
@@ -114,7 +114,7 @@
 .askkinds > summary h3 { flex: 1; }
 .askkinds[open] .kindgroup-chev { transform: rotate(180deg); }
 .askkinds-group { margin-top: var(--sp-3); }
-.askkinds-group h4 { font-size: var(--fs-small); font-weight: 500; color: var(--ink-dim); margin: 0 0 var(--sp-2); }
+.askkinds-group h4 { font-size: var(--fs-label); font-weight: 500; color: var(--ink-dim); margin: 0 0 var(--sp-2); }
 .plan-buildself { display: inline-flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
 /* A primary that cannot be pressed yet reads as a shape, not as a dimmed accent:
    nothing typed and nothing picked is not "almost ready". */
@@ -148,19 +148,19 @@
 
 /* Naming a piece of work that is not in the exercise catalogue. */
 .pieceadd {
-  display: grid; gap: 8px; padding: 10px;
-  border: 1px dashed var(--line); border-radius: 8px;
+  display: grid; gap: var(--sp-2); padding: var(--sp-2);
+  border: 1px dashed var(--line); border-radius: var(--r-control);
 }
-.pieceadd-row { display: flex; gap: 8px; align-items: center; }
+.pieceadd-row { display: flex; gap: var(--sp-2); align-items: center; }
 .pieceadd-row input { flex: 1; min-width: 0; }
-.pieceadd-by { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pieceadd-by { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
 .pieceadd-by .btn { margin-left: auto; }
 
 .plan-working { text-align: center; padding: var(--sp-8) var(--sp-3); }
 .plan-working-ico { display: inline-flex; color: var(--accent); }
 .plan-working-title { margin-top: var(--sp-3); font-size: var(--fs-title); font-weight: 600; }
 .plan-working-stage { margin: var(--sp-2) 0 var(--sp-4); color: var(--ink-dim); font-size: var(--fs-body); }
-.plan-working-dots { display: inline-flex; gap: 6px; margin-bottom: var(--sp-3); }
+.plan-working-dots { display: inline-flex; gap: var(--sp-2); margin-bottom: var(--sp-3); }
 .plan-working-dots i {
   width: 7px; height: 7px; border-radius: var(--r-pill); background: var(--accent);
   animation: planpulse 1.2s ease-in-out infinite;
@@ -180,48 +180,48 @@
    the coach card is separated from the plan's own voice: this is a model's read,
    and it does not get to look like the programme. */
 .plan-why {
-  display: flex; gap: 10px; margin: 0 0 18px; padding: 12px 14px;
+  display: flex; gap: var(--sp-2); margin: 0 0 var(--sp-4); padding: var(--sp-3) var(--sp-4);
   background: color-mix(in oklab, var(--accent) 7%, var(--panel-2));
   border: 1px solid color-mix(in oklab, var(--accent) 24%, var(--line));
-  border-radius: 12px;
+  border-radius: var(--r-card);
 }
 .plan-why-ico { flex: 0 0 auto; color: var(--accent); padding-top: 2px; }
 .plan-why .md { font-size: var(--fs-body); line-height: 1.55; color: var(--ink-dim); }
 .plan-why .md :first-child { margin-top: 0; }
 .plan-why .md :last-child { margin-bottom: 0; }
 
-.plan-notes { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 7px; }
+.plan-notes { list-style: none; margin: var(--sp-4) 0 0; padding: 0; display: grid; gap: var(--sp-2); }
 .plan-notes li {
-  display: flex; gap: 8px; align-items: flex-start;
-  font-size: var(--fs-small); color: var(--ink-faint); line-height: 1.5;
+  display: flex; gap: var(--sp-2); align-items: flex-start;
+  font-size: var(--fs-label); color: var(--ink-faint); line-height: 1.5;
 }
 
 /* ------------------------------------------------- planned, but not started */
 
-.kept { text-align: center; padding: 40px 8px 0; }
+.kept { text-align: center; padding: var(--sp-8) var(--sp-2) 0; }
 .kept-ico { display: inline-flex; color: var(--viz-good); }
-.kept h2 { margin: var(--sp-3) 0 var(--sp-2); font-size: var(--fs-heading); font-weight: 600; line-height: var(--lh-tight); }
+.kept h2 { margin: var(--sp-3) 0 var(--sp-2); font-size: var(--fs-screen); font-weight: 600; line-height: var(--lh-tight); }
 /* Only the paragraph is centred. `.kept .sub` also matched the sub-line inside
    each named part, and `margin: 0 auto` centred it under a left-aligned title. */
 .kept > p.sub { max-width: 30em; margin: 0 auto; }
-.kept-acts { display: grid; gap: 10px; margin-top: 28px; }
+.kept-acts { display: grid; gap: var(--sp-2); margin-top: var(--sp-8); }
 .kept-acts .btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2);
   min-height: var(--tap);
 }
-.kept-acts .btn.big { min-height: 56px; font-size: var(--fs-title); }
+.kept-acts .btn.big { min-height: var(--h-row); font-size: var(--fs-title); }
 
 /* --------------------------------- talking to it about the session it wrote */
 
 .plantalk {
-  margin: 0 0 20px; border-radius: 12px;
+  margin: 0 0 var(--sp-6); border-radius: var(--r-card);
   background: color-mix(in oklab, var(--accent) 7%, var(--panel-2));
   border: 1px solid color-mix(in oklab, var(--accent) 24%, var(--line));
   overflow: hidden;
 }
 .plantalk-head {
-  display: flex; align-items: center; gap: 9px; width: 100%;
-  padding: 11px 12px; min-height: var(--tap);
+  display: flex; align-items: center; gap: var(--sp-2); width: 100%;
+  padding: var(--sp-3) var(--sp-3); min-height: var(--tap);
   background: none; border: 0; color: inherit; font: inherit; text-align: left;
   cursor: pointer;
 }
@@ -231,11 +231,11 @@
 .plantalk-ico { display: inline-flex; color: var(--accent); }
 .plantalk-title { flex: 1; font-size: var(--fs-body); font-weight: 600; }
 .plantalk-n {
-  min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+  min-width: 20px; height: 20px; padding: 0 var(--sp-2); border-radius: var(--r-pill);
   display: grid; place-items: center;
   background: var(--accent); color: var(--on-accent); font-size: var(--fs-caption); font-weight: 600;
 }
-.plantalk-body { padding: 0 12px 12px; }
+.plantalk-body { padding: 0 var(--sp-3) var(--sp-3); }
 .plantalk-why { font-size: var(--fs-body); line-height: 1.55; color: var(--ink-dim); }
 .plantalk-why :first-child { margin-top: 0; }
 .plantalk-why :last-child { margin-bottom: 0; }
@@ -243,11 +243,11 @@
 .plantalk-whywrap.clipped .plantalk-why {
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
 }
-.plantalk-more { margin-top: 6px; font-size: var(--fs-small); }
+.plantalk-more { margin-top: var(--sp-2); font-size: var(--fs-label); }
 
 .plantalk-msg {
-  margin: 10px 0; padding: 9px 11px; border-radius: 10px;
-  font-size: var(--fs-small); line-height: 1.5;
+  margin: var(--sp-2) 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-control);
+  font-size: var(--fs-label); line-height: 1.5;
 }
 .plantalk-msg .md :first-child { margin-top: 0; }
 .plantalk-msg .md :last-child { margin-bottom: 0; }
@@ -260,34 +260,34 @@
 .plantalk-msg.coach {
   margin-right: 10%; background: transparent;
   border-left: 2px solid color-mix(in oklab, var(--accent) 50%, transparent);
-  border-radius: 0 10px 10px 0; color: var(--ink-dim);
+  border-radius: 0 var(--r-control) var(--r-control) 0; color: var(--ink-dim);
 }
-.plantalk-msg.thinking { display: flex; align-items: center; gap: 9px; }
+.plantalk-msg.thinking { display: flex; align-items: center; gap: var(--sp-2); }
 
-.plantalk-err { margin: 8px 0 0; font-size: var(--fs-small); color: var(--bad); }
+.plantalk-err { margin: var(--sp-2) 0 0; font-size: var(--fs-label); color: var(--bad); }
 
-.plantalk-prompts { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 10px; }
+.plantalk-prompts { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-3) 0 var(--sp-2); }
 .plantalk-prompt {
-  min-height: 32px; padding: 0 11px; border-radius: 999px;
+  min-height: var(--tap); padding: 0 var(--sp-3); border-radius: var(--r-pill);
   background: var(--panel); border: 1px solid var(--line);
-  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); cursor: pointer;
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-label); cursor: pointer;
 }
 .plantalk-prompt:hover { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 45%, var(--line)); }
 
-.plantalk-ask { display: flex; gap: 8px; align-items: flex-end; }
+.plantalk-ask { display: flex; gap: var(--sp-2); align-items: flex-end; }
 .plantalk-ask textarea { flex: 1; min-width: 0; resize: vertical; }
 .plantalk-ask .btn { flex: 0 0 auto; }
 
 /* What a multi-part plan will land as, said before it lands. */
 .splitnote {
-  display: flex; gap: 10px; margin: 0 0 18px; padding: 11px 13px;
+  display: flex; gap: var(--sp-2); margin: 0 0 var(--sp-4); padding: var(--sp-3) var(--sp-3);
   background: color-mix(in oklab, var(--series-1) 9%, var(--panel-2));
   border: 1px solid color-mix(in oklab, var(--series-1) 28%, var(--line));
-  border-radius: 11px; color: var(--series-1);
+  border-radius: var(--r-card); color: var(--series-1);
 }
-.splitnote > div { display: grid; gap: 3px; min-width: 0; }
+.splitnote > div { display: grid; gap: var(--sp-1); min-width: 0; }
 .splitnote strong { color: var(--ink); font-size: var(--fs-body); }
-.splitnote .sub { color: var(--ink-dim); font-size: var(--fs-small); line-height: 1.5; }
+.splitnote .sub { color: var(--ink-dim); font-size: var(--fs-label); line-height: 1.5; }
 .splitnote em { font-style: normal; color: var(--accent); }
 
 /* ============================================================== 2026-09-19

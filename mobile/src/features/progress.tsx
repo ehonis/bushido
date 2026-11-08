@@ -101,7 +101,7 @@ export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }: any)
     return (
       <Empty icon="Gauge">
         <T size={font.body} dim align="center">Nothing logged yet</T>
-        <T size={font.small} dim align="center">Log a workout and your weeks show up here.</T>
+        <T size={font.label} dim align="center">Log a workout and your weeks show up here.</T>
       </Empty>
     )
   }
@@ -124,17 +124,17 @@ export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }: any)
         ) : null}
         <View style={st.nums}>
           <View style={st.num}>
-            <T size={font.display} weight={600} lineHeight={40} tabular>{String(totals.sessions)}</T>
-            <T size={font.small} dim>{totals.sessions === 1 ? 'Workout' : 'Workouts'}</T>
+            <T size={font.stat} weight={600} tabular>{String(totals.sessions)}</T>
+            <T size={font.label} dim>{totals.sessions === 1 ? 'Workout' : 'Workouts'}</T>
           </View>
           <View style={st.num}>
-            <T size={font.display} weight={600} lineHeight={40} tabular>
+            <T size={font.stat} weight={600} tabular>
               {time.value}<T size={font.body} dim>{` ${time.unit}`}</T>
             </T>
-            <T size={font.small} dim>Time</T>
+            <T size={font.label} dim>Time</T>
           </View>
         </View>
-        {totals.sessions > 0 ? <T size={font.small} dim style={{ marginTop: space[2] }}>{extra}</T> : null}
+        {totals.sessions > 0 ? <T size={font.label} dim style={{ marginTop: space[2] }}>{extra}</T> : null}
         <Segmented
           style={st.seg}
           value={rangeKey(scope.weeks)}

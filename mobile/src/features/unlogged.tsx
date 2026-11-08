@@ -162,7 +162,7 @@ export function UnloggedWorkouts({
                 <Icon name={item.activity?.icon || 'Activity'} size={20} color={colors.inkDim} />
                 <View style={u.name}>
                   <T size={font.body} weight={500} numberOfLines={1}>{item.activity?.name || item.label}</T>
-                  <T size={font.small} dim tabular>
+                  <T size={font.label} dim tabular>
                     {item.merged
                       /* Say the claim out loud, with the evidence for it: an
                          assertion the user cannot see is one they cannot correct. */
@@ -209,7 +209,7 @@ export function UnloggedWorkouts({
                         style={[u.pickRow, i > 0 && u.rule]}>
                         <View style={u.name}>
                           <T size={font.body} weight={500} numberOfLines={1}>{e.data?.name || 'Session'}</T>
-                          <T size={font.small} dim tabular>
+                          <T size={font.label} dim tabular>
                             {[e.data?.minutes ? `${e.data.minutes} min` : '', !isDone(e) ? 'not done yet' : '']
                               .filter(Boolean).join(' · ') || 'Adds to it, nothing typed is replaced'}
                           </T>
@@ -231,7 +231,7 @@ export function UnloggedWorkouts({
         <View style={u.gone}>
           <Press haptic onPress={() => setShowGone(v => !v)} accessibilityRole="button"
             accessibilityState={{ expanded: showGone }} style={u.goneLine}>
-            <T size={font.small} dim>{`${gone.length} dismissed today`}</T>
+            <T size={font.label} dim>{`${gone.length} dismissed today`}</T>
             <Icon name={showGone ? 'ChevronUp' : 'ChevronDown'} size={14} color={colors.inkFaint} />
           </Press>
           {showGone ? gone.map((item, i) => (
@@ -239,7 +239,7 @@ export function UnloggedWorkouts({
               <Icon name={item.activity?.icon || 'Activity'} size={20} color={colors.inkDim} />
               <View style={u.name}>
                 <T size={font.body} weight={500} numberOfLines={1}>{item.activity?.name || item.label}</T>
-                <T size={font.small} dim tabular>
+                <T size={font.label} dim tabular>
                   {[span(item.start, item.end), item.minutes ? `${item.minutes} min` : '']
                     .filter(Boolean).join(' · ')}
                 </T>
@@ -259,9 +259,9 @@ const u = StyleSheet.create({
   // The row's name opens the rest; "Log it" beside it is the one action.
   main: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: TAP },
   name: { flex: 1, minWidth: 0, gap: 2 },
-  more: { paddingBottom: space[3], paddingLeft: 20 + space[3] },
+  more: { paddingBottom: space[3], paddingLeft: space[6] + space[3] },
   acts: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
   pickRow: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: 52, paddingVertical: space[2] },
   gone: { marginTop: space[2], borderTopWidth: 1, borderTopColor: colors.line, paddingTop: space[1] },
-  goneLine: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: TAP, alignSelf: 'flex-start' },
+  goneLine: { flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: TAP, alignSelf: 'flex-start' },
 })

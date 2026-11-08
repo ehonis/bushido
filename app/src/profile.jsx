@@ -514,8 +514,20 @@ export function SettingsSection({ status, lastSync, who = currentMe() }) {
         </div>
       </section>
 
-      {/* What the device gives the page — see screeninfo.jsx. */}
-      <ScreenCard />
+      {/* What the device gives the page (screeninfo.jsx): a reading for when a
+          button hides under the clock, kept behind Troubleshooting so it is not
+          offered as a setting (#82). */}
+      <details className="prof-trouble">
+        <summary className="list-row">
+          <Icon name="Info" size={20} />
+          <span className="list-row-main">
+            <span className="list-row-title">Troubleshooting</span>
+            <span className="list-row-meta">What this screen gives the app</span>
+          </span>
+          <Icon name="ChevronDown" size={16} className="list-row-chev" />
+        </summary>
+        <ScreenCard />
+      </details>
     </>
   )
 }

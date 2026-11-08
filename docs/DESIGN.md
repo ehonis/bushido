@@ -235,7 +235,7 @@ is `space[4]`, `--r-card` is `radius.card`, `--elev-2` is `elevation[2]`.
 | `--panel` | `#131513` | cards, sheets, the + menu |
 | `--panel-2` | `#1a1d1a` | controls and rows inside a card: inputs, chips |
 | `--panel-3` | `#232723` | pressed or selected control, icon wells |
-| `--line` / `--line-strong` | `#272b27` / `#363c35` | card edges / control edges, ghost buttons, dashed empties |
+| `--line` / `--line-strong` | `#272b27` / `#363c35` | card edges / control edges, secondary buttons, dashed empties |
 | `--ink` / `--ink-dim` / `--ink-faint` | `#e9ece7` / `#99a295` / `#808a7c` | text: primary / secondary / tertiary. `--ink-faint` was `#61695e` (3.2:1 on a card); it now clears 4.5:1 on `--bg`, `--panel` and `--panel-2`. It is **never text on `--panel-3` or `--accent-soft`** (4.2:1 and 3.5:1 there): text on those is `--ink` or `--ink-dim` (4.8:1 or better). Icons may use it anywhere (3:1 is the bar for graphics). |
 | `--accent` | `#b8f23d` | the one primary action on a screen, the selected tab's icon, focus rings |
 | `--on-accent` | `#0f1409` | text and icons on the accent (was two values, one a warm leftover) |
@@ -247,38 +247,54 @@ is `space[4]`, `--r-card` is `radius.card`, `--elev-2` is `elevation[2]`.
 Rule: the accent fills at most one thing per screen (the primary button or the +). Everything
 else that is "on" uses `--accent-soft` with a border, never colour alone.
 
-**Type.** System sans (San Francisco on the phone), seven sizes, three weights (400, 500, 600;
-700 only in a person's name pill). Nothing is uppercase or letter-spaced.
+**Type** (#82: the G-visual-ia contract, both files at once). System sans (San Francisco
+on the phone), one size per ROLE, three weights (400, 500, 600; 700 only in a person's name
+pill). Nothing is uppercase or letter-spaced. The web's `--fs-*`/`--lh-*` and `theme.ts`'s
+`font`/`leading` carry the same numbers, and `app/smoke/system.jsx` fails if either drifts or
+a stylesheet or native screen uses a raw size. Native text still follows the phone's text
+size setting; these are the sizes at the default.
 
-| Token | px | Use |
-|---|---|---|
-| `--fs-micro` | 11 | dock labels with more than four tabs, chart ticks. Never something you must read to decide. |
-| `--fs-caption` | 12 | dock labels (three tabs), timestamps beside a row |
-| `--fs-small` | 13 | secondary text (`.sub`), field labels, chip and segment labels |
-| `--fs-body` | 15 | body, list-row titles, section heads, buttons |
-| `--fs-input` | 16 | every input (iOS zooms below 16) |
-| `--fs-title` | 17 | card titles, sheet titles, the app name |
-| `--fs-heading` | 22 | a screen's own title, where it has one |
-| `--fs-display` | 32 | the one hero number on a screen (a chart's headline, a set's weight) |
+| Role | Token (web / iPhone) | Size / line height / weight | Use |
+|---|---|---|---|
+| Caption | `--fs-caption` / `font.caption` | 12 / 16 / 400 | timestamps, chart ticks, where a number came from. Never a unit, a mode or an action. |
+| Label | `--fs-label` / `font.label` | 14 / 20 / 500 | field labels, units, chips and segments, the line under a title (`.sub`), anything read to choose the next tap |
+| Body | `--fs-body` / `font.body` | 16 / 24 / 400 | prose, list rows |
+| Action / section | `--fs-body`, 600, `--lh-action` | 16 / 22 / 600 | buttons, section heads, a list title's emphasis |
+| Input | `--fs-input` / `font.input` | 16 | every input (iOS zooms below 16) |
+| Card / sheet title | `--fs-title` / `font.title` | 18 / 24 / 600 | the same on the phone and the desktop |
+| Screen title | `--fs-screen` / `font.screen` | 24 / 30 / 600 | Today's day, a task's head |
+| Stat | `--fs-stat` / `font.stat` | 32 / 38 / 600 | one headline number, its unit at the label size |
+| Live clock | `--fs-clock` / `clockSize(width)` | clamp(88, 34vw, 160) / 1.0 / 600 | the runner's rest, the interval timer, workout mode: the only display size. `--fs-clock-min` (88) inside the rest ring. |
+| Live number | `--fs-live` / `font.live` | 56 | the runner's set in progress, between two 64px steppers: the clocks' family at the size that fits there at 390 (32 is unreadable off the floor; 88 does not fit). |
 
-`--lh-tight` 1.25 for titles, `--lh-body` 1.5 for text. Numbers that line up or change
-(clocks, counts, weights) use `font-variant-numeric: tabular-nums` (`tabular` on `T`). The
-runner and interval-timer clocks are the only sizes above 32; they keep their own and say so.
+Retired: 11, 13, 15, 17 and 22 (`--fs-micro`, `--fs-small`, `--fs-heading`, `--fs-display`,
+`font.small`…). The desktop changes layout, never type (it used to shrink a card's title to
+15px under 16px text). Numbers that line up or change (clocks, counts, weights) use
+`font-variant-numeric: tabular-nums` (`tabular` on `T`).
 
-**Space.** A 4px grid: `--sp-1` 4, `--sp-2` 8, `--sp-3` 12, `--sp-4` 16, `--sp-5` 20,
-`--sp-6` 24, `--sp-8` 32; `--gutter` 16 is the screen's side margin. Inside a card 16; between
-cards 12; between a section head and its content 8; between sections 24.
+**Space.** 4, 8, 12, 16, 24, 32 and nothing between (`--sp-1` … `--sp-8`, `space[1]` …
+`space[8]`; 20 went, 1–2px optical nudges are allowed). `--gutter` is the screen's side margin
+(16, 24 on a desktop), `--pad-card` / `space.card` a card's inset (16, 24 on a desktop). Related
+rows 8–12 apart; between a section head and its content 8; between sections 24.
 
 **Radius**, one rule: controls 10 (`--r-control`: buttons, inputs, segmented, icon wells),
-containers 12 (`--r-card`: cards, rows, menus), sheets 20 (`--r-sheet`: top corners of a sheet,
-popovers, the + menu), pill (`--r-pill`: chips, the dock, the +, icon buttons, avatars).
-`--radius` is now an alias of `--r-card` for older rules.
+containers 12 (`--r-card`: cards, rows, menus), overlays 20 (`--r-sheet`: sheets, popovers, the
++ menu), pill (`--r-pill`: chips, avatars, the person switch, the dock, the +). `--r-mark` (4) is
+for marks inside a control: a chart bar, a progress track, a tag. The phone's `radius.sm`,
+`md`, `lg`, `xl` are gone.
+
+**Targets.** 44 (`--tap`, `TAP`) is the floor for anything pressed on its own, chips and
+segments included (they were 36 and 38); buttons and fields are 48 (`--h-control`,
+`height.control`), a list row 56 (`--h-row`), a running workout's primary 56 (`--h-run`). Under
+44 only where an `::after`/`hitSlop` grows the hit area to 44 (the header's done and sharing
+chips). Neighbours 8 apart.
 
 **Elevation.** Cards are flat: `--panel` and a line, no shadow. `--elev-2` is for what floats
 over the page (the dock and the +), `--elev-3` for sheets, popovers and menus. Nothing else casts
 a shadow.
 
-**Motion.** `--ease-out`, `--dur-fast` 120ms, `--dur` 220ms. Motion explains a change: a sheet
+**Motion.** `--ease-out`, `--dur-fast` 120ms, `--dur` 220ms (`motion.fast`, `motion.base` on
+the phone). Motion explains a change: a sheet
 rises 24px as it arrives, a pressed button settles 1px, a tab's pill fades. Nothing loops except
 a live clock. `prefers-reduced-motion` turns all of it off (web); native uses the platform's.
 
@@ -288,24 +304,55 @@ Each is a base class in `styles.css` and a component in `mobile/src/ui/`. Bold n
 
 | Pattern | Web | iPhone | Rules |
 |---|---|---|---|
-| Card | `.card`, `.card h2`, `.sub` | `Card`, `H2`, `Sub` | Groups related things. Title 17/600, then one `.sub` line at most. Do not put a card in a card; inside a card, group with a section head or a list. |
-| **Section head** | `.section-head > h3 (+ .sub)` | `SectionHeader` | Sentence case, 15/600, an optional count or one action on the right. Replaces every small-caps label (`text-transform: uppercase`, `T caps`). |
-| **List row** | `.list > .list-row` (`-main`, `-title`, `-meta`, `-chev`) | `Row` | One thing you can open: icon, name, the one fact that matters, chevron. 52px. Rows in a list share one card and hairline dividers; a row is not its own card. |
-| Button | `button.btn` + `.secondary`, `.ghost`, `.quiet`, `.bad` | `Btn kind=` `primary`/`secondary`/`ghost`/`quiet`/`bad` | 44px, one line, a verb. One `primary` per screen or sheet. `ghost` backs out (Cancel, Keep it). `bad` only in a confirm. |
+| Card | `.card`, `.card h2`, `.sub` | `Card`, `H2`, `Sub` | Groups related things. Title 18/600, then one `.sub` line at most. Do not put a card in a card; inside a card, group with a section head or a list. |
+| **Section head** | `.section-head > h3 (+ .sub)` | `SectionHeader` | Sentence case, 16/600, an optional count or one action on the right. Replaces every small-caps label (`text-transform: uppercase`, `T caps`). |
+| **List row** | `.list > .list-row` (`-main`, `-title`, `-meta`, `-chev`) | `Row` | One thing you can open: icon, name, the one fact that matters, chevron. 56px. A long title wraps. Rows in a list share one card and hairline dividers; a row is not its own card. |
+| Button | `button.btn` + `.secondary`, `.quiet`, `.destructive`; `.run` | `Btn kind=` `primary`/`secondary`/`quiet`/`destructive` | Four kinds (#82: `ghost` folded into `secondary`, `bad` renamed). 48px, one line, a verb. One `primary` per screen or sheet, the consequential next action, never Close. `secondary` for any other real choice, backing out included (Cancel, Keep it, Keep going). `destructive` only on the screen that asks first. A running workout's primary is 56. |
 | Icon button | `.iconbtn` (= `.modal-btn`); bordered: `.qbtn` | `IconBtn`; `IconBtn bordered` | 44px round, quiet until pressed, an `aria-label`/`label` always. Close is last in a header. The bordered form is a rounded square for a control that must read as one on its own (the ± beside a number). Never the only way to a feature (D7): an action you need to find has a word. |
-| Chip | `.chip`, `.chip.on`, `.chip.ghost`; `.out-chip` | `Chip`, `Chip out` | Filters 36px in a row with an 8px gap; an answer to a question 44px. Selected = accent-soft fill + accent-line border. |
+| Chip | `.chip`, `.chip.on`, `.chip.ghost`; `.out-chip` | `Chip`, `Chip out` | 44px, filters and answers alike, 8px apart. Selected = accent-soft fill + accent-line border. |
 | Switch | `input.switch[role=switch]` (`styles.css`, #55) | `Toggle` | An on/off setting: the words on the left, the switch on the right, the whole row its label. Never a bare checkbox. |
-| Segmented | `.seg`; full tap height: `.seg.tap` | `Segmented`; `Segmented tap` | Two to four views of the same thing. Selected is a raised `--panel-3` segment. More than four is a list. `tap` makes each segment 44px, for one pressed on its own (the sleep range, #44). |
-| Input / field | `input`, `label.field` | `Input`, `Field`, `NoteField` | Label above (13px, `--ink-dim`), helper or error under, never a placeholder as a label. A guessed number is a placeholder (`AGENTS.md` §6.4) and must look like one: placeholder colour is `--ink-faint`, a value is `--ink`. |
+| Segmented | `.seg` | `Segmented` | Two to four views of the same thing, each segment 44px. Selected is a raised `--panel-3` segment. More than four is a list. (`tap` / `.seg.tap` remain and change nothing.) |
+| Input / field | `input`, `label.field` | `Input`, `Field`, `NoteField` | 48px tall. Label above (14px, `--ink-dim`), helper or error under, never a placeholder as a label. A guessed number is a placeholder (`AGENTS.md` §6.4) and must look like one: placeholder colour is `--ink-faint`, a value is `--ink`. |
 | Stepper | `.stepper` (exercises.jsx) | `features/exercises` | A number you nudge: 44px − and +, the value between them. In a set row the steppers share the width (the box is the big target) and wrap as a pair; nothing destructive sits beside them (#77). |
 | Empty state | `.empty` | `Empty` | Says what goes here in plain words and holds the one button that puts it there. Dashed `--line-strong` edge. |
-| Sheet | `.modal` (`-head`, `-ico`, `-title`, `-sub`, `-status`, `-body`, `-foot`) | `Modal` (iOS page sheet) | Header: optional icon well, title 17 over one line of context, an optional state chip (`status`), up to three icon buttons (bin, pencil, then close last). Footer: the one real action, full width, at most one ghost beside it; never Close (#77), and none at all while a box has focus or the keyboard is up. |
+| Sheet | `.modal` (`-head`, `-ico`, `-title`, `-sub`, `-status`, `-body`, `-foot`) | `Modal` (iOS page sheet) | Header: a title row (optional icon well, title 18 over ONE line of context that ellipsizes, never wraps, then up to three icon buttons: bin, pencil, close last) and under it the state row across the full width (the done chip, sharing, the phone's person switch). On a phone the icon well gives way when the bin and pencil are both there (#82). Footer: the one real action, full width, at most one secondary beside it; never Close (#77), and none at all while a box has focus or the keyboard is up. |
 | Full screen | `.fs` (`-head`, `-tabs`) | `FullScreen` | For doing (a session in progress). Back on the left. Section tabs look like the segmented control. |
-| Popover | `.pop` | `Popover` | For reference (profile). Anchored on desktop, a bottom sheet under 640px. |
-| Confirm | `.confirm` inside a sheet (`Modal onDelete`) | the same in `Modal` | A screen, not a system dialog: the warning icon, the question as the title ("Remove this session?"), one sentence of consequence, **Keep it** (ghost) and the verb (`bad`). It replaces the sheet's body, so there is one thing to answer. |
+| Popover | `.pop` | `Popover` | For reference (profile). Anchored on desktop, 480 wide; a bottom sheet under 640px. |
+| Confirm | `.confirm` inside a sheet (`Modal onDelete`) | the same in `Modal` | A screen, not a system dialog: the warning icon, the question as the title ("Remove workout?"), one sentence of consequence, **Keep it** (secondary) and the verb (`destructive`). It replaces the sheet's body, so there is one thing to answer. |
 | Day switcher | Today's `.daynav`; a date input elsewhere today | `DayStepper` | ‹ day › with the day in words ("Today", "Sat 24 Oct"); never a raw browser date input. One component for Today, a rest day and gear dates. |
 | Toast | `toast.jsx` + `.toast` (batch A builds it) | `ToastHost` + `lib/toast.ts` | Transient result of an action only (removed, with Undo; a failed save, with Retry). Full width under the header, one solid fill per kind, white text. Errors about a form stay inline under the field. The web port keeps the mobile API (`pushError`, `pushToast`) so a screen calls the same thing on both. |
 | Shell | `.hdr`, `.tabs`, `.fabs`, `.fabmenu`, `.acting` | `shell/Screen`, `shell/TabBar`, `features/app` | See below. |
+
+### Layout (#82)
+
+The desktop changes LAYOUT, never type. One matrix, in `styles.css`'s DESKTOP block:
+
+| Width | Sheet | Task (full screen) | Reference (popover) | Tabs |
+|---|---|---|---|---|
+| under 720 | phone sheet from the bottom | full screen | bottom sheet | one column, 16 gutter |
+| 720 and up | centred, capped at 640 | content 680 inside a framed panel | anchored, 480 | one column |
+| 1024 and up | as above | as above | as above | shell capped at 1120, 24 gutter, 24 card insets. Today: the day beside its context (WHOOP, unlogged, someone's day). Log: one reading column of 680. Progress: each group's charts as peers, two columns of at least 320. |
+
+`main` carries `data-tab` so a tab's desktop layout is a rule here, not a screen's own CSS. No
+nested vertical scrollers; no full-width sparse rows.
+
+### Copy: one name per action (#82)
+
+| Meaning | Words |
+|---|---|
+| Record something already done | **Log a workout** |
+| Build a future session | **Plan a workout** |
+| Commit a plan or a card | **Add to Today**, **Add to Tomorrow**, **Add to Sat, Oct 24** (`forWords`), with names when shared ("Add to Today with Sam", "Add to Sam's day") |
+| Enter the runner | **Start workout**; several just kept: **Start <the first one's name>**; a run under way: **Carry on** |
+| End a running workout | **Finish workout** |
+| End input focus | **Done editing** |
+| Leave an autosaved sheet | the header ✕ (no footer Close) |
+| Remove | **Remove workout** / **Remove set**, with Undo or a confirm |
+| An empty place | says what is absent and offers the one action ("No gear yet" · Add gear); never an integration that is not there |
+
+Diagnostics are not settings: the screen probe sits under **Troubleshooting** at the foot of
+Settings. `app/smoke/system.jsx` fails on the retired words ("Put it on", "Start the workout",
+"Start it now", "Remove from today", "Add to today") anywhere in either app.
 
 ### The shell (done in #29)
 

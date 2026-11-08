@@ -35,10 +35,23 @@ if (unknown.length) {
   console.error(`scripts/test.mjs names app scripts that do not exist: ${unknown.join(', ')}`)
   process.exit(2)
 }
-// A suite added to app/package.json but not here would never run.
-const unlisted = Object.keys(scripts).filter(s => /^test:/.test(s) && !APP_SUITES.includes(s))
+// A suite added to app/package.json but not here would never run. That is not
+// only the test:* scripts: `palette` and `smoke` are suites too, so the check is
+// every script that runs a test file or the smoke suite, under any name, and
+// every test file in app/ (and the smoke suite), each of which some listed
+// script must run.
+const TEST_FILE = /\b[\w.-]+\.test\.(?:m?js|jsx)\b|\bsmoke\/index\.jsx\b|\bvalidate_palette\.js\b/g
+const runs = (name) => scripts[name].match(TEST_FILE) || []
+const unlisted = Object.keys(scripts).filter(s => !APP_SUITES.includes(s) && s !== 'test' && (/^test:/.test(s) || runs(s).length))
 if (unlisted.length) {
   console.error(`app/package.json has test scripts scripts/test.mjs does not run: ${unlisted.join(', ')}`)
+  process.exit(2)
+}
+const covered = new Set(APP_SUITES.flatMap(runs))
+const files = [...readdirSync(APP).filter(f => /\.test\.(m?js|jsx)$/.test(f)), 'smoke/index.jsx']
+const orphans = files.filter(f => !covered.has(f))
+if (orphans.length) {
+  console.error(`test files no suite in scripts/test.mjs runs: ${orphans.join(', ')}`)
   process.exit(2)
 }
 

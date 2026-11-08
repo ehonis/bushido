@@ -3,13 +3,13 @@
 // .card, .section-head, .chip / .out-chip, .seg, label.field, .notefield,
 // .empty, .list-row. Screens compose these rather than restyling Pressables by
 // hand, so a tap target feels the same everywhere. Every one is at least 44pt
-// tall (filter chips 36 with a gap): the app is used one-handed, mid-session.
+// tall, buttons and fields 48, rows 56: the app is used one-handed, mid-session.
 import React, { useId } from 'react'
 import {
   ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Switch, TextInput, View,
   type PressableProps, type StyleProp, type TextInputProps, type ViewStyle,
 } from 'react-native'
-import { colors, font, mix, radius, space, TAP } from '../theme'
+import { colors, font, height, mix, radius, space, TAP } from '../theme'
 import { Icon } from '../lib/icons'
 import { T } from './Text'
 import { tap } from './haptics'
@@ -27,12 +27,14 @@ export function Press({ style, haptic, onPress, ...rest }: PressableProps & { st
   )
 }
 
-export type BtnKind = 'primary' | 'secondary' | 'ghost' | 'bad' | 'quiet'
+export type BtnKind = 'primary' | 'secondary' | 'quiet' | 'destructive'
 
 /**
- * button.btn. One `primary` per screen (the accent, filled); `secondary` is a
- * solid neutral for the other real choice; `ghost` is outlined, for backing
- * out; `quiet` is text for a minor action; `bad` is a destructive confirm.
+ * button.btn: four kinds, as on the web. `primary` is the one consequential
+ * next action on a screen (the accent, filled; never Close); `secondary` a solid
+ * neutral for any other real choice, backing out included; `quiet` text for a
+ * minor action; `destructive` the verb of a removal, only where it asks first.
+ * 48pt tall (`height.control`); the runner's own primary (`RunBtn`) is 56.
  */
 export function Btn({ title, icon, kind = 'primary', small, onPress, disabled, loading, style, children, flex }: {
   title?: string
@@ -47,7 +49,7 @@ export function Btn({ title, icon, kind = 'primary', small, onPress, disabled, l
   /** flex: 1, for a footer of buttons that share the row. */
   flex?: boolean
 }) {
-  const fg = kind === 'primary' ? colors.onAccent : kind === 'bad' ? colors.bg : kind === 'secondary' ? colors.ink : colors.inkDim
+  const fg = kind === 'primary' ? colors.onAccent : kind === 'destructive' ? colors.bg : kind === 'secondary' ? colors.ink : colors.inkDim
   return (
     <Press
       haptic
@@ -57,7 +59,7 @@ export function Btn({ title, icon, kind = 'primary', small, onPress, disabled, l
       style={[s.btn, small && s.btnSmall, kindStyle[kind], flex && { flex: 1 }, style]}
     >
       {loading ? <ActivityIndicator size="small" color={fg} /> : icon ? <Icon name={icon} size={small ? 14 : 16} color={fg} /> : null}
-      {title ? <T size={small ? font.small : font.body} weight={600} color={fg} numberOfLines={1}>{title}</T> : null}
+      {title ? <T size={small ? font.label : font.body} weight={600} color={fg} numberOfLines={1}>{title}</T> : null}
       {children}
     </Press>
   )
@@ -66,9 +68,8 @@ export function Btn({ title, icon, kind = 'primary', small, onPress, disabled, l
 const kindStyle: Record<BtnKind, ViewStyle> = {
   primary: { backgroundColor: colors.accent, borderColor: colors.accent },
   secondary: { backgroundColor: colors.panel3, borderColor: colors.lineStrong },
-  ghost: { backgroundColor: 'transparent', borderColor: colors.lineStrong },
-  bad: { backgroundColor: colors.vizCrit, borderColor: colors.vizCrit },
   quiet: { backgroundColor: 'transparent', borderColor: 'transparent' },
+  destructive: { backgroundColor: colors.vizCrit, borderColor: colors.vizCrit },
 }
 
 /**
@@ -120,11 +121,11 @@ export function Card({ children, style, onPress, tone }: {
 
 /** .card h2: a card's title, bigger than the body under it. */
 export function H2({ children, style }: { children: React.ReactNode; style?: any }) {
-  return <T size={font.title} weight={600} lineHeight={22} style={[{ marginBottom: space[1] }, style]}>{children}</T>
+  return <T size={font.title} weight={600} style={[{ marginBottom: space[1] }, style]}>{children}</T>
 }
 
 /** .sub: the muted line under a title, or a hint under a field. */
-export function Sub({ children, style, size = font.small }: { children: React.ReactNode; style?: any; size?: number }) {
+export function Sub({ children, style, size = font.label }: { children: React.ReactNode; style?: any; size?: number }) {
   return <T size={size} dim style={style}>{children}</T>
 }
 
@@ -142,7 +143,7 @@ export function SectionHeader({ title, right, style }: { title: string; right?: 
 }
 
 /**
- * .chip (a filter, 36pt in a row with a gap) and, with `out`, .out-chip (an
+ * .chip (a filter, 44pt like every target, #82) and, with `out`, .out-chip (an
  * answer to a question, 44pt). Selected is the accent tint: border and fill
  * change, not only the colour.
  */
@@ -165,20 +166,19 @@ export function Chip({ label, icon, on, onPress, style, out, small }: {
       style={[
         s.chip,
         out ? s.outChip : null,
-        small && { minHeight: 36, paddingHorizontal: 11 },
         on && (out ? s.outChipOn : s.chipOn),
         style,
       ]}
     >
       {icon ? <Icon name={icon} size={14} color={on ? colors.accent : colors.inkFaint} /> : null}
-      <T size={font.small} color={fg}>{label}</T>
+      <T size={font.label} color={fg}>{label}</T>
     </Press>
   )
 }
 
 /**
  * .seg: two to four mutually exclusive views; the selected one is raised. Scrolls when it cannot fit.
- * `tap` is `.seg.tap`: segments a full 44pt tall.
+ * Every segment is 44pt tall (#82); `tap` (`.seg.tap`) now changes nothing.
  */
 export function Segmented<V extends string>({ options, value, onChange, style, scroll, tap: tall }: {
   options: { value: V; label: string; icon?: string }[]
@@ -197,25 +197,25 @@ export function Segmented<V extends string>({ options, value, onChange, style, s
         onPress={() => onChange(o.value)}
         accessibilityRole="tab"
         accessibilityState={{ selected: on }}
-        style={[s.seg, tall && { minHeight: TAP }, !scroll && { flex: 1 }, on && s.segOn]}
+        style={[s.seg, !scroll && { flex: 1 }, on && s.segOn]}
       >
         {o.icon ? <Icon name={o.icon} size={15} color={on ? colors.ink : colors.inkDim} /> : null}
-        <T size={font.small} weight={500} color={on ? colors.ink : colors.inkDim} numberOfLines={1}>{o.label}</T>
+        <T size={font.label} weight={500} color={on ? colors.ink : colors.inkDim} numberOfLines={1}>{o.label}</T>
       </Press>
     )
   })
   if (scroll) {
     return (
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[s.segWrap, style]} contentContainerStyle={{ gap: 4 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[s.segWrap, style]} contentContainerStyle={{ gap: space[1] }}>
         {body}
       </ScrollView>
     )
   }
-  return <View style={[s.segWrap, { flexDirection: 'row', gap: 4 }, style]}>{body}</View>
+  return <View style={[s.segWrap, { flexDirection: 'row', gap: space[1] }, style]}>{body}</View>
 }
 
 /**
- * input / textarea: --panel-2, 16pt so nothing zooms, 44pt tall.
+ * input / textarea: --panel-2, 16pt so nothing zooms, 48pt tall.
  *
  * Every one carries the keyboard bar (‹ › Done editing, ui/KeyboardBar.tsx,
  * #77), so no keyboard in the app, the decimal pad included, is left without
@@ -238,7 +238,7 @@ export const Input = React.forwardRef<TextInput, TextInputProps & { boxStyle?: S
         inputAccessoryViewID={inputAccessoryViewID || bar || undefined}
         onChangeText={(t) => { markDirty?.(); onChangeText?.(t) }}
         {...rest}
-        style={[s.input, multiline && { minHeight: 76, textAlignVertical: 'top', paddingTop: 11 }, boxStyle as any, style]}
+        style={[s.input, multiline && { minHeight: 76, textAlignVertical: 'top', paddingTop: space[3] }, boxStyle as any, style]}
       />
       {/* After the input, so the input is in the window when the bar looks for it. */}
       {bar ? <KeyboardBar nativeID={bar} /> : null}
@@ -249,8 +249,8 @@ export const Input = React.forwardRef<TextInput, TextInputProps & { boxStyle?: S
 /** label.field: the label above its control. */
 export function Field({ label, children, style }: { label: string; children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
   return (
-    <View style={[{ gap: 6, flexGrow: 1, flexBasis: 110 }, style]}>
-      <T size={font.small} dim>{label}</T>
+    <View style={[{ gap: space[2], flexGrow: 1, flexBasis: 110 }, style]}>
+      <T size={font.label} dim>{label}</T>
       {children}
     </View>
   )
@@ -266,8 +266,8 @@ export function NoteField({ label, value, onChangeText, placeholder, rows = 3, s
   style?: StyleProp<ViewStyle>
 }) {
   return (
-    <View style={[{ marginBottom: 12 }, style]}>
-      <T size={font.small} dim style={{ marginBottom: 6 }}>{label}</T>
+    <View style={[{ marginBottom: space[3] }, style]}>
+      <T size={font.label} dim style={{ marginBottom: space[2] }}>{label}</T>
       <Input multiline value={value} onChangeText={onChangeText} placeholder={placeholder} style={{ minHeight: Math.max(76, rows * 22) }} />
     </View>
   )
@@ -289,9 +289,9 @@ export function Toggle({ value, onChange, disabled }: { value: boolean; onChange
 
 export function Spinner({ label, style }: { label?: string; style?: StyleProp<ViewStyle> }) {
   return (
-    <View style={[{ paddingVertical: 30, alignItems: 'center', gap: 10 }, style]}>
+    <View style={[{ paddingVertical: space[8], alignItems: 'center', gap: space[2] }, style]}>
       <ActivityIndicator color={colors.inkDim} />
-      {label ? <T faint size={14}>{label}</T> : null}
+      {label ? <T faint size={font.label}>{label}</T> : null}
     </View>
   )
 }
@@ -323,7 +323,7 @@ export function Row({ icon, label, value, onPress, right, danger }: {
     <Press haptic={!!onPress} onPress={onPress} disabled={!onPress && !right} style={s.row}>
       {icon ? <Icon name={icon} size={20} color={danger ? colors.vizCrit : colors.inkDim} /> : null}
       <T size={font.body} weight={500} color={danger ? colors.vizCrit : colors.ink} style={{ flex: 1 }} numberOfLines={1}>{label}</T>
-      {value ? <T size={font.small} dim tabular numberOfLines={1}>{value}</T> : null}
+      {value ? <T size={font.label} dim tabular numberOfLines={1}>{value}</T> : null}
       {right}
       {onPress && !right ? <Icon name="ChevronRight" size={16} color={colors.inkFaint} /> : null}
     </Press>
@@ -333,35 +333,36 @@ export function Row({ icon, label, value, onPress, right, danger }: {
 export const s = StyleSheet.create({
   btn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space[2],
-    borderWidth: 1, borderRadius: radius.control, paddingHorizontal: space[4], minHeight: TAP,
+    borderWidth: 1, borderRadius: radius.control, paddingHorizontal: space[4], minHeight: height.control,
   },
-  btnSmall: { paddingHorizontal: space[3], minHeight: 36 },
+  // `small` is a button inside a row of things (never under the 44 floor).
+  btnSmall: { paddingHorizontal: space[3], minHeight: TAP },
   iconBtn: { width: TAP, height: TAP, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   // A bordered one is a rounded square, the web's .qbtn (a ± beside a number).
   iconBtnBordered: { borderWidth: 1, borderColor: colors.line, borderRadius: radius.card },
   card: {
     backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.card,
-    padding: space[4], marginBottom: space[3],
+    padding: space.card, marginBottom: space[3],
   },
   sectionHead: { flexDirection: 'row', alignItems: 'baseline', gap: space[2], marginTop: space[6], marginBottom: space[2] },
   chip: {
-    flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
-    paddingHorizontal: space[3], minHeight: 36, borderRadius: radius.pill,
+    flexDirection: 'row', alignItems: 'center', gap: space[2], alignSelf: 'flex-start',
+    paddingHorizontal: space[3], minHeight: TAP, borderRadius: radius.pill,
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel2,
   },
   chipOn: { borderColor: colors.accentLine, backgroundColor: colors.accentSoft },
   outChip: { minHeight: TAP },
   outChipOn: { borderColor: colors.accentLine, backgroundColor: colors.accentSoft },
-  segWrap: { backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control, padding: 3, flexGrow: 0, marginBottom: space[3] },
-  seg: { flexDirection: 'row', gap: 6, paddingHorizontal: space[2], borderRadius: 8, alignItems: 'center', justifyContent: 'center', minHeight: 38 },
+  segWrap: { backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control, padding: space[1], flexGrow: 0, marginBottom: space[3] },
+  seg: { flexDirection: 'row', gap: space[2], paddingHorizontal: space[2], borderRadius: radius.control, alignItems: 'center', justifyContent: 'center', minHeight: TAP },
   segOn: { backgroundColor: colors.panel3, borderWidth: 1, borderColor: colors.lineStrong },
   input: {
     backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control,
-    paddingHorizontal: space[3], paddingVertical: 10, minHeight: TAP, color: colors.ink, fontSize: font.input,
+    paddingHorizontal: space[3], paddingVertical: space[2], minHeight: height.control, color: colors.ink, fontSize: font.input,
   },
   empty: {
-    paddingVertical: space[8], paddingHorizontal: space[5], alignItems: 'center', gap: space[3],
+    paddingVertical: space[8], paddingHorizontal: space[6], alignItems: 'center', gap: space[3],
     borderWidth: 1, borderStyle: 'dashed', borderColor: colors.lineStrong, borderRadius: radius.card,
   },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: 52, paddingVertical: space[2] },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: height.row, paddingVertical: space[2] },
 })

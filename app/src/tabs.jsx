@@ -672,7 +672,7 @@ function DaySessions({
 
       {open && (
         <SessionSheet
-          opt={open.opt} entry={open.entry} tone={open.tone} entries={entries} isFuture={isFuture}
+          opt={open.opt} entry={open.entry} tone={open.tone} entries={entries} isFuture={isFuture} day={viewIso}
           onLog={open.kind === 'adjunct' ? null : open.kind === 'extra' ? onAddExtra : onPickMain}
           onSave={onSaveOutputs}
           onSavePlan={onSavePlan}

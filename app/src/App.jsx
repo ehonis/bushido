@@ -496,7 +496,7 @@ export default function App() {
         ))}
       </nav>
 
-      <main>
+      <main data-tab={tab}>
         {tab === 'log' && (
           <LogTab plan={plan} entries={store.entries} upsertEntry={store.upsertEntry} deleteEntry={store.deleteEntry} />
         )}

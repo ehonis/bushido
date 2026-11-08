@@ -353,7 +353,7 @@ export default [
         if (!t.includes(`${PRESCRIPTION.title} is on today, with Sam`)) throw new Error(`it says: ${t}`)
         if (!/each of you logs your own numbers/.test(t)) throw new Error('it does not say the numbers stay each person\'s')
         if (!/Not with Robin: offline/.test(t)) throw new Error('a person it could not be shared with is not said')
-        if (!/Start it now/.test(t)) throw new Error('your side cannot be started')
+        if (!/Start workout/.test(t)) throw new Error('your side cannot be started')
       }],
       /* Others only, kept for Sam but not Robin: said as it is, with a retry here, not "With …". */
       ['KeptStep(others only, missed Robin: on Sam’s day, Try again for Robin, no "With …")', null, () => {
@@ -373,7 +373,7 @@ export default [
       ['BuildStep(the keep button says who it goes to)', null, () => {
         const t = text(renderToString(<PlanProvider plan={plan}><BuildStep pres={PRESCRIPTION} setPres={noop} liftField={LIFT_FIELD}
           onKeep={noop} words={forWords({ me: true, others: [SAM] })} /></PlanProvider>))
-        if (!/Put it on today with Sam/.test(t)) throw new Error(`the button: ${t.match(/Put it on[^<]*/)?.[0]}`)
+        if (!/Add to Today with Sam/.test(t)) throw new Error(`the button: ${t.match(/Add to[^<]*/)?.[0]}`)
       }],
       ['ForLine(one line: whose plan this is, with their initial, no paragraph)', null, () => {
         const t = text(renderToString(<ForLine who={{ me: false, others: [SAM] }} people={planPeople(ownerMe)} />)).replace(/<[^>]+>/g, '')

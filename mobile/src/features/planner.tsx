@@ -14,7 +14,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, ScrollView, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { colors, font, mix, radius, space, TAP } from '../theme'
+import { colors, font, mix, radius, space, TAP, height } from '../theme'
 import { Icon } from '../lib/icons'
 import { T } from '../ui/Text'
 import { Btn, Card, Chip, IconBtn, Input, Press, SectionHeader } from '../ui/kit'
@@ -131,14 +131,14 @@ export function PlanFlow({ plan, entries = [], iso, date = null, onKeep, onStart
   const fileAs = f.asksFiling ? <FileAs choices={f.fileChoices} value={s.filing} onChange={set.filing} /> : null
   const firstHead = (
     <>
-      {s.notice ? <T size={font.small} color={colors.bad} style={st.errLine}>{s.notice}</T> : null}
+      {s.notice ? <T size={font.label} color={colors.bad} style={st.errLine}>{s.notice}</T> : null}
       {f.ai ? <DraftList drafts={f.drafts} onOpen={(d: any) => { tap(); f.resume(d) }} onRetry={(d: any) => { impact(); f.retry(d) }} onDiscard={f.discard} /> : null}
       <ForChoice people={forPeople} who={s.who} onChange={set.who} />
       <ForLine who={s.who} people={forPeople} />
-      {f.waitLine ? <T size={font.small} dim style={st.errLine}>{f.waitLine}</T> : null}
+      {f.waitLine ? <T size={font.label} dim style={st.errLine}>{f.waitLine}</T> : null}
     </>
   )
-  const errLine = s.error ? <T size={font.small} color={colors.bad} style={st.errLine}>{s.error}</T> : null
+  const errLine = s.error ? <T size={font.label} color={colors.bad} style={st.errLine}>{s.error}</T> : null
   const forLine = <ForLine who={s.who} people={forPeople} />
   const keep = () => { impact(); f.keep() }
 
@@ -164,17 +164,17 @@ export function PlanFlow({ plan, entries = [], iso, date = null, onKeep, onStart
           {forLine}
           <View style={st.failed}>
             <View style={st.failedLead}>
-              <Icon name="TriangleAlert" size={16} color={colors.bad} style={{ marginTop: 3 }} />
+              <Icon name="TriangleAlert" size={16} color={colors.bad} style={{ marginTop: space[1] }} />
               <T size={font.body} color={colors.bad} style={{ flex: 1 }}>{s.error}</T>
             </View>
-            <T size={font.small} dim>Nothing was written.</T>
+            <T size={font.label} dim>Nothing was written.</T>
             <View style={[st.actions, st.fork]}>
               <Btn icon="RotateCw" title="Try again" onPress={() => { impact(); f.retry() }} style={st.forkBtn} />
               {/* Not a dead end: a busy box is only a reason to write it yourself. */}
               <Btn kind="secondary" icon="ListPlus" title="Build it myself" onPress={f.build} style={st.forkBtn} />
-              <Btn kind="ghost" title="Change the ask" onPress={f.toFirst} style={st.forkBtn} />
+              <Btn kind="secondary" title="Change the ask" onPress={f.toFirst} style={st.forkBtn} />
               {!f.open && f.drafts.length > 0 ? (
-                <Btn kind="ghost" title="See your drafts" onPress={f.back} style={st.forkBtn} />
+                <Btn kind="secondary" title="See your drafts" onPress={f.back} style={st.forkBtn} />
               ) : null}
             </View>
           </View>
@@ -225,7 +225,7 @@ export function PlanDay({ value, today, onChange }: { value: string; today: stri
     : null
   return (
     <View style={st.planday} accessibilityLabel="Which day">
-      <T size={font.small} dim weight={500}>Day</T>
+      <T size={font.label} dim weight={500}>Day</T>
       <View style={st.dayswitch}>
         <Press haptic onPress={() => onChange((isoShift as any)(value, -1))} disabled={value <= min} style={[st.dayBtn, value <= min && { opacity: 0.3 }]}
           accessibilityRole="button" accessibilityLabel="The day before">
@@ -321,7 +321,7 @@ export function KindChips({ plan, picked = [], setPicked, title, style }: {
       <Press onPress={() => { tap(); setOpened(!shown) }} accessibilityRole="button"
         accessibilityState={{ expanded: shown }} style={st.foldHead}>
         <T size={font.body} weight={600} style={{ flex: 1 }}>{title}</T>
-        <T size={font.small} dim>{picked.length ? `${picked.length} picked` : 'Optional'}</T>
+        <T size={font.label} dim>{picked.length ? `${picked.length} picked` : 'Optional'}</T>
         <Icon name={shown ? 'ChevronUp' : 'ChevronDown'} size={16} color={colors.inkFaint} />
       </Press>
       {shown ? (
@@ -329,7 +329,7 @@ export function KindChips({ plan, picked = [], setPicked, title, style }: {
           {extra.length > 0 ? <View style={[st.chiprow, { marginTop: space[3] }]}>{extra.map(chip)}</View> : null}
           {groups.map((g: any) => (
             <View key={g.key} style={{ marginTop: space[3] }} accessibilityLabel={g.name}>
-              <T size={font.small} dim weight={500} style={{ marginBottom: space[2] }}>{g.name}</T>
+              <T size={font.label} dim weight={500} style={{ marginBottom: space[2] }}>{g.name}</T>
               <View style={st.chiprow}>{g.items.map(chip)}</View>
             </View>
           ))}
@@ -362,7 +362,7 @@ export function MinuteChips({ minutes, setMinutes, chips = DEFAULT_MINUTES }: {
           <NumInput value={minutes} decimal={false} accessibilityLabel="How many minutes" autoFocus
             keyboardType="number-pad" keyboardAppearance="dark" selectTextOnFocus style={st.minOtherIn}
             onChange={(v: any) => { if (v) setMinutes(Math.min(300, Math.max(5, v))) }} />
-          <T size={font.small} dim>min</T>
+          <T size={font.label} dim>min</T>
         </View>
       ) : (
         <Chip out label="Other" onPress={() => setOther(true)} />
@@ -412,7 +412,7 @@ export function AskStep({
       {evicts ? (
         <View style={st.evicts}>
           <Icon name="Info" size={14} color={colors.inkDim} />
-          <T size={font.small} dim style={{ flex: 1 }}>Replaces your oldest draft, {draftTitle(evicts)}</T>
+          <T size={font.label} dim style={{ flex: 1 }}>Replaces your oldest draft, {draftTitle(evicts)}</T>
         </View>
       ) : null}
     </StepPage>
@@ -449,7 +449,7 @@ export function Working({ label, minutes, since = null, onDiscard = null }: {
       </T>
       <T size={font.body} dim align="center" style={{ marginTop: space[2], marginBottom: space[4] }}>{WORKING_LINE}</T>
       <PulseDots style={{ marginBottom: space[3] }} />
-      <T size={font.small} dim align="center" tabular>{secs}s · You can leave; it keeps going</T>
+      <T size={font.label} dim align="center" tabular>{secs}s · You can leave; it keeps going</T>
       {onDiscard ? (
         <Btn kind="quiet" title="Stop and throw it away" onPress={() => { warn(); onDiscard() }}
           style={{ marginTop: space[3] }} />
@@ -501,7 +501,7 @@ export function DraftList({ drafts = [], onOpen, onRetry, onDiscard, now = null 
                   : <Icon name={icon} size={20} color={tint} />}
                 <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                   <T size={font.body} weight={500} numberOfLines={1}>{draftTitle(d)}</T>
-                  <T size={font.small} dim tabular numberOfLines={1}>{draftLine(d, at)}</T>
+                  <T size={font.label} dim tabular numberOfLines={1}>{draftLine(d, at)}</T>
                 </View>
               </Press>
               {d.status === 'failed' ? <Btn kind="secondary" title="Try again" onPress={() => onRetry(d)} /> : null}
@@ -539,14 +539,14 @@ export function PlanWhy({ text, open = false }: { text?: string | null; open?: b
   const long = text.length > 220
   return (
     <View style={st.why}>
-      <Icon name="Sparkles" size={14} color={colors.accent} style={{ marginTop: 3 }} />
+      <Icon name="Sparkles" size={14} color={colors.accent} style={{ marginTop: space[1] }} />
       <View style={{ flex: 1, minWidth: 0 }}>
         <View style={long && !shown ? { maxHeight: 63, overflow: 'hidden' } : null}>
           <Markdown text={text} size={13.5} color={colors.inkDim} />
         </View>
         {long && (
-          <Press onPress={() => { tap(); setShown(v => !v) }} style={{ marginTop: 6, alignSelf: 'flex-start' }}>
-            <T size={12} color={colors.accent} style={st.link}>{shown ? 'less' : 'why this session'}</T>
+          <Press onPress={() => { tap(); setShown(v => !v) }} style={{ marginTop: space[2], alignSelf: 'flex-start' }}>
+            <T size={font.label} color={colors.accent} style={st.link}>{shown ? 'less' : 'why this session'}</T>
           </Press>
         )}
       </View>
@@ -652,7 +652,7 @@ export function PlanTalk({ pres, onChange, compact = false, forId = null, draft 
         <Icon name="Sparkles" size={15} color={colors.accent} />
         {/* A session the user wrote has no reasoning to read; the panel is still
             worth having, because the model can revise a plan whoever wrote it. */}
-        <T size={13.5} weight={600} style={{ flex: 1 }}>
+        <T size={font.label} weight={600} style={{ flex: 1 }}>
           {pres?.why || thread.length
             ? 'Why this session — and what to change'
             : 'Ask the model to change this'}
@@ -669,8 +669,8 @@ export function PlanTalk({ pres, onChange, compact = false, forId = null, draft 
                 <Markdown text={pres.why} size={13.5} color={colors.inkDim} />
               </View>
               {long && (
-                <Press onPress={() => { tap(); setFull(v => !v) }} style={{ marginTop: 6, alignSelf: 'flex-start' }}>
-                  <T size={12} color={colors.accent} style={st.link}>{full ? 'less' : 'read the rest'}</T>
+                <Press onPress={() => { tap(); setFull(v => !v) }} style={{ marginTop: space[2], alignSelf: 'flex-start' }}>
+                  <T size={font.label} color={colors.accent} style={st.link}>{full ? 'less' : 'read the rest'}</T>
                 </Press>
               )}
             </View>
@@ -680,8 +680,8 @@ export function PlanTalk({ pres, onChange, compact = false, forId = null, draft 
 
           {error && (
             <View style={st.err}>
-              <Icon name="TriangleAlert" size={13} color={colors.bad} style={{ marginTop: 3 }} />
-              <T size={12.5} color={colors.bad} style={{ flex: 1 }}>{error} — your session is unchanged.</T>
+              <Icon name="TriangleAlert" size={13} color={colors.bad} style={{ marginTop: space[1] }} />
+              <T size={font.caption} color={colors.bad} style={{ flex: 1 }}>{error} — your session is unchanged.</T>
             </View>
           )}
 
@@ -698,7 +698,7 @@ export function PlanTalk({ pres, onChange, compact = false, forId = null, draft 
 /** .plantalk-n: the turn count on the fold. */
 export function TurnCount({ n }: { n: number }) {
   return (
-    <View style={st.talkN}><T size={11} weight={700} lineHeight={14} color={colors.bg}>{n}</T></View>
+    <View style={st.talkN}><T size={font.caption} weight={700} lineHeight={14} color={colors.bg}>{n}</T></View>
   )
 }
 
@@ -712,9 +712,9 @@ export function TalkThread({ thread, asking, thinking }: { thread: any[]; asking
         </View>
       ))}
       {asking && (
-        <View style={[st.msg, st.msgCoach, { flexDirection: 'row', alignItems: 'center', gap: 9 }]}>
+        <View style={[st.msg, st.msgCoach, { flexDirection: 'row', alignItems: 'center', gap: space[2] }]}>
           <PulseDots size={6} gap={4} />
-          <T size={12.5} dim>{thinking}</T>
+          <T size={font.caption} dim>{thinking}</T>
         </View>
       )}
     </>
@@ -726,7 +726,7 @@ export function TalkPrompts({ prompts, onAsk }: { prompts: string[]; onAsk: (q: 
     <View style={st.prompts}>
       {prompts.map(q => (
         <Press key={q} onPress={() => onAsk(q)} style={st.prompt}>
-          <T size={12} dim>{q}</T>
+          <T size={font.caption} dim>{q}</T>
         </Press>
       ))}
     </View>
@@ -737,9 +737,9 @@ export function TalkAsk({ text, setText, asking, onAsk, label, placeholder }: {
   text: string; setText: (v: string) => void; asking: boolean; onAsk: (v: string) => void; label: string; placeholder: string
 }) {
   return (
-    <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
+    <View style={{ flexDirection: 'row', gap: space[2], alignItems: 'flex-end' }}>
       <Input multiline value={text} editable={!asking} onChangeText={setText}
-        placeholder={placeholder} style={{ flex: 1, minWidth: 0, minHeight: 56 }} />
+        placeholder={placeholder} style={{ flex: 1, minWidth: 0, minHeight: height.row }} />
       <Btn kind="primary" title={asking ? '…' : label} disabled={!text.trim() || asking} onPress={() => onAsk(text)} />
     </View>
   )
@@ -798,7 +798,7 @@ function ReviewStep({ pres, setPres, liftField, entries = [], categories = [], o
     <StepPage
       foot={
         <View style={{ flexDirection: 'row', gap: space[2] }}>
-          <Btn kind="ghost" icon="RotateCw" title="Redo" onPress={onRedo} />
+          <Btn kind="secondary" icon="RotateCw" title="Redo" onPress={onRedo} />
           <Btn icon="Plus" title={words.keep} onPress={onKeep}
             disabled={Boolean(talk?.busy)} flex />
         </View>
@@ -816,8 +816,8 @@ function ReviewStep({ pres, setPres, liftField, entries = [], categories = [], o
         <View style={{ marginTop: space[4], gap: space[2] }}>
           {pres.notes.map((n: string, i: number) => (
             <View key={i} style={{ flexDirection: 'row', gap: space[2], alignItems: 'flex-start' }}>
-              <Icon name="Info" size={13} color={colors.inkFaint} style={{ marginTop: 3 }} />
-              <T size={font.small} faint style={{ flex: 1 }}>{n}</T>
+              <Icon name="Info" size={13} color={colors.inkFaint} style={{ marginTop: space[1] }} />
+              <T size={font.label} faint style={{ flex: 1 }}>{n}</T>
             </View>
           ))}
         </View>
@@ -842,10 +842,10 @@ function SplitNote({ parts }: { parts: any[] }) {
   if (parts.length < 2) return null
   return (
     <View style={st.split}>
-      <Icon name="Layers" size={14} color={colors.series1} style={{ marginTop: 3 }} />
-      <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-        <T size={font.small} weight={600}>This lands as {parts.length} separate workouts</T>
-        <T size={font.small} dim>{parts.map(p => p.title).join(' · ')}</T>
+      <Icon name="Layers" size={14} color={colors.series1} style={{ marginTop: space[1] }} />
+      <View style={{ flex: 1, minWidth: 0, gap: space[1] }}>
+        <T size={font.label} weight={600}>This lands as {parts.length} separate workouts</T>
+        <T size={font.label} dim>{parts.map(p => p.title).join(' · ')}</T>
       </View>
     </View>
   )
@@ -868,7 +868,7 @@ export function KeptStep({ pres, count = 1, parts = [], onStart, onAnother, onDo
   return (
     <View style={st.kept}>
       <Icon name="CircleCheck" size={44} color={colors.vizGood} />
-      <T size={font.heading} weight={600} lineHeight={27} align="center" style={{ marginTop: space[3], marginBottom: space[2] }}>
+      <T size={font.screen} weight={600} align="center" style={{ marginTop: space[3], marginBottom: space[2] }}>
         {many ? `${count} workouts are ${where}` : `${pres.title} is ${where}`}
       </T>
 
@@ -884,7 +884,7 @@ export function KeptStep({ pres, count = 1, parts = [], onStart, onAnother, onDo
         </View>
       )}
 
-      <T size={font.small} dim align="center" style={{ marginTop: many ? space[4] : 0 }}>
+      <T size={font.label} dim align="center" style={{ marginTop: many ? space[4] : 0 }}>
         {many ? '' : `${(prescriptionLine as any)(pres)} · `}
         {w.after}
       </T>
@@ -893,7 +893,7 @@ export function KeptStep({ pres, count = 1, parts = [], onStart, onAnother, onDo
           others only, that is here (`onRetry`); shared from your own workout, it is
           "With …" on its sheet. */}
       {failed.map((f: any) => (
-        <T key={f.person.id} size={font.small} color={colors.bad} align="center" style={{ marginTop: space[2] }}>
+        <T key={f.person.id} size={font.label} color={colors.bad} align="center" style={{ marginTop: space[2] }}>
           {!onRetry ? `Not with ${f.person.name}: ${f.error}. Add ${f.person.name} from the workout’s “With …”.`
             : f.written > 0 ? `${f.person.name} has part of it (${f.written} of ${f.of}): ${f.error}.`
             : `Not on ${f.person.name}’s day: ${f.error}.`}
@@ -904,7 +904,7 @@ export function KeptStep({ pres, count = 1, parts = [], onStart, onAnother, onDo
           <Btn kind="secondary" icon="RotateCw" title={`Try again for ${namesOf(failed.map((f: any) => f.person))}`}
             onPress={onRetry} disabled={retrying} style={{ marginTop: space[3], alignSelf: 'center' }} />
           {/* Only here: the draft is retired once it is on anyone's day. */}
-          <T size={font.small} dim align="center" style={{ marginTop: space[2] }}>
+          <T size={font.label} dim align="center" style={{ marginTop: space[2] }}>
             If you close this, plan {namesOf(failed.map((f: any) => f.person))}’s again from Plan a workout.
           </T>
         </>
@@ -912,11 +912,11 @@ export function KeptStep({ pres, count = 1, parts = [], onStart, onAnother, onDo
 
       <View style={st.keptActs}>
         {onStart && (
-          <Btn icon="Play" title={startLabel || (forName ? `Open it on ${forName}’s side` : many ? 'Start the first one' : 'Start it now')}
-            onPress={() => { impact(); onStart() }} style={{ minHeight: 56 }} />
+          <Btn icon="Play" title={startLabel || (forName ? `Open it on ${forName}’s side` : many ? `Start ${parts[0]?.title || 'workout'}` : 'Start workout')}
+            onPress={() => { impact(); onStart() }} style={{ minHeight: height.row }} />
         )}
         <Btn kind={onStart ? 'secondary' : 'primary'} icon="Plus" title="Plan another workout" onPress={onAnother} />
-        <Btn kind="ghost" icon="House" title="Back to today" onPress={onDone} />
+        <Btn kind="secondary" icon="House" title="Back to today" onPress={onDone} />
       </View>
     </View>
   )
@@ -932,7 +932,7 @@ const st = StyleSheet.create({
   // The fork wraps rather than squeezes: an ellipsised label is a choice nobody can read.
   fork: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
   forkBtn: { flexGrow: 1, flexShrink: 1, flexBasis: 148 },
-  fine: { color: colors.inkDim, fontSize: font.small, lineHeight: Math.round(font.small * 1.45), marginTop: space[2] },
+  fine: { color: colors.inkDim, fontSize: font.label, lineHeight: Math.round(font.label * 1.45), marginTop: space[2] },
   link: { textDecorationLine: 'underline' },
   errLine: { marginTop: space[2], marginBottom: space[3] },
 
@@ -947,7 +947,7 @@ const st = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: TAP, paddingLeft: space[1], paddingRight: space[3],
     borderRadius: radius.pill, borderWidth: 1, borderColor: colors.accentLine, backgroundColor: colors.accentSoft,
   },
-  minOtherIn: { width: 56, minHeight: 36, paddingVertical: 0, textAlign: 'center' },
+  minOtherIn: { width: 56, minHeight: TAP, paddingVertical: 0, textAlign: 'center' },
   // Which day (#78): a label beside the rest day's ‹ day ›.
   planday: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
   dayswitch: {
@@ -966,43 +966,43 @@ const st = StyleSheet.create({
   failedLead: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2], marginBottom: space[2] },
 
   why: {
-    flexDirection: 'row', gap: 10, marginBottom: 18, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 12,
+    flexDirection: 'row', gap: space[2], marginBottom: space[4], paddingVertical: space[3], paddingHorizontal: space[4], borderRadius: radius.card,
     backgroundColor: mix(colors.accent, 7, colors.panel2), borderWidth: 1, borderColor: mix(colors.accent, 24, colors.line),
   },
 
   talk: {
-    marginBottom: 20, borderRadius: 12, overflow: 'hidden',
+    marginBottom: space[6], borderRadius: radius.card, overflow: 'hidden',
     backgroundColor: mix(colors.accent, 7, colors.panel2), borderWidth: 1, borderColor: mix(colors.accent, 24, colors.line),
   },
-  talkHead: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 11, paddingHorizontal: 12, minHeight: TAP },
-  talkBody: { paddingHorizontal: 12, paddingBottom: 12 },
+  talkHead: { flexDirection: 'row', alignItems: 'center', gap: space[2], paddingVertical: space[3], paddingHorizontal: space[3], minHeight: TAP },
+  talkBody: { paddingHorizontal: space[3], paddingBottom: space[3] },
   talkN: {
-    minWidth: 20, height: 20, paddingHorizontal: 6, borderRadius: 999,
+    minWidth: 20, height: 20, paddingHorizontal: space[2], borderRadius: radius.pill,
     alignItems: 'center', justifyContent: 'center', backgroundColor: colors.accent,
   },
-  msg: { marginVertical: 10, paddingVertical: 9, paddingHorizontal: 11, borderRadius: 10 },
+  msg: { marginVertical: space[2], paddingVertical: space[2], paddingHorizontal: space[3], borderRadius: radius.control },
   msgYou: { marginLeft: '22%', backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line },
   msgCoach: {
     marginRight: '10%', borderLeftWidth: 2, borderLeftColor: mix(colors.accent, 50, colors.panel2),
     borderTopLeftRadius: 0, borderBottomLeftRadius: 0,
   },
-  err: { flexDirection: 'row', gap: 6, marginTop: 8 },
-  prompts: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12, marginBottom: 10 },
+  err: { flexDirection: 'row', gap: space[2], marginTop: space[2] },
+  prompts: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2], marginTop: space[3], marginBottom: space[2] },
   prompt: {
-    minHeight: 32, paddingHorizontal: 11, borderRadius: radius.pill, justifyContent: 'center',
+    minHeight: TAP, paddingHorizontal: space[3], borderRadius: radius.pill, justifyContent: 'center',
     backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line,
   },
 
   split: {
-    flexDirection: 'row', gap: 10, marginBottom: 18, paddingVertical: 11, paddingHorizontal: 13, borderRadius: 11,
+    flexDirection: 'row', gap: space[2], marginBottom: space[4], paddingVertical: space[3], paddingHorizontal: space[3], borderRadius: radius.card,
     backgroundColor: mix(colors.series1, 9, colors.panel2), borderWidth: 1, borderColor: mix(colors.series1, 28, colors.line),
   },
 
-  kept: { alignItems: 'center', paddingTop: 40, paddingHorizontal: 8 },
-  keptParts: { alignSelf: 'stretch', gap: 8 },
+  kept: { alignItems: 'center', paddingTop: space[8], paddingHorizontal: space[2] },
+  keptParts: { alignSelf: 'stretch', gap: space[2] },
   keptPart: {
-    gap: 1, paddingVertical: 9, paddingHorizontal: 12, backgroundColor: colors.panel2,
-    borderWidth: 1, borderColor: colors.line, borderLeftWidth: 3, borderLeftColor: colors.accent, borderRadius: 9,
+    gap: 1, paddingVertical: space[2], paddingHorizontal: space[3], backgroundColor: colors.panel2,
+    borderWidth: 1, borderColor: colors.line, borderLeftWidth: 3, borderLeftColor: colors.accent, borderRadius: radius.control,
   },
   keptActs: { alignSelf: 'stretch', gap: space[2], marginTop: space[6] },
 })

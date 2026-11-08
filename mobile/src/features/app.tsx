@@ -6,7 +6,7 @@ import React, { useEffect, useState } from 'react'
 import { Modal as RNModal, Pressable, StyleSheet, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { colors, elevation, font, radius, space } from '../theme'
+import { colors, elevation, font, radius, space, TAP, height } from '../theme'
 import { T } from '../ui/Text'
 import { Btn, Chip, Field, NoteField, Press } from '../ui/kit'
 import { Modal } from '../ui/Sheet'
@@ -46,15 +46,15 @@ export function ActingBanner({ me }: { me: any }) {
   return (
     <View style={st.acting} accessibilityRole="alert">
       <Icon name="Users" size={15} color={colors.accent} />
-      <T size={font.small} style={{ flex: 1, minWidth: 0 }}>
-        Logging for <T size={font.small} weight={700}>{me.name}</T>
+      <T size={font.label} style={{ flex: 1, minWidth: 0 }}>
+        Logging for <T size={font.label} weight={700}>{me.name}</T>
       </T>
       <Press
         disabled={busy}
         style={st.actingBack}
         onPress={() => { setBusy(true); (actAs as any)(null, { reload: reloadApp }).catch(() => setBusy(false)) }}
       >
-        <T size={font.small} weight={600}>{busy ? 'Switching…' : `Back to ${me.real.name || 'me'}`}</T>
+        <T size={font.label} weight={600}>{busy ? 'Switching…' : `Back to ${me.real.name || 'me'}`}</T>
       </Press>
     </View>
   )
@@ -109,7 +109,7 @@ export function FabMenu({ onClose, onPlan, onLog, onRest, onTimer = null, quick,
                 </View>
                 <View style={{ flex: 1, gap: 2 }}>
                   <T size={font.body} weight={600}>{r.title}</T>
-                  <T size={font.small} dim>{r.key === 'plan' && !ai ? 'Build it yourself' : r.sub}</T>
+                  <T size={font.label} dim>{r.key === 'plan' && !ai ? 'Build it yourself' : r.sub}</T>
                 </View>
               </Press>
               {r.key === 'log' ? (quick === undefined ? <FabQuickLog /> : quick) : null}
@@ -172,13 +172,13 @@ export function RestPrompt({ opt, date: initialDate, entryFor, onSave, onClose }
       icon={opt?.icon || 'Sunset'} tone="rest" onClose={onClose}
       footer={<Btn icon="Check" title={existing ? 'Save' : 'Log the rest day'} flex disabled={!valid} onPress={save} />}>
       {/* Any day up to today — a rest day the user forgot to log is still one they took. */}
-      <Field label="Day" style={{ marginBottom: 10, flexBasis: 'auto' }}>
+      <Field label="Day" style={{ marginBottom: space[2], flexBasis: 'auto' }}>
         <DayStepper value={date} max={today} onChange={setDate} />
       </Field>
       {field ? (
-        <View style={{ gap: 7, marginBottom: space[4] }}>
-          <T size={13} dim>{field.label}</T>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 1 }}>
+        <View style={{ gap: space[2], marginBottom: space[4] }}>
+          <T size={font.label} dim>{field.label}</T>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space[2], marginTop: 1 }}>
             {field.options.map((o: any) => {
               const on = why === o.value
               return <Chip key={o.value} out on={on} icon={o.icon} label={o.label} onPress={() => setWhy(on ? undefined : o.value)} />
@@ -199,7 +199,7 @@ const st = StyleSheet.create({
     borderWidth: 1, borderColor: colors.accentLine, borderRadius: radius.card, backgroundColor: colors.accentSoft,
   },
   actingBack: {
-    minHeight: 44, paddingHorizontal: space[3], borderRadius: radius.control, borderWidth: 1, borderColor: colors.lineStrong,
+    minHeight: TAP, paddingHorizontal: space[3], borderRadius: radius.control, borderWidth: 1, borderColor: colors.lineStrong,
     backgroundColor: colors.panel2, justifyContent: 'center',
   },
   scrim: { flex: 1, backgroundColor: colors.scrim, justifyContent: 'flex-end', paddingHorizontal: space[2] },
@@ -208,8 +208,8 @@ const st = StyleSheet.create({
     ...elevation[3],
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: 64, paddingVertical: space[2], paddingHorizontal: space[3], borderRadius: radius.card },
-  rowIco: { width: 44, height: 44, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center' },
+  rowIco: { width: TAP, height: TAP, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center' },
   // Under Log a workout, icons lined up with its title (logging.css .fabmenu .quicklog).
   quick: { paddingLeft: space[3] + 44 + space[3], paddingRight: space[3], marginBottom: space[1] },
-  cancel: { minHeight: 44, marginTop: space[1], alignItems: 'center', justifyContent: 'center', borderRadius: radius.card, backgroundColor: colors.panel2 },
+  cancel: { minHeight: TAP, marginTop: space[1], alignItems: 'center', justifyContent: 'center', borderRadius: radius.card, backgroundColor: colors.panel2 },
 })

@@ -33,7 +33,7 @@
  */
 import React, { useMemo, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
-import { colors, font, radius, space } from '../theme'
+import { colors, font, radius, space, TAP, height } from '../theme'
 import { Icon } from '../lib/icons'
 import { T } from '../ui/Text'
 import { Card, IconBtn, Input, Press, SectionHeader } from '../ui/kit'
@@ -87,7 +87,7 @@ export function PickerScreen({
       {hits ? (
         hits.length
           ? <RowCard rows={hits} onPick={pick} />
-          : <T size={font.small} dim style={{ marginVertical: space[2] }}>Nothing matches “{query}”.</T>
+          : <T size={font.label} dim style={{ marginVertical: space[2] }}>Nothing matches “{query}”.</T>
       ) : (
         groups.map((g: any, i: number) => (
           <View key={g.key}>
@@ -102,7 +102,7 @@ export function PickerScreen({
       )}
 
       {footer && !query ? footer : null}
-      {!total && <T size={font.small} dim>Nothing to pick from.</T>}
+      {!total && <T size={font.label} dim>Nothing to pick from.</T>}
     </FullScreen>
   )
 }
@@ -123,9 +123,9 @@ function Row({ row, first, onPick }: { row: any; first: boolean; onPick: (key: s
       <Icon name={row.icon || 'Activity'} size={20} color={colors.inkDim} />
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         <T size={font.body} weight={500} numberOfLines={1}>{row.name}</T>
-        {row.sub ? <T size={font.small} dim numberOfLines={1}>{row.sub}</T> : null}
+        {row.sub ? <T size={font.label} dim numberOfLines={1}>{row.sub}</T> : null}
       </View>
-      {row.meta ? <T size={font.small} dim tabular>{row.meta}</T> : null}
+      {row.meta ? <T size={font.label} dim tabular>{row.meta}</T> : null}
       <Icon name="ChevronRight" size={16} color={colors.inkFaint} />
     </Press>
   )
@@ -355,7 +355,7 @@ const st = StyleSheet.create({
   // styles.css .spick-search and the base .list-row (docs/DESIGN.md).
   search: {
     flexDirection: 'row', alignItems: 'center', gap: space[2], marginBottom: space[6], paddingLeft: space[3],
-    minHeight: 44, borderWidth: 1, borderColor: colors.lineStrong, borderRadius: radius.control, backgroundColor: colors.panel2,
+    minHeight: TAP, borderWidth: 1, borderColor: colors.lineStrong, borderRadius: radius.control, backgroundColor: colors.panel2,
   },
   searchInput: { flex: 1, minWidth: 0, borderWidth: 0, backgroundColor: 'transparent', paddingHorizontal: 0 },
   list: { paddingVertical: 0, marginBottom: 0 },

@@ -17,7 +17,7 @@
 import React, { useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-import { colors, font, mix, radius, space, TAP } from '../theme'
+import { colors, font, mix, radius, space, TAP, height } from '../theme'
 import { T } from '../ui/Text'
 import { Btn, Chip, Press, Segmented } from '../ui/kit'
 import { Fold } from '../ui/Fold'
@@ -297,7 +297,7 @@ export function ClimbLog({ count, values, spec, onChange, onMore, onDrop, what =
     return (
       <View style={st.edit}>
         <View style={st.climbRow}>
-          <T size={font.small} faint>{`${what} ${i + 1}`}</T>
+          <T size={font.label} faint>{`${what} ${i + 1}`}</T>
           {!omitGrade && (
             <LadderSelect ladder={ladder} fmt={fmt} value={c.grade} label={`${tag} grade`}
               onChange={(v: any) => at(i, { grade: v })} />
@@ -336,14 +336,14 @@ export function ClimbLog({ count, values, spec, onChange, onMore, onDrop, what =
             <View style={st.repstep}>
               <Press onPress={() => { tap(); at(i, { tries: hasTries && tries > 1 ? tries - 1 : '' }) }} style={st.repstepB}
                 accessibilityLabel={`${tag}: one fewer try`}>
-                <T size={19} dim lineHeight={22}>−</T>
+                <T size={font.title} dim>−</T>
               </Press>
-              <T size={font.small} dim tabular align="center" style={{ minWidth: 56 }}>
+              <T size={font.label} dim tabular align="center" style={{ minWidth: 56 }}>
                 {hasTries ? `${tries} ${tries === 1 ? 'try' : 'tries'}` : 'tries —'}
               </T>
               <Press onPress={() => { tap(); at(i, { tries: hasTries ? tries + 1 : 1 }) }} style={st.repstepB}
                 accessibilityLabel={`${tag}: one more try`}>
-                <T size={19} dim lineHeight={22}>+</T>
+                <T size={font.title} dim>+</T>
               </Press>
             </View>
           </View>
@@ -352,7 +352,7 @@ export function ClimbLog({ count, values, spec, onChange, onMore, onDrop, what =
               <RangeSlider min={FELT_MIN} max={FELT_MAX} step={1} value={felt ?? 0} unset={felt == null}
                 label={`${tag} felt for the grade`}
                 onChange={(v) => at(i, { felt: v })} style={{ flexGrow: 0, flexShrink: 1, flexBasis: 200 }} />
-              <T size={font.small} faint numberOfLines={1}>{felt == null ? 'for the grade: —' : feltLabel(felt)}</T>
+              <T size={font.label} faint numberOfLines={1}>{felt == null ? 'for the grade: —' : feltLabel(felt)}</T>
             </View>
           )}
           {onDrop ? (
@@ -375,14 +375,14 @@ export function ClimbLog({ count, values, spec, onChange, onMore, onDrop, what =
         return (
           <Press key={i} onPress={() => { tap(); setPicked(i) }} accessibilityRole="button"
             accessibilityLabel={`${where}${what} ${i + 1}: change`} style={st.done}>
-            <T size={font.small} faint style={{ minWidth: 64 }}>{`${what} ${i + 1}`}</T>
+            <T size={font.label} faint style={{ minWidth: 64 }}>{`${what} ${i + 1}`}</T>
             {!omitGrade && <T size={font.input} weight={600} tabular style={{ minWidth: 52 }}>{fmt(c.grade) || '—'}</T>}
-            {words ? <T size={font.small} dim style={{ flex: 1, minWidth: 0 }} numberOfLines={2}>{words}</T> : <View style={{ flex: 1 }} />}
+            {words ? <T size={font.label} dim style={{ flex: 1, minWidth: 0 }} numberOfLines={2}>{words}</T> : <View style={{ flex: 1 }} />}
             <Icon name="ChevronRight" size={16} color={colors.inkFaint} />
           </Press>
         )
       })}
-      {untold > 0 ? <T size={font.small} faint>{`${untold} more ${plural(what, untold)}, not described`}</T> : null}
+      {untold > 0 ? <T size={font.label} faint>{`${untold} more ${plural(what, untold)}, not described`}</T> : null}
       {current < 0 ? nextButton : null}
     </View>
   )
@@ -505,7 +505,7 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null }: any
         {hasWeight && (
           <Press haptic onPress={() => onSign(sign === '-' ? '+' : '-')}
             style={[st.signtog, sign === '-' && { borderColor: mix(colors.series1, 40, colors.line) }]}>
-            <T size={font.small} color={sign === '-' ? colors.series1 : colors.inkDim}>{sign === '-' ? '− counterweight' : '+ added'}</T>
+            <T size={font.label} color={sign === '-' ? colors.series1 : colors.inkDim}>{sign === '-' ? '− counterweight' : '+ added'}</T>
           </Press>
         )}
       </View>
@@ -517,9 +517,9 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null }: any
 
       {table ? (
         <View style={st.thead}>
-          <T size={font.caption} faint weight={500} align="center" style={st.cSet}>set</T>
+          <T size={font.label} faint weight={500} align="center" style={st.cSet}>set</T>
           {cols.map((f) => (
-            <T key={f} size={font.caption} faint weight={500} align="center" style={{ width: meta(f).width }}>{colLabel(f)}</T>
+            <T key={f} size={font.label} faint weight={500} align="center" style={{ width: meta(f).width }}>{colLabel(f)}</T>
           ))}
         </View>
       ) : null}
@@ -529,12 +529,12 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null }: any
           {inTable(r) ? (
             <SwipeRemove label="Remove" onRemove={() => dropSet(i)}>
               <View style={st.row}>
-                <T size={font.small} faint tabular align="center" style={st.cSet}>{String(i + 1)}</T>
+                <T size={font.label} faint tabular align="center" style={st.cSet}>{String(i + 1)}</T>
                 {cols.map((f) => (
                   <View key={f}>
                     {/* While the detail is on, the climb list IS the count: shown, not typed. */}
                     {f === 'reps' && Array.isArray(r[CLIMB_FIELD]) ? (
-                      <View style={[st.numBox, { width: 44 }]} accessibilityLabel={`set ${i + 1} ${colLabel(f)}`}>
+                      <View style={[st.numBox, { width: TAP }]} accessibilityLabel={`set ${i + 1} ${colLabel(f)}`}>
                         <T size={font.input} dim tabular align="center">{String(climbCount(r.reps))}</T>
                       </View>
                     ) : (
@@ -552,7 +552,7 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null }: any
               </View>
             </SwipeRemove>
           ) : rows.length > 1 ? (
-            <T size={font.small} dim style={{ paddingBottom: space[1] }}>{`Set ${i + 1}`}</T>
+            <T size={font.label} dim style={{ paddingBottom: space[1] }}>{`Set ${i + 1}`}</T>
           ) : null}
           {/* The per-rep grades get their own line under the row. */}
           {perRep && (
@@ -574,7 +574,7 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null }: any
         {/* Off the number row on purpose: the set comes back with Undo. */}
         {rows.length > 1 ? <Btn kind="quiet" title="Remove last set" onPress={() => dropSet(rows.length - 1)} /> : null}
       </View>
-      <T size={font.small} faint tabular>
+      <T size={font.label} faint tabular>
         {(table ? `${rows.length} set${rows.length === 1 ? '' : 's'}${total ? ` · ${total} ${noun}` : ''}` : `${total} ${noun}`)
           + `${sent > 0 ? ` · ${sent} sent` : ''}`
           + `${falls > 0 ? ` · fell on ${falls}` : ''}`
@@ -599,7 +599,7 @@ export function SetLog({ session, out, onSave, hints = null }: any) {
   const setSign = (ex: any, sign: string) => onSave({ ...out, signs: { ...signs, [ex.key]: sign } })
 
   return (
-    <View style={{ gap: 18 }}>
+    <View style={{ gap: space[4] }}>
       {spec.exercises.map((ex: any) => (
         <Exercise
           key={ex.key}
@@ -612,7 +612,7 @@ export function SetLog({ session, out, onSave, hints = null }: any) {
           onSign={(s: string) => setSign(ex, s)}
         />
       ))}
-      <T size={font.caption} faint lineHeight={17}>Pre-filled from the plan: change what didn't match, and add a set if you did more.</T>
+      <T size={font.caption} faint>Pre-filled from the plan: change what didn't match, and add a set if you did more.</T>
     </View>
   )
 }
@@ -673,25 +673,25 @@ const st = StyleSheet.create({
   },
   thead: { flexDirection: 'row', alignItems: 'center', gap: space[2], paddingBottom: space[1] },
   cSet: { width: 22 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space[2], paddingVertical: 3, backgroundColor: colors.panel },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space[2], paddingVertical: space[1], backgroundColor: colors.panel },
   numBox: {
-    minHeight: TAP, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel2,
-    justifyContent: 'center', paddingHorizontal: 6,
+    minHeight: TAP, borderRadius: radius.control, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel2,
+    justifyContent: 'center', paddingHorizontal: space[2],
   },
-  numIn: { color: colors.ink, fontSize: font.input, textAlign: 'center', fontVariant: ['tabular-nums'], paddingVertical: 6 },
-  under: { paddingLeft: 30, paddingRight: 4 },
+  numIn: { color: colors.ink, fontSize: font.input, textAlign: 'center', fontVariant: ['tabular-nums'], paddingVertical: space[2] },
+  under: { paddingLeft: space[8], paddingRight: space[1] },
   repstep: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
   repstepB: {
-    minWidth: TAP, minHeight: TAP, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line,
+    minWidth: TAP, minHeight: TAP, borderRadius: radius.control, borderWidth: 1, borderColor: colors.line,
     backgroundColor: colors.panel2, alignItems: 'center', justifyContent: 'center',
   },
-  gradelaps: { flexDirection: 'row', flexWrap: 'wrap', columnGap: space[3], rowGap: space[2], paddingTop: 2, paddingBottom: 6 },
-  gradelap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  gradelaps: { flexDirection: 'row', flexWrap: 'wrap', columnGap: space[3], rowGap: space[2], paddingTop: 2, paddingBottom: space[2] },
+  gradelap: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
   select: {
-    flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: TAP, paddingHorizontal: 10,
-    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm,
+    flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: TAP, paddingHorizontal: space[2],
+    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control,
   },
-  climblog: { gap: space[2], paddingTop: 4, paddingBottom: 6 },
+  climblog: { gap: space[2], paddingTop: space[1], paddingBottom: space[2] },
   climbRow: { flexDirection: 'row', alignItems: 'center', gap: space[2], flexWrap: 'wrap' },
   // A climb already described: one readable row, a tap opens it again.
   done: {
@@ -704,12 +704,12 @@ const st = StyleSheet.create({
     borderRadius: radius.control, backgroundColor: colors.panel,
   },
   outcomes: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
-  felt: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 2 },
+  felt: { flexDirection: 'row', alignItems: 'center', gap: space[2], paddingLeft: 2 },
   slider: { height: TAP, justifyContent: 'center', flexGrow: 1 },
-  track: { position: 'absolute', height: 6, borderRadius: 3, backgroundColor: colors.panel2, overflow: 'hidden' },
+  track: { position: 'absolute', height: 6, borderRadius: radius.mark, backgroundColor: colors.panel2, overflow: 'hidden' },
   fill: { height: 6, backgroundColor: colors.accent },
   thumb: {
-    position: 'absolute', width: 26, height: 26, borderRadius: 13, backgroundColor: colors.ink,
+    position: 'absolute', width: 26, height: 26, borderRadius: radius.card, backgroundColor: colors.ink,
     borderWidth: 3, borderColor: colors.bg,
     shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 3, shadowOffset: { width: 0, height: 1 },
   },

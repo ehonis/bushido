@@ -46,11 +46,11 @@ export default [
   }],
   /*
    * The + timer with exercises: a preset that holds them lists them with their
-   * timing, and offers "Put it on today". A PLAIN preset is unchanged: no list,
-   * no Put it on today, only the quiet way in; and its run screen has no
+   * timing, and offers "Add to Today". A PLAIN preset is unchanged: no list,
+   * no Add to Today, only the quiet way in; and its run screen has no
    * exercise on it.
    */
-  ['TimerSetup(a preset with exercises: the list, and Put it on today; a plain one unchanged)', null, () => {
+  ['TimerSetup(a preset with exercises: the list, and Add to Today; a plain one unchanged)', null, () => {
     const abs = circuitConfig({ work: 40, rest: 20, rounds: 3, roundRest: 60 }, [
       { key: 'crunch', name: 'Crunch' }, { key: 'plank', name: 'Plank', seconds: 60 }])
     const entries = [{ ...buildTimerEntry('timer-abs', 'Abs', abs), updatedAt: 'z' }]
@@ -58,13 +58,13 @@ export default [
     const t = text(renderToString(<PlanProvider plan={HELD_PLAN}>
       <TimerSetup presets={presets} onStart={noop} onClose={noop} onSave={noop} onPlace={noop} />
     </PlanProvider>))
-    for (const w of ['Exercises', 'Crunch', 'Plank', '1:00', 'Put it on today', '3 rounds · 2 exercises · 40s each · 20s rest']) {
+    for (const w of ['Exercises', 'Crunch', 'Plank', '1:00', 'Add to Today', '3 rounds · 2 exercises · 40s each · 20s rest']) {
       if (!t.includes(w)) throw new Error(`no "${w}" on a circuit preset`)
     }
     const plain = text(renderToString(<PlanProvider plan={HELD_PLAN}>
       <TimerSetup presets={BUILT_INS} onStart={noop} onClose={noop} onSave={noop} onPlace={noop} />
     </PlanProvider>))
-    if (/Put it on today|Exercises|Rest between rounds/.test(plain)) throw new Error('a plain timer grew the circuit\'s controls')
+    if (/Add to Today|Exercises|Rest between rounds/.test(plain)) throw new Error('a plain timer grew the circuit\'s controls')
     if (!/Add exercises/.test(plain)) throw new Error('no way to make a circuit from the timer')
     const config = BUILT_INS[0].config
     const t0 = Date.parse('2026-10-25T09:00:00Z')

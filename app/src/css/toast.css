@@ -33,7 +33,7 @@
 .toast-n { font-size: var(--fs-caption); font-weight: 600; }
 .toast-act {
   flex: none; display: inline-flex; align-items: center; gap: var(--sp-1);
-  min-height: 36px; padding: 0 var(--sp-3); border: 0; border-radius: var(--r-control);
+  min-height: var(--tap); padding: 0 var(--sp-3); border: 0; border-radius: var(--r-control);
   background: rgb(255 255 255 / 0.15); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
 }
 .toast-x {

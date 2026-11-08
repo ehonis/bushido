@@ -28,7 +28,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Modal as RNModal, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { colors, font, mix, radius, space } from '../theme'
+import { colors, font, mix, radius, space, clockSize, TAP, height } from '../theme'
 import { T } from '../ui/Text'
 import { Btn, Chip, IconBtn, Input, Press, SectionHeader, Sub, Toggle } from '../ui/kit'
 import { impact, tap, warn } from '../ui/haptics'
@@ -251,7 +251,7 @@ function TimerSetup({ title, presets, onStart, onSave, onDelete, onClose, onPlac
         </View>
         <IconBtn icon="X" size={20} label="Close the timer" onPress={onClose} />
       </View>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={[st.body, { paddingBottom: space[5] + insets.bottom }]}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={[st.body, { paddingBottom: space[6] + insets.bottom }]}
         keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -space.gutter, flexGrow: 0 }}
           contentContainerStyle={{ gap: space[2], paddingHorizontal: space.gutter }}>
@@ -263,8 +263,8 @@ function TimerSetup({ title, presets, onStart, onSave, onDelete, onClose, onPlac
         </ScrollView>
 
         <View style={{ alignItems: 'center', paddingTop: space[2], gap: space[1] }}>
-          <T size={font.display} weight={600} tabular>{total != null ? clock(total) : config.repeat ? 'Until you stop' : 'Open-ended'}</T>
-          <T size={font.small} dim align="center">{name}{edited && chosen?.saved ? ' (changed)' : ''} · {describe(config)}</T>
+          <T size={font.stat} weight={600} tabular>{total != null ? clock(total) : config.repeat ? 'Until you stop' : 'Open-ended'}</T>
+          <T size={font.label} dim align="center">{name}{edited && chosen?.saved ? ' (changed)' : ''} · {describe(config)}</T>
         </View>
 
         <Btn icon="Play" title="Start" onPress={() => onStart(name, config)} style={st.start} />
@@ -289,7 +289,7 @@ function TimerSetup({ title, presets, onStart, onSave, onDelete, onClose, onPlac
             }))} />
         ) : null}
         {circuit && onPlace ? (
-          <Link icon="CalendarDays" label="Put it on today" onPress={() => { impact(); onPlace(name, config) }} />
+          <Link icon="CalendarDays" label="Add to Today" onPress={() => { impact(); onPlace(name, config) }} />
         ) : null}
 
         <Btn kind="quiet" icon={more ? 'ChevronUp' : 'ChevronDown'} style={st.quiet} onPress={() => setMore(!more)}
@@ -332,7 +332,7 @@ function TimerSetup({ title, presets, onStart, onSave, onDelete, onClose, onPlac
                 <Input value={naming} placeholder="Name this preset" maxLength={40} autoFocus
                   onChangeText={setNaming} onSubmitEditing={saveAs} returnKeyType="done" style={{ flex: 1 }} />
                 <Btn title="Save" kind="secondary" disabled={!naming.trim()} onPress={saveAs} />
-                <Btn title="Cancel" kind="ghost" onPress={() => setNaming(null)} />
+                <Btn title="Cancel" kind="secondary" onPress={() => setNaming(null)} />
               </View>
             ) : (
               <>
@@ -410,7 +410,7 @@ function Exercises({ config, liftField, onChange }: { config: any; liftField: an
   if (!list.length && !asked) return <Link icon="Dumbbell" label="Add exercises" onPress={() => setAsked(true)} />
   return (
     <View style={{ gap: space[2] }}>
-      <SectionHeader title="Exercises" right={list.length ? <T size={font.small} dim>{String(list.length)}</T> : undefined} />
+      <SectionHeader title="Exercises" right={list.length ? <T size={font.label} dim>{String(list.length)}</T> : undefined} />
       <CircuitList items={items} work={config.work} liftField={liftField} adding={!list.length}
         onTiming={put}
         onRemove={(i) => onChange(list.filter((_, n) => n !== i))}
@@ -461,7 +461,7 @@ function Intervals({ config, planSequence, onChange }: { config: any; planSequen
               onPress={() => put(n, { kind: iv.kind === 'work' ? 'rest' : 'work' })} />
             <StepBtn icon="Minus" size={16} label="Shorter"
               onPress={iv.seconds != null && iv.seconds <= 5 ? null : () => put(n, { seconds: iv.seconds == null ? 30 : Math.max(5, stepSeconds(iv.seconds, -1)) })} />
-            <T size={font.body} weight={600} tabular style={{ minWidth: 44, textAlign: 'center' }}>{secondsLabel(iv.seconds)}</T>
+            <T size={font.body} weight={600} tabular style={{ minWidth: TAP, textAlign: 'center' }}>{secondsLabel(iv.seconds)}</T>
             <StepBtn icon="Plus" size={16} label="Longer"
               onPress={() => put(n, { seconds: iv.seconds == null ? 30 : Math.min(LIMITS.interval[1], stepSeconds(iv.seconds, 1)) })} />
             <StepBtn icon="Trash2" size={15} label={`Remove interval ${n + 1}`}
@@ -531,7 +531,7 @@ export function WorkHead({ title, sub = null, who = null, muted = false, onMute,
           <T size={font.title} weight={600} numberOfLines={1}>{title}</T>
           {sub != null ? (
             typeof sub === 'string'
-              ? <T size={font.small} dim tabular numberOfLines={1}>{sub}</T>
+              ? <T size={font.label} dim tabular numberOfLines={1}>{sub}</T>
               : <View style={{ flexDirection: 'row', alignItems: 'center', gap: space[1] }}>{sub}</View>
           ) : null}
         </View>
@@ -542,7 +542,7 @@ export function WorkHead({ title, sub = null, who = null, muted = false, onMute,
   )
 }
 
-export type LeaveAction = { label: string; kind: 'primary' | 'secondary' | 'quiet' | 'bad'; onClick: () => void }
+export type LeaveAction = { label: string; kind: 'primary' | 'secondary' | 'quiet' | 'destructive'; onClick: () => void }
 
 /**
  * The leave dialog: one column of full-width buttons, the same on every
@@ -566,7 +566,7 @@ export function LeaveDialog({ title, body = null, actions = [], onKeep, keepLabe
         {body ? <Sub>{body}</Sub> : null}
         <View style={st.dialogActs}>
           {first.map(a => <Btn key={a.label} title={a.label} onPress={a.onClick} style={st.dialogBtn} />)}
-          <Btn title={keepLabel} kind={first.length ? 'ghost' : 'primary'} onPress={onKeep} style={st.dialogBtn} />
+          <Btn title={keepLabel} kind={first.length ? 'secondary' : 'primary'} onPress={onKeep} style={st.dialogBtn} />
           {rest.map(a => <Btn key={a.label} title={a.label} kind={a.kind} onPress={a.onClick} style={st.dialogBtn} />)}
         </View>
       </View>
@@ -731,7 +731,7 @@ export function TimerRun({ title, name, config, initialRun, onRun, onAgain = nul
   const kind = v.finished ? 'finished' : seg.kind
   const k = KIND_COLOR[kind] || colors.inkDim
   const open = !v.finished && v.left == null
-  const big = Math.min(220, Math.max(96, width * 0.34))
+  const big = clockSize(width)
   const exNow = circuit && seg?.ex != null
   const coming = circuit && seg ? exerciseAfter(program, run.index) : null
   const where = seg ? counters(seg, v.lap, config.repeat) : ''
@@ -741,35 +741,35 @@ export function TimerRun({ title, name, config, initialRun, onRun, onAgain = nul
   return (
     <View style={{ flex: 1, backgroundColor: mix(k, 13, colors.bg) }}>
       <WorkHead title={`${name}${title ? ` · ${title}` : ''}`} who={who} muted={muted} onMute={setMuted}
-        sub={<><Icon name="Timer" size={12} color={colors.inkDim} /><T size={font.small} dim tabular>{clock(v.elapsed)}</T></>}
+        sub={<><Icon name="Timer" size={12} color={colors.inkDim} /><T size={font.label} dim tabular>{clock(v.elapsed)}</T></>}
         onExit={active ? onStop : onClose} exitLabel={circuit ? 'Stop the circuit' : 'Stop the timer'} />
 
       {switcher}
 
       {v.finished ? (
-        <View style={[st.body, st.finish, { paddingBottom: space[5] + insets.bottom }]}>
+        <View style={[st.body, st.finish, { paddingBottom: space[6] + insets.bottom }]}>
           <Icon name="CircleCheck" size={56} color={k} />
-          <T size={font.heading} weight={600} color={k}>Done</T>
-          <T size={Math.min(120, big * 0.6)} weight={600} tabular color={k}>{clock(v.elapsed)}</T>
+          <T size={font.screen} weight={600} color={k}>Done</T>
+          <T size={font.stat} weight={600} tabular color={k}>{clock(v.elapsed)}</T>
           {logged ? <T size={font.body}>{logged}</T> : null}
           {after}
           {onAgain ? <Btn icon="RotateCw" title="Again" onPress={onAgain} style={[st.start, { alignSelf: 'stretch' }]} /> : null}
-          <Btn title={closeLabel} kind={onAgain ? 'ghost' : 'primary'} onPress={onClose} style={{ alignSelf: 'stretch' }} />
+          <Btn title={closeLabel} kind={onAgain ? 'secondary' : 'primary'} onPress={onClose} style={{ alignSelf: 'stretch' }} />
         </View>
       ) : (
-        <View style={[st.body, { flex: 1, justifyContent: 'space-between', paddingBottom: space[5] + insets.bottom }]}>
+        <View style={[st.body, { flex: 1, justifyContent: 'space-between', paddingBottom: space[6] + insets.bottom }]}>
           {/* Tap anywhere on the clock: pause or resume. A count-up has no end of its
               own, so there the tap IS the end, and pausing is the button below. */}
           <Press onPress={() => { impact(); act(open ? skip : togglePause) }} accessibilityRole="button"
             accessibilityLabel={open ? 'Done, next' : v.paused ? 'Resume' : 'Pause'} style={[st.face, circuit && { gap: space[2] }]}>
             {exNow && where ? <T size={font.body} weight={500} dim tabular>{where}</T> : null}
             {exNow ? (
-              <T size={Math.min(44, Math.max(28, width * 0.09))} weight={600} align="center" numberOfLines={2}>{seg.name}</T>
+              <T size={font.stat} weight={600} align="center" numberOfLines={2}>{seg.name}</T>
             ) : (
-              <T size={Math.min(36, Math.max(font.heading, width * 0.08))} weight={600} color={k} numberOfLines={1}>{intro && seg.kind === 'countin' ? intro : seg.name}</T>
+              <T size={Math.min(font.stat, Math.max(font.screen, width * 0.08))} weight={600} color={k} numberOfLines={1}>{intro && seg.kind === 'countin' ? intro : seg.name}</T>
             )}
             <T size={big} weight={600} tabular color={k}
-              style={{ lineHeight: big * 1.02, letterSpacing: -big * 0.03, opacity: v.paused ? 0.4 : 1 }}>
+              style={{ lineHeight: big * 1.02, opacity: v.paused ? 0.4 : 1 }}>
               {clock(open ? v.counted : Math.ceil(v.left))}
             </T>
             {!exNow && where ? <T size={font.title} weight={600} tabular>{where}</T> : null}
@@ -779,7 +779,7 @@ export function TimerRun({ title, name, config, initialRun, onRun, onAgain = nul
                 <View style={{ width: `${v.progress * 100}%`, height: '100%', backgroundColor: k }} />
               </View>
             ) : null}
-            <T size={font.small} dim>{v.paused ? 'Paused · tap to carry on' : open ? (exNow ? 'Tap when done' : 'No set time · tap when done') : 'Tap to pause'}</T>
+            <T size={font.label} dim>{v.paused ? 'Paused · tap to carry on' : open ? (exNow ? 'Tap when done' : 'No set time · tap when done') : 'Tap to pause'}</T>
           </Press>
 
           {circuit && (exNow ? seg : coming) ? (
@@ -811,7 +811,7 @@ export function TimerRun({ title, name, config, initialRun, onRun, onAgain = nul
           onKeep={onKeep}
           actions={[
             ...(onLeave ? [{ label: 'Leave it open', kind: 'secondary' as const, onClick: onLeave }] : []),
-            { label: 'Stop', kind: 'bad' as const, onClick: () => { warn(); stop() } },
+            { label: 'Stop', kind: 'destructive' as const, onClick: () => { warn(); stop() } },
           ]} />
       ) : null}
       {about ? <ExerciseSheet field={liftField} exercise={about.key} name={about.name} onClose={() => setAbout(null)} /> : null}
@@ -833,11 +833,11 @@ function ExerciseNow({ field, seg, upNext, onAbout }: { field: any; seg: any; up
     <View style={[st.ex, upNext && { paddingVertical: space[3] }]}>
       {m ? <ExerciseBody field={field} exercise={seg.key} name={seg.name} size={upNext ? 48 : 40} /> : null}
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-        {upNext ? <T size={font.small} dim>Up next</T> : null}
+        {upNext ? <T size={font.label} dim>Up next</T> : null}
         {upNext ? (
           <T size={font.title} weight={600}>{seg.name}{seg.reps ? ` · ${seg.reps} reps` : seg.seconds != null ? ` · ${secondsLabel(seg.seconds)}` : ''}</T>
         ) : null}
-        {gist ? <T size={font.small} dim>{gist}</T> : null}
+        {gist ? <T size={font.label} dim>{gist}</T> : null}
       </View>
       {ex ? <IconBtn icon="Info" size={20} label={`How to do ${seg.name}`} onPress={() => onAbout({ key: seg.key, name: seg.name })} /> : null}
     </View>
@@ -851,7 +851,7 @@ function CtlBtn({ icon, label, a11y, onPress, primary, disabled }: {
     <Press onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={a11y || label}
       style={[st.ctlBtn, primary && st.ctlPrimary, disabled && { opacity: 0.35 }]}>
       <Icon name={icon} size={primary ? 20 : 18} color={primary ? colors.ink : colors.inkDim} />
-      <T size={font.caption} weight={primary ? 600 : 400} color={primary ? colors.ink : colors.inkDim}>{label}</T>
+      <T size={font.label} weight={primary ? 600 : 400} color={primary ? colors.ink : colors.inkDim}>{label}</T>
     </Press>
   )
 }
@@ -866,11 +866,11 @@ const st = StyleSheet.create({
   },
   body: { paddingHorizontal: space.gutter, paddingTop: space[4], gap: space[3] },
   // The screen's one primary, made big: it is the whole of the one-tap default.
-  start: { minHeight: 56 },
+  start: { minHeight: height.run },
   quiet: { alignSelf: 'flex-start', paddingHorizontal: space[1] },
   rows: { backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.card },
   row: {
-    minHeight: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[3],
+    minHeight: height.run, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[3],
     paddingLeft: space[4], paddingRight: space[2], paddingVertical: space[1],
   },
   rowLine: { borderTopWidth: 1, borderTopColor: colors.line },
@@ -903,12 +903,12 @@ const st = StyleSheet.create({
   // The leave dialog (#75): a box over the scrim, one column of full-width buttons.
   scrim: {
     position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 10, backgroundColor: colors.scrim,
-    alignItems: 'center', justifyContent: 'center', padding: space[5],
+    alignItems: 'center', justifyContent: 'center', padding: space[6],
   },
   dialog: {
-    width: '100%', maxWidth: 420, padding: space[5],
+    width: '100%', maxWidth: 420, padding: space[6],
     backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.sheet,
   },
-  dialogActs: { gap: space[2], marginTop: space[5] },
-  dialogBtn: { alignSelf: 'stretch', minHeight: 48 },
+  dialogActs: { gap: space[2], marginTop: space[6] },
+  dialogBtn: { alignSelf: 'stretch', minHeight: height.control },
 })

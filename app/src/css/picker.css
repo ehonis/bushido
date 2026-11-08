@@ -23,10 +23,10 @@
   display: flex; align-items: center; gap: var(--sp-2);
   min-height: var(--tap); padding: 0 var(--sp-3);
   background: none; border: 1px dashed var(--line-strong); border-radius: var(--r-control);
-  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); cursor: pointer; text-align: left;
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-label); cursor: pointer; text-align: left;
 }
 
-.actpick-search { display: grid; gap: 8px; }
+.actpick-search { display: grid; gap: var(--sp-2); }
 .actpick-search input {
   width: 100%; min-height: var(--tap); padding: 0 var(--sp-3);
   background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: var(--r-control);
@@ -39,9 +39,9 @@
 .actpick-list { max-height: 46vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .actgroup h4 {
   position: sticky; top: 0; z-index: 1;
-  margin: 10px 0 2px; padding: 4px 0;
+  margin: var(--sp-2) 0 2px; padding: var(--sp-1) 0;
   background: var(--panel);
-  font-size: var(--fs-small); font-weight: 600;
+  font-size: var(--fs-label); font-weight: 600;
   color: var(--ink-dim);
 }
 .actrow {
@@ -53,12 +53,12 @@
 .actrow > svg { color: var(--ink-dim); flex: none; }
 .actrow:active { background: var(--panel-2); }
 .actrow-name { flex: 1; min-width: 0; }
-.actrow-group { font-size: var(--fs-small); color: var(--ink-dim); }
-.actpick-none { margin: 10px 2px; line-height: 1.5; }
+.actrow-group { font-size: var(--fs-label); color: var(--ink-dim); }
+.actpick-none { margin: var(--sp-2) 2px; line-height: 1.5; }
 .actpick-cancel {
   min-height: var(--tap);
   background: none; border: 1px solid var(--line-strong); border-radius: var(--r-control);
-  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); cursor: pointer;
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-label); cursor: pointer;
 }
 
 /* ------------------------------------------------------- log a workout */
@@ -74,7 +74,7 @@
 }
 .spick-search:focus-within { border-color: var(--accent); }
 .spick-search input {
-  flex: 1; min-width: 0; min-height: 42px; background: none; border: 0; padding: 0;
+  flex: 1; min-width: 0; min-height: var(--tap); background: none; border: 0; padding: 0;
   font-size: var(--fs-input); color: var(--ink);
 }
 .spick-search input::placeholder { color: var(--ink-faint); }
@@ -91,5 +91,5 @@
 
 /* The quick-log rows (quicklog.jsx). In the + menu they hang under Log a
    workout, their icons lined up with its title, so they read as its shortcuts. */
-.fabmenu .quicklog { margin: 0 0 var(--sp-1); padding-left: calc(var(--sp-3) + 44px + var(--sp-3)); padding-right: var(--sp-3); }
+.fabmenu .quicklog { margin: 0 0 var(--sp-1); padding-left: calc(var(--sp-3) + var(--tap) + var(--sp-3)); padding-right: var(--sp-3); }
 .quicklog-row:active { background: var(--panel-2); }

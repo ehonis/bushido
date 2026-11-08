@@ -95,22 +95,49 @@ export function cssColor(v: string | null | undefined, fallback: string = colors
 
 /**
  * Radius, one rule: controls 10 (`--r-control`), containers 12 (`--r-card`),
- * sheets 20 (`--r-sheet`), chips and round buttons pill. `sm`/`md`/`lg`/`xl`
- * are the older names, kept so unported screens still compile: md is a card.
+ * overlays 20 (`--r-sheet`), a pill for chips, avatars, the person switch and
+ * the dock. `mark` (`--r-mark`) is for marks inside a control: a chart bar, a
+ * progress track, a tag.
  */
-export const radius = {
-  control: 10, card: 12, sheet: 20, pill: 999,
-  sm: 8, md: 12, lg: 14, xl: 16,
-} as const
+export const radius = { mark: 4, control: 10, card: 12, sheet: 20, pill: 999 } as const
+
+/**
+ * Targets (`--tap`, `--h-*`). 44 is the floor for anything pressed on its own;
+ * buttons and fields are 48 (`control`), a list row 56 (`row`), the primary of a
+ * running workout 56 (`run`).
+ */
 export const TAP = 44
+export const height = { control: 48, row: 56, run: 56 } as const
 
-/** Type sizes (`--fs-*`). `micro` is for the dock and chart ticks only. */
+/**
+ * Type: one size per ROLE (`--fs-*`, #82, the G-visual-ia contract), with its
+ * line height in `leading`. Nothing a person reads to choose the next tap is
+ * under 14 (`label`); 12 (`caption`) is for timestamps, chart ticks and where a
+ * number came from. `clock` is the floor of the live clocks, the only display
+ * size (`clockSize` fits it to the width); `live` is the runner's set in
+ * progress, the clocks' family at the size that fits between its steppers. Text still follows the phone's
+ * text-size setting: these are the sizes at the default.
+ */
 export const font = {
-  micro: 11, caption: 12, small: 13, body: 15, input: 16, title: 17, heading: 22, display: 32,
+  caption: 12, label: 14, body: 16, input: 16, title: 18, screen: 24, stat: 32, live: 56, clock: 88,
+} as const
+/** A live clock's size for a screen this wide: `--fs-clock`, clamp(88, 34vw, 160). */
+export const clockSize = (width: number) => Math.min(160, Math.max(font.clock, width * 0.34))
+export const leading = {
+  caption: 16, label: 20, body: 24, action: 22, title: 24, screen: 30, stat: 38,
 } as const
 
-/** Space on a 4pt grid (`--sp-*`); `gutter` is the screen's side margin. */
-export const space = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 8: 32, gutter: 16 } as const
+/**
+ * Space (`--sp-*`): 4, 8, 12, 16, 24, 32 and nothing between. `gutter` is the
+ * screen's side margin, `card` a card's inset.
+ */
+export const space = { 1: 4, 2: 8, 3: 12, 4: 16, 6: 24, 8: 32, gutter: 16, card: 16 } as const
+
+/**
+ * Motion (`--dur-fast`, `--dur`): press feedback and state fades 120ms, an
+ * overlay arriving 220ms over at most 24pt.
+ */
+export const motion = { fast: 120, base: 220, rise: 24 } as const
 
 /**
  * Elevation (`--elev-*`). Cards are flat: a line, no shadow. 2 is for what

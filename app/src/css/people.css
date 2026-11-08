@@ -29,7 +29,7 @@
    is on is never told by colour alone. */
 .avatar {
   flex: none; width: 28px; height: 28px; border-radius: var(--r-pill); display: inline-grid; place-items: center;
-  font-size: var(--fs-small); font-weight: 700; line-height: 1; color: var(--bg); background: var(--who, var(--ink-faint));
+  font-size: var(--fs-label); font-weight: 700; line-height: 1; color: var(--bg); background: var(--who, var(--ink-faint));
 }
 .avatar.sm { width: 22px; height: 22px; font-size: var(--fs-caption); }
 .whoseg button:not(.on) .avatar,
@@ -38,7 +38,7 @@
 /* Person chip: the chip, with their initial ahead of the name. Picked is their
    own soft fill and edge (the accent's, for you). "For: …". */
 .personchips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
-.personchip { padding-left: 5px; }
+.personchip { padding-left: var(--sp-1); }
 .personchip.ghost { padding-left: var(--sp-3); }
 .personchip.on { color: var(--ink); background: var(--who-soft); border-color: var(--who-line); }
 .personchip-name { overflow: hidden; text-overflow: ellipsis; }
@@ -55,7 +55,7 @@
    in that person's colour along its foot. */
 .personbar {
   position: sticky; top: -16px; z-index: 5;
-  margin: -16px -16px var(--sp-3); padding: var(--sp-2) var(--sp-4);
+  margin: calc(-1 * var(--sp-4)) calc(-1 * var(--sp-4)) var(--sp-3); padding: var(--sp-2) var(--sp-4);
   background: var(--panel); border-bottom: 2px solid var(--who, var(--line));
 }
 .personbar .seg { margin: 0; }
@@ -69,10 +69,10 @@
 /* "with Sam · in sync ›": the done chip's shape, 32px to look at and 44 to hit,
    opening the sharing panel. Quiet, because it is a setting, not the workout. */
 .share-chip {
-  position: relative; display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+  position: relative; display: inline-flex; align-items: center; gap: var(--sp-2); max-width: 100%;
   min-height: 32px; padding: 0 var(--sp-2) 0 var(--sp-3); border-radius: var(--r-pill);
   background: var(--panel-2); border: 1px solid var(--line);
-  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); font-weight: 500; cursor: pointer;
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-label); font-weight: 500; cursor: pointer;
 }
 .share-chip svg { flex: none; color: var(--ink-faint); }
 .share-chip.on { color: var(--ink); }
@@ -96,23 +96,23 @@
 .sharepanel-person + .sharepanel-add { border-top: 1px solid var(--line); padding-top: var(--sp-2); }
 .sharepanel-add .list-row svg { color: var(--ink-dim); }
 
-.withrow-err { font-size: var(--fs-small); color: var(--bad); margin: var(--sp-2) 0 0; }
+.withrow-err { font-size: var(--fs-label); color: var(--bad); margin: var(--sp-2) 0 0; }
 .synctoggle {
   display: flex; align-items: center; gap: var(--sp-3); min-height: var(--tap); margin: 0 0 var(--sp-3); padding: var(--sp-3);
   border: 1px solid var(--line); border-radius: var(--r-card); background: var(--panel-2); cursor: pointer;
 }
 .synctoggle-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .synctoggle-label { font-size: var(--fs-body); font-weight: 600; color: var(--ink); }
-.synctoggle-sub { font-size: var(--fs-small); color: var(--ink-dim); line-height: 1.4; }
+.synctoggle-sub { font-size: var(--fs-label); color: var(--ink-dim); line-height: 1.4; }
 .sharednote { display: flex; align-items: center; gap: var(--sp-1); margin: 0 0 var(--sp-3); font-size: var(--fs-caption); color: var(--ink-faint); }
 /* A circuit done together that has not reached someone yet (#68): said plainly, with Try again. */
-.sharednote.together-pending { color: var(--ink); font-size: var(--fs-small); flex-wrap: wrap; }
+.sharednote.together-pending { color: var(--ink); font-size: var(--fs-label); flex-wrap: wrap; }
 .sharednote.together-pending .btn.quiet { margin-left: auto; min-height: var(--tap); }
 /* On their own copy, under "with Alex" (#80): the copy is in step with Alex's. */
 .sharednote.instep { margin-top: calc(-1 * var(--sp-2)); }
 .theirside-lead { margin: 0 0 var(--sp-1); }
 .out-yours { margin-left: var(--sp-2); font-size: var(--fs-caption); font-weight: 400; color: var(--ink-faint); }
-.liftlog-yours { width: 100%; margin-bottom: 10px; }
+.liftlog-yours { width: 100%; margin-bottom: var(--sp-2); }
 .dl-with, .logcard-with {
   display: inline-flex; align-items: center; gap: var(--sp-1);
   font-size: var(--fs-caption); color: var(--ink-faint); margin-top: 2px;
@@ -122,12 +122,12 @@
 
 /* "For: You / Sam": the same person chips, 44px because it is an answer. */
 .forchoice { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-4); }
-.forchoice-lead { font-size: var(--fs-small); color: var(--ink-dim); margin-right: var(--sp-1); }
+.forchoice-lead { font-size: var(--fs-label); color: var(--ink-dim); margin-right: var(--sp-1); }
 .forchoice .personchip { min-height: var(--tap); padding-right: var(--sp-4); }
 /* Whose log this is, as a line: their initial, a rule in their colour. */
 .forline {
   display: flex; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-3); padding: var(--sp-2) var(--sp-3);
-  font-size: var(--fs-small); color: var(--ink-dim); border-radius: var(--r-control);
+  font-size: var(--fs-label); color: var(--ink-dim); border-radius: var(--r-control);
   border-left: 3px solid var(--who, var(--line)); background: var(--panel-2);
 }
 .forline strong { color: var(--ink); font-weight: 600; }
@@ -143,13 +143,13 @@
   font-size: var(--fs-caption); font-weight: 700; color: var(--bg); background: var(--who);
   vertical-align: 1px;
 }
-.sideswitch { margin: var(--sp-2) 10px 0; flex: none; }
+.sideswitch { margin: var(--sp-2) var(--sp-2) 0; flex: none; }
 .side-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.side-status { font-size: var(--fs-caption); font-weight: 400; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.side-status { font-size: var(--fs-label); font-weight: 400; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 .side-err {
   position: fixed; left: var(--sp-3); right: var(--sp-3); bottom: calc(var(--sp-3) + env(safe-area-inset-bottom)); z-index: 90;
-  margin: 0; padding: 10px var(--sp-3); border-radius: var(--r-card);
-  background: var(--panel-2); color: var(--bad); font-size: var(--fs-small);
+  margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-card);
+  background: var(--panel-2); color: var(--bad); font-size: var(--fs-label);
 }
 
 /* Someone's day, from Today: a card of rows, one per person. A door, not a second Today. */
@@ -168,7 +168,7 @@
 .pday-lead { display: flex; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-2); }
 .pday-check { flex: none; display: inline-flex; color: var(--ink-faint); }
 .pday-check.on { color: var(--viz-good); }
-.pday + .pday { margin-top: var(--sp-5); }
+.pday + .pday { margin-top: var(--sp-6); }
 .pday-today { color: var(--who, var(--accent)); font-weight: 600; }
 .pday-list { padding-block: var(--sp-1); margin-bottom: 0; }
 .pday-about { margin: var(--sp-6) 0 0; }

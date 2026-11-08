@@ -29,7 +29,7 @@ export function Blurb({ id, title, children, tone = 'note' }: {
     return (
       <Press haptic style={s.stub} onPress={() => toggle(id)} accessibilityRole="button" accessibilityState={{ expanded: false }}>
         <Icon name="Info" size={16} color={colors.inkDim} />
-        <T size={font.small} dim numberOfLines={1} style={{ flex: 1, minWidth: 0 }}>{title}</T>
+        <T size={font.label} dim numberOfLines={1} style={{ flex: 1, minWidth: 0 }}>{title}</T>
         <Icon name="ChevronDown" size={16} color={colors.inkFaint} />
       </Press>
     )
@@ -40,9 +40,9 @@ export function Blurb({ id, title, children, tone = 'note' }: {
     <View style={[s.card, tone === 'note' && s.note]}>
       <View style={s.head}>
         <H2 style={{ flex: 1, marginBottom: space[2] }}>{title}</H2>
-        <IconBtn icon="X" size={16} label={`Hide "${title}"`} onPress={() => toggle(id)} style={{ marginTop: -10, marginRight: -10 }} />
+        <IconBtn icon="X" size={16} label={`Hide "${title}"`} onPress={() => toggle(id)} style={{ marginTop: -space[2], marginRight: -space[2] }} />
       </View>
-      {typeof children === 'string' ? <T size={font.small} dim>{children}</T> : children}
+      {typeof children === 'string' ? <T size={font.label} dim>{children}</T> : children}
     </View>
   )
 }

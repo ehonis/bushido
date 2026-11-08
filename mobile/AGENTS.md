@@ -58,13 +58,20 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
   export names and the same props. `features/app.tsx` is the components in `App.jsx`;
   `features/screens/` wraps each tab in its frame.
 - `src/theme.ts` is the web's `:root` (`--ink-dim` → `colors.inkDim`, `--fs-title` → `font.title`,
-  `--sp-4` → `space[4]`, `--r-card` → `radius.card`, `--elev-2` → `elevation[2]`), plus `mix()` for
-  the CSS's `color-mix` tints and `cssColor()` for `var(--x)` strings that arrive in content. The
-  tokens and components are the visual system in `../docs/DESIGN.md`; take values from here, not
-  raw numbers.
+  `--lh-title` → `leading.title`, `--sp-4` → `space[4]`, `--r-card` → `radius.card`, `--h-control`
+  → `height.control`, `--fs-clock` → `clockSize(width)`, `--elev-2` → `elevation[2]`), plus `mix()`
+  for the CSS's `color-mix` tints and `cssColor()` for `var(--x)` strings that arrive in content.
+  The tokens and components are the visual system in `../docs/DESIGN.md` (#82: one size per
+  role, caption 12 / label 14 / body 16 / title 18 / screen 24 / stat 32; space 4 to 32 with no
+  20; 44 the floor for every target, 48 buttons and fields, 56 rows). `T` takes its line height
+  from the role (`leadingFor`), so a `T` needs no `lineHeight` unless it is a badge. Take values
+  from here, never raw numbers: `app/smoke/system.jsx` fails on a raw `<T size={13}>`,
+  `fontSize`, `borderRadius` or spacing number in `src/`, and on the retired names (`font.small`,
+  `radius.md`, `space[5]`…).
 - `src/ui/` holds the building blocks: `T` (text; it has no `caps`: nothing in the app is
-  uppercase), `kit.tsx` (Btn, IconBtn, Card, H2, Sub, SectionHeader, Chip, Segmented, Input,
-  Field, NoteField, Toggle, Empty, Spinner, Row), `Sheet.tsx` (`Modal`, `FullScreen`, `Popover`
+  uppercase), `kit.tsx` (Btn, with four kinds: `primary`, `secondary`, `quiet`, `destructive`;
+  IconBtn, Card, H2, Sub, SectionHeader, Chip, Segmented, Input, Field, NoteField, Toggle, Empty,
+  Spinner, Row), `Sheet.tsx` (`Modal`, `FullScreen`, `Popover`
   with `modal.jsx`'s props), `DayStepper.tsx` (the day switcher: Today, a rest day, gear
   dates), `Fold.tsx` (`<details>`), `menu.ts` (system action sheets, `confirm`, `prompt`),
   `haptics.ts`, `ToastHost`, `NotYet`, `Person.tsx` (each person's colour and name pill: the

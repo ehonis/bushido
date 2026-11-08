@@ -181,12 +181,12 @@ test('the day: the one Today shows if it is today or later, else today; never be
 })
 
 test('the keep button and the last screen say the day', () => {
-  assert.equal(forWords({ me: true, others: [] }).keep, 'Put it on today', 'the default changed')
-  assert.equal(forWords({ me: true, others: [] }, 'tomorrow').keep, 'Put it on tomorrow')
+  assert.equal(forWords({ me: true, others: [] }).keep, 'Add to Today', 'the default changed')
+  assert.equal(forWords({ me: true, others: [] }, 'tomorrow').keep, 'Add to Tomorrow')
   assert.equal(forWords({ me: true, others: [] }, 'tomorrow').where, 'on tomorrow')
-  assert.equal(forWords({ me: true, others: [{ id: 'sam', name: 'Sam' }] }, 'tomorrow').keep, 'Put it on tomorrow with Sam')
-  assert.equal(forWords({ me: false, others: [{ id: 'sam', name: 'Sam' }] }, 'tomorrow').keep, 'Put it on Sam’s day, tomorrow')
-  assert.equal(forWords({ me: false, others: [{ id: 'sam', name: 'Sam' }] }).keep, 'Put it on Sam’s day')
+  assert.equal(forWords({ me: true, others: [{ id: 'sam', name: 'Sam' }] }, 'tomorrow').keep, 'Add to Tomorrow with Sam')
+  assert.equal(forWords({ me: false, others: [{ id: 'sam', name: 'Sam' }] }, 'tomorrow').keep, 'Add to Sam’s day, tomorrow')
+  assert.equal(forWords({ me: false, others: [{ id: 'sam', name: 'Sam' }] }).keep, 'Add to Sam’s day')
   const kept = run(initialFlow({ ai: false, date: '2026-11-09' }), { type: 'kept', kept: { first: 'daily-2026-11-09', count: 1 }, who: { me: true, others: [] } })
   assert.equal(kept.kept.date, '2026-11-09', 'the last screen does not know which day it landed on')
   const named = run(initialFlow({ ai: false }), { type: 'kept', pres: { title: 'Zone 2 ride', blocks: [] }, kept: { first: 'x' }, who: { me: true, others: [] } })

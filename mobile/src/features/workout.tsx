@@ -33,7 +33,7 @@ import {
   useWindowDimensions, type StyleProp, type ViewStyle,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { colors, font, mix, radius, space, TAP } from '../theme'
+import { colors, font, mix, radius, space, TAP, clockSize, height } from '../theme'
 import { T } from '../ui/Text'
 import { Empty, Press, SectionHeader, Toggle, s as kit } from '../ui/kit'
 import { impact, success, tap, warn } from '../ui/haptics'
@@ -350,7 +350,7 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
       </GestureHandlerRootView>
     </RNModal>
   )
-  const bodyPad = { paddingBottom: space[5] + insets.bottom }
+  const bodyPad = { paddingBottom: space[6] + insets.bottom }
 
   if (!steps.length) {
     return frame(
@@ -378,7 +378,7 @@ export function WorkoutMode({ session, entry, onSave, onSetDone, onExit, onFinis
   return frame(
     <>
       <WorkHead title={session.name} who={who} muted={muted} onMute={setMuted} onExit={askExit}
-        sub={<><Icon name="Timer" size={12} color={colors.inkDim} /><T size={font.small} dim tabular>{clock(elapsed)}</T></>} />
+        sub={<><Icon name="Timer" size={12} color={colors.inkDim} /><T size={font.label} dim tabular>{clock(elapsed)}</T></>} />
       {switcher}
 
       <KeyboardAvoidingView style={{ flex: 1, backgroundColor: TINT[phase] || colors.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -474,7 +474,7 @@ function Intro({ session, steps, onStart, resumed }: any) {
     <View style={{ gap: space[3] }}>
       {(resumed || done) ? <T size={font.body} dim tabular>{`${done} of ${steps.length} sets marked`}</T> : null}
 
-      <View style={{ gap: 8 }}>
+      <View style={{ gap: space[2] }}>
         {byEx.map(e => (
           <HowRow key={e.key} exercise={{ name: e.name, how: e.how }}
             open={open === e.key} onToggle={() => setOpen(open === e.key ? null : e.key)}
@@ -519,8 +519,8 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onSkip, 
   // The timer's face sizes (timer.tsx): the phase word clamp(heading, 8vw, 36),
   // and the clock clamp(88, 30vw, 180) — a little under the timer's own, because
   // here it sits among the how-to and the rail rather than filling the screen.
-  const phaseSize = Math.min(36, Math.max(font.heading, width * 0.08))
-  const countSize = Math.min(180, Math.max(88, width * 0.3))
+  const phaseSize = Math.min(font.stat, Math.max(font.screen, width * 0.08))
+  const countSize = clockSize(width)
 
   /*
    * THE INTERVAL TIMER'S FACE, where the two overlap (docs/DESIGN.md, Workout
@@ -534,14 +534,14 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onSkip, 
         {`${PHASE_LABEL[phase] || ''}${paused ? ' · Paused' : ''}`}
       </T>
       <T size={countSize} weight={600} tabular align="center" color={k}
-        style={{ lineHeight: countSize * 1.02, letterSpacing: -0.03 * countSize, opacity: paused ? 0.4 : 1 }}>
+        style={{ lineHeight: countSize * 1.02, opacity: paused ? 0.4 : 1 }}>
         {left != null ? clock(showing) : clock(counted)}
       </T>
       <T size={font.title} weight={600} tabular align="center">
         {`${step.exName} · Set ${step.setIndex + 1} of ${step.setCount}`}
       </T>
       {left == null ? (
-        <T size={font.small} dim align="center">
+        <T size={font.label} dim align="center">
           {openEnded ? 'Tap the clock when the set is done' : 'Tap the clock to start the next set'}
         </T>
       ) : null}
@@ -553,8 +553,8 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onSkip, 
       {step.how && !reading ? (
         <Press onPress={onHow} style={st.how} accessibilityRole="button" accessibilityLabel={`How to do ${step.exName}`}>
           <Figure name={step.how.figure} color={colors.accent} style={st.howFig} />
-          <T size={font.small} dim lineHeight={18} style={{ flex: 1, minWidth: 0 }}>{step.how.gist}</T>
-          <View style={st.howMore}><T size={font.small} weight={600}>How</T></View>
+          <T size={font.label} dim style={{ flex: 1, minWidth: 0 }}>{step.how.gist}</T>
+          <View style={st.howMore}><T size={font.label} weight={600}>How</T></View>
         </Press>
       ) : null}
 
@@ -578,7 +578,7 @@ export function Face({ phase, left, counted, rep, timing, step, paused, onSkip, 
             ))}
           </View>
         ) : (
-          <T size={font.small} dim tabular>{`Rep ${rep} of ${timing.reps}`}</T>
+          <T size={font.label} dim tabular>{`Rep ${rep} of ${timing.reps}`}</T>
         )
       ) : null}
 
@@ -671,9 +671,9 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }: any) {
 
   return (
     <View style={st.review}>
-      <T size={font.small} dim tabular align="center">{`${step.exName} · Set ${step.setIndex + 1} of ${step.setCount}`}</T>
-      <T size={font.heading} weight={600} lineHeight={28} align="center" style={{ marginTop: 2 }}>What actually happened?</T>
-      <T size={font.small} dim align="center" style={{ maxWidth: 280, marginBottom: space[2] }}>
+      <T size={font.label} dim tabular align="center">{`${step.exName} · Set ${step.setIndex + 1} of ${step.setCount}`}</T>
+      <T size={font.screen} weight={600} align="center" style={{ marginTop: 2 }}>What actually happened?</T>
+      <T size={font.label} dim align="center" style={{ maxWidth: 280, marginBottom: space[2] }}>
         Pre-filled from the plan. Change anything that didn’t match.
       </T>
 
@@ -681,7 +681,7 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }: any) {
         <View style={st.lastSet}>
           <View style={{ flex: 1, minWidth: 0 }}>
             <T size={font.body}>{`Last set of ${step.exName.toLowerCase()}`}</T>
-            <T size={font.small} dim>{last ? 'Set done moves on to the next exercise' : 'Skip the sets left of it'}</T>
+            <T size={font.label} dim>{last ? 'Set done moves on to the next exercise' : 'Skip the sets left of it'}</T>
           </View>
           <Toggle value={last} onChange={(v) => { tap(); setLast(v) }} />
         </View>
@@ -691,7 +691,7 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }: any) {
         <Press onPress={() => setDetail(!detailed)} hitSlop={8} accessibilityRole="switch"
           accessibilityState={{ checked: detailed }}
           style={[st.signtog, detailed && { borderColor: mix(colors.accent, 40, colors.line) }]}>
-          <T size={11} color={detailed ? colors.accent : colors.inkDim}>
+          <T size={font.label} color={detailed ? colors.accent : colors.inkDim}>
             {detailed ? `logging each ${what}` : `log each ${what}`}
           </T>
         </Press>
@@ -700,19 +700,19 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }: any) {
       <View style={st.fields}>
         {step.fields.filter((f: string) => f !== GRADE_FIELD).map((f: string) => (
           <View key={f} style={st.field}>
-            <T size={font.small} dim align="center">
+            <T size={font.label} dim align="center">
               {`${FIELD_LABEL[f] || f}${f === 'weight' && step.sign === '-' ? ' (off)' : ''}`}
             </T>
             {f === 'reps' && detailed ? (
               <View style={st.repstep}>
                 <Press onPress={() => bump(-1)} style={st.repstepB} accessibilityRole="button" accessibilityLabel={`one fewer ${what}`}>
-                  <T size={19} dim>−</T>
+                  <T size={font.title} dim>−</T>
                 </Press>
-                <View style={[st.fieldBox, { flex: 1, paddingHorizontal: 4 }]}>
-                  <T size={26} weight={600} dim tabular align="center">{String(climbCount(draft.reps))}</T>
+                <View style={[st.fieldBox, { flex: 1, paddingHorizontal: space[1] }]}>
+                  <T size={font.screen} weight={600} dim tabular align="center">{String(climbCount(draft.reps))}</T>
                 </View>
                 <Press onPress={() => bump(1)} style={st.repstepB} accessibilityRole="button" accessibilityLabel={`one more ${what}`}>
-                  <T size={19} dim>+</T>
+                  <T size={font.title} dim>+</T>
                 </Press>
               </View>
             ) : (
@@ -727,7 +727,7 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }: any) {
 
       {detailed ? (
         <View style={st.climbs}>
-          <T size={font.small} dim>{`each ${what}${falls > 0 ? ` · fell on ${falls}` : ''}`}</T>
+          <T size={font.label} dim>{`each ${what}${falls > 0 ? ` · fell on ${falls}` : ''}`}</T>
           <View style={{ width: '100%', maxWidth: 340 }}>
             <ClimbLog count={climbCount(draft.reps)} values={draft[CLIMB_FIELD]}
               spec={step.climbLog} what={what} omitGrade={perRep}
@@ -742,7 +742,7 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }: any) {
           same route — the same control as the per-set log. */}
       {perRep ? (
         <View style={st.grades}>
-          <T size={font.small} dim>{`grade per ${step.repName || 'rep'}`}</T>
+          <T size={font.label} dim>{`grade per ${step.repName || 'rep'}`}</T>
           <GradeLaps count={repCount(draft.reps)} values={draft[GRADE_FIELD]}
             what={step.repName || 'rep'} where={`set ${step.setIndex + 1} `}
             onChange={(list: any) => onDraft({ ...draft, [GRADE_FIELD]: list })} />
@@ -767,7 +767,7 @@ function Rail({ steps, current, onJump }: any) {
     <View style={st.rail}>
       {groups.map(g => (
         <View key={g.key} style={st.railRow}>
-          <T size={font.small} dim numberOfLines={1} style={{ flex: 1, minWidth: 0 }}>{g.name}</T>
+          <T size={font.label} dim numberOfLines={1} style={{ flex: 1, minWidth: 0 }}>{g.name}</T>
           <View style={st.railSets}>
             {g.items.map(({ n, s }: any) => {
               const on = n === current
@@ -777,7 +777,7 @@ function Rail({ steps, current, onJump }: any) {
                   style={[st.railSet, s.logged && st.railSetDone, on && st.railSetOn]}>
                   {s.logged
                     ? <Icon name="Check" size={13} color={on ? colors.ink : colors.vizGood} />
-                    : <T size={font.small} tabular color={on ? colors.ink : colors.inkDim}>{String(s.setIndex + 1)}</T>}
+                    : <T size={font.label} tabular color={on ? colors.ink : colors.inkDim}>{String(s.setIndex + 1)}</T>}
                 </Press>
               )
             })}
@@ -796,7 +796,7 @@ function Finish({ session, out, startedAt, value, onValue, onFinish }: any) {
   return (
     <View style={st.finish}>
       <Icon name="CircleCheck" size={44} color={colors.vizGood} />
-      <T size={font.heading} weight={600} lineHeight={28} align="center">{`${session.name} — done`}</T>
+      <T size={font.screen} weight={600} align="center">{`${session.name} — done`}</T>
 
       <View style={st.stats}>
         <Stat n={sets} label="sets" />
@@ -804,13 +804,13 @@ function Finish({ session, out, startedAt, value, onValue, onFinish }: any) {
         {measured != null ? <Stat n={measured} label="minutes" /> : null}
       </View>
 
-      <View style={{ gap: 6, width: 160 }}>
-        <T size={font.small} dim align="center">Minutes to record</T>
+      <View style={{ gap: space[2], width: 160 }}>
+        <T size={font.label} dim align="center">Minutes to record</T>
         <NumInput blank="" decimal={false} value={value} onChange={(v: any) => onValue(v == null || v === '' ? '' : String(v))}
           placeholder={measured != null ? String(measured) : String(session.minutes ?? '')}
           accessibilityLabel="Minutes to record" style={st.fieldIn} />
       </View>
-      <T size={font.small} dim align="center">
+      <T size={font.label} dim align="center">
         Measured from when you hit start. This is what the weekly training-load chart multiplies
         by your RPE, so a real number beats the card’s nominal one.
       </T>
@@ -823,8 +823,8 @@ function Finish({ session, out, startedAt, value, onValue, onFinish }: any) {
 function Stat({ n, label }: { n: number; label: string }) {
   return (
     <View style={{ gap: 2, alignItems: 'center' }}>
-      <T size={font.display} weight={600} tabular lineHeight={38}>{String(n)}</T>
-      <T size={font.small} dim>{label}</T>
+      <T size={font.stat} weight={600} tabular>{String(n)}</T>
+      <T size={font.label} dim>{label}</T>
     </View>
   )
 }
@@ -833,24 +833,24 @@ const st = StyleSheet.create({
   wo: { flex: 1, backgroundColor: colors.bg },
   body: { flexGrow: 1, paddingTop: space[4], paddingHorizontal: space.gutter },
   // The one primary, made big: the accent at title size.
-  bigBtn: { backgroundColor: colors.accent, borderColor: colors.accent, minHeight: 56 },
+  bigBtn: { backgroundColor: colors.accent, borderColor: colors.accent, minHeight: height.run },
   quietBtn: { backgroundColor: 'transparent', borderColor: 'transparent' },
   setDone: { width: '100%', maxWidth: 340, marginTop: space[2] },
-  face: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingTop: 10, paddingBottom: 18 },
+  face: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: space[2], paddingTop: space[2], paddingBottom: space[4] },
   // The how-to, mid-set: a picture and one line, small enough never to compete
   // with the clock. Tapping opens the full card.
   how: {
-    flexDirection: 'row', alignItems: 'center', gap: 11, width: '100%', maxWidth: 400,
-    minHeight: TAP, paddingVertical: 7, paddingHorizontal: 10,
+    flexDirection: 'row', alignItems: 'center', gap: space[3], width: '100%', maxWidth: 400,
+    minHeight: TAP, paddingVertical: space[2], paddingHorizontal: space[2],
     backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control,
   },
-  howFig: { width: 44, height: 38 },
+  howFig: { width: TAP, height: 38 },
   howMore: {
     borderWidth: 1, borderColor: colors.lineStrong, borderRadius: radius.pill,
-    paddingVertical: 6, paddingHorizontal: space[3],
+    paddingVertical: space[2], paddingHorizontal: space[3],
   },
   howNext: {
-    width: '100%', maxWidth: 460, marginTop: space[4], paddingTop: 13,
+    width: '100%', maxWidth: 460, marginTop: space[4], paddingTop: space[3],
     backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.card,
   },
   howNextHead: { marginTop: 0, marginBottom: 0, paddingHorizontal: space[4], paddingBottom: space[2] },
@@ -860,8 +860,8 @@ const st = StyleSheet.create({
     paddingVertical: space[3], paddingHorizontal: space[4],
     borderWidth: 1, borderStyle: 'dashed', borderColor: colors.lineStrong, borderRadius: radius.sheet,
   },
-  pips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, justifyContent: 'center', maxWidth: 280, marginTop: 2 },
-  pip: { width: 13, height: 13, borderRadius: 7, borderWidth: 2, borderColor: colors.lineStrong },
+  pips: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2], justifyContent: 'center', maxWidth: 280, marginTop: 2 },
+  pip: { width: 13, height: 13, borderRadius: radius.control, borderWidth: 2, borderColor: colors.lineStrong },
   // The bottom of a running set, outside the scroll: ending it, then the control row.
   foot: { alignItems: 'center', gap: space[2], paddingTop: space[3], paddingHorizontal: space.gutter },
   secondaryBtn: { backgroundColor: colors.panel3, borderColor: colors.lineStrong },
@@ -870,30 +870,30 @@ const st = StyleSheet.create({
     minHeight: TAP, marginBottom: space[2], paddingVertical: space[2], paddingHorizontal: space[3],
     backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.card,
   },
-  review: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
+  review: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: space[2] },
   signtog: {
     backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.pill,
-    paddingVertical: 4, paddingHorizontal: 9, minHeight: 30, justifyContent: 'center',
+    paddingVertical: space[1], paddingHorizontal: space[2], minHeight: TAP, justifyContent: 'center',
   },
-  fields: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center', width: '100%' },
-  field: { gap: 6, width: 108, flexShrink: 1 },
+  fields: { flexDirection: 'row', flexWrap: 'wrap', gap: space[3], justifyContent: 'center', width: '100%' },
+  field: { gap: space[2], width: 108, flexShrink: 1 },
   fieldBox: {
-    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: 8,
+    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control,
     minHeight: 62, justifyContent: 'center',
   },
   fieldIn: {
-    fontSize: 26, fontWeight: '600', textAlign: 'center', fontVariant: ['tabular-nums'],
-    paddingVertical: 12, paddingHorizontal: 8, minHeight: 62,
+    fontSize: font.screen, fontWeight: '600', textAlign: 'center', fontVariant: ['tabular-nums'],
+    paddingVertical: space[3], paddingHorizontal: space[2], minHeight: 62,
   },
-  repstep: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  repstep: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
   repstepB: {
     minWidth: 34, minHeight: TAP, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: 8,
+    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control,
   },
-  climbs: { alignItems: 'center', gap: 4, width: '100%' },
-  grades: { alignItems: 'center', gap: 6, width: '100%', marginTop: 4 },
+  climbs: { alignItems: 'center', gap: space[1], width: '100%' },
+  grades: { alignItems: 'center', gap: space[2], width: '100%', marginTop: space[1] },
   rail: { marginBottom: space[3], paddingBottom: space[3], borderBottomWidth: 1, borderBottomColor: colors.line, gap: space[2] },
-  railRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  railRow: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
   railSets: { flexDirection: 'row', gap: space[1], flexWrap: 'wrap', flexShrink: 1, justifyContent: 'flex-end' },
   railSet: {
     width: TAP, height: TAP, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center',

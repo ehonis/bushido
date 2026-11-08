@@ -304,9 +304,9 @@ function DayTitle({ viewIso, today, onChange }: { viewIso: string; today: string
   return (
     <View {...swipe.panHandlers} style={st.daytitle}>
       <View style={{ flex: 1, minWidth: 0 }}>
-        <T size={font.heading} weight={600} lineHeight={28} color={viewIso > today ? colors.inkDim : colors.ink}
+        <T size={font.screen} weight={600} color={viewIso > today ? colors.inkDim : colors.ink}
           accessibilityRole="header">{words}</T>
-        {date ? <T size={font.small} dim style={{ marginTop: 2 }}>{date}</T> : null}
+        {date ? <T size={font.label} dim style={{ marginTop: 2 }}>{date}</T> : null}
       </View>
       {viewIso !== today && <Btn kind="quiet" title="Today" onPress={() => { tap(); onChange(today) }} />}
       <IconBtn icon="ChevronLeft" size={20} label="Previous day" onPress={() => shift(-1)} />
@@ -364,7 +364,7 @@ function DayList({ rows, onOpen, isFuture, viewIso, onLog = null, onRest = null,
             <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
               <T size={font.body} weight={500} numberOfLines={1}
                 color={r.state === 'open' ? colors.inkDim : colors.ink}>{r.name}</T>
-              {r.meta ? <T size={font.small} dim tabular numberOfLines={2}>{r.meta}</T> : null}
+              {r.meta ? <T size={font.label} dim tabular numberOfLines={2}>{r.meta}</T> : null}
             </View>
             <Icon name="ChevronRight" size={16} color={colors.inkFaint} />
           </Press>
@@ -645,7 +645,7 @@ function DaySessions({
 
       {open && (
         <SessionSheet
-          opt={open.opt} entry={open.entry} tone={open.tone} entries={entries} isFuture={isFuture}
+          opt={open.opt} entry={open.entry} tone={open.tone} entries={entries} isFuture={isFuture} day={viewIso}
           onLog={open.kind === 'adjunct' ? null : open.kind === 'extra' ? onAddExtra : onPickMain}
           onSave={onSaveOutputs}
           onSavePlan={onSavePlan}

@@ -7,7 +7,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
-import { colors, font, mix, radius, space, TAP } from '../theme'
+import { colors, font, mix, radius, space, TAP, leading } from '../theme'
 import { T } from '../ui/Text'
 import { Btn, Chip, Input, Press, Row, Toggle } from '../ui/kit'
 import { Modal } from '../ui/Sheet'
@@ -80,7 +80,7 @@ export function PriorNote({ entries, session, excludeId, entry = null, all = fal
     <View style={[st.prior, style]}>
       <View style={st.priorHead}>
         <Icon name="Repeat" size={13} color={colors.load3} />
-        <T size={font.small} weight={600} color={colors.load3} style={{ flex: 1 }}>
+        <T size={font.label} weight={600} color={colors.load3} style={{ flex: 1 }}>
           {/* `whose`: someone else's log, on their side of a shared workout (sharedwith.tsx). */}
           {all
             ? priorTitle(shown.length, whose)
@@ -97,11 +97,11 @@ export function PriorNote({ entries, session, excludeId, entry = null, all = fal
                 + (Number.isFinite(o?.rpe) ? ` · how hard ${o.rpe}` : '')
                 + (Number.isFinite(o?.fingers) ? ` · fingers ${o.fingers}/5` : '')}
             </T>
-            {work ? <T size={font.small} dim style={{ marginTop: 2 }}>{work}</T> : null}
-            {o?.notes ? <T size={font.small} dim lineHeight={19}>{o.notes}</T> : null}
+            {work ? <T size={font.label} dim style={{ marginTop: 2 }}>{work}</T> : null}
+            {o?.notes ? <T size={font.label} dim>{o.notes}</T> : null}
             {o?.improve ? (
-              <T size={font.small} lineHeight={19} style={{ marginTop: space[1] }}>
-                <T size={font.small} weight={600} color={colors.load3}>To improve:</T>{` ${o.improve}`}
+              <T size={font.label} style={{ marginTop: space[1] }}>
+                <T size={font.label} weight={600} color={colors.load3}>To improve:</T>{` ${o.improve}`}
               </T>
             ) : null}
           </View>
@@ -133,11 +133,11 @@ function NoteField({ label, hint, value, onCommit }: {
   }, [draft, value])
 
   return (
-    <View style={{ marginBottom: 12 }}>
-      <T size={12} dim style={{ marginBottom: 5 }}>{label}</T>
+    <View style={{ marginBottom: space[3] }}>
+      <T size={font.label} dim style={{ marginBottom: space[1] }}>{label}</T>
       <Input multiline value={draft} placeholder={hint} onChangeText={setDraft}
         onBlur={() => { if (draft !== (value ?? '')) commit.current(draft) }}
-        style={{ minHeight: 76, lineHeight: 22 }} />
+        style={{ minHeight: 76, lineHeight: leading.body }} />
     </View>
   )
 }
@@ -148,7 +148,7 @@ function NoteField({ label, hint, value, onCommit }: {
  */
 function Yours({ value }: { value: any }) {
   if (value === undefined || value === null || value === '') return null
-  return <T size={11} faint style={{ marginLeft: 8 }}>{`you: ${typeof value === 'boolean' ? (value ? 'yes' : 'no') : String(value)}`}</T>
+  return <T size={font.caption} faint style={{ marginLeft: space[2] }}>{`you: ${typeof value === 'boolean' ? (value ? 'yes' : 'no') : String(value)}`}</T>
 }
 
 function Slider({ field, value, onChange, yours }: any) {
@@ -157,12 +157,12 @@ function Slider({ field, value, onChange, yours }: any) {
   return (
     <View style={st.field}>
       <View style={st.label}>
-        <T size={13} dim>{field.label}</T>
+        <T size={font.label} dim>{field.label}</T>
         <Yours value={yours} />
         <View style={{ flex: 1 }} />
         {/* Unanswered, the number reads as a placeholder: a guess is never shown
             as an answer (AGENTS.md §6.4). */}
-        <T size={17} weight={value == null ? 500 : 600} tabular align="right" style={{ minWidth: 24 }}
+        <T size={font.title} weight={value == null ? 500 : 600} tabular align="right" style={{ minWidth: 24 }}
           color={value == null ? colors.inkFaint : colors.ink}>{v == null ? '' : String(v)}</T>
       </View>
       <RangeSlider min={field.min} max={field.max} step={field.step ?? 1} value={v} label={field.label} onChange={onChange}
@@ -170,8 +170,8 @@ function Slider({ field, value, onChange, yours }: any) {
       {/* On a phone only the two ends of the scale have room. */}
       {scale && scale.length > 0 && (
         <View style={st.scale}>
-          <T size={10} faint>{scale[0]}</T>
-          {scale.length > 1 ? <T size={10} faint align="right">{scale[scale.length - 1]}</T> : null}
+          <T size={font.label} faint>{scale[0]}</T>
+          {scale.length > 1 ? <T size={font.label} faint align="right">{scale[scale.length - 1]}</T> : null}
         </View>
       )}
     </View>
@@ -218,10 +218,10 @@ export function NameField({ session, out, onChange }: any) {
   return (
     <View style={st.field}>
       <View style={st.label}>
-        <T size={13} dim>Name</T>
+        <T size={font.label} dim>Name</T>
         {mine && otherwise ? (
           <Press onPress={() => { tap(); pick(mine) }} hitSlop={10}>
-            <T size={11} faint style={{ textDecorationLine: 'underline' }}>{`use “${otherwise}”`}</T>
+            <T size={font.label} faint style={{ textDecorationLine: 'underline' }}>{`use “${otherwise}”`}</T>
           </Press>
         ) : null}
       </View>
@@ -251,7 +251,7 @@ function Choice({ field, value, onChange, yours }: any) {
   const theirs = (field.options || []).find((o: any) => o.value === yours)?.label ?? yours
   return (
     <View style={st.field}>
-      <View style={st.label}><T size={13} dim>{field.label}</T><Yours value={theirs} /></View>
+      <View style={st.label}><T size={font.label} dim>{field.label}</T><Yours value={theirs} /></View>
       <View style={st.choices}>
         {(field.options || []).map((o: any) => {
           const on = value === o.value
@@ -287,8 +287,8 @@ function TimeSpent({ session, out, onChange }: any) {
   return (
     <View style={st.field}>
       <View style={st.label}>
-        <T size={13} dim>Time spent</T>
-        <T size={17} weight={600} tabular>min</T>
+        <T size={font.label} dim>Time spent</T>
+        <T size={font.title} weight={600} tabular>min</T>
       </View>
       <View style={st.spentRow}>
         <NumInput
@@ -304,11 +304,11 @@ function TimeSpent({ session, out, onChange }: any) {
         {/* The one number that is measured but NOT winning, offered as a tap. */}
         {(source === 'whoop' || source === 'strava') && Number.isFinite(measured) && measured > 0 && Math.round(measured) !== inUse && (
           <Press haptic onPress={() => onChange(Math.round(measured))} style={st.spentUse} accessibilityRole="button">
-            <T size={12} dim>{`use ${Math.round(measured)} from the timer instead`}</T>
+            <T size={font.label} dim>{`use ${Math.round(measured)} from the timer instead`}</T>
           </Press>
         )}
       </View>
-      {hint ? <T size={12} faint style={{ marginTop: 0 }}>{hint}</T> : null}
+      {hint ? <T size={font.caption} faint style={{ marginTop: 0 }}>{hint}</T> : null}
     </View>
   )
 }
@@ -337,7 +337,7 @@ export function SessionDetails({ session, entry, entries, onSave, training, onTr
   const set = (key: string, value: any) => onSave((pruneHidden as any)(session, { ...out, [key]: value }, derive))
 
   return (
-    <View style={{ gap: 16 }}>
+    <View style={{ gap: space[4] }}>
       {/* Blank is not nameless: see NameField. */}
       <NameField session={session} out={out} onChange={(v: string) => onSave(rename(out, v))} />
 
@@ -349,8 +349,8 @@ export function SessionDetails({ session, entry, entries, onSave, training, onTr
           and the streak, and takes it out of the training load. */}
       {onTraining && (
         <ToggleRow value={training === false} onChange={(v) => onTraining(!v)}>
-          <T size={14}>Just miles, not a workout</T>
-          <T size={12} faint style={{ marginTop: 2 }}>Counts the miles and the streak, not the effort charts.</T>
+          <T size={font.label}>Just miles, not a workout</T>
+          <T size={font.caption} faint style={{ marginTop: 2 }}>Counts the miles and the streak, not the effort charts.</T>
         </ToggleRow>
       )}
 
@@ -473,7 +473,7 @@ export function SessionLog({
             if (f.type === 'grade') {
               return (
                 <View key={f.key} style={st.field}>
-                  <View style={st.label}><T size={13} dim>{f.label}</T><Yours value={hints?.[f.key]} /></View>
+                  <View style={st.label}><T size={font.label} dim>{f.label}</T><Yours value={hints?.[f.key]} /></View>
                   <GradeSelect value={out[f.key]} label={f.label} style={{ alignSelf: 'flex-start', marginTop: 1 }}
                     onChange={(v: any) => set(f.key, v === '' ? undefined : v)} />
                 </View>
@@ -482,7 +482,7 @@ export function SessionLog({
             if (f.type === 'toggle') {
               return (
                 <ToggleRow key={f.key} value={Boolean(out[f.key])} onChange={(v) => set(f.key, v)}>
-                  <T size={14}>{f.label}</T><Yours value={hints?.[f.key]} />
+                  <T size={font.label}>{f.label}</T><Yours value={hints?.[f.key]} />
                 </ToggleRow>
               )
             }
@@ -499,10 +499,10 @@ export function SessionLog({
             const derived = (derivedValue as any)(f, out)
             const source = filledBy(out, f.key)
             return (
-              <View key={f.key} style={{ gap: 5 }}>
+              <View key={f.key} style={{ gap: space[1] }}>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap' }}>
-                  <T size={font.small} dim>{`${f.label}${f.unit ? ` (${f.unit})` : ''}`}</T>
-                  {source ? <T size={font.caption} dim style={{ marginLeft: 6 }}>{`from ${source}`}</T> : null}
+                  <T size={font.label} dim>{`${f.label}${f.unit ? ` (${f.unit})` : ''}`}</T>
+                  {source ? <T size={font.caption} dim style={{ marginLeft: space[2] }}>{`from ${source}`}</T> : null}
                 </View>
                 <NumInput
                   placeholder={derived != null ? String(derived)
@@ -564,26 +564,26 @@ export function SessionLog({
 const st = StyleSheet.create({
   outlog: { marginTop: space[4], borderTopWidth: 1, borderTopColor: colors.line, paddingTop: space[4] },
   body: { gap: space[4] },
-  field: { gap: 7 },
-  label: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 },
-  scale: { flexDirection: 'row', justifyContent: 'space-between', gap: 6 },
-  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 1 },
-  toggle: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: TAP },
+  field: { gap: space[2] },
+  label: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: space[2] },
+  scale: { flexDirection: 'row', justifyContent: 'space-between', gap: space[2] },
+  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2], marginTop: 1 },
+  toggle: { flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: TAP },
   box: {
-    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: 8,
-    paddingHorizontal: 10, paddingVertical: 10, minHeight: TAP, color: colors.ink, fontSize: 16,
+    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control,
+    paddingHorizontal: space[2], paddingVertical: space[2], minHeight: TAP, color: colors.ink, fontSize: font.body,
   },
-  spentRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 1 },
+  spentRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space[2], marginTop: 1 },
   spentUse: {
-    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: 999,
-    paddingHorizontal: 12, minHeight: TAP, justifyContent: 'center',
+    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: radius.pill,
+    paddingHorizontal: space[3], minHeight: TAP, justifyContent: 'center',
   },
-  notes: { marginTop: 18, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 14 },
+  notes: { marginTop: space[4], borderTopWidth: 1, borderTopColor: colors.line, paddingTop: space[4] },
   prior: {
     backgroundColor: mix(colors.series1, 7, colors.panel2),
     borderWidth: 1, borderColor: mix(colors.series1, 26, colors.line),
     borderRadius: radius.card, padding: space[3], marginVertical: space[3],
   },
-  priorHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: space[2] },
+  priorHead: { flexDirection: 'row', alignItems: 'center', gap: space[2], marginBottom: space[2] },
   priorNext: { marginTop: space[3], borderTopWidth: 1, borderTopColor: colors.line, paddingTop: space[3] },
 })

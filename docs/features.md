@@ -72,7 +72,7 @@ Two routes:
   the planner lists drafts being written and drafts ready to keep, and a draft is kept once.
 
 Either way the plan goes on **the day Today is showing**, or any later day you step to, and
-the button says which ("Put it on tomorrow"). Backing out of the builder keeps what you put
+the button says which ("Add to Tomorrow"). Backing out of the builder keeps what you put
 in it; closing the planner with work in it asks first.
 
 With no AI set up (a fresh install, or a CLI that will not run), the builder is the first
@@ -361,7 +361,7 @@ still workout mode's job.
 the timer becomes a circuit: each exercise for *Work*, *Rest* between them, *Rounds* of the
 whole list, and under *More* a rest between rounds. Each exercise can have its own time or
 be done to a count of reps, which counts up and waits for a tap. Save it as a preset like
-any other, or **Put it on today** to place it as a planned workout.
+any other, or **Add to Today** to place it as a planned workout.
 
 While it runs, the screen says **the exercise to do now**, big, with where you are (*Round 2
 of 3 · Exercise 4 of 5*), what it works and its one-line how-to, and what is next. ⓘ opens

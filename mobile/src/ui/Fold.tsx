@@ -3,7 +3,7 @@
 // so this is used a lot; `open` is the initial state, or controlled with onToggle.
 import React, { useState } from 'react'
 import { View, type StyleProp, type ViewStyle } from 'react-native'
-import { colors } from '../theme'
+import { colors, font, space, TAP } from '../theme'
 import { Icon } from '../lib/icons'
 import { Press } from './kit'
 import { T } from './Text'
@@ -25,9 +25,9 @@ export function Fold({ summary, open: initial = false, isOpen, onToggle, childre
   return (
     <View style={style}>
       <Press onPress={flip} accessibilityRole="button" accessibilityState={{ expanded: open }}
-        style={[{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 36 }, headStyle]}>
+        style={[{ flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: TAP }, headStyle]}>
         <Icon name={open ? 'ChevronDown' : 'ChevronRight'} size={14} color={colors.inkFaint} />
-        {typeof summary === 'string' ? <T size={13} dim style={{ flex: 1 }}>{summary}</T> : <View style={{ flex: 1 }}>{summary}</View>}
+        {typeof summary === 'string' ? <T size={font.label} dim style={{ flex: 1 }}>{summary}</T> : <View style={{ flex: 1 }}>{summary}</View>}
       </Press>
       {open ? children : null}
     </View>

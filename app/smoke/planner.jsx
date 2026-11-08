@@ -221,7 +221,7 @@ export default [
       if (/Add a swim set/.test(t)) throw new Error('a lift and a ride offer a swim set')
       if (/Add a piece|its own workout:/.test(t)) throw new Error('the planner\u2019s jargon is back ("a piece", "its own workout:")')
       if (!/A separate .*workout|Part of the workout beside it/.test(t)) throw new Error('a block does not say whether it is its own workout')
-      if (!/Put it on today/.test(t)) throw new Error('no way to keep it')
+      if (!/Add to Today/.test(t)) throw new Error('no way to keep it')
       // Nothing in it yet is not a workout, and the button says so by being off.
       if (!/<button class="btn big" disabled=""/.test(html)) {
         throw new Error('an empty session can be kept')
@@ -353,7 +353,7 @@ export default [
     <KeptStep pres={PRESCRIPTION} onStart={noop} onAnother={noop} onDone={noop} />,
     (html) => {
       const t = text(html)
-      for (const door of ['Start it now', 'Plan another workout', 'Back to today']) {
+      for (const door of ['Start workout', 'Plan another workout', 'Back to today']) {
         if (!t.includes(door)) throw new Error(`no "${door}" door`)
       }
       if (!t.includes(PRESCRIPTION.title)) throw new Error('it does not say what landed')
@@ -367,7 +367,7 @@ export default [
       const t = text(html)
       // A write that did not come back with an id still has to leave two doors
       // rather than a dead end.
-      if (/Start it now/.test(t)) throw new Error('offering to start something it cannot open')
+      if (/Start workout/.test(t)) throw new Error('offering to start something it cannot open')
       if (!/Back to today/.test(t)) throw new Error('no way out')
     }],
   /* ============================================================= endurance
@@ -458,7 +458,7 @@ export default [
       if (!/Add an exercise here/.test(t)) throw new Error('without the model, the first screen is not the builder')
       if (/class="list-row kindrow/.test(html)) throw new Error('without the model, a kind must still be picked first')
       const btns = html.match(/<button class="btn big[^"]*"/g) || []
-      if (btns.length !== 1 || /secondary|ghost/.test(btns[0])) throw new Error(`the only button is ${btns.join(' / ')}, not one primary`)
+      if (btns.length !== 1 || /secondary|quiet/.test(btns[0])) throw new Error(`the only button is ${btns.join(' / ')}, not one primary`)
     } finally { _setMe({}) }
     const owner = text(renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} onKeep={noop} onClose={noop} />))
     if (!/Write it for me/.test(owner)) throw new Error('the owner lost "Write it for me"')
@@ -493,11 +493,11 @@ export default [
       const tomorrow = isoShift(TODAY, 1)
       const html = renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} date={tomorrow} onKeep={noop} onClose={noop} />)
       const t = text(html)
-      if (!/Put it on tomorrow/.test(t)) throw new Error('planning from tomorrow does not offer "Put it on tomorrow"')
+      if (!/Add to Tomorrow/.test(t)) throw new Error('planning from tomorrow does not offer "Add to Tomorrow"')
       if (!/<section class="planday" aria-label="Which day">/.test(html)) throw new Error('no day in the flow')
       if (/disabled="" aria-label="The day before"/.test(html)) throw new Error('tomorrow cannot step back to today')
       const past = renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} date={isoShift(TODAY, -2)} onKeep={noop} onClose={noop} />)
-      if (!/Put it on today/.test(text(past))) throw new Error('a past day Today was showing is not planned for today')
+      if (!/Add to Today/.test(text(past))) throw new Error('a past day Today was showing is not planned for today')
       if (!/disabled="" aria-label="The day before"/.test(past)) throw new Error('the day can go before today')
     } finally { _setMe({}) }
     const ask = renderToString(<PlanFlow plan={plan} entries={[]} iso={TODAY} date={isoShift(TODAY, 3)} onKeep={noop} onClose={noop} />)

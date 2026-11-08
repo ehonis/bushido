@@ -92,9 +92,9 @@ export function PlanFlow({ plan, entries = [], iso, date = null, onKeep, onStart
             <button className="btn secondary" onClick={f.build}>
               <Icon name="ListPlus" size={16} /> Build it myself
             </button>
-            <button className="btn ghost" onClick={f.toFirst}>Change the ask</button>
+            <button className="btn secondary" onClick={f.toFirst}>Change the ask</button>
             {!f.open && f.drafts.length > 0 && (
-              <button className="btn ghost" onClick={f.back}>See your drafts</button>
+              <button className="btn secondary" onClick={f.back}>See your drafts</button>
             )}
           </div>
         </div>
@@ -728,7 +728,7 @@ function ReviewStep({ pres, setPres, liftField, entries = [], categories = [], o
       {day && <div className="plan-dayfoot">{day}</div>}
 
       <div className="plan-actions sticky">
-        <button className="btn ghost" onClick={onRedo}><Icon name="RotateCw" size={16} /> Redo</button>
+        <button className="btn secondary" onClick={onRedo}><Icon name="RotateCw" size={16} /> Redo</button>
         <button className="btn big" onClick={onKeep} disabled={Boolean(talk?.busy)}>
           <Icon name="Plus" size={17} /> {words.keep}
         </button>
@@ -825,13 +825,13 @@ export function KeptStep({ pres, count = 1, parts = [], onStart, onAnother, onDo
       <div className="kept-acts">
         {onStart && (
           <button className="btn big" onClick={onStart}>
-            <Icon name="Play" size={18} /> {startLabel || (forName ? `Open it on ${forName}’s side` : many ? 'Start the first one' : 'Start it now')}
+            <Icon name="Play" size={18} /> {startLabel || (forName ? `Open it on ${forName}’s side` : many ? `Start ${parts[0]?.title || 'workout'}` : 'Start workout')}
           </button>
         )}
         <button className={`btn ${onStart ? 'secondary' : ''}`} onClick={onAnother}>
           <Icon name="Plus" size={16} /> Plan another workout
         </button>
-        <button className="btn ghost" onClick={onDone}>
+        <button className="btn secondary" onClick={onDone}>
           <Icon name="House" size={16} /> Back to today
         </button>
       </div>

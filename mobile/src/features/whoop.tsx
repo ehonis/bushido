@@ -82,7 +82,7 @@ export function AttachedRow({ title, meta, open = false, first, children }: {
           <Icon name="CircleCheck" size={20} color={colors.vizGood} />
           <View style={wh.rowMain}>
             <T size={font.body} weight={500} numberOfLines={1}>{title}</T>
-            {meta ? <T size={font.small} dim tabular>{meta}</T> : null}
+            {meta ? <T size={font.label} dim tabular>{meta}</T> : null}
           </View>
         </View>
       )}
@@ -117,7 +117,7 @@ export function OfferRow({ title, lines, likely, likelyWhy, taken, first, action
           ) : null}
         </View>
         {/* Why it is marked: the evidence, said on the row rather than only to VoiceOver (§8.2). */}
-        {likely && likelyWhy ? <T size={font.small} tabular>{likelyWhy}</T> : null}
+        {likely && likelyWhy ? <T size={font.label} tabular>{likelyWhy}</T> : null}
         {lines}
       </View>
       <Btn kind="secondary" title={action} disabled={disabled} onPress={() => { success(); onAttach() }} />
@@ -137,7 +137,7 @@ export const likelyWhy = (c: any) => (c.overlapPct >= 50 && c.overlapMin
 
 /** A line under an offer or inside an attached row. */
 export function Line2({ children, warn }: { children: React.ReactNode; warn?: boolean }) {
-  return <T size={font.small} color={warn ? colors.warn : colors.inkDim} tabular>{children}</T>
+  return <T size={font.label} color={warn ? colors.warn : colors.inkDim} tabular>{children}</T>
 }
 
 /**
@@ -162,10 +162,10 @@ function Numbers({ w, minutes }: { w: any; minutes?: any }) {
   if (hard) bits.push(`${hard} min zone 3+`)
   if (w.calories) bits.push(`${w.calories} cal`)
   return (
-    <T size={font.small} dim tabular>
+    <T size={font.label} dim tabular>
       {bits.join(' · ')}
       {recorded !== null && recorded < 95 ? (
-        <T size={font.small} color={colors.vizWarn}> · only {recorded}% recorded</T>
+        <T size={font.label} color={colors.vizWarn}> · only {recorded}% recorded</T>
       ) : null}
     </T>
   )
@@ -208,8 +208,8 @@ function typedTime(raw: string) {
 
 function TimeBox({ label, value, onChange, a11y }: { label: string; value: string; onChange: (v: string) => void; a11y: string }) {
   return (
-    <View style={{ gap: 6 }}>
-      <T size={font.small} dim>{label}</T>
+    <View style={{ gap: space[2] }}>
+      <T size={font.label} dim>{label}</T>
       <Input
         value={value}
         onChangeText={onChange}
@@ -254,7 +254,7 @@ function SplitEditor({ snap, onChange, onClear }: { snap: any; onChange: (part: 
       </View>
 
       {computed && computed.minutes === 0 ? (
-        <T size={font.small} color={colors.warn}>
+        <T size={font.label} color={colors.warn}>
           Those times miss the workout ({span(snap.start, snap.end)}), so this session would get none of it.
         </T>
       ) : null}
@@ -350,8 +350,8 @@ export function WhoopWorkouts({ session, entry, entries, onSave }: { session: an
       <BlockHead icon="HeartPulse" title="WHOOP" pulling={pulling} onPull={pull} />
 
       {/* The fix, not the symptom — the WHOOP client names the missing scope verbatim. */}
-      {error ? <T size={font.small} color={colors.warn} style={wh.err}>{error}</T> : null}
-      {!error && status?.ok === false ? <T size={font.small} color={colors.warn} style={wh.err}>{status.detail}</T> : null}
+      {error ? <T size={font.label} color={colors.warn} style={wh.err}>{error}</T> : null}
+      {!error && status?.ok === false ? <T size={font.label} color={colors.warn} style={wh.err}>{status.detail}</T> : null}
 
       {/* Everything attached, each a row that opens onto its numbers, its split
           and its detach. A list rather than a slot: two measurements of one
@@ -370,13 +370,13 @@ export function WhoopWorkouts({ session, entry, entries, onSave }: { session: an
 
                 {alsoOn ? (
                   doubled ? (
-                    <T size={font.small} color={colors.warn}>
-                      Also on <T size={font.small} weight={600} color={colors.warn}>{alsoOn.name}</T> and neither is split, so this day
+                    <T size={font.label} color={colors.warn}>
+                      Also on <T size={font.label} weight={600} color={colors.warn}>{alsoOn.name}</T> and neither is split, so this day
                       counts these {snap.minutes} minutes twice. Set the part on both.
                     </T>
                   ) : (
                     <Line2>
-                      Shared with <T size={font.small} weight={600} color={colors.inkDim}>{alsoOn.name}</T>
+                      Shared with <T size={font.label} weight={600} color={colors.inkDim}>{alsoOn.name}</T>
                       {alsoOn.part ? ` (${span(alsoOn.part.start, alsoOn.part.end)} there)` : ''}.
                     </Line2>
                   )
@@ -417,9 +417,9 @@ export function WhoopWorkouts({ session, entry, entries, onSave }: { session: an
       {attachedList.length > 1 ? (
         <View style={wh.total}>
           <Icon name="Timer" size={14} color={colors.inkDim} />
-          <T size={font.small} dim style={{ flex: 1 }}>
+          <T size={font.label} dim style={{ flex: 1 }}>
             {attachedList.length} workouts on this session,{' '}
-            <T size={font.small} weight={600}>
+            <T size={font.label} weight={600}>
               {attachedList.reduce((n, w) => n + (Number(attachedMinutes(w)) || 0), 0)} min
             </T> in total
           </T>
@@ -428,7 +428,7 @@ export function WhoopWorkouts({ session, entry, entries, onSave }: { session: an
 
       {offers.length === 0 ? (
         attachedList.length === 0 ? (
-          <T size={font.small} dim style={wh.empty}>
+          <T size={font.label} dim style={wh.empty}>
             {cache?.fetchedAt
               ? 'Nothing recorded on this day. Just finished? Refresh once the band syncs.'
               : 'No WHOOP data yet.'}
@@ -436,7 +436,7 @@ export function WhoopWorkouts({ session, entry, entries, onSave }: { session: an
         ) : null
       ) : (
         <>
-          {attachedList.length > 0 ? <T size={font.small} weight={600} style={wh.more}>Also on this day</T> : null}
+          {attachedList.length > 0 ? <T size={font.label} weight={600} style={wh.more}>Also on this day</T> : null}
           <View style={wh.list}>
             {offers.map((c, i) => {
               const w = { ...c.workout, ...(snapshotOf as any)(c.workout, { maxHeartRate: cache?.maxHeartRate }) }
@@ -480,9 +480,9 @@ function Stat({ label, value, unit, sub, toneName = '' }: { label: string; value
   if (value == null) return null
   return (
     <View style={[wh.stat, toneName ? { borderLeftWidth: 3, borderLeftColor: TONE_EDGE[toneName] } : null]}>
-      <T size={font.small} dim>{label}</T>
-      <T size={font.heading} weight={600} tabular lineHeight={28}>
-        {value}<T size={font.caption} dim>{unit}</T>
+      <T size={font.label} dim>{label}</T>
+      <T size={font.screen} weight={600} tabular>
+        {value}<T size={font.label} dim>{unit}</T>
       </T>
       {sub ? <T size={font.caption} dim tabular>{sub}</T> : null}
     </View>
@@ -508,7 +508,7 @@ export function WhoopReadiness({ date }: { date: string }) {
     return (
       <Card>
         <CardTitle>WHOOP</CardTitle>
-        <T size={font.small} color={colors.warn} style={{ marginBottom: space[3] }}>{error || status.detail}</T>
+        <T size={font.label} color={colors.warn} style={{ marginBottom: space[3] }}>{error || status.detail}</T>
         <Btn kind="secondary" title={pulling ? 'Refreshing…' : 'Try again'} disabled={pulling}
           onPress={() => pull()} style={{ alignSelf: 'flex-start' }} />
       </Card>
@@ -666,7 +666,7 @@ export function sleepStats(series: SleepRow[]) {
 const pct = (v: any) => (v == null ? '—' : `${Math.round(v)}%`)
 
 /** .viz-tick: --viz-muted, 10px. */
-const TICK = { fill: colors.vizMuted, fontSize: 10 } as any
+const TICK = { fill: colors.vizMuted, fontSize: font.caption } as any
 
 /**
  * Sleep over time: the graph that used to live on Totem's Habits tab.
@@ -782,24 +782,24 @@ export function WhoopSleep({ date }: { date: string }) {
           <StatPair value={pct(stats.avg)} label="average" color={colors.inkDim} />
           <Press haptic onPress={() => setShowTable(t => !t)} accessibilityRole="button"
             accessibilityState={{ selected: showTable }} hitSlop={8} style={wh.vizToggle}>
-            <T size={font.small} dim>{showTable ? 'Chart' : 'Table'}</T>
+            <T size={font.label} dim>{showTable ? 'Chart' : 'Table'}</T>
           </Press>
         </View>
 
         {showTable ? (
-          <View style={{ marginTop: 4 }}>
+          <View style={{ marginTop: space[1] }}>
             <View style={wh.tr}>
               {['Night', 'Sleep', 'Recovery', 'Asleep', 'Bed'].map((h, k) => (
-                <T key={h} size={12} weight={500} faint style={[wh.th, k === 4 && { flex: 2.4 }]}>{h}</T>
+                <T key={h} size={font.caption} weight={500} faint style={[wh.th, k === 4 && { flex: 2.4 }]}>{h}</T>
               ))}
             </View>
             {[...series].reverse().filter(r => r.night).map(r => (
               <View key={r.date} style={[wh.tr, wh.trBody]}>
-                <T size={13} tabular style={wh.td}>{dayLabel(r.date, { month: 'short', day: 'numeric' })}</T>
-                <T size={13} tabular style={wh.td}>{pct(r.score)}</T>
-                <T size={13} tabular style={wh.td}>{pct(r.recovery)}</T>
-                <T size={13} tabular style={wh.td}>{hm(r.night.asleepMin) || '—'}</T>
-                <T size={13} tabular style={[wh.td, { flex: 2.4 }]}>{wallClock(r.night.bedtime) || '—'} → {wallClock(r.night.wake) || '—'}</T>
+                <T size={font.label} tabular style={wh.td}>{dayLabel(r.date, { month: 'short', day: 'numeric' })}</T>
+                <T size={font.label} tabular style={wh.td}>{pct(r.score)}</T>
+                <T size={font.label} tabular style={wh.td}>{pct(r.recovery)}</T>
+                <T size={font.label} tabular style={wh.td}>{hm(r.night.asleepMin) || '—'}</T>
+                <T size={font.label} tabular style={[wh.td, { flex: 2.4 }]}>{wallClock(r.night.bedtime) || '—'} → {wallClock(r.night.wake) || '—'}</T>
               </View>
             ))}
           </View>
@@ -870,7 +870,7 @@ export function WhoopSleep({ date }: { date: string }) {
                         ) : null}
                         {showLabel ? (
                           <SvgText x={Math.min(Math.max(xAt(i), padL + 16), W - padR - 16)} y={Math.max(y2(r.span.from) - 4, 10)}
-                            textAnchor="middle" {...TICK} fontSize={font.micro}>
+                            textAnchor="middle" {...TICK} fontSize={font.caption}>
                             {hmTight(r.span.to - r.span.from)}
                           </SvgText>
                         ) : null}
@@ -890,21 +890,21 @@ export function WhoopSleep({ date }: { date: string }) {
             <View style={wh.readout} accessibilityLiveRegion="polite">
               {shown ? (
                 <>
-                  <T size={12} weight={600} tabular color={shown === series[today] ? SLEEP_TODAY : colors.ink}>
+                  <T size={font.caption} weight={600} tabular color={shown === series[today] ? SLEEP_TODAY : colors.ink}>
                     {dayLabel(shown.date, { weekday: 'short', month: 'short', day: 'numeric' })}
                   </T>
                   {shown.night ? (
                     <>
-                      <T size={12} dim tabular>sleep {pct(shown.score)}</T>
-                      {shown.recovery != null ? <T size={12} tabular color={recoveryColor(shown.recovery)}>recovery {pct(shown.recovery)}</T> : null}
-                      {shown.night.asleepMin != null ? <T size={12} dim tabular>{hm(shown.night.asleepMin)} asleep</T> : null}
-                      {shown.night.bedtime ? <T size={12} dim tabular>{wallClock(shown.night.bedtime)} → {wallClock(shown.night.wake)}</T> : null}
+                      <T size={font.caption} dim tabular>sleep {pct(shown.score)}</T>
+                      {shown.recovery != null ? <T size={font.caption} tabular color={recoveryColor(shown.recovery)}>recovery {pct(shown.recovery)}</T> : null}
+                      {shown.night.asleepMin != null ? <T size={font.caption} dim tabular>{hm(shown.night.asleepMin)} asleep</T> : null}
+                      {shown.night.bedtime ? <T size={font.caption} dim tabular>{wallClock(shown.night.bedtime)} → {wallClock(shown.night.wake)}</T> : null}
                       {STAGES.filter(s => shown.night.stages?.[s.key] > 0).map(s => (
                         <Swatch key={s.key} color={s.color} size={12} dim>{`${s.label} ${hm(shown.night.stages[s.key])}`}</Swatch>
                       ))}
                     </>
-                  ) : <T size={12} dim>no night from WHOOP</T>}
-                  {hover == null ? <T size={12} faint>· touch a night for its numbers</T> : null}
+                  ) : <T size={font.caption} dim>no night from WHOOP</T>}
+                  {hover == null ? <T size={font.caption} faint>· touch a night for its numbers</T> : null}
                 </>
               ) : null}
             </View>
@@ -918,7 +918,7 @@ export function WhoopSleep({ date }: { date: string }) {
           </>
         )}
         {shortHistory ? (
-          <T size={font.small} dim style={{ marginTop: space[3] }}>
+          <T size={font.label} dim style={{ marginTop: space[3] }}>
             {`History starts ${dayLabel(firstNight, { month: 'short', day: 'numeric' })} and fills in from WHOOP.`}
           </T>
         ) : null}
@@ -931,8 +931,8 @@ export function WhoopSleep({ date }: { date: string }) {
 function StatPair({ value, label, big, color }: { value: string; label: string; big?: boolean; color?: string }) {
   return (
     <View>
-      <T size={big ? font.heading : font.body} weight={600} tabular color={color} lineHeight={big ? 26 : 18}>{value}</T>
-      <T size={font.caption} dim lineHeight={15}>{label}</T>
+      <T size={big ? font.screen : font.body} weight={600} tabular color={color}>{value}</T>
+      <T size={font.caption} dim>{label}</T>
     </View>
   )
 }
@@ -973,7 +973,7 @@ export const wh = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: space[3], minHeight: 52, paddingVertical: space[2] },
   rowIn: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
   rowMain: { flex: 1, minWidth: 0, gap: 2 },
-  body: { paddingBottom: space[3], paddingLeft: 20 + space[3], gap: space[2] },
+  body: { paddingBottom: space[3], paddingLeft: space[6] + space[3], gap: space[2] },
   acts: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', gap: space[2] },
   // The suggestion is marked, not selected — it still takes a tap.
   tag: {
@@ -981,7 +981,7 @@ export const wh = StyleSheet.create({
     borderRadius: radius.pill, paddingHorizontal: space[2],
   },
   more: { marginTop: space[4], marginBottom: space[2] },
-  total: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: space[2] },
+  total: { flexDirection: 'row', alignItems: 'center', gap: space[2], marginTop: space[2] },
   empty: { marginTop: space[2] },
   err: { marginTop: space[2] },
   splitRow: { flexDirection: 'row', alignItems: 'flex-end', gap: space[3], flexWrap: 'wrap' },
@@ -994,15 +994,15 @@ export const wh = StyleSheet.create({
   },
 
   // The sleep card.
-  sleepHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' },
-  sleepStats: { flexDirection: 'row', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap', marginTop: 12, marginBottom: 6 },
-  vizToggle: { marginLeft: 'auto', borderWidth: 1, borderColor: colors.line, borderRadius: radius.control, minHeight: 36, justifyContent: 'center', paddingHorizontal: space[3] },
-  readout: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 4, columnGap: 12, minHeight: 22, marginTop: 6, alignItems: 'center' },
-  legend: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 4, columnGap: 12, marginTop: 8 },
-  keySquare: { width: 8, height: 8, borderRadius: 2, marginRight: 5 },
-  keyLine: { width: 12, height: 2, borderRadius: 1, marginRight: 5 },
+  sleepHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space[2], flexWrap: 'wrap' },
+  sleepStats: { flexDirection: 'row', alignItems: 'flex-end', gap: space[4], flexWrap: 'wrap', marginTop: space[3], marginBottom: space[2] },
+  vizToggle: { marginLeft: 'auto', borderWidth: 1, borderColor: colors.line, borderRadius: radius.control, minHeight: TAP, justifyContent: 'center', paddingHorizontal: space[3] },
+  readout: { flexDirection: 'row', flexWrap: 'wrap', rowGap: space[1], columnGap: space[3], minHeight: 22, marginTop: space[2], alignItems: 'center' },
+  legend: { flexDirection: 'row', flexWrap: 'wrap', rowGap: space[1], columnGap: space[3], marginTop: space[2] },
+  keySquare: { width: 8, height: 8, borderRadius: radius.mark, marginRight: space[1] },
+  keyLine: { width: 12, height: 2, borderRadius: radius.mark, marginRight: space[1] },
   tr: { flexDirection: 'row', alignItems: 'center' },
   trBody: { borderTopWidth: 1, borderTopColor: colors.line },
-  th: { flex: 1.3, paddingVertical: 6, paddingHorizontal: 4 },
-  td: { flex: 1.3, paddingVertical: 9, paddingHorizontal: 4 },
+  th: { flex: 1.3, paddingVertical: space[2], paddingHorizontal: space[1] },
+  td: { flex: 1.3, paddingVertical: space[2], paddingHorizontal: space[1] },
 })

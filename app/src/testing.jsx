@@ -204,7 +204,7 @@ export function TestRunner({ test, onSave, onDone }) {
           </label>
         ))}
         <div className="prof-actions">
-          <button className="btn ghost" onClick={onDone}>Cancel</button>
+          <button className="btn secondary" onClick={onDone}>Cancel</button>
           <button className="btn" onClick={save} disabled={!result}>Save result</button>
         </div>
         {!result && <p className="sub test-need">Type at least one result to save it.</p>}

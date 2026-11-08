@@ -14,16 +14,16 @@
 .viz-headmain { min-width: 0; }
 /* A chart's title is a section head inside its card: plain words, 15/600, ink. */
 .viz-title { margin: 0; font-size: var(--fs-body); font-weight: 600; line-height: var(--lh-tight); color: var(--ink); }
-.viz-help { margin: 2px 0 0; font-size: var(--fs-small); color: var(--ink-dim); }
+.viz-help { margin: 2px 0 0; font-size: var(--fs-label); color: var(--ink-dim); }
 .viz-hero {
   margin-top: var(--sp-1);
-  font-size: var(--fs-heading); font-weight: 600; line-height: var(--lh-tight);
+  font-size: var(--fs-screen); font-weight: 600; line-height: var(--lh-tight);
   font-variant-numeric: tabular-nums;
   display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap;
 }
-.viz-unit { font-size: var(--fs-small); font-weight: 400; color: var(--ink-dim); margin-left: -4px; }
-.viz-when { font-size: var(--fs-small); font-weight: 400; color: var(--ink-dim); }
-.viz-delta { font-size: var(--fs-small); font-weight: 500; }
+.viz-unit { font-size: var(--fs-label); font-weight: 400; color: var(--ink-dim); margin-left: calc(-1 * var(--sp-1)); }
+.viz-when { font-size: var(--fs-label); font-weight: 400; color: var(--ink-dim); }
+.viz-delta { font-size: var(--fs-label); font-weight: 500; }
 .viz-delta.up { color: var(--viz-good); }
 .viz-delta.down { color: var(--viz-warn); }
 .viz-delta.noise { color: var(--ink-dim); font-weight: 400; }
@@ -31,26 +31,26 @@
 /* Chart / Table: a word, so the second view is findable (D7), bordered like a
    ghost button at chip height. */
 .viz-toggle {
-  flex: none; min-height: 36px; padding: 0 var(--sp-3);
-  font: inherit; font-size: var(--fs-small); color: var(--ink-dim); background: transparent;
+  flex: none; min-height: var(--tap); padding: 0 var(--sp-3);
+  font: inherit; font-size: var(--fs-label); color: var(--ink-dim); background: transparent;
   border: 1px solid var(--line-strong); border-radius: var(--r-control); cursor: pointer;
 }
 .viz-toggle:hover { color: var(--ink); }
 .viz-toggle[aria-pressed='true'] { color: var(--ink); background: var(--panel-3); }
 
 /* Axis + tooltip text wears ink tokens, never a series colour. */
-.viz-tick { fill: var(--viz-muted); font-size: var(--fs-micro); font-variant-numeric: tabular-nums; }
-.viz-tip { fill: var(--ink); font-size: var(--fs-small); font-weight: 600; font-variant-numeric: tabular-nums; }
-.viz-tip-sm { fill: var(--ink-dim); font-size: var(--fs-micro); }
+.viz-tick { fill: var(--viz-muted); font-size: var(--fs-caption); font-variant-numeric: tabular-nums; }
+.viz-tip { fill: var(--ink); font-size: var(--fs-label); font-weight: 600; font-variant-numeric: tabular-nums; }
+.viz-tip-sm { fill: var(--ink-dim); font-size: var(--fs-caption); }
 /* The grade pyramid (#81): grades read at arm's length, so the row labels are
    body-size ink, and the counts beside the bars dim. */
 .viz-pyr-label { fill: var(--ink); font-size: var(--fs-body); font-weight: 500; font-variant-numeric: tabular-nums; }
-.viz-pyr-count { fill: var(--ink-dim); font-size: var(--fs-small); font-variant-numeric: tabular-nums; }
+.viz-pyr-count { fill: var(--ink-dim); font-size: var(--fs-label); font-variant-numeric: tabular-nums; }
 
 .viz-table { margin-top: var(--sp-1); }
 .viz-scroll { overflow-x: auto; scrollbar-width: thin; }
 .viz-legend { display: flex; align-items: center; gap: var(--sp-1); }
-.viz-swatch { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.viz-swatch { width: 11px; height: 11px; border-radius: var(--r-mark); display: inline-block; }
 .viz-tipline { font-size: var(--fs-caption); color: var(--ink-dim); margin-top: var(--sp-2); min-height: 18px; font-variant-numeric: tabular-nums; }
 
 /* ------------------------------------------------------------ context blurbs */
@@ -58,7 +58,7 @@
 .blurb-head { display: flex; align-items: flex-start; gap: var(--sp-2); }
 
 .blurb-x {
-  flex: none; width: var(--tap); height: var(--tap); margin: -10px -10px 0 0;
+  flex: none; width: var(--tap); height: var(--tap); margin: calc(-1 * var(--sp-2)) calc(-1 * var(--sp-2)) 0 0;
   display: inline-grid; place-items: center;
   background: transparent; border: 0; border-radius: var(--r-pill); color: var(--ink-dim); cursor: pointer;
 }
@@ -68,7 +68,7 @@
 .blurb-stub {
   display: flex; align-items: center; gap: var(--sp-2); width: 100%;
   background: transparent; border: 1px dashed var(--line-strong); border-radius: var(--r-card);
-  color: var(--ink-dim); font: inherit; font-size: var(--fs-small); text-align: left;
+  color: var(--ink-dim); font: inherit; font-size: var(--fs-label); text-align: left;
   padding: 0 var(--sp-3); margin-bottom: var(--sp-3); cursor: pointer; min-height: var(--tap);
 }
 .blurb-stub:hover { color: var(--ink); }
@@ -99,11 +99,11 @@
 .proghead-nums { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-4); }
 .proghead-num { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .proghead-value {
-  font-size: var(--fs-display); font-weight: 600; line-height: var(--lh-tight);
+  font-size: var(--fs-stat); font-weight: 600; line-height: var(--lh-tight);
   font-variant-numeric: tabular-nums;
 }
 .proghead-unit { font-size: var(--fs-body); font-weight: 400; color: var(--ink-dim); margin-left: var(--sp-1); }
-.proghead-label { font-size: var(--fs-small); color: var(--ink-dim); }
+.proghead-label { font-size: var(--fs-label); color: var(--ink-dim); }
 .proghead-sub { margin-top: var(--sp-2); }
 
 /* Narrowed: what the numbers are of, and the way back to everything. */
@@ -127,7 +127,7 @@
 .progpick-value {
   flex: 0 1 auto; min-width: 0; max-width: 55%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: var(--fs-small); color: var(--ink-dim);
+  font-size: var(--fs-label); color: var(--ink-dim);
 }
 .progpick-value.on { color: var(--ink); }
 .progpick-sel {
@@ -146,4 +146,4 @@
 
 /* An activity rather than training, in the session form. */
 .out-casual span { display: grid; gap: 2px; }
-.out-casual em { font-style: normal; font-size: var(--fs-small); color: var(--ink-faint); }
+.out-casual em { font-style: normal; font-size: var(--fs-label); color: var(--ink-faint); }

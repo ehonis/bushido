@@ -51,7 +51,7 @@ function niceScale(min, max, count = 4, integer = false) {
 
 /**
  * The left gutter, sized from the widest tick label rather than fixed: a fixed
- * 30px cut the first digit off "3000" once the ticks were on --fs-micro.
+ * 30px cut the first digit off "3000" once the ticks were on the 11px size.
  * ~6.6px per character at 11px, plus the 8px gap to the plot.
  */
 const padFor = (labels, min = 30) =>

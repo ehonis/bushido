@@ -18,7 +18,7 @@ import {
   type GestureResponderEvent, type LayoutChangeEvent,
 } from 'react-native'
 import Svg, { Circle, G, Line, Path, Rect, Text as SvgText } from 'react-native-svg'
-import { colors, cssColor, font, radius, space, SERIES as THEME_SERIES } from '../theme'
+import { colors, cssColor, font, radius, space, SERIES as THEME_SERIES, TAP } from '../theme'
 import { T } from '../ui/Text'
 import { Empty, Press } from '../ui/kit'
 import { tap } from '../ui/haptics'
@@ -59,7 +59,7 @@ function niceScale(min: number, max: number, count = 4, integer = false) {
 
 /**
  * The left gutter, sized from the widest tick label rather than fixed: a fixed
- * 30px cut the first digit off "3000" once the ticks were on --fs-micro.
+ * 30px cut the first digit off "3000" once the ticks were on the 11px size.
  * ~6.6px per character at 11px, plus the 8px gap to the plot.
  */
 const padFor = (labels: (string | number)[], min = 30) =>
@@ -103,9 +103,9 @@ function scrubProps(boxW: number, W: number, pick: (x: number) => number | null,
 }
 
 /** .viz-tick, .viz-tip, .viz-tip-sm: axis and tooltip text wear ink tokens, never a series colour. */
-const TICK = { fill: colors.vizMuted, fontSize: font.micro } as const
-const TIP = { fill: colors.ink, fontSize: font.small, fontWeight: '600' } as const
-const TIP_SM = { fill: colors.inkDim, fontSize: font.micro } as const
+const TICK = { fill: colors.vizMuted, fontSize: font.caption } as const
+const TIP = { fill: colors.ink, fontSize: font.label, fontWeight: '600' } as const
+const TIP_SM = { fill: colors.inkDim, fontSize: font.caption } as const
 
 /** The head every chart shares: its title, one line of help, the latest number, the table switch. */
 function VizHead({ label, help, hero, showTable, onTable }: {
@@ -114,13 +114,13 @@ function VizHead({ label, help, hero, showTable, onTable }: {
   return (
     <View style={st.head}>
       <View style={{ flex: 1, minWidth: 0 }}>
-        <T size={font.body} weight={600} lineHeight={19} accessibilityRole="header">{label}</T>
-        {help ? <T size={font.small} dim style={{ marginTop: 2 }}>{help}</T> : null}
+        <T size={font.body} weight={600} accessibilityRole="header">{label}</T>
+        {help ? <T size={font.label} dim style={{ marginTop: 2 }}>{help}</T> : null}
         <View style={st.hero}>{hero}</View>
       </View>
       <Press haptic onPress={onTable} style={[st.toggle, showTable && st.toggleOn]} accessibilityRole="button"
         accessibilityState={{ selected: showTable }}>
-        <T size={font.small} color={showTable ? colors.ink : colors.inkDim}>{showTable ? 'Chart' : 'Table'}</T>
+        <T size={font.label} color={showTable ? colors.ink : colors.inkDim}>{showTable ? 'Chart' : 'Table'}</T>
       </Press>
     </View>
   )
@@ -130,13 +130,13 @@ function Table({ head, rows }: { head: [string, string]; rows: { key: string; a:
   return (
     <View style={st.table}>
       <View style={st.tr}>
-        <T size={12} weight={500} faint style={st.th}>{head[0]}</T>
-        <T size={12} weight={500} faint style={st.th}>{head[1]}</T>
+        <T size={font.caption} weight={500} faint style={st.th}>{head[0]}</T>
+        <T size={font.caption} weight={500} faint style={st.th}>{head[1]}</T>
       </View>
       {rows.map((r) => (
         <View key={r.key} style={[st.tr, st.trBody]}>
-          <T size={14} tabular={r.aNum} style={st.td}>{r.a}</T>
-          <T size={14} tabular style={st.td}>{r.b}</T>
+          <T size={font.label} tabular={r.aNum} style={st.td}>{r.a}</T>
+          <T size={font.label} tabular style={st.td}>{r.b}</T>
         </View>
       ))}
     </View>
@@ -224,7 +224,7 @@ export function LineChart({ points, label, help, unit = '', height = 190, color 
     const real = !noisePct || Math.abs(delta) > (first.y * noisePct) / 100
     const tone = real ? (delta > 0 ? st.up : st.down) : st.noise
     deltaEl = (
-      <T size={font.small} weight={real ? 500 : 400} style={tone}>
+      <T size={font.label} weight={real ? 500 : 400} style={tone}>
         {delta > 0 ? '▲' : '▼'}{' '}
         {fmtY
           ? `${fmt(first.y)} → ${fmt(last.y)} since ${day(first.x)}`
@@ -239,8 +239,8 @@ export function LineChart({ points, label, help, unit = '', height = 190, color 
   return (
     <View onLayout={onLayout} style={st.viz}>
       <VizHead label={label} help={help} showTable={showTable} onTable={() => setShowTable((t) => !t)} hero={<>
-        <T size={font.heading} weight={600} lineHeight={28} tabular>{fmtY ? fmt(last.y) : String(last.y)}</T>
-        {!fmtY && unit ? <T size={font.small} dim>{unit.trim()}</T> : null}
+        <T size={font.screen} weight={600} tabular>{fmtY ? fmt(last.y) : String(last.y)}</T>
+        {!fmtY && unit ? <T size={font.label} dim>{unit.trim()}</T> : null}
         {deltaEl}
       </>} />
 
@@ -355,16 +355,16 @@ export function LoadCalendar({ days, start, end }: { days: Map<string, any>; sta
     <View style={st.viz}>
       <View style={st.head}>
         <View>
-          <T size={font.body} weight={600} lineHeight={19}>Daily habit</T>
+          <T size={font.body} weight={600}>Daily habit</T>
           <View style={st.hero}>
-            <T size={font.heading} weight={600} lineHeight={28} tabular>{String(counted)}</T>
-            <T size={font.small} dim>{counted === 1 ? 'day on' : 'days on'}</T>
+            <T size={font.screen} weight={600} tabular>{String(counted)}</T>
+            <T size={font.label} dim>{counted === 1 ? 'day on' : 'days on'}</T>
           </View>
         </View>
         <View style={st.legend} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
-          <T size={font.micro} color={colors.vizMuted}>less</T>
+          <T size={font.caption} color={colors.vizMuted}>less</T>
           {LOAD_STEPS.map((c, i) => <View key={i} style={[st.swatch, { backgroundColor: c }]} />)}
-          <T size={font.micro} color={colors.vizMuted}>more</T>
+          <T size={font.caption} color={colors.vizMuted}>more</T>
         </View>
       </View>
 
@@ -448,9 +448,9 @@ export function BarChart({ bars, label, help, unit = '', height = 170, refLine, 
   return (
     <View onLayout={onLayout} style={st.viz}>
       <VizHead label={label} help={help} showTable={showTable} onTable={() => setShowTable((t) => !t)} hero={<>
-        <T size={font.heading} weight={600} lineHeight={28} tabular>{String(last.y)}</T>
-        {unit ? <T size={font.small} dim>{unit.trim()}</T> : null}
-        {weekly ? <T size={font.small} dim>{`week of ${fmtDate(String(last.x))}`}</T> : null}
+        <T size={font.screen} weight={600} tabular>{String(last.y)}</T>
+        {unit ? <T size={font.label} dim>{unit.trim()}</T> : null}
+        {weekly ? <T size={font.label} dim>{`week of ${fmtDate(String(last.x))}`}</T> : null}
       </>} />
 
       {showTable ? (
@@ -539,19 +539,19 @@ export function Pyramid({ rows, label, help, color = SERIES[0] }: {
   return (
     <View onLayout={onLayout} style={st.viz}>
       <VizHead label={label} help={help} showTable={showTable} onTable={() => setShowTable((t) => !t)} hero={<>
-        <T size={font.heading} weight={600} lineHeight={28} tabular>{String(sent)}</T>
-        <T size={font.small} dim>{`sent of ${tried} tried`}</T>
+        <T size={font.screen} weight={600} tabular>{String(sent)}</T>
+        <T size={font.label} dim>{`sent of ${tried} tried`}</T>
       </>} />
       {showTable ? (
         <View style={st.table}>
           <View style={st.tr}>
-            {['Grade', 'Sent', 'Tried'].map((h) => <T key={h} size={12} weight={500} faint style={st.th}>{h}</T>)}
+            {['Grade', 'Sent', 'Tried'].map((h) => <T key={h} size={font.caption} weight={500} faint style={st.th}>{h}</T>)}
           </View>
           {data.map((r) => (
             <View key={r.label} style={[st.tr, st.trBody]}>
-              <T size={14} tabular style={st.td}>{r.label}</T>
-              <T size={14} tabular style={st.td}>{String(r.sent)}</T>
-              <T size={14} tabular style={st.td}>{String(r.tried)}</T>
+              <T size={font.label} tabular style={st.td}>{r.label}</T>
+              <T size={font.label} tabular style={st.td}>{String(r.sent)}</T>
+              <T size={font.label} tabular style={st.td}>{String(r.tried)}</T>
             </View>
           ))}
         </View>
@@ -570,7 +570,7 @@ export function Pyramid({ rows, label, help, color = SERIES[0] }: {
                   <Rect x={padL + 0.5} y={y + 0.5} width={tw - 1} height={rowH - 1} rx={4}
                     fill={fill} fillOpacity={0.16} stroke={fill} strokeOpacity={0.7} strokeWidth={1} />
                   {sw > 0 ? <Rect x={padL} y={y} width={sw} height={rowH} rx={4} fill={fill} /> : null}
-                  <SvgText x={padL + tw + 8} y={y + rowH / 2 + 5} fill={colors.inkDim} fontSize={font.small}>
+                  <SvgText x={padL + tw + 8} y={y + rowH / 2 + 5} fill={colors.inkDim} fontSize={font.label}>
                     {`${r.sent} / ${r.tried}`}
                   </SvgText>
                 </G>
@@ -593,16 +593,16 @@ const st = StyleSheet.create({
   noise: { color: colors.inkDim },
   // Chart / Table: a word, bordered like a ghost button at chip height.
   toggle: {
-    minHeight: 36, paddingHorizontal: space[3], justifyContent: 'center',
+    minHeight: TAP, paddingHorizontal: space[3], justifyContent: 'center',
     borderWidth: 1, borderColor: colors.lineStrong, borderRadius: radius.control,
   },
   toggleOn: { backgroundColor: colors.panel3 },
   table: { marginTop: space[1] },
   tr: { flexDirection: 'row' },
   trBody: { borderTopWidth: 1, borderTopColor: colors.line },
-  th: { flex: 1, paddingVertical: 6, paddingHorizontal: space[2] },
-  td: { flex: 1, paddingVertical: 9, paddingHorizontal: space[2] },
+  th: { flex: 1, paddingVertical: space[2], paddingHorizontal: space[2] },
+  td: { flex: 1, paddingVertical: space[2], paddingHorizontal: space[2] },
   legend: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
-  swatch: { width: 11, height: 11, borderRadius: 3 },
+  swatch: { width: 11, height: 11, borderRadius: radius.mark },
   tipline: { marginTop: space[2], minHeight: 18 },
 })
