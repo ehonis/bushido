@@ -347,7 +347,8 @@ export const s = StyleSheet.create({
   sectionHead: { flexDirection: 'row', alignItems: 'baseline', gap: space[2], marginTop: space[6], marginBottom: space[2] },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: space[2], alignSelf: 'flex-start',
-    paddingHorizontal: space[3], minHeight: TAP, borderRadius: radius.pill,
+    // 44 both ways (#98 review): a three-letter chip ("All", "Fun") was 42 wide.
+    paddingHorizontal: space[3], minHeight: TAP, minWidth: TAP, justifyContent: 'center', borderRadius: radius.pill,
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel2,
   },
   chipOn: { borderColor: colors.accentLine, backgroundColor: colors.accentSoft },

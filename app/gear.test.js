@@ -290,7 +290,9 @@ check('every profile field is renderable', () => {
     ok(g.key && g.name && g.icon, `group ${g.key} is missing something`)
     for (const f of g.fields) {
       ok(f.key && f.label && f.type, `${g.key}.${f.key} is missing something`)
-      ok(['number', 'text'].includes(f.type), `${f.key}: unknown type ${f.type}`)
+      ok(['number', 'text', 'grade'].includes(f.type), `${f.key}: unknown type ${f.type}`)
+      // A grade says which ladder it is picked off (#98): the field decides, never the number.
+      if (f.type === 'grade') ok(['yds', 'v'].includes(f.scale), `${f.key}: a grade with no scale`)
     }
   }
 })

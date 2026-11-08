@@ -52,7 +52,7 @@ export default [
       throw new Error('the web card does not fold and bring the next into view')
     }
     const phone = readFileSync(new URL('../../mobile/src/features/exercises.tsx', import.meta.url), 'utf8')
-    if (!/doingMove as any\)\(was\.current, \{ finished, focus \}\)/.test(phone) || !/if \(move\.fold\) setOpen\(false\)/.test(phone) || !/scrollTo\(root\.current\)/.test(phone)) {
+    if (!/doingMove\(was\.current, \{ finished, focus \}\)/.test(phone) || !/if \(move\.fold\) setOpen\(false\)/.test(phone) || !/scrollTo\(root\.current\)/.test(phone)) {
       throw new Error('the phone card does not fold and scroll to the next')
     }
     const css = readFileSync(new URL('../src/css/sheet.css', import.meta.url), 'utf8')

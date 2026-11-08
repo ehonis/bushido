@@ -33,7 +33,15 @@ export const nowIso = () => new Date().toISOString()
 export const newId = () =>
   (globalThis.crypto?.randomUUID?.() ?? `id-${Date.now()}-${Math.random().toString(16).slice(2)}`)
 
-/** Last-write-wins merge. Identical to the server's, deliberately. */
+/**
+ * Last-write-wins merge, per entry id, on each entry's own `updatedAt` (a tie
+ * goes to the incoming copy); a delete is a tombstone entry, so it wins the same
+ * way; settings go by `settingsUpdatedAt`. The server's `mergeState`
+ * (server/server.js) runs the same rule and adds two things this one does not:
+ * it stamps an incoming entry that has no `updatedAt` with its own clock, and
+ * `keepUntick` (AGENTS.md §4) keeps an old client's bare `done: false` as an
+ * untick. app/merge.test.js feeds both the same inputs for what they share.
+ */
 export function mergeState(base, incoming) {
   const out = {
     entries: { ...(base.entries || {}) },

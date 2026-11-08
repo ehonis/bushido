@@ -3,13 +3,15 @@
  * unchanged and in their old relative order. A case is [name, element | null, assert?].
  */
 import { renderToString } from 'react-dom/server'
-import { TodayTab, DaySwitcher, EmptyDay } from '../src/tabs.jsx'
+import { TodayTab } from '../src/tabs.jsx'
+import { DaySwitcher } from '../src/dayswitcher.jsx'
+import { EmptyDay } from '../src/daylist.jsx'
 import { tickSet, setHasNumber, planProgress } from '../src/lib/prescription.js'
 import { placedUndoText, placedToUndo } from '../src/lib/quicklog.js'
 import { activityFieldOf } from '../src/picker.jsx'
 import { readFileSync } from 'node:fs'
 import { SessionSheet } from '../src/sheet.jsx'
-import { RestPrompt } from '../src/App.jsx'
+import { RestPrompt } from '../src/shell.jsx'
 import { LogTab } from '../src/log.jsx'
 import { dayWords } from '../src/lib/dates.js'
 import {
@@ -75,7 +77,7 @@ export default [
     const noted = { ...tapped, data: { ...tapped.data, out: { activity: 'walk', notes: 'with the dog' } } }
     if (placedToUndo([noted], tapped.id, card, field) !== null) throw new Error('a stale Undo removes a workout written on since')
     if (placedToUndo([], tapped.id, card, field) !== null) throw new Error('Undo on a workout that is gone')
-    for (const f of ['src/tabs.jsx', '../mobile/src/features/tabs.tsx']) {
+    for (const f of ['src/daylist.jsx', '../mobile/src/features/daylist.tsx']) {
       const src = readFileSync(new URL(`../${f}`, import.meta.url), 'utf8')
       if (!/onClose=\{\(\) => closeSheet\(open\)\}/.test(src) || !/placedUndoText( as any\))?\(/.test(src)) {
         throw new Error(`${f}: closing a just-placed sheet offers no Undo`)

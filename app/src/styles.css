@@ -626,7 +626,7 @@ td.num { font-variant-numeric: tabular-nums; }
   display: inline-flex; align-items: center; gap: var(--sp-2);
   font: inherit; font-size: var(--fs-label); color: var(--ink-dim); background: var(--panel-2);
   border: 1px solid var(--line); border-radius: var(--r-pill); padding: 0 var(--sp-3);
-  cursor: pointer; min-height: var(--tap); white-space: nowrap;
+  cursor: pointer; min-height: var(--tap); min-width: var(--tap); white-space: nowrap;
 }
 .chip:hover { color: var(--ink); }
 .chip.on { color: var(--ink); border-color: var(--accent-line); background: var(--accent-soft); }
@@ -935,7 +935,6 @@ button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .v-full .sect-chip { font-size: var(--fs-label); padding: var(--sp-2) var(--sp-4); }
 
 @media (min-width: 720px) {
-  .fs { inset: 24px; border-radius: var(--r-sheet); border: 1px solid var(--line); box-shadow: var(--elev-3); }
   .fs-body { max-width: 680px; margin: 0 auto; width: 100%; }
 }
 
@@ -1140,3 +1139,12 @@ body.layer-open .fabs { display: none; }
   color: var(--ink); font: inherit; font-weight: 600; cursor: pointer;
 }
 .fabmenu-cancel:hover { background: var(--panel-3); }
+
+/* A screen the user opened whose code did not arrive (lazy.jsx LoadFailed): said
+   in that screen, in the flow, with Try again. Never fixed, never over anything
+   else (#98 review: a fixed card covered the + and the session sheet). */
+.lazy-failed {
+  display: grid; gap: var(--sp-3); margin: var(--sp-4) 0; padding: var(--sp-4);
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card);
+}
+.lazy-failed p { margin: 0; }

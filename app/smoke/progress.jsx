@@ -3,9 +3,11 @@
  * unchanged and in their old relative order. A case is [name, element | null, assert?].
  */
 import { readFileSync } from 'node:fs'
+import { renderToString } from 'react-dom/server'
 import { ProgressView } from '../src/progress.jsx'
+import { LogTab } from '../src/log.jsx'
 import {
-  plan, starter, entries, TODAY, back, rich, cfEntries, text, isoShift, LEGACY,
+  plan, starter, entries, TODAY, back, rich, cfEntries, text, isoShift, LEGACY, noop,
 } from './fixtures.jsx'
 
 /** The chart groups' titles, in page order. */
@@ -103,6 +105,33 @@ export default [
       if (!/<option value="v:5">V5<\/option>/.test(t) || !/<option value="yds:10">5\.10<\/option>/.test(t)) throw new Error('the grade list lacks a logged grade')
       if (!/class="proghead-scope-what">Climbing</.test(t)) throw new Error('the headline does not say Climbing')
     }],
+  /* The second level is a second level (#98, G r1 F5): labelled, nested behind a
+     rule, outlined chips; never "Endurance" in the sport row's own style. Both platforms. */
+  ['ProgressView(under Climbing the kinds are a labelled second level, not more sports)', <ProgressView plan={plan} entries={rich}
+    initialScope={{ activity: 'climbing', category: null, session: null, exercise: null, band: null, weeks: null }} />,
+    (html) => {
+      const sub = html.match(/<div class="subfilter">([^]*?)<\/div><\/div>/)?.[1] || ''
+      if (!/<span class="subfilter-label"[^>]*>Kind of climbing<\/span>/.test(sub)) throw new Error('the second row does not say what it narrows')
+      if (!/<div class="filters progcats" role="group" aria-label="Kind of climbing">/.test(sub)) throw new Error('the kinds are not inside the labelled second level')
+      if (!/class="chip sub/.test(sub) || /class="chip (?!sub)/.test(sub)) throw new Error('a kind is drawn as a sport chip')
+      const acts = html.match(/<div class="filters progacts"[^>]*>([^]*?)<\/div>/)?.[1] || ''
+      if (/chip sub/.test(acts)) throw new Error('the sport row is drawn as a second level')
+      for (const f of ['../mobile/src/features/progress.tsx', '../mobile/src/features/log.tsx']) {
+        const src = readFileSync(new URL(`../${f}`, import.meta.url), 'utf8')
+        if (!/<SubFilter label=\{subFilterLabel\(/.test(src) || !/<SubChip key=/.test(src)) throw new Error(`${f}: the kinds are not a SubFilter of SubChips`)
+      }
+    }],
+  /* Log and Progress are titled, as Today is (#98, G r1 F6). */
+  ['ProgressView, LogTab(titled at screen size, on both platforms)', null, () => {
+    const prog = renderToString(<ProgressView plan={plan} entries={rich} />)
+    if (!/^<h2 class="screen-title">Progress<\/h2>/.test(prog)) throw new Error('Progress has no title, or it is not first')
+    const log = renderToString(<LogTab plan={plan} entries={rich} upsertEntry={noop} deleteEntry={noop} />)
+    if (!/<h2 class="screen-title">Log<\/h2>/.test(log)) throw new Error('the Log has no title')
+    for (const [f, w] of [['../mobile/src/features/progress.tsx', 'Progress'], ['../mobile/src/features/log.tsx', 'Log']]) {
+      if (!new RegExp(`<ScreenTitle>${w}</ScreenTitle>`).test(readFileSync(new URL(`../${f}`, import.meta.url), 'utf8'))) throw new Error(`${f}: no title`)
+    }
+    if (!/\.screen-title \{[^}]*font-size: var\(--fs-screen\)/.test(readFileSync(new URL('../src/css/feed.css', import.meta.url), 'utf8'))) throw new Error('the title is not screen size')
+  }],
   ['ProgressView(no grade picker outside Climbing)', <ProgressView plan={plan} entries={rich} />,
     (html) => { if (/aria-label="Grade"/.test(text(html))) throw new Error('a grade picker over the whole log') }],
   // D12: climbing by grade, sends against everything tried, on the same rows.

@@ -30,6 +30,8 @@ jobs:
       - name: tests
         working-directory: .
         run: npm test
+      # ESLint: undefined names, the rules of hooks, and every suppression says why.
+      - run: npm run lint
       - run: npm run build
 
   # The iPhone app: strict TypeScript over mobile/src, including the lib copies.

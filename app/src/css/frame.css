@@ -1,0 +1,17 @@
+/*
+ * ONE task frame at 720 and up (docs/DESIGN.md "Layout", #98, G r1 F7): Plan a
+ * workout and Log a workout (`.fs`), the interval timer (`.it`) and the runner
+ * (`.run`) sit in the same inset panel, the timer's column 680 as the planner's.
+ * The timer was full-window at 560 and the runner edge to edge. Its own file,
+ * imported last (main.jsx), because each screen's own file sets `inset: 0`.
+ */
+@media (min-width: 720px) {
+  .fs, .it, .run {
+    inset: var(--sp-6); border-radius: var(--r-sheet); border: 1px solid var(--line);
+    /* The scrim, as every sheet has (#98 review): a shadow spread past the screen's
+       edges in the scrim's colour, so the page around the panel is dimmed and no
+       extra element (or tap target) is needed. */
+    box-shadow: var(--elev-3), 0 0 0 100vmax var(--scrim); overflow: hidden;
+  }
+  .it-body { max-width: 680px; }
+}

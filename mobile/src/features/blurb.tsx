@@ -60,3 +60,15 @@ const s = StyleSheet.create({
     paddingHorizontal: space[3], marginBottom: space[3], minHeight: TAP,
   },
 })
+
+/**
+ * A sentence that explains how something works (#98, G r1 F8), not what is on
+ * screen: shown only while "Show explanations" is on (Profile, Settings). Not
+ * for a number's provenance ("Using the 38 min the timer measured"), a state or
+ * a warning, which are always said, nor the training evidence, which is content
+ * behind its own fold.
+ */
+export function Explain({ children }: { children: React.ReactNode }) {
+  const { allHidden } = usePrefs() as any
+  return allHidden ? null : <>{children}</>
+}

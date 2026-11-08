@@ -19,6 +19,8 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
+import { dateWords, localIso } from './lib/dates.js'
+import { Explain } from './blurb.jsx'
 import {
   pushState, subscribe, unsubscribe, sendTest, devices as listDevices,
   history as listHistory, weights as listWeights, rate, resetWeights, markRead,
@@ -31,7 +33,7 @@ const ago = (ts) => {
   if (d < 60_000) return 'just now'
   if (d < 3_600_000) return `${Math.round(d / 60_000)}m ago`
   if (d < 86_400_000) return `${Math.round(d / 3_600_000)}h ago`
-  return new Date(ts).toLocaleDateString()
+  return dateWords(localIso(new Date(ts)))
 }
 
 export function NotificationsSection() {
@@ -156,7 +158,7 @@ export function NotificationsSection() {
         <section className="prof-sec">
           <div className="section-head">
             <h3>Sent</h3>
-            <span className="sub">Rate them to get fewer you don&rsquo;t want</span>
+            <Explain><span className="sub">Rate them to get fewer you don&rsquo;t want</span></Explain>
           </div>
           {items.slice(0, 20).map((item) => (
             <div className="notifrow" key={item.id}>

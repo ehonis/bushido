@@ -9,6 +9,7 @@
  * an ISO date keeps its order, evenly spaced. One point sits in the middle.
  */
 
+import { monthDay } from './dates.js'
 const ISO = /^\d{4}-\d{2}-\d{2}$/
 const dayOf = (iso) => {
   const [y, m, d] = String(iso).split('-').map(Number)
@@ -28,16 +29,16 @@ export function timeX(xs, left, width) {
   return (i) => left + (i / (n - 1)) * width
 }
 
-const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 /**
- * "Oct 19", or "Oct 19 2025" when the year is not obvious: the series crosses a
+ * "Oct 19", or "Oct 19, 2025" when the year is not obvious: the series crosses a
  * year, or the date is not in this one. By hand, so every renderer agrees.
  */
-export function dateWords(iso, { withYear = false } = {}) {
+export function axisDate(iso, { withYear = false } = {}) {
   const [y, m, d] = String(iso).split('-').map(Number)
   if (!m || !d) return String(iso)
-  return withYear ? `${MONTH[m - 1]} ${d} ${y}` : `${MONTH[m - 1]} ${d}`
+  // The app's one way to write a day (lib/dates.js, #98): "Oct 19", "Oct 19, 2025".
+  return withYear ? `${monthDay(iso)}, ${y}` : monthDay(iso)
 }
 
 /** Does a date series need its year said? It crosses one, or it is not this year's. */

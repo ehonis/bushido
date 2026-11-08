@@ -543,8 +543,8 @@ element.
   path, keep the change minimal and say so in the PR.
 - Branch from fresh `origin/main`, push to `origin` only, open a PR with `Closes #N`.
 - `nice -n 10` for installs, builds and tests. Tests never reach the network.
-- Before opening the PR: `npm test` at the repo root, `npm run build`, and
-  `npm --prefix mobile run typecheck` if you touched `mobile/`.
+- Before opening the PR: `npm run check` at the repo root (every suite, ESLint over `app/src`,
+  the build and the mobile typecheck, each run and summarised; it needs `npm --prefix mobile ci`).
 - UI work is looked at, not just tested: screenshot the web screens you changed at phone width
   (the `ui-screenshot` skill) and attach or describe them in the PR. A throwaway server uses its
   own port and its own temporary data dir, and is stopped when you finish.

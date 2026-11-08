@@ -47,6 +47,7 @@ import { HowBody } from './howto.jsx'
 import { Popover } from './modal.jsx'
 import { Undo2 } from 'lucide-react'
 import { pushToast, dismissToast } from './lib/toast.js'
+import { Explain } from './blurb.jsx'
 
 /**
  * What each field is called and how far one press moves it.
@@ -592,7 +593,7 @@ export function ExerciseCard({
     if (seen.current === ident) return
     seen.current = ident
     setEditing(false); setChoosing(false); setOpen(defaultOpen)
-  }, [ident])
+  }, [ident]) // eslint-disable-line react-hooks/exhaustive-deps -- reset when the card shows another exercise; defaultOpen moves as sets are ticked and must not refold the card being worked on
   // The card's writes as of the latest render, for an Undo that lands seconds later.
   const patchNow = useRef(onPatch)
   patchNow.current = onPatch
@@ -889,7 +890,7 @@ function ReorderRow({ item, liftField, first, last, moved, onSettled, onUp, onDo
     if (!moved) return undefined
     const t = setTimeout(onSettled, 900)
     return () => clearTimeout(t)
-  }, [moved])
+  }, [moved]) // eslint-disable-line react-hooks/exhaustive-deps -- the glow's timer belongs to the move; onSettled is a new function every render
 
   return (
     <div className={`reorder-row ${moved ? 'moved' : ''}`}>
@@ -1015,9 +1016,11 @@ export function ExerciseSection({
                   onUp={() => move(it.id, 'up')}
                   onDown={() => move(it.id, 'down')} />
               ))}
-              <p className="sub reorder-hint">
-                Order only — nothing else about these changes. Tap <em>done</em> when it reads right.
-              </p>
+              <Explain>
+                <p className="sub reorder-hint">
+                  Order only — nothing else about these changes. Tap <em>done</em> when it reads right.
+                </p>
+              </Explain>
             </div>
           ) : (
             items.map(it => (

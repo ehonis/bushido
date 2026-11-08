@@ -19,13 +19,12 @@ import { Icon } from './lib/icons.jsx'
 import { FullScreen, Modal } from './modal.jsx'
 import { WorkoutRunner } from './runner.jsx'
 import { WorkoutMode } from './workout.jsx'
-import { SessionLog } from './sessionlog.jsx'
 import { usePersonCopy, Avatar, PersonChip, TheirSide } from './sharedwith.jsx'
 import { PrescriptionEditor } from './editor.jsx'
 import { usePlan } from './lib/planctx.jsx'
 import { liftFieldOf } from './lib/lifts.js'
 import { titleFor } from './lib/naming.js'
-import { dayWords as dayInWords } from './lib/dates.js'
+import { dayWords as dayInWords, dateWords, weekRange, localIso, mondayOf, weekDays, shiftWeek } from './lib/dates.js'
 import { DoneChip, useDoneFlip, SheetStart } from './sheetparts.jsx'
 import * as peopleApi from './lib/peopleapi.js'
 import { optFor } from './lib/menu.js'
@@ -35,9 +34,8 @@ import {
   notePending, pendingFor, retryPending,
 } from './lib/trainer.js'
 import { isDone } from './lib/store.js'
-import { prescriptionSteps, runProgress, itemLine, prescriptionLine, runOf } from './lib/prescription.js'
+import { prescriptionSteps, runProgress, prescriptionLine, runOf } from './lib/prescription.js'
 import { restClock, restPausedAt } from './lib/timer.js'
-import { fromIso, localIso, mondayOf, weekDays, shiftWeek } from './lib/dates.js'
 import { currentMe } from './lib/whoami.js'
 
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.abs(s) % 60).padStart(2, '0')}`
@@ -197,7 +195,7 @@ export function SidesWorkout({
   onOwnerRun = null, onOwnerSave = null, onOwnerDone = null, onExit, onSwitch = null, initialSide = null,
 }) {
   const [side, setSide] = useState(() => (sides.some(s => s.id && s.id === initialSide) ? initialSide : sides[0]?.id ?? null))
-  const [copies, setCopies] = useState({})
+  const [, setCopies] = useState({})
   // The sides finished on this screen, by id ('' for the owner).
   const [finished, setFinished] = useState([])
   const [now, setNow] = useState(() => Date.now())
@@ -220,7 +218,6 @@ export function SidesWorkout({
     setCopies(c => (c[id] === e ? c : { ...c, [id]: e }))
     setServers(c => (c[id] === server ? c : { ...c, [id]: server }))
   }, [])
-  const entryOf = (s) => (s.id ? copies[s.id] : ownerEntry)
   const serverOf = (s) => (s.id ? servers[s.id] : ownerEntry)
   const status = {}
   for (const s of sides) status[s.id || ''] = sideStatus(kind, serverOf(s), now, finished.includes(s.id || ''))
@@ -271,7 +268,7 @@ export function SidesWorkout({
   useEffect(() => {
     if (kind !== 'runner' || !ownerEntry?.id || !pendingFor(storage, ownerEntry).length) return
     retryPending({ storage, ownerEntry, readPerson, putPerson, session }).catch(() => {})
-  }, [kind, ownerEntry?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [kind, ownerEntry?.id]) // eslint-disable-line react-hooks/exhaustive-deps -- retried once as the workout opens (rule 4), not on every write to it
   // A clock already running together on another side: one clock is the point.
   const runningOn = (s) => synced.find(t => (t.id || null) !== (s.id || null)
     && serverOf(t)?.data?.run?.circuit?.together && !serverOf(t)?.data?.run?.circuit?.timer?.finishedAt
@@ -354,7 +351,6 @@ function TheirSlot({ kind, person, session, shown, who, switcher, onExit, onFini
 
 /* ------------------------------------------------------ someone's day */
 
-const dayWords = (iso) => fromIso(iso).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
 
 /** What a row says about one of someone's sessions: where it stands, who planned it. */
 const rowMeta = (r) => [r.running ? 'In progress' : r.done ? 'Done' : 'Not done yet', r.plannedBy, r.sharedFrom ? 'shared' : null]
@@ -435,7 +431,7 @@ export function PersonDayRow({ person, tone, date, plan, seen = 0, onOpen, initi
 export function DayHead({ date, today = false, empty = false }) {
   return (
     <div className="section-head">
-      <h3>{dayWords(date)}</h3>
+      <h3>{dateWords(date)}</h3>
       {(today || empty) && (
         <span className="sub">
           {today && <span className="pday-today">Today</span>}
@@ -470,8 +466,7 @@ export function PersonDay({ person, date = localIso(), plan, openId: initialOpen
     if (own) onOpenShared(own, person.id)
     else setOpenId(id)
   }
-  const label = `${fromIso(monday).toLocaleDateString([], { month: 'short', day: 'numeric' })} – ` +
-    `${fromIso(weekDays(monday)[6]).toLocaleDateString([], { month: 'short', day: 'numeric' })}`
+  const label = weekRange(monday)
 
   return (
     <FullScreen title={`${person.name}’s week`} sub={label} icon="Users" onBack={onClose}>
@@ -625,7 +620,7 @@ export function AboutForm({ load, save, lead = null }) {
       .catch(err => { if (live) setStatus(err.message) })
     return () => { live = false }
     // Loaded once per mount: the form owns its text after that.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loaded once per mount: the form owns its text after that
   }, [])
   if (!doc) return <p className="sub">{status || 'Loading…'}</p>
   const submit = async () => {

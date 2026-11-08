@@ -21,7 +21,7 @@
  * sheet's bin uses), and tapping opens the session as a page sheet.
  */
 import React, { useMemo, useRef, useState } from 'react'
-import { ScrollView, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable'
 import { colors, font, radius, space } from '../theme'
 import { T } from '../ui/Text'
@@ -34,7 +34,7 @@ import { optFor } from '../lib/menu.js'
 import { SessionSheet } from './sheet'
 import { isDone, isTraining } from '../lib/store.js'
 import { loggedMinutes } from '../lib/minutes.js'
-import { fromIso, localIso } from '../lib/dates.js'
+import { fromIso, localIso, dayWords } from '../lib/dates.js'
 import { categoryOf, disciplineOf } from '../lib/category.js'
 import { loggedActivity } from '../lib/activities.js'
 import { titleFor } from '../lib/naming.js'
@@ -45,6 +45,8 @@ import { plannedLine } from '../lib/trainer.js'
 import { currentMe } from '../lib/whoami.js'
 import { climbLine, bandsOf, bandLabel } from '../lib/grades.js'
 import { ACTIVITY_SCOPES, activityScopeOf } from '../lib/scope.js'
+import { ChipRow, ScreenTitle, SubFilter, SubChip, subFilterLabel } from './filters'
+import { Explain } from './blurb'
 
 const todayIso = () => (localIso as any)()
 
@@ -55,21 +57,8 @@ const fmt1 = (n: number) => Math.round(n * 10) / 10
 const DELETE_LABEL = 'Delete this workout'
 const DELETE_BODY = 'It goes out of the log, out of your training load and off the streak. The measurement it carries goes with it.'
 
-const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-/**
- * A day's header: "Today", "Yesterday", then "Fri 23 Oct" (with the year once it
- * is not this one). Spelled out by hand so the phone and the web say the same.
- */
-function dayLabel(iso: string, today: string) {
-  if (iso === today) return 'Today'
-  const y = fromIso(today); y.setDate(y.getDate() - 1)
-  if (iso === (localIso as any)(y)) return 'Yesterday'
-  const d = fromIso(iso)
-  const label = `${WEEKDAY[d.getDay()]} ${d.getDate()} ${MONTH[d.getMonth()]}`
-  return d.getFullYear() === fromIso(today).getFullYear() ? label : `${label} ${d.getFullYear()}`
-}
+/** A day's header: "Today", "Yesterday", then "Fri, Oct 23": the app's one way to write a day (lib/dates.js). */
+const dayLabel = (iso: string, today: string) => dayWords(iso, today)
 
 /**
  * The one line under a workout's name: how long, then how far, as on Today's
@@ -210,6 +199,7 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }: any) 
 
   return (
     <>
+      <ScreenTitle>Log</ScreenTitle>
       {/* "All" and the kinds of thing actually logged, one row that scrolls
           sideways (#97). No counts: a number in a chip read as part of its name. */}
       {acts.length > 1 && (
@@ -222,12 +212,12 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }: any) 
       )}
       {/* Inside it, the plan's categories (Fun, Fingers, Endurance…). */}
       {cats.length > 1 && (
-        <ChipRow style={st.filters}>
+        <SubFilter label={subFilterLabel(acts.find((a: any) => a.key === within)?.name)}>
           {cats.map((c: any) => (
-            <Chip key={c.key} small label={c.name} on={filter.category === c.key}
+            <SubChip key={c.key} label={c.name} on={filter.category === c.key}
               onPress={() => setFilter((f) => ({ ...f, category: f.category === c.key ? null : c.key }))} />
           ))}
-        </ChipRow>
+        </SubFilter>
       )}
       {/* Under Climbing, one whole grade: the sessions that touched it, sent or not. */}
       {bands.length > 0 && (
@@ -245,7 +235,7 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }: any) 
       {!workouts.length && (
         <Empty icon="NotebookPen">
           <T size={font.body} dim align="center">Nothing logged yet</T>
-          <T size={font.label} dim align="center">Workouts you log show up here, newest first.</T>
+          <Explain><T size={font.label} dim align="center">Workouts you log show up here, newest first.</T></Explain>
           {onLog ? <Btn title="Log a workout" onPress={() => onLog()} /> : null}
         </Empty>
       )}
@@ -356,23 +346,7 @@ function LogRow({ w, cat, onOpen, onRemove }: {
   )
 }
 
-/*
- * One row of filter chips that scrolls sideways (#97, F3): two wrapped rows of
- * chips put the first chart (and the first workout) a screen down on a phone.
- * Bled to the screen's edges so the cut-off chip says there is more.
- */
-function ChipRow({ children, style }: { children: React.ReactNode; style?: any }) {
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[st.chipRow, style]}
-      contentContainerStyle={st.chipRowIn} keyboardShouldPersistTaps="handled">
-      {children}
-    </ScrollView>
-  )
-}
-
 const st = StyleSheet.create({
-  chipRow: { marginHorizontal: -space.gutter, flexGrow: 0 },
-  chipRowIn: { gap: space[2], paddingHorizontal: space.gutter },
   filters: { marginBottom: space[2] },
   gradeCard: {
     backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.card,

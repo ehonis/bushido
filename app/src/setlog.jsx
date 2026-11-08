@@ -16,6 +16,7 @@ import { Undo2 } from 'lucide-react'
 import { Icon } from './lib/icons.jsx'
 import { NumInput } from './numinput.jsx'
 import { pushToast } from './lib/toast.js'
+import { Explain } from './blurb.jsx'
 import {
   GRADE_FIELD, hardestGrade, gradesIn, hasGrades, fitGrades, repCount,
   VGRADES, CLIMB_FIELD, offersClimbs, climbsOn, blankClimb, fitClimbs,
@@ -128,6 +129,12 @@ function LadderSelect({ ladder, fmt, value, onChange, label }) {
 
 /** The rungs a scale offers on this device: V0–V17, or the routes written its way. */
 const ladderFor = (scale, system) => (scale === 'v' ? VGRADES : routeLadder(system))
+
+/** A grade off one scale's ladder: `v` for boulders, else the routes (the profile's grades). */
+export function ScaleGradeSelect({ scale, value, onChange, label }) {
+  const [system] = useRouteSystem()
+  return <LadderSelect ladder={ladderFor(scale, system)} fmt={v => labelOn(scale, v)} value={value} onChange={onChange} label={label} />
+}
 
 /** The route ladder, written the way this device writes it (5.5 to 5.15). */
 export function GradeSelect({ value, onChange, label }) {
@@ -634,7 +641,7 @@ export function SetLog({ session, out, onSave, hints = null, initialConfirm = nu
         />
       ))}
       {prefilledBy(spec) && (
-        <p className="setlog-note">Pre-filled from the plan: change what didn't match, and add a set if you did more.</p>
+        <Explain><p className="setlog-note">Pre-filled from the plan: change what didn't match, and add a set if you did more.</p></Explain>
       )}
     </div>
   )

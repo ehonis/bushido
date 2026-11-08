@@ -51,6 +51,7 @@ import {
 } from '../lib/workout.js'
 import { WorkHead, LeaveDialog, ControlRow } from './timer'
 import { totalSets, totalReps, GradeLaps, ClimbLog } from './setlog'
+import { Explain } from './blurb'
 import {
   GRADE_FIELD, hasGrades, fitGrades, repCount,
   CLIMB_FIELD, fitClimbs, stepClimbs, fallsIn, climbCount, detailOn, saidIn, MAX_CLIMBS,
@@ -676,9 +677,11 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }: any) {
     <View style={st.review}>
       <T size={font.label} dim tabular align="center">{`${step.exName} · Set ${step.setIndex + 1} of ${step.setCount}`}</T>
       <T size={font.screen} weight={600} align="center" style={{ marginTop: 2 }}>What actually happened?</T>
-      <T size={font.label} dim align="center" style={{ maxWidth: 280, marginBottom: space[2] }}>
-        Pre-filled from the plan. Change anything that didn’t match.
-      </T>
+      <Explain>
+        <T size={font.label} dim align="center" style={{ maxWidth: 280, marginBottom: space[2] }}>
+          Pre-filled from the plan. Change anything that didn’t match.
+        </T>
+      </Explain>
 
       {!isLastSet ? (
         <View style={st.lastSet}>
@@ -813,10 +816,12 @@ function Finish({ session, out, startedAt, value, onValue, onFinish }: any) {
           placeholder={measured != null ? String(measured) : String(session.minutes ?? '')}
           accessibilityLabel="Minutes to record" style={st.fieldIn} />
       </View>
-      <T size={font.label} dim align="center">
-        Measured from when you hit start. This is what the weekly training-load chart multiplies
-        by your RPE, so a real number beats the card’s nominal one.
-      </T>
+      <Explain>
+        <T size={font.label} dim align="center">
+          Measured from when you hit start. This is what the weekly training-load chart multiplies
+          by your RPE, so a real number beats the card’s nominal one.
+        </T>
+      </Explain>
 
       <BigBtn icon="CircleCheck" label="Finish workout" onPress={() => onFinish(true)} style={{ alignSelf: 'stretch' }} />
     </View>
@@ -890,7 +895,7 @@ const st = StyleSheet.create({
   },
   repstep: { flexDirection: 'row', alignItems: 'center', gap: space[1] },
   repstepB: {
-    minWidth: 34, minHeight: TAP, alignItems: 'center', justifyContent: 'center',
+    minWidth: TAP, minHeight: TAP, alignItems: 'center', justifyContent: 'center',
     backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control,
   },
   climbs: { alignItems: 'center', gap: space[1], width: '100%' },

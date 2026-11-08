@@ -206,7 +206,7 @@ export function useSharing({ entry, opt, me, onSaveEntry, side, setSide, theirs,
     theirs.update(cur => copyExercises(cur, latest.current)).then(landed => {
       if (landed) pushToast(`Copied your exercises to ${person.name}`, 'info')
     })
-  }, [copyFor, side, theirs.entry, theirs.loading, theirs.of]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [copyFor, side, theirs.entry, theirs.loading, theirs.of]) // eslint-disable-line react-hooks/exhaustive-deps -- copied once, when their copy on screen is read; `theirs` is a new object every render
   return {
     ...state,
     open: () => setState(s => ({ ...s, isOpen: true, error: null })),
@@ -233,7 +233,7 @@ export function useSidesDone(on = [], sideId = null, sideServer = null) {
         .catch(() => { /* offline: no tick, rather than a wrong one */ })
     }
     return () => { live = false }
-  }, [key, sideId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, sideId]) // eslint-disable-line react-hooks/exhaustive-deps -- read once per set of people (`key`) and side, not on every render of the list
   const out = { ...read }
   if (sideId && sideServer) out[sideId] = Boolean(!sideServer.deleted && isDone(sideServer))
   return out
@@ -511,7 +511,7 @@ export function TogetherPending({ entry, session = null }) {
       await retryPending({ storage, ownerEntry: entry, readPerson: getPersonEntry, putPerson: putPersonEntry, session })
     } catch { /* still waiting: the note stays */ } finally { setBusy(false); setTried(n => n + 1) }
   }
-  useEffect(() => { if (left.length) retry() }, [entry?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (left.length) retry() }, [entry?.id]) // eslint-disable-line react-hooks/exhaustive-deps -- tried once as the sheet opens; Try again is the button
   if (!left.length) return null
   return (
     <div className="sharednote together-pending" role="alert">

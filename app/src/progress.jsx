@@ -42,6 +42,8 @@ import { Icon } from './lib/icons.jsx'
 import { localIso } from './lib/dates.js'
 import { EMPTY_SCOPE, resolveScope, scopeOptions } from './lib/scope.js'
 import { metricsFor, totalsFor, bodyweightSeries } from './lib/metrics.js'
+import { ScreenTitle, SubFilter, subFilterLabel } from './filters.jsx'
+import { Explain } from './blurb.jsx'
 
 export const RANGES = [
   { weeks: 4, label: '4 wk' },
@@ -116,7 +118,7 @@ export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }) {
       <div className="empty">
         <Icon name="Gauge" size={24} />
         <span>Nothing logged yet</span>
-        <span className="sub">Log a workout and your weeks show up here.</span>
+        <Explain><span className="sub">Log a workout and your weeks show up here.</span></Explain>
       </div>
     )
   }
@@ -130,6 +132,7 @@ export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }) {
 
   return (
     <>
+      <ScreenTitle>Progress</ScreenTitle>
       <div className="card proghead">
         {narrowed && (
           <div className="proghead-scope">
@@ -174,15 +177,15 @@ export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }) {
       )}
 
       {showCats && (
-        <div className="filters progcats" role="group" aria-label="Category">
+        <SubFilter className="progcats" label={subFilterLabel(options.activities.find(a => a.value === within)?.label)}>
           {options.categories.map(o => (
-            <button key={o.value} type="button" className={`chip ${scope.category === o.value ? 'on' : ''}`}
+            <button key={o.value} type="button" className={`chip sub ${scope.category === o.value ? 'on' : ''}`}
               aria-pressed={scope.category === o.value}
               onClick={() => set({ category: scope.category === o.value ? null : o.value, session: null, exercise: null })}>
               {o.label}
             </button>
           ))}
-        </div>
+        </SubFilter>
       )}
 
       <div className="card list progpick">

@@ -37,6 +37,7 @@ import {
   attachTo, detachFrom, attachedWhoop,
 } from '../lib/whoop.jsx'
 import { pruneAttached } from '../lib/outputs.js'
+import { monthDay, dateWords } from '../lib/dates.js'
 
 /* ---------------------------------------------------------------- formatting */
 
@@ -582,7 +583,6 @@ const isoShift = (iso: string, n: number) => {
   const [y, m, d] = iso.split('-').map(Number)
   return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10)
 }
-const dayLabel = (iso: string, opts: Intl.DateTimeFormatOptions) => new Date(`${iso}T12:00:00`).toLocaleDateString([], opts)
 
 /*
  * A night on the clock. Minutes are measured from noon of the night's own
@@ -795,7 +795,7 @@ export function WhoopSleep({ date }: { date: string }) {
             </View>
             {[...series].reverse().filter(r => r.night).map(r => (
               <View key={r.date} style={[wh.tr, wh.trBody]}>
-                <T size={font.label} tabular style={wh.td}>{dayLabel(r.date, { month: 'short', day: 'numeric' })}</T>
+                <T size={font.label} tabular style={wh.td}>{monthDay(r.date)}</T>
                 <T size={font.label} tabular style={wh.td}>{pct(r.score)}</T>
                 <T size={font.label} tabular style={wh.td}>{pct(r.recovery)}</T>
                 <T size={font.label} tabular style={wh.td}>{hm(r.night.asleepMin) || '—'}</T>
@@ -880,7 +880,7 @@ export function WhoopSleep({ date }: { date: string }) {
                   {dateTicks.map((i, k) => (
                     <SvgText key={k} x={xAt(i)} y={H2 - 6} textAnchor={k === 0 ? 'start' : k === 2 ? 'end' : 'middle'}
                       {...TICK} {...(i === today ? { fill: SLEEP_TODAY, fontWeight: '600' } : null)}>
-                      {dayLabel(series[i].date, { month: 'short', day: 'numeric' })}
+                      {monthDay(series[i].date)}
                     </SvgText>
                   ))}
                 </Svg>
@@ -891,7 +891,7 @@ export function WhoopSleep({ date }: { date: string }) {
               {shown ? (
                 <>
                   <T size={font.caption} weight={600} tabular color={shown === series[today] ? SLEEP_TODAY : colors.ink}>
-                    {dayLabel(shown.date, { weekday: 'short', month: 'short', day: 'numeric' })}
+                    {dateWords(shown.date)}
                   </T>
                   {shown.night ? (
                     <>
@@ -919,7 +919,7 @@ export function WhoopSleep({ date }: { date: string }) {
         )}
         {shortHistory ? (
           <T size={font.label} dim style={{ marginTop: space[3] }}>
-            {`History starts ${dayLabel(firstNight, { month: 'short', day: 'numeric' })} and fills in from WHOOP.`}
+            {`History starts ${monthDay(firstNight)} and fills in from WHOOP.`}
           </T>
         ) : null}
       </View>

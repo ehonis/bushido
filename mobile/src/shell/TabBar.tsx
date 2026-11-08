@@ -58,7 +58,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
         </View>
       ) : null}
 
-      <View style={[st.dock, { bottom, left: side, right: compact && activeId !== 'coach' && plan ? side + DOCK_H + 10 : side }]}>
+      <View style={[st.dock, { bottom, left: side, right: compact && plan ? side + DOCK_H + 10 : side }]}>
         {Platform.OS === 'ios' ? <BlurView tint="dark" intensity={60} style={StyleSheet.absoluteFill} /> : null}
         <View style={[StyleSheet.absoluteFill, { backgroundColor: alpha(colors.panel, Platform.OS === 'ios' ? 0.56 : 0.92) }]} />
         {routes.map((route) => {

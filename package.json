@@ -18,6 +18,8 @@
     "dev": "npm --prefix app run dev",
     "test": "node scripts/test.mjs",
     "test:server": "node scripts/test.mjs server",
-    "typecheck:mobile": "npm --prefix mobile run typecheck"
+    "typecheck:mobile": "npm --prefix mobile run typecheck",
+    "lint": "npm --prefix app run lint",
+    "check": "node scripts/check.mjs"
   }
 }

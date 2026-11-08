@@ -21,6 +21,7 @@ import {
   priorValueFor, priorFieldsFor,
 } from './lib/gear.js'
 import { NumInput } from './numinput.jsx'
+import { Explain } from './blurb.jsx'
 
 const fmt = (n) => (n >= 100 ? Math.round(n).toLocaleString() : Math.round(n * 10) / 10)
 
@@ -159,7 +160,7 @@ export function GearForm({ plan, row, onSave, onCancel, onDelete }) {
       <div className="confirm">
         <span className="confirm-ico"><Icon name="TriangleAlert" size={34} /></span>
         <h3>Remove {row.name}?</h3>
-        <p className="sub">Workouts logged with it keep their history.</p>
+        <Explain><p className="sub">Workouts logged with it keep their history.</p></Explain>
         <div className="confirm-acts">
           <button className="btn secondary" onClick={() => setConfirming(false)}>Keep it</button>
           <button className="btn destructive" onClick={onDelete}>Remove</button>
@@ -171,7 +172,7 @@ export function GearForm({ plan, row, onSave, onCancel, onDelete }) {
   return (
     <div className="prof-sec gear-form">
       <h2>{row ? row.name : 'Add gear'}</h2>
-      {synced && <p className="sub">From Strava, which keeps its name, odometer and default.</p>}
+      {synced && <Explain><p className="sub">From Strava, which keeps its name, odometer and default.</p></Explain>}
 
       {!synced && (
         <label className="field">

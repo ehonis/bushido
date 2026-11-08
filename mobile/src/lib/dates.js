@@ -56,14 +56,41 @@ export const isoShift = (iso, n) => {
   return localIso(d)
 }
 
+/*
+ * ONE way to write a day (#98, G r1 F4): the app had five ("Wed 4 Nov", "Wed, Nov 4",
+ * "Sunday, Nov 8", "Nov 2 – Nov 8" and a raw "2026-10-24"). Two styles now, both
+ * spelled out by hand rather than through toLocaleDateString, so the server render,
+ * the phone and every browser write the same words:
+ *   lists and lines  `dayWords`  "Today", "Yesterday", "Tomorrow", else "Wed, Nov 4"
+ *   a heading's date `dayLong`   "Sunday, Nov 8"
+ * and a week is `weekRange`, "Nov 2 – Nov 8". A year is added only when it is not
+ * this one ("Wed, Nov 4, 2025").
+ */
+const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const WEEKDAY_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const yearOf = (iso, today) => (fromIso(iso).getFullYear() === fromIso(today).getFullYear() ? '' : `, ${fromIso(iso).getFullYear()}`)
+
+/** "Nov 4". */
+export const monthDay = (iso) => { const d = fromIso(iso); return `${MONTH[d.getMonth()]} ${d.getDate()}` }
+
+/** A date in a list or a line: "Wed, Nov 4" (and its year when not this one). */
+export const dateWords = (iso, today = localIso()) => `${WEEKDAY[fromIso(iso).getDay()]}, ${monthDay(iso)}${yearOf(iso, today)}`
+
 /** A day in words: "Today", "Yesterday", "Tomorrow", else "Sat, Oct 24". */
 export function dayWords(iso, today = localIso()) {
   const offset = Math.round((fromIso(iso) - fromIso(today)) / 86400000)
   if (offset === 0) return 'Today'
   if (offset === -1) return 'Yesterday'
   if (offset === 1) return 'Tomorrow'
-  return fromIso(iso).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+  return dateWords(iso, today)
 }
+
+/** A heading's date: "Sunday, Nov 8" (under "Today" in Today's title). */
+export const dayLong = (iso, today = localIso()) => `${WEEKDAY_LONG[fromIso(iso).getDay()]}, ${monthDay(iso)}${yearOf(iso, today)}`
+
+/** A week: "Nov 2 – Nov 8". */
+export const weekRange = (mondayIso) => `${monthDay(mondayIso)} – ${monthDay(isoShift(mondayIso, 6))}`
 
 /**
  * The same day inside a sentence: "last time (yesterday)", "last time (Sat, Oct 24)".

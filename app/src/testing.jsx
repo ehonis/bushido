@@ -9,10 +9,10 @@ import { LineChart, SERIES } from './lib/viz.jsx'
 import { Icon, VERDICT_ICONS } from './lib/icons.jsx'
 import { ceilingState, cfPctOfMax, cfBand, CF_CORRECTION_KG, CF_PCT_MVC_MEAN, CF_PCT_MVC_SD, CF_NOISE_PCT } from './lib/force.js'
 import { Blurb } from './blurb.jsx'
-import { localIso } from './lib/dates.js'
+import { localIso, dateWords } from './lib/dates.js'
 import { measured, testResultFrom } from './lib/tests.js'
 import { NumInput } from './numinput.jsx'
-import { dateWords } from './lib/vizscale.js'
+import { axisDate } from './lib/vizscale.js'
 
 /** The test series the ±CF_NOISE_PCT band belongs to: critical force and CFmin. */
 const CF_NOISED = new Set(['critical-force.cfKg', 'critical-force.cfMinKg'])
@@ -97,7 +97,7 @@ function CeilingReadout({ entries }) {
     if (!tooLow) return null
     return (
       <p className="sub ceiling-note">
-        Critical force on {tooLow.date} was {Math.round(tooLow.cf * 10) / 10} kg, at or under
+        Critical force on {dateWords(tooLow.date)} was {Math.round(tooLow.cf * 10) / 10} kg, at or under
         the {CF_CORRECTION_KG} kg correction, so this rule gives no ceiling. Retest before you set the gauge from it.
       </p>
     )
@@ -112,11 +112,11 @@ function CeilingReadout({ entries }) {
       <div className="ceiling-head">
         <Icon name="Gauge" size={14} />
         <span>Your ceiling</span>
-        <span className="ceiling-date">tested {c.date}</span>
+        <span className="ceiling-date">tested {dateWords(c.date)}</span>
       </div>
       {/* A newer result with no critical force on it does not hide this one. */}
       {incomplete && (
-        <p className="sub ceiling-note">The {incomplete} result has no critical force, so this is from {c.date}.</p>
+        <p className="sub ceiling-note">The {incomplete} result has no critical force, so this is from {dateWords(c.date)}.</p>
       )}
 
       <div className="ceiling-nums">
@@ -166,7 +166,7 @@ function OneResult({ metric, point }) {
     <div className="test-one">
       <span className="test-one-label">{metric.label}</span>
       <span className="test-one-value">{point.y}{metric.unit ? <span className="test-one-unit"> {metric.unit}</span> : null}</span>
-      <span className="test-one-date">{dateWords(point.x, { withYear: true })}</span>
+      <span className="test-one-date">{axisDate(point.x, { withYear: true })}</span>
     </div>
   )
 }

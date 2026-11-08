@@ -14,7 +14,7 @@ import { PrefsProvider } from '../lib/prefs.jsx'
 import { PlanProvider } from '../lib/planctx.jsx'
 import { WhoopProvider } from '../lib/whoop.jsx'
 import { StravaProvider } from '../lib/strava.jsx'
-import { localIso, fromIso } from '../lib/dates.js'
+import { localIso, fromIso, dateWords } from '../lib/dates.js'
 import { splitPrescription, circuitPlan, loggedCircuit, circuitFiling } from '../lib/prescription.js'
 import { activityFieldOf } from '../features/picker'
 import { optFor } from '../lib/menu.js'
@@ -133,7 +133,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setFab('log')
   }
   const dayLabel: AppData['dayLabel'] = (date) => (date && date !== localIso()
-    ? `for ${(fromIso as any)(date).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}`
+    ? `for ${dateWords(date)}`
     : null)
 
   /**

@@ -85,7 +85,8 @@ export function Modal({
   onRename?: (() => void) | null
   onDelete?: (() => void) | null
   deleteLabel?: string
-  deleteBody?: React.ReactNode
+  /** The confirm's line under its title; `false` for none (an explanation turned off, #98). */
+  deleteBody?: React.ReactNode | false
   dismissable?: boolean
   footer?: React.ReactNode
   children?: React.ReactNode
@@ -134,9 +135,11 @@ export function Modal({
     <View style={st.confirm}>
       <Icon name="TriangleAlert" size={34} color={colors.vizCrit} />
       <T size={font.title} weight={600} align="center" style={{ marginTop: space[2], marginBottom: space[2] }}>{`${deleteLabel}?`}</T>
-      <T size={font.label} dim align="center">
-        {deleteBody || 'It comes off the day and out of your training load. Anything you logged on it goes with it.'}
-      </T>
+      {deleteBody === false ? null : (
+        <T size={font.label} dim align="center">
+          {deleteBody || 'It comes off the day and out of your training load. Anything you logged on it goes with it.'}
+        </T>
+      )}
       <View style={{ flexDirection: 'row', gap: space[2], marginTop: space[6], alignSelf: 'stretch' }}>
         <Btn kind="secondary" title="Keep it" flex onPress={() => setConfirming(false)} />
         <Btn kind="destructive" icon="Trash2" title="Remove" flex onPress={() => { setConfirming(false); onDelete?.() }} />

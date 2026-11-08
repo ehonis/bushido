@@ -39,7 +39,7 @@ export function GearPicker({ session, out, entries = [], onChange }) {
     if (!plan || out?.gear !== undefined || !choices.length) return
     const def = defaultGearFor({ plan, entries, strava, opt: session, out })
     if (def.length) onChange(def)
-  }, [plan, choices.length, out?.gear, session?.id])
+  }, [plan, choices.length, out?.gear, session?.id]) // eslint-disable-line react-hooks/exhaustive-deps -- defaulted once while nothing is chosen; re-running on every edit of the form would fight the user's choice
 
   if (!choices.length) return null
 

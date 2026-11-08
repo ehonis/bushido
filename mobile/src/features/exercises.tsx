@@ -46,6 +46,7 @@ import {
 } from '../lib/lifts.js'
 import { ExerciseBody, BodyMap, musclesOf, muscleWords } from '../lib/bodymap'
 import { HowBody } from './howto'
+import { Explain } from './blurb'
 
 /**
  * What each field is called and how far one press moves it.
@@ -75,11 +76,11 @@ export const STEP: Record<string, (item?: any, set?: any) => { label: string; st
  * keeps seconds either way.
  */
 export const boxFor = (f: string, item: any, set: any): { label: string; step: number; min: number; time?: boolean } =>
-  (f === 'seconds' ? { ...(timeBox as any)(item, set), min: 0 } : STEP[f] ? STEP[f](item, set) : { label: f, step: 1, min: 0 })
+  (f === 'seconds' ? { ...timeBox(item, set), min: 0 } : STEP[f] ? STEP[f](item, set) : { label: f, step: 1, min: 0 })
 
 /** One press of a stepper's −/+: the web's `stepBox`, shared by `Stepper` and the runner's `BigStepper`. */
 export function stepBox({ step = 1, min = null, max = null, time = false }: { step?: number; min?: number | null; max?: number | null; time?: boolean }, value: any, d: number): number {
-  if (time) return (bumpTime as any)(value, d)
+  if (time) return bumpTime(value, d)
   let next = (Number(value) || 0) + d * step
   if (min !== null) next = Math.max(min, next)
   if (max !== null) next = Math.min(max, next)
@@ -93,22 +94,22 @@ export function stepBox({ step = 1, min = null, max = null, time = false }: { st
 export function TimeInput({ value, onChange, blank = null, placeholder = '—', style, ...rest }: Omit<TextInputProps, 'value' | 'onChange'> & {
   value: any; onChange: (v: any) => void; blank?: any
 }) {
-  const shown = (minutesText as any)(value)
+  const shown = minutesText(value)
   const [text, setText] = useState(shown)
-  const last = useRef((numOrNull as any)(value))
+  const last = useRef(numOrNull(value))
   useEffect(() => {
-    const v = (numOrNull as any)(value)
+    const v = numOrNull(value)
     if (v !== last.current) { last.current = v; setText(shown) }
   }, [value, shown])
   const change = (raw: string) => {
-    const r = (acceptMinutesText as any)(raw)
+    const r = acceptMinutesText(raw)
     if (!r) return
     setText(r.text)
     if (!r.emit) return
     last.current = r.value
     onChange(r.value === null ? blank : r.value)
   }
-  const ph = (numOrNull as any)(placeholder) === null ? placeholder : (minutesText as any)(placeholder)
+  const ph = numOrNull(placeholder) === null ? placeholder : minutesText(placeholder)
   return (
     <Input value={text} onChangeText={change} onBlur={() => setText(shown)} placeholder={ph}
       keyboardType="numbers-and-punctuation" style={style} {...rest} />
@@ -163,8 +164,8 @@ export type WeightSwap = { box: string; next: string; aria?: string; onSwitch: (
  */
 export function weightSwitch(liftField: any, item: any, onPatch: (patch: any) => void): WeightSwap {
   if (item?.kind !== 'lift' || weightModesFor(liftField, item.implement).length < 2) return null
-  const next = (weightPatch as any)(liftField, item.implement, nextWeightMode(liftField, item))
-  return { box: (weightBoxOf as any)(liftField, item), next: next.weightLabel, onSwitch: () => { tap(); onPatch(next) } }
+  const next = weightPatch(liftField, item.implement, nextWeightMode(liftField, item))
+  return { box: weightBoxOf(liftField, item), next: next.weightLabel, onSwitch: () => { tap(); onPatch(next) } }
 }
 
 /**
@@ -177,8 +178,8 @@ export function implementPick(liftField: any, item: any, impl: any, entries: any
   if (!impl || impl.value === item.implement) return null
   return {
     implement: impl.value, implementLabel: impl.label,
-    ...(weightPatch as any)(liftField, impl.value,
-      (rememberedWeightMode as any)(liftField, entries, item.exercise, impl.value, entryId)),
+    ...weightPatch(liftField, impl.value,
+      rememberedWeightMode(liftField, entries, item.exercise, impl.value, entryId)),
   }
 }
 
@@ -281,11 +282,11 @@ export function Stepper({
 export function modeFlip(liftField: any, item: any, write: (patch: any) => void,
   toast: { push: typeof pushToast; dismiss: typeof dismissToast } = { push: pushToast, dismiss: dismissToast }) {
   if (item?.kind !== 'lift' || weightModesFor(liftField, item.implement).length < 2) return null
-  const before = (weightPatch as any)(liftField, item.implement, weightModeOf(liftField, item))
-  const next = (weightPatch as any)(liftField, item.implement, nextWeightMode(liftField, item))
-  const nextWords = (weightMeaning as any)(liftField, { implement: item.implement, weightMode: next.weightMode })?.words
+  const before = weightPatch(liftField, item.implement, weightModeOf(liftField, item))
+  const next = weightPatch(liftField, item.implement, nextWeightMode(liftField, item))
+  const nextWords = weightMeaning(liftField, { implement: item.implement, weightMode: next.weightMode })?.words
   return {
-    words: (weightMeaning as any)(liftField, item)?.words as string,
+    words: weightMeaning(liftField, item)?.words as string,
     next: next.weightLabel as string,
     onSwitch: () => {
       tap()
@@ -343,7 +344,7 @@ export function ExerciseSheet({ field, exercise, name = null, onClose, onAdd = n
   visible?: boolean; onDismiss?: () => void
 }) {
   const insets = useSafeAreaInsets()
-  const ex: any = (exerciseOf as any)(field, exercise)
+  const ex: any = exerciseOf(field, exercise)
   const title = ex?.name || name || 'Exercise'
   const m = musclesOf(field, exercise)
   const video = ex?.video?.url && /^https:\/\//.test(ex.video.url) ? ex.video : null
@@ -416,7 +417,7 @@ export function ExercisePicker({ field, onPick, onClose, group = null }: any) {
      It opens on the block's group (#93, `pickerGroupFor`), and the chips stay
      up with that one on; tapping it again is the whole catalog. */
   const [chip, setChip] = useState<string | null>(group && groups.includes(group) ? group : null)
-  const hits = useMemo(() => (searchExercises as any)(field, chip ? '' : q, { limit: 24, group: chip }), [field, q, chip])
+  const hits = useMemo(() => searchExercises(field, chip ? '' : q, { limit: 24, group: chip }), [field, q, chip])
   /*
    * "What is this?" before adding it (issue #63): the sheet, with Add in its
    * foot. Add slides the sheet away FIRST and adds once it is gone (onDismiss):
@@ -553,7 +554,7 @@ function setWords(item: any, s: any) {
  */
 function ImplementChips({ liftField, item, entries, entryId, onPatch }: any) {
   const [everything, setEverything] = useState(false)
-  const { shown, more }: any = (implementChoices as any)(liftField, item.exercise, item.implement)
+  const { shown, more }: any = implementChoices(liftField, item.exercise, item.implement)
   const list: any[] = everything ? (catalogOf(liftField) as any).implements : shown
   const sorted = [...list].sort((a, b) => Number(b.value === item.implement) - Number(a.value === item.implement))
   return (
@@ -583,14 +584,14 @@ function ImplementChips({ liftField, item, entries, entryId, onPatch }: any) {
 
 /** Does this card offer a choice of implement at all? One declared is no choice. */
 const choosesImplement = (liftField: any, item: any) =>
-  Boolean(liftField && item.exercise && (implementsFor as any)(liftField, item.exercise).length > 1)
+  Boolean(liftField && item.exercise && implementsFor(liftField, item.exercise).length > 1)
 
 /**
  * Doing mode's implement switch, as the system sheet (mobile/AGENTS.md: "…"
  * menus are action sheets): the declared implements, then Other… for the rest.
  */
 function pickImplement(liftField: any, item: any, entries: any[], entryId: string | null, onPatch: (p: any) => void) {
-  const { shown, more }: any = (implementChoices as any)(liftField, item.exercise, item.implement)
+  const { shown, more }: any = implementChoices(liftField, item.exercise, item.implement)
   const pick = (i: any) => { const patch = implementPick(liftField, item, i, entries, entryId); if (patch) onPatch(patch) }
   const all: any[] = (catalogOf(liftField) as any).implements
   const label = (i: any) => (i.value === item.implement ? `${i.label} ✓` : i.label)
@@ -695,21 +696,21 @@ export function ExerciseCard({
    */
   const measure = item.kind === 'lift' ? measureOfItem(item) : null
   const prior = useMemo(
-    () => (item.exercise ? (lastLift as any)(entries, item.exercise, entryId, liftField, measure) : null),
+    () => (item.exercise ? lastLift(entries, item.exercise, entryId, liftField, measure) : null),
     [entries, item.exercise, entryId, liftField, measure])
   const flip = modeFlip(liftField, item, (p: any) => patchNow.current(p))
   const count = countSwitch(liftField, item, onPatch)
-  const meaning: any = item.kind === 'lift' ? (weightMeaning as any)(liftField, item) : null
+  const meaning: any = item.kind === 'lift' ? weightMeaning(liftField, item) : null
   // A mode other than the default, said under the name, so the summary beside it
   // stays short enough not to squeeze the name on a phone.
   const modeWords = item.kind === 'lift' ? weightModeWords(liftField, item) : null
   const ticking = Boolean(doing && onTick)
-  const ticks = ticking ? item.sets.filter((s: any) => (setTicked as any)(s, asWritten)).length : 0
-  const finished = ticking && (itemTicked as any)(item, asWritten)
+  const ticks = ticking ? item.sets.filter((s: any) => setTicked(s, asWritten)).length : 0
+  const finished = ticking && itemTicked(item, asWritten)
   const line = ticking && ticks && !finished
     ? [`${ticks} of ${item.sets.length} done`, item.line].filter(Boolean).join(' · ')
     : item.line
-  const fill: any[] = onFill && prior && !asWritten ? (lastTimeFill as any)(liftField, item, prior) : []
+  const fill: any[] = onFill && prior && !asWritten ? lastTimeFill(liftField, item, prior) : []
   const copyDown = onFill && !asWritten ? (s: any) => { impact(); copyDownWrite(item, s.id, (f) => fillNow.current?.(f), undefined, () => itemNow.current) } : null
   /* Doing mode moves on with the workout (#94, B F2, lib/prescription.js
      `doingMove`): finished, this card folds; next, it opens and the sheet scrolls to it. */
@@ -717,7 +718,7 @@ export function ExerciseCard({
   const scrollTo = useSheetScroll()
   const was = useRef({ finished, focus })
   useEffect(() => {
-    const move: any = (doingMove as any)(was.current, { finished, focus })
+    const move: any = doingMove(was.current, { finished, focus })
     was.current = { finished, focus }
     if (!ticking) return undefined
     if (move.fold) setOpen(false)
@@ -846,15 +847,15 @@ export function ExerciseCard({
                 <SwipeRemove label="Remove" onRemove={() => onRemoveSet(s.id)}>
                   <View style={[st.set, ticking && { gap: SET_ROW.tickGap }]}>
                     {ticking ? (
-                      <SetTick n={i + 1} on={(setTicked as any)(s, asWritten)} locked={asWritten} onToggle={(v) => onTick(s.id, v)}
-                        empty={!(setHasNumber as any)(s)} onPrompt={() => setAsked({ id: s.id, n: (asked?.n || 0) + 1 })} />
+                      <SetTick n={i + 1} on={setTicked(s, asWritten)} locked={asWritten} onToggle={(v) => onTick(s.id, v)}
+                        empty={!setHasNumber(s)} onPrompt={() => setAsked({ id: s.id, n: (asked?.n || 0) + 1 })} />
                     ) : <T size={font.label} dim tabular align="center" style={{ width: 20 }}>{String(i + 1)}</T>}
                     <View style={[st.setFields, ticking && { gap: SET_ROW.seam }]}>
                       {setFieldsFor(item, s).map((f: string, fi: number) => {
                         const box = boxFor(f, item, s)
                         return (
                           <Stepper key={asked && asked.id === s.id && fi === 0 ? `${f}-${asked.n}` : f} grow {...box}
-                            unit={f === 'weight' ? (weightUnit as any)(box.label) : null} value={s[f]} blank={blank}
+                            unit={f === 'weight' ? weightUnit(box.label) : null} value={s[f]} blank={blank}
                             focus={asked?.id === s.id && fi === 0}
                             placeholder={s.hint?.[f] != null && s.hint[f] !== '' ? String(s.hint[f]) : '—'}
                             onChange={(v) => patchSet(s, { [f]: v })} />
@@ -872,7 +873,7 @@ export function ExerciseCard({
                 {/* Copy down (#93): its own line under the set it copies, at the
                     row's right edge, 16pt clear of the steppers above and below.
                     Numbers only, with Undo. */}
-                {copyDown && (canCopyDown as any)(item.sets, i) ? (
+                {copyDown && canCopyDown(item.sets, i) ? (
                   <Btn kind="quiet" icon="ArrowDownToLine" title="Copy down" style={st.copyDown}
                     onPress={() => copyDown(s)} />
                 ) : null}
@@ -912,7 +913,7 @@ export function ExerciseCard({
  */
 export function copyDownWrite(item: any, setId: string, fill: (fills: any[]) => void,
   toast: { push: typeof pushToast } = { push: pushToast }, latest: () => any = () => null) {
-  const fills: any[] = (copyDownFills as any)(item.sets, setId)
+  const fills: any[] = copyDownFills(item.sets, setId)
   if (!fills.length) return null
   fill(fills)
   return toast.push(`Copied to ${fills.length} set${fills.length === 1 ? '' : 's'}`, 'info', {
@@ -922,7 +923,7 @@ export function copyDownWrite(item: any, setId: string, fill: (fills: any[]) => 
       onClick: () => {
         // Only the sets still as the copy left them: anything typed or ticked since stays.
         const now = latest()?.sets
-        const back: any[] = (unfills as any)(item.sets, fills, now || undefined)
+        const back: any[] = unfills(item.sets, fills, now || undefined)
         if (back.length) fill(back)
       },
     },
@@ -937,7 +938,7 @@ export function copyDownWrite(item: any, setId: string, fill: (fills: any[]) => 
 function LastTime({ prior, onUse = null }: { prior: any; onUse?: (() => void) | null }) {
   const words = (
     <T size={font.label} faint tabular style={{ flex: 1 }}>
-      {`Last time · ${(lastTimeWhen as any)(prior)}: `}
+      {`Last time · ${lastTimeWhen(prior)}: `}
       <T size={font.label} weight={600} dim>{prior.summary}</T>
       {prior.implement ? ` · ${prior.implement}` : ''}
     </T>
@@ -1100,9 +1101,11 @@ export function ExerciseSection({
                   onUp={() => move(it.id, 'up')}
                   onDown={() => move(it.id, 'down')} />
               ))}
-              <T size={font.label} dim style={{ marginTop: 2 }}>
-                Order only — nothing else about these changes. Tap <T size={font.label} dim style={{ fontStyle: 'italic' }}>done</T> when it reads right.
-              </T>
+              <Explain>
+                <T size={font.label} dim style={{ marginTop: 2 }}>
+                  Order only — nothing else about these changes. Tap <T size={font.label} dim style={{ fontStyle: 'italic' }}>done</T> when it reads right.
+                </T>
+              </Explain>
             </View>
           ) : (
             items.map((it: any) => (

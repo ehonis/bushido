@@ -44,7 +44,7 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
   the server (more than one person), change these two files.
 - `localStorage` is real: `boot.ts` installs expo-sqlite's synchronous localStorage before anything
   loads, so the store's cache and outbox persist exactly as on the web, under the same keys.
-- `src/shell/AppData.tsx` is `App.jsx`'s state: the store, the plan, which + overlay is open, the
+- `src/shell/AppData.tsx` is the web's `appdata.jsx` (`useAppData`, out of `App.jsx` in #98): the store, the plan, which + overlay is open, the
   write paths (`placeAll`, `placeToday`, `keepPlan`, `takeRest`) and the providers. Screens read it
   with `useApp()` and pass the same props the web components take.
 - `src/shell/` is the frame: `Screen` (the header with the mark, streak and profile button, and a
@@ -55,7 +55,8 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
 - `src/app/` holds routes only: `(tabs)/` is one file per web tab (`index` is Today, then `log`
   and `progress`; the web's `tabsFor` decides which show); `connect.tsx` is sign-in.
 - **`src/features/<name>.tsx` is `app/src/<name>.jsx`**, one file per web file, with the same
-  export names and the same props. `features/app.tsx` is the components in `App.jsx`;
+  export names and the same props. `features/app.tsx` is the web's `shell.jsx` (the + menu, the rest prompt, the acting banner);
+  `features/tabs.tsx` is Today and `features/daylist.tsx` its rows and sheets (#98);
   `features/screens/` wraps each tab in its frame.
 - `src/theme.ts` is the web's `:root` (`--ink-dim` → `colors.inkDim`, `--fs-title` → `font.title`,
   `--lh-title` → `leading.title`, `--sp-4` → `space[4]`, `--r-card` → `radius.card`, `--h-control`
@@ -195,8 +196,10 @@ npm run start:tailscale                            # Metro on the Tailscale IP, 
   bundle id, project id, host, IP or email in a tracked file: this directory is published with the
   rest of Bushido.
 - `eas.json` is part of the runtime fingerprint. Change it only alongside a new build.
-- A JS module's default-parameter destructuring (`function f({ a, b } = {})`) makes TypeScript
-  infer a narrower type than the function takes; cast at the call site (`(f as any)(…)`) rather
-  than editing the ported file.
+- A JS module's default parameter (`excludeId = null`, `{ group = null } = {}`) makes TypeScript
+  infer a narrower type than the function takes. Give the lib function a JSDoc `@param` type, in
+  the web file and its copy (they stay byte for byte), rather than casting at the call site:
+  an `(f as any)(…)` is a call the typecheck can no longer see. `app/native.test.js` ratchets
+  the `as any` count in `mobile/src` (#98); lower its numbers when you remove casts.
 - Every screen sits under an error boundary (`src/shell/ScreenError.tsx`), so a data shape the app
   has not caught up with shows an error on that screen instead of closing the app.

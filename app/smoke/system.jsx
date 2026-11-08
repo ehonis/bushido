@@ -7,10 +7,12 @@
  * screen, so a size, a radius or a space that drifts off the scale is a failure
  * here rather than one more of the twenty-seven font sizes the app once had.
  */
+import { dirname } from 'node:path'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { forWords, FOR_ME } from '../src/lib/trainer.js'
+import { dayWords, dayLong, dateWords, weekRange, monthDay } from '../src/lib/dates.js'
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url))
 const read = (p) => readFileSync(join(ROOT, p), 'utf8')
@@ -139,6 +141,9 @@ export default [
       const rule = (base.match(new RegExp(`\\n${sel.replace('.', '\\.')} \\{([^}]*)\\}`)) || [])[1] || ''
       if (!rule.includes(`min-height: var(${h})`)) throw new Error(`${sel} is not ${h} tall`)
     }
+    // A chip is 44 wide as well as tall (#98 review: "All" and "Fun" measured 42 wide at 390).
+    if (!/\n\.chip \{[^}]*min-width: var\(--tap\)/.test(base)) throw new Error('a short chip is under 44 wide')
+    if (!/chip: \{[^}]*minHeight: TAP, minWidth: TAP/.test(read('mobile/src/ui/kit.tsx'))) throw new Error('the phone\'s short chips are under 44 wide')
   }],
 
   /* The same on the phone: a T's size is a role, and no style carries a raw size. */
@@ -170,6 +175,10 @@ export default [
       let key = null   // the style the line belongs to: the nearest `name: {` at or above it
       read(file).split('\n').forEach((l, i) => {
         key = (/^\s*(\w+): \{/.exec(l) || [])[1] || key
+        // A target held to 44 tall is held to 44 wide too (#98: workout mode's rep ± was 34 × 44).
+        // (minWidth: 0 is flex letting a row shrink, not a size.)
+        const w = /minWidth: (\d+)\b/.exec(l)
+        if (w && +w[1] > 0 && +w[1] < 44 && /minHeight: (TAP|height\.\w+|4[4-9]|[5-9]\d)\b/.test(l)) bad.push(`${file}:${i + 1}: ${l.trim().slice(0, 70)} (${w[1]} wide)`)
         const m = /minHeight: (\d+)\b/.exec(l)
         if (!m || +m[1] >= 44) return
         if (!allowed.some(([f, k]) => file.endsWith(f) && k === key)) bad.push(`${file}:${i + 1}: ${l.trim().slice(0, 70)}`)
@@ -205,6 +214,93 @@ export default [
     if (!/copyDown: \{ alignSelf: 'flex-end'[^}]*marginVertical: space\[2\]/.test(src) || !/sets: \{ gap: space\[2\]/.test(src)) throw new Error('Copy down is back beside a stepper column')
     // The card is keyed by the exercise, from the same lib function the web tests (#93, A F1).
     if (!/key=\{cardKey\(it\)\}/.test(src) || !/cardIdentity, cardKey,\n\} from '\.\.\/lib\/lifts\.js'/.test(src) || /const identityOf/.test(src)) throw new Error('the native card is not keyed by lib cardKey')
+  }],
+
+  /*
+   * Plan a workout, the interval timer's setup and the WHOOP screens are their
+   * own chunks (#98, lazy.jsx): nothing in app/src imports them statically, so
+   * a visit that plans, times and has no WHOOP does not download them. What a
+   * workout in progress needs (the runner, the timer's running face) is static.
+   */
+  ['bundle(Plan a workout, the timer screen and WHOOP on Today load on demand; no sheet or workout waits)', null, () => {
+    const bad = []
+    // app/src/lib/whoop.jsx is the data hook, not the screens: lib's './whoop.jsx' is that one.
+    for (const file of walk('app/src', p => /\.(jsx|js)$/.test(p) && !p.includes('/lib/'))) {
+      for (const m of read(file).matchAll(/^import [^\n]* from '\.\/(planner|timer|whoopday)\.jsx'/gm)) bad.push(`${file}: ${m[0]}`)
+    }
+    if (bad.length) throw new Error(`a static import pulls a lazy part back into the main bundle:\n        ${bad.join('\n        ')}`)
+    const app = read('app/src/App.jsx')
+    if (!/const PlanFlow = lazyPart\(\(\) => import\('\.\/planner\.jsx'\), 'PlanFlow', \{\s*failed:/.test(app)) throw new Error('Plan a workout is not on demand, or a failed load says nothing')
+    if (!/import \{ TimerHost \} from '\.\/timerhost\.jsx'/.test(app)) throw new Error('the timer host, mounted always, is lazy again')
+    // Everything a sheet, the runner or workout mode reaches statically: no lazy part in it (#98 review).
+    const seen = new Set()
+    const visit = (f) => {
+      if (seen.has(f)) return
+      seen.add(f)
+      for (const m of read(f).matchAll(/^import [^\n]* from '(\.{1,2}\/[^']+)'/gm)) {
+        const to = join(dirname(f), m[1])
+        if (/\.(jsx|js)$/.test(to)) visit(to)
+      }
+    }
+    for (const f of ['app/src/sheet.jsx', 'app/src/runner.jsx', 'app/src/workout.jsx', 'app/src/sessionlog.jsx', 'app/src/daylist.jsx']) visit(f)
+    const lazy = [...seen].filter(f => !f.endsWith('lazy.jsx') && /\blazyPart\(/.test(read(f)))
+    if (lazy.length) throw new Error(`a sheet or a workout reaches a lazy part: ${lazy.join(', ')}`)
+    // Failed loads never cover anything: no fixed card, and WHOOP on Today falls back to nothing.
+    if (/\.lazy-failed \{[^}]*position: fixed/.test(read('app/src/styles.css'))) throw new Error('a failed load is a fixed card over the app again')
+    if (/lazyPart\(\(\) => import\('\.\/whoopday\.jsx'\), '\w+', \{\s*failed/.test(read('app/src/tabs.jsx'))) throw new Error('WHOOP on Today says something when it fails to load')
+  }],
+
+  /* AGENTS.md is the index every agent reads: one number per section, in order (#98: two were 10.12). */
+  ['agents(section numbers are unique and in order)', null, () => {
+    const nums = [...read('AGENTS.md').matchAll(/^#{2,3} (\d+(?:\.\d+)?)\.? /gm)].map(m => m[1])
+    const seen = new Set()
+    for (const n of nums) { if (seen.has(n)) throw new Error(`AGENTS.md has two sections numbered ${n}`); seen.add(n) }
+    const key = (n) => n.split('.').map(Number)
+    for (let i = 1; i < nums.length; i += 1) {
+      const [a, b] = [key(nums[i - 1]), key(nums[i])]
+      const after = b[0] > a[0] || (b[0] === a[0] && (b[1] ?? 0) > (a[1] ?? 0))
+      if (!after) throw new Error(`AGENTS.md section ${nums[i]} comes after ${nums[i - 1]}`)
+    }
+    if (nums.length < 30) throw new Error(`only ${nums.length} numbered sections read: the pattern moved`)
+  }],
+
+  /*
+   * ONE way to write a day (#98, G r1 F4): five were on screen, one of them a raw
+   * ISO date. lib/dates.js writes every one ("Wed, Nov 4", "Sunday, Nov 8",
+   * "Nov 2 – Nov 8"); nothing else formats a date. WHOOP's sleep chart ticks are
+   * the one exception: an axis, labelled by its own short month and day.
+   */
+  ['dates(one way to write a day, on both platforms)', null, () => {
+    const code = (f) => read(f).replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' ')).replace(/(^|[^:'"])\/\/.*$/gm, '$1')
+    const files = [...walk('app/src', p => /\.(jsx|js)$/.test(p)), ...walk('mobile/src', p => /\.(tsx|ts|js)$/.test(p))]
+      .filter(f => !/(^|\/)lib\/dates\.js$/.test(f))
+    const bad = []
+    for (const f of files) {
+      const src = code(f)
+      src.split('\n').forEach((l, i) => {
+        // The browser's or the phone's own date words: never (WHOOP's chart too, since #98 review).
+        if (/toLocaleDateString|Intl\.DateTimeFormat/.test(l)) bad.push(`${f}:${i + 1}: a locale date`)
+        // A stored ISO date read out in a sentence ("tested 2026-08-08", "logged {date}").
+        if (/[A-Za-z,] \$?\{[\w?.]*\bdate\}/.test(l)) bad.push(`${f}:${i + 1}: a raw date in words: ${l.trim().slice(0, 70)}`)
+      })
+    }
+    if (bad.length) throw new Error(`a date not written by lib/dates.js:\n        ${bad.join('\n        ')}`)
+    for (const f of ['app/src/runner.jsx', 'mobile/src/features/runner.tsx']) {
+      if (/last time \(\$?\{prior\.date\}\)/.test(read(f))) throw new Error(`${f}: "last time (2026-10-24)" is back`)
+    }
+    const today = '2026-11-08'
+    const said = [dayWords('2026-11-04', today), dayWords('2026-11-07', today), dayLong(today, today), weekRange('2026-11-02'), dateWords('2025-11-04', today), monthDay('2026-10-19')]
+    if (said.join(' | ') !== 'Wed, Nov 4 | Yesterday | Sunday, Nov 8 | Nov 2 – Nov 8 | Tue, Nov 4, 2025 | Oct 19') throw new Error(`the day words: ${said.join(' | ')}`)
+  }],
+
+  /* One task frame at 720+ (#98, G r1 F7): the timer and the runner sit in the planner's panel. */
+  ['layout(one task frame at 720 and up: plan, timer, runner)', null, () => {
+    const frame = read('app/src/css/frame.css')
+    if (!/@media \(min-width: 720px\) \{\s*\.fs, \.it, \.run \{[^}]*inset: var\(--sp-6\)[^}]*border-radius: var\(--r-sheet\)/.test(frame)) throw new Error('the timer or the runner is unframed at desktop')
+    if (!/\.it-body \{ max-width: 680px; \}/.test(frame)) throw new Error('the timer is not the planner\'s 680 column')
+    if (!/box-shadow: var\(--elev-3\), 0 0 0 100vmax var\(--scrim\)/.test(frame)) throw new Error('the framed task screens have no scrim around them')
+    const imports = [...read('app/src/main.jsx').matchAll(/^import '\.\/([^']+\.css)'/gm)].map(m => m[1])
+    if (imports.at(-1) !== 'css/frame.css') throw new Error('frame.css is not imported last, so a screen\'s own inset: 0 wins')
   }],
 
   /* Four kinds of button on the web too: ghost went into secondary, bad became destructive. */

@@ -27,6 +27,8 @@ Date.now = () => realNow() + skew
 const { act, useState } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { WorkoutRunner } = await import('./src/runner.jsx')
+const { HowSheet } = await import('./src/howto.jsx')
+const { lazyPart, WARM_MS, LoadFailed } = await import('./src/lazy.jsx')
 const { PlanProvider } = await import('./src/lib/planctx.jsx')
 const { CUES } = await import('./src/lib/cues.js')
 const { normalizePrescription, prescriptionSteps } = await import('./src/lib/prescription.js')
@@ -308,6 +310,8 @@ test('The rest: it starts off an interval set; +10 moves it, Pause holds it, Bac
   await click(document.querySelectorAll('.setlist-go')[1])
   await tapText(/^Done set$/)
   assert.ok(r.last().run.restUntil > Date.now())
+  // The rest after the LAST set names no next set (it used to name the set just done).
+  assert.equal(document.querySelector('.rest-next').textContent, 'That was the last set.')
   await tapLabel(/^Skip the rest$/)
   assert.equal(r.last().run.restUntil || 0, 0)
   assert.equal(r.last().opts.out, null)
@@ -427,6 +431,89 @@ test('Sound: muted, a set marks in silence; a side not on screen never sounds', 
   assert.deepEqual(heard, [], 'a hidden side sounded')
   assert.equal(hidden.writes.length, 1)
   await hidden.done()
+})
+
+test("All sets is the shell's Popover: the scrim and Escape close it, and only it", async () => {
+  const r = await mount(entryOf(LEGS))
+  await tapText(/^All sets$/)
+  const dialog = () => document.querySelector('[role=dialog][aria-label="All sets"]')
+  assert.ok(dialog(), 'All sets did not open')
+  assert.equal(document.querySelector('.setlist-scrim'), null, 'its own scrim is back')
+  const scrim = dialog().closest('.pop-scrim')
+  assert.ok(scrim, 'All sets is not in the shell\'s Popover')
+  await click(scrim)
+  assert.equal(dialog(), null, 'a tap on the scrim did not close it')
+  assert.match(where(), /Warm-up · Set 1 of 1/, 'the runner went with it')
+  await tapText(/^All sets$/)
+  await act(() => { document.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+  assert.equal(dialog(), null, 'Escape did not close it')
+  assert.equal(document.querySelector('[role=dialog][aria-label="Leave the workout?"]'), null)
+  assert.equal(r.writes.length, 0, 'opening and closing the list wrote something')
+  await r.done()
+})
+
+test("The how-to is the shell's Popover too: the scrim, Escape and Got it close it", async () => {
+  if (unmountLast) await unmountLast()
+  document.body.innerHTML = ''
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  let closed = 0
+  await act(async () => root.render(<HowSheet title="Max hang" how={{ gist: 'Hang.', steps: ['Grip', 'Hang'] }} onClose={() => { closed += 1 }} />))
+  const dialog = document.querySelector('[role=dialog][aria-label="How to do Max hang"]')
+  assert.ok(dialog, 'the how-to did not open')
+  assert.equal(document.querySelector('.how-scrim'), null, 'its own scrim is back')
+  await click(dialog.closest('.pop-scrim'))
+  assert.equal(closed, 1, 'a tap on the scrim did not close it')
+  await act(() => { document.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+  assert.equal(closed, 2, 'Escape did not close it')
+  await click(document.querySelector('.how-got'))
+  assert.equal(closed, 3, 'Got it did not close it')
+  await act(() => root.unmount())
+})
+
+test('A lazy part is fetched ahead; failing to load, an always-mounted one draws NOTHING, an opened screen says so in itself and Try again draws it', async () => {
+  if (unmountLast) await unmountLast()
+  document.body.innerHTML = ''
+  let calls = 0, fail = true
+  const load = () => { calls += 1; return fail ? Promise.reject(new Error('offline')) : Promise.resolve({ Hello: ({ who }) => <p className="hello">Hello {who}</p> }) }
+  // Always mounted (WHOOP on Today, a timer resumed in the background): no `failed`.
+  const Quiet = lazyPart(load, 'Hello')
+  // A screen the user opened: its own frame, the words, Try again, its way out.
+  const Screen = lazyPart(load, 'Hello', {
+    failed: (props, retry) => (
+      <section className="opened" aria-label="Plan a workout">
+        <button type="button" onClick={props.onClose}>Back</button>
+        <LoadFailed what="Plan a workout" onRetry={retry} />
+      </section>
+    ),
+  })
+  await wait(WARM_MS + 100)
+  assert.equal(calls, 2, 'the parts were not fetched ahead of being drawn')
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  const quiet = console.error
+  console.error = () => {}
+  let closed = 0
+  try {
+    await act(async () => root.render(<><button type="button" className="fab">+</button><Quiet who="Sam" /></>))
+    await wait(50)
+    assert.equal(host.querySelector('.lazy-failed'), null, 'an always-mounted part that failed to load put a card over the app')
+    assert.equal(host.innerHTML, '<button type="button" class="fab">+</button>', 'an always-mounted part that failed to load drew something')
+    await act(async () => root.render(<Screen who="Sam" onClose={() => { closed += 1 }} />))
+    await wait(50)
+    const card = host.querySelector('.opened .lazy-failed')
+    assert.ok(card, 'an opened screen that failed to load said nothing, or said it outside itself')
+    assert.match(card.textContent, /Plan a workout did not load/)
+    await click([...host.querySelectorAll('button')].find(b => b.textContent === 'Back'))
+    assert.equal(closed, 1, 'no way out of a screen that did not load')
+    fail = false
+    await click([...host.querySelectorAll('button')].find(b => /Try again/.test(b.textContent)))
+    await wait(50)
+    assert.equal(host.querySelector('.hello')?.textContent, 'Hello Sam', 'Try again did not load it')
+  } finally { console.error = quiet }
+  await act(() => root.unmount())
 })
 
 let failed = 0

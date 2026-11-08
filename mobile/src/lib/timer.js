@@ -709,6 +709,8 @@ export function holdConfig(seconds, { name = 'Hold', key = null } = {}) {
  * (`setFieldsFor`), and within what a timer runs (LIMITS.work, 5 s to an
  * hour): a 90-minute ride would be clamped to an hour and logged as one, so
  * outside that it stays a number with Done set.
+ *
+ * @param {string[]} [fields] @param {{ seconds?: any } | null} [set]
  */
 export const isTimedSet = (fields = [], set = null) =>
   fields.includes('seconds') && !fields.includes('reps') && !fields.includes('distance') &&

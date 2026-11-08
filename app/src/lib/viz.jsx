@@ -14,7 +14,7 @@
 
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { localIso } from './dates.js'
-import { timeX, dateWords, needsYear, deltaBase } from './vizscale.js'
+import { timeX, axisDate, needsYear, deltaBase } from './vizscale.js'
 
 export const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)']
 
@@ -144,7 +144,7 @@ export function LineChart({ points, label, help, unit = '', height = 190, color 
   const yAt = v => padT + innerH - ((v - lo) / (hi - lo || 1)) * innerH
   // The year is said when it is not obvious: the series crosses one, or is not this year's.
   const withYear = needsYear(data.map(d => d.x))
-  const day = (x) => dateWords(x, { withYear })
+  const day = (x) => axisDate(x, { withYear })
 
   const path = data.map((d, i) => `${i ? 'L' : 'M'}${xAt(i).toFixed(1)},${yAt(d.y).toFixed(1)}`).join('')
   const last = data[data.length - 1]

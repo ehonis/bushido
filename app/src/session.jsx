@@ -20,6 +20,7 @@ import { MovesList, hasMoves } from './howto.jsx'
 import { ceilingState, CF_CORRECTION_KG } from './lib/force.js'
 import { blockTimers } from './lib/workout.js'
 import { countsClimbs } from './lib/grades.js'
+import { dateWords } from './lib/dates.js'
 
 /** Latest usable max, expressed as TOTAL load on the fingers (bodyweight + added). */
 export function resolveMax(entries) {
@@ -30,13 +31,13 @@ export function resolveMax(entries) {
     .sort((a, b) => a.date.localeCompare(b.date)).at(-1)
   if (test && Number.isFinite(test.data.addedLb)) {
     const b = Number(test.data.bodyweightLb) || bw
-    if (b) return { total: Number(test.data.addedLb) + b, bodyweight: b, source: `MVC-7 test ${test.date}` }
+    if (b) return { total: Number(test.data.addedLb) + b, bodyweight: b, source: `MVC-7 test ${dateWords(test.date)}` }
   }
 
   const hang = [...entries].filter(e => e.kind === 'maxhang' && e.data?.edgeMm === 20)
     .sort((a, b) => a.date.localeCompare(b.date)).at(-1)
   if (hang && bw) {
-    return { total: Number(hang.data.addedLb) + bw, bodyweight: bw, source: `max hang ${hang.date}` }
+    return { total: Number(hang.data.addedLb) + bw, bodyweight: bw, source: `max hang ${dateWords(hang.date)}` }
   }
   return null
 }
@@ -50,7 +51,7 @@ function CeilingLine({ spec, ceiling, tooLow = null }) {
       <div className="load load-unknown">
         <Icon name="Info" size={14} />
         <span>
-          <strong>No ceiling from your last test</strong> — critical force on {tooLow.date} was{' '}
+          <strong>No ceiling from your last test</strong> — critical force on {dateWords(tooLow.date)} was{' '}
           {Math.round(tooLow.cf * 10) / 10} kg, at or under the {CF_CORRECTION_KG} kg correction. Retest
           before you set the gauge from it.
         </span>
@@ -85,8 +86,8 @@ function CeilingLine({ spec, ceiling, tooLow = null }) {
         {offset ? <> {offset < 0 ? '−' : '+'} {Math.abs(offset)} kg</> : null}
         <span className="load-src">
           {ceiling.bound === 'cfmin'
-            ? `CFmin from ${ceiling.date}`
-            : `CF ${ceiling.cf} kg − ${CF_CORRECTION_KG}, tested ${ceiling.date}`}
+            ? `CFmin from ${dateWords(ceiling.date)}`
+            : `CF ${ceiling.cf} kg − ${CF_CORRECTION_KG}, tested ${dateWords(ceiling.date)}`}
         </span>
       </div>
     </div>

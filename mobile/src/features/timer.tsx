@@ -49,6 +49,7 @@ import { ExerciseBody, musclesOf, muscleWords } from '../lib/bodymap'
 import { ExerciseSheet } from './exercises'
 import { CircuitList, SecondsRow } from './circuit'
 import { SideRule, SideWho } from '../ui/Person'
+import { Explain } from './blurb'
 
 const {
   compile, normalizeConfig, sameConfig, totalSeconds, describe, secondsLabel, stepSeconds,
@@ -449,7 +450,7 @@ function Intervals({ config, planSequence, onChange }: { config: any; planSequen
     return (
       <View style={st.intervals}>
         <SectionHeader title={`From the plan: ${list.length} intervals`} />
-        <Sub>{names.join(', ')}. Rests the plan does not state count up until you tap.</Sub>
+        <Sub>{names.join(', ')}.<Explain> Rests the plan does not state count up until you tap.</Explain></Sub>
         <Link icon="X" label="Use plain work and rest instead" onPress={() => onChange([])} />
       </View>
     )

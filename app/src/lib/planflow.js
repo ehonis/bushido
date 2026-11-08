@@ -436,7 +436,7 @@ export function usePlanFlow({
     if (open?.status === 'working') return undefined
     const t = setTimeout(() => { saveDraft(flow.draftId, presForServer(flow.pres)).then(upsert).catch(() => {}) }, 800)
     return () => clearTimeout(t)
-  }, [flow.pres]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [flow.pres]) // eslint-disable-line react-hooks/exhaustive-deps -- saved when the plan changes; the draft and its status are read as of then
 
   const ownerId = currentMe().real?.id || 'owner'
   const phrase = dayPhrase(flow.date, today)

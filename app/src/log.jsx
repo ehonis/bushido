@@ -37,7 +37,7 @@ import { Icon } from './lib/icons.jsx'
 import { SessionSheet } from './sheet.jsx'
 import { isDone, isTraining } from './lib/store.js'
 import { loggedMinutes } from './lib/minutes.js'
-import { fromIso, localIso } from './lib/dates.js'
+import { localIso, dayWords } from './lib/dates.js'
 import { categoryOf, disciplineOf } from './lib/category.js'
 import { loggedActivity } from './lib/activities.js'
 import { titleFor } from './lib/naming.js'
@@ -50,27 +50,15 @@ import { plannedLine } from './lib/trainer.js'
 import { currentMe } from './lib/whoami.js'
 import { climbLine, bandsOf, bandLabel } from './lib/grades.js'
 import { ACTIVITY_SCOPES, activityScopeOf } from './lib/scope.js'
+import { ScreenTitle, SubFilter, subFilterLabel } from './filters.jsx'
+import { Explain } from './blurb.jsx'
 
 const todayIso = () => localIso()
 
 const fmt1 = (n) => Math.round(n * 10) / 10
 
-const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-/**
- * A day's header: "Today", "Yesterday", then "Fri 23 Oct" (with the year once it
- * is not this one). Spelled out by hand rather than through toLocaleDateString so
- * the server render, the phone and every browser write the same words.
- */
-export function dayLabel(iso, today) {
-  if (iso === today) return 'Today'
-  const y = fromIso(today); y.setDate(y.getDate() - 1)
-  if (iso === localIso(y)) return 'Yesterday'
-  const d = fromIso(iso)
-  const label = `${WEEKDAY[d.getDay()]} ${d.getDate()} ${MONTH[d.getMonth()]}`
-  return d.getFullYear() === fromIso(today).getFullYear() ? label : `${label} ${d.getFullYear()}`
-}
+/** A day's header: "Today", "Yesterday", then "Fri, Oct 23": the app's one way to write a day (lib/dates.js). */
+export const dayLabel = (iso, today) => dayWords(iso, today)
 
 /**
  * The one line under a workout's name: how long, then how far. The same order
@@ -123,7 +111,7 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }) {
    */
   const [openId, setOpenId] = useState(null)
 
-  const menu = plan?.dailyMenu || []
+  const menu = useMemo(() => plan?.dailyMenu || [], [plan])
   const ops = sessionOps({ plan, entries, upsertEntry, deleteEntry, toast: pushToast, undoIcon: Undo2 })
 
   /*
@@ -217,6 +205,7 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }) {
       {/* Where a removal's Undo appears; only the first host mounted draws, so
           this and Today's never show one toast twice (toast.jsx). */}
       <ToastHost />
+      <ScreenTitle>Log</ScreenTitle>
       {/* "All" and the kinds of thing actually logged, wrapping rather than
           running off the right edge. No counts: a number inside a chip read as
           part of its name ("Bike 10"). Only shown when there is something to choose. */}
@@ -232,13 +221,13 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }) {
       )}
       {/* Inside it, the plan's categories (Fun, Fingers, Endurance…). */}
       {cats.length > 1 && (
-        <div className="filters logfilters logcats" role="group" aria-label="Category">
+        <SubFilter className="logfilters logcats" label={subFilterLabel(acts.find(a => a.key === within)?.name)}>
           {cats.map(c => (
-            <button key={c.key} className={`chip ${filter.category === c.key ? 'on' : ''}`}
+            <button key={c.key} className={`chip sub ${filter.category === c.key ? 'on' : ''}`}
               aria-pressed={filter.category === c.key}
               onClick={() => setFilter(f => ({ ...f, category: f.category === c.key ? null : c.key }))}>{c.name}</button>
           ))}
-        </div>
+        </SubFilter>
       )}
       {/* Under Climbing, one whole grade: the sessions that touched it, sent or not. */}
       {bands.length > 0 && (
@@ -269,7 +258,7 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }) {
         <div className="empty">
           <Icon name="NotebookPen" size={24} />
           <span>Nothing logged yet</span>
-          <span className="sub">Workouts you log show up here, newest first.</span>
+          <Explain><span className="sub">Workouts you log show up here, newest first.</span></Explain>
           {/* The one way to fill it, when the shell hands it over (App.jsx's openLog). */}
           {onLog && <button type="button" className="btn" onClick={() => onLog()}>Log a workout</button>}
         </div>

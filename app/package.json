@@ -37,6 +37,8 @@
     "test:runner": "esbuild runner.dom.test.jsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --outfile=.runnerdomtest.mjs --log-level=error && node .runnerdomtest.mjs",
     "test:runflow": "node runflow.test.js",
     "test:native": "esbuild native.test.js --bundle --platform=node --format=esm --packages=external --outfile=.nativetest.mjs --log-level=error && node .nativetest.mjs",
+    "test:merge": "node merge.test.js",
+    "test:targets": "esbuild targets.dom.test.jsx --bundle --platform=node --format=esm --jsx=automatic --packages=external --outfile=smoke/.targetsdomtest.mjs --log-level=error && node smoke/.targetsdomtest.mjs",
     "test:done": "node done.test.js",
     "test:history": "node history.test.js",
     "test:fingers": "node fingers.test.js",
@@ -44,7 +46,8 @@
     "test:handoff": "node handoff.test.js",
     "test:libsync": "node libsync.test.js",
     "test:cycles": "node cycles.test.js",
-    "test:sessionops": "node sessionops.test.js"
+    "test:sessionops": "node sessionops.test.js",
+    "lint": "eslint src"
   },
   "dependencies": {
     "lucide-react": "^1.28.0",
@@ -54,6 +57,9 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.0",
+    "eslint": "^10.14.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.14.0",
     "happy-dom": "^15.11.7",
     "vite": "^7.1.5"
   }

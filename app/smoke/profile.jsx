@@ -12,7 +12,8 @@ import { ProfileMenu, ProfilePanel, PeopleCard, homePages } from '../src/profile
 import { PrefsProvider } from '../src/lib/prefs.jsx'
 import { SessionLog } from '../src/sessionlog.jsx'
 import { WhoopProvider } from '../src/lib/whoop.jsx'
-import { WhoopWorkouts, WhoopReadiness, WhoopSleep, sleepSeries, sleepStats } from '../src/whoop.jsx'
+import { WhoopWorkouts } from '../src/whoop.jsx'
+import { WhoopReadiness, WhoopSleep, sleepSeries, sleepStats } from '../src/whoopday.jsx'
 import { StravaProvider } from '../src/lib/strava.jsx'
 import { StravaActivities } from '../src/strava.jsx'
 import { UnloggedWorkouts } from '../src/unlogged.jsx'
@@ -113,6 +114,28 @@ export default [
         who={owner} onClose={noop} {...props} />)
     const rowTitles = (html) => [...html.matchAll(/class="list-row-title">([^<]+)</g)].map(m => m[1])
     return [
+      /* Grades are picked off the ladder, never typed (§6.4, #98, G r1 F9); one typed
+         before shows on its rung, or is said when it is none, and is not rewritten (§4). Both platforms. */
+      ['ProfilePanel(Climbing: your grades off the ladder; a grade typed before is kept and said)', null, () => {
+        const typed = { id: 'profile', kind: 'profile', updatedAt: 'z', data: { facts: { redpoint: '5.11b', flash: 'mid 5.10s', boulder: 5 } } }
+        const html = renderToString(<ProfilePanel plan={plan} entries={[...entries.filter(e => e.id !== 'profile'), typed]} upsertEntry={noop} deleteEntry={noop}
+          status="synced" who={owner} onClose={noop} initialPage="climbing" />)
+        for (const label of ['Redpoint grade', 'Flash / onsight', 'Boulder grade']) {
+          if (!new RegExp(`<select class="gradesel" aria-label="${label.replace('/', '\\/')}"`).test(html)) throw new Error(`${label} is not a grade picker`)
+          if (new RegExp(`${label.replace('/', '\\/')}[^]*?<input type="text"`).test(html.slice(0, html.indexOf('Ape index')))) throw new Error(`${label} is a text box again`)
+        }
+        const boulder = html.match(/<select class="gradesel" aria-label="Boulder grade">([^]*?)<\/select>/)?.[1] || ''
+        if (!/<option value="5" selected="">V5<\/option>/.test(boulder)) throw new Error('the boulder grade is not on the V ladder, or not picked')
+        if (/5\.1/.test(boulder)) throw new Error('route grades in the boulder picker')
+        // Typed text that is exactly a rung shows on it; anything else is said, never guessed.
+        const red = html.match(/<select class="gradesel" aria-label="Redpoint grade">([^]*?)<\/select>/)?.[1] || ''
+        if (!/<option value="11\.15" selected="">5\.11b<\/option>/.test(red)) throw new Error('a typed 5.11b is not shown on its rung')
+        if (/You wrote “5\.11b”/.test(text(html))) throw new Error('a typed grade that is a rung is said as if it were not')
+        if (!/You wrote “mid 5\.10s”/.test(text(html))) throw new Error('a typed grade that is no rung is not said')
+        if (!/value="" selected=""/.test(html.match(/<select class="gradesel" aria-label="Flash \/ onsight">([^]*?)<\/select>/)?.[1] || '')) throw new Error('text that is no rung was guessed onto one')
+        const native = readFileSync(new URL('../../mobile/src/features/profile.tsx', import.meta.url), 'utf8')
+        if (!/<ScaleGradeSelect scale=\{f\.scale\}/.test(native) || !/You wrote “\$\{typed\}”/.test(native) || !/gradeFromText\(typed, f\.scale\)/.test(native)) throw new Error('the phone types its grades')
+      }],
       ['ProfilePanel(a list of sections, Climbing holding Testing and Why)', null, () => {
         const home = rowTitles(panel({}))
         const want = ['You', 'Gear', 'Notifications', 'Connections', 'Climbing', 'Settings']
