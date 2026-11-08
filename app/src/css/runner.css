@@ -114,10 +114,17 @@
 /*
  * While a number is being typed the bottom stops being sticky and its second
  * row goes: at a keyboard's height the sticky block sat over the interval's
- * rest stepper (#75). Done set is still there, after what is being edited.
+ * rest stepper (#75). With a mouse Done set is still there, after what is being
+ * edited. On a touch screen none of it is drawn, as on the phone (runner.tsx):
+ * static, the lime Start still sat 20px under the focused rest box, where a
+ * thumb lifting off the box starts a clock (#94, B F7). It comes back when the
+ * box lets go.
  */
 .run:has(.run-body input:focus) .run-acts { position: static; box-shadow: none; }
 .run:has(.run-body input:focus) .run-acts-row { display: none; }
+@media (pointer: coarse) {
+  .run:has(.run-body input:focus) .run-acts { display: none; }
+}
 
 /* "Log this set without the clock" under a timed set's seconds: quiet, in the body. */
 button.btn.quiet.run-noclock { align-self: center; margin-top: var(--sp-2); }

@@ -262,6 +262,8 @@ export default function App() {
    */
   const [fab, setFab] = useState(null)         // null | 'menu' | 'plan' | 'log' | 'rest'
   const [openEntryId, setOpenEntryId] = useState(null)
+  // A day for Today to show, asked for from elsewhere (the planner's "See it on Mon", #94).
+  const [showDay, setShowDay] = useState(null)
 
   /*
    * WHICH DAY a logged workout lands on.
@@ -521,6 +523,7 @@ export default function App() {
               <TodayTab plan={plan} entries={store.entries}
                 upsertEntry={store.upsertEntry} deleteEntry={store.deleteEntry}
                 openEntryId={openEntryId} onOpened={() => setOpenEntryId(null)}
+                showDay={showDay} onDayShown={() => setShowDay(null)}
                 onPlan={() => setFab('plan')} onLog={openLog}
                 onViewDay={setViewDay}
                 onRest={restOpt ? askRest : null} />
@@ -584,6 +587,7 @@ export default function App() {
       {fab === 'plan' && (
         <PlanFlow plan={plan} entries={store.entries} iso={localIso()} date={tab === 'today' ? viewDay : null}
           onKeep={keepPlan} onStart={startPlanned} onClose={() => setFab(null)}
+          onShowDay={(d) => { setShowDay({ date: d, seq: Date.now() }); setTab('today') }}
           people={people} onKeepFor={keepPlanForPerson} onShareWith={shareKeptWith}
           onStartFor={(person, entryId) => {
             setFab(null)

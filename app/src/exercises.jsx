@@ -41,7 +41,7 @@ import {
   implementChoices, implementLabel, weightModeOf, weightMeaning, weightUnit, lastTimeFill, lastTimeWhen,
   pickerGroupFor, copyDownFills, canCopyDown, unfills, cardIdentity, cardKey,
 } from './lib/lifts.js'
-import { setTicked, itemTicked, setHasNumber } from './lib/prescription.js'
+import { setTicked, itemTicked, setHasNumber, doingMove } from './lib/prescription.js'
 import { ExerciseBody, BodyMap, musclesOf, muscleWords } from './lib/bodymap.jsx'
 import { HowBody } from './howto.jsx'
 import { Popover } from './modal.jsx'
@@ -627,6 +627,19 @@ export function ExerciseCard({
   const line = ticking && ticks && !finished
     ? [`${ticks} of ${item.sets.length} done`, item.line].filter(Boolean).join(' · ')
     : item.line
+  /* Doing mode moves on with the workout (#94, B F2, lib/prescription.js
+     `doingMove`): finished, this card folds; next, it opens and comes into view. */
+  const root = useRef(null)
+  const was = useRef({ finished, focus })
+  useEffect(() => {
+    const move = doingMove(was.current, { finished, focus })
+    was.current = { finished, focus }
+    if (!ticking) return undefined
+    if (move.fold) setOpen(false)
+    if (!move.reveal) return undefined
+    const t = setTimeout(() => root.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' }), 60)
+    return () => clearTimeout(t)
+  }, [finished, focus, ticking])
   const fill = onFill && prior && !asWritten ? lastTimeFill(liftField, item, prior) : []
   const copyDown = onFill && !asWritten ? (s) => copyDownWrite(item, s.id, (f) => fillNow.current?.(f), undefined, () => itemNow.current) : null
   const lastTime = prior && <LastTime prior={prior} onUse={fill.length ? () => onFill(fill) : null} />
@@ -645,7 +658,7 @@ export function ExerciseCard({
   const hasSwitches = Boolean(flip || meaning || count)
 
   return (
-    <div className={`presc-item k-${item.kind || 'lift'}${finished ? ' ticked' : ''}`}>
+    <div ref={root} className={`presc-item k-${item.kind || 'lift'}${finished ? ' ticked' : ''}`}>
       {/*
         * The whole head folds the card, as it always has: cards start folded,
         * so this is the tap made most. A movement out of the catalog also has

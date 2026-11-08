@@ -20,11 +20,16 @@
  * Native: a full-screen modal; the cues are lib/cues.ts haptics (no sound —
  * nothing installed can beep without a native change, D5); the screen is kept
  * awake with expo-keep-awake through the same cues module; stopping asks on
- * the screen, the visual system's confirm. iOS presents one modal at a time, so the session sheet and
- * the + menu close first and the timer opens once they have gone
- * (`openTimerAfterSheet`).
+ * the screen, the visual system's confirm. iOS presents one modal at a time, so
+ * the + menu closes first and the timer opens once it has gone
+ * (`openTimerAfterSheet`). The session sheet slides away and comes BACK, as it
+ * was and where it was scrolled, when the timer closes (#94, F N2): it hides
+ * itself (`Modal hidden`), opens the timer once it has gone, and passes
+ * `onReturn`, which closing the timer calls. Mid-lift, a rest timer used to
+ * cost the sheet: close, find the row on Today, reopen, scroll back.
  */
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import ToastHost from '../ui/ToastHost'
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Modal as RNModal, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -64,7 +69,7 @@ export const KIND_COLOR: Record<string, string> = {
 
 /* ----------------------------------------------------------- who opens it */
 
-type Req = { title: string | null; presets: any[]; seq: number }
+type Req = { title: string | null; presets: any[]; seq: number; onReturn: (() => void) | null }
 let request: Req | null = null
 let seq = 0
 const listeners = new Set<() => void>()
@@ -72,15 +77,24 @@ const notify = () => { for (const fn of listeners) fn() }
 const subscribe = (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn) } }
 const getRequest = () => request
 
-/** Open the timer. `title` is the workout it was opened from; `presets` that workout's own timers. */
-export function openTimer({ title = null, presets = [] }: { title?: string | null; presets?: any[] } = {}) {
-  request = { title, presets: presets.filter(Boolean), seq: ++seq }
+/**
+ * Open the timer. `title` is the workout it was opened from; `presets` that
+ * workout's own timers; `onReturn` what closing it goes back to (the sheet it
+ * was opened from).
+ */
+export function openTimer({ title = null, presets = [], onReturn = null }: { title?: string | null; presets?: any[]; onReturn?: (() => void) | null } = {}) {
+  request = { title, presets: presets.filter(Boolean), seq: ++seq, onReturn }
   notify()
 }
-export function closeTimer() { request = null; notify() }
+export function closeTimer() {
+  const back = request?.onReturn
+  request = null
+  notify()
+  back?.()
+}
 
 /** From inside another modal: give it time to go before presenting this one. */
-export function openTimerAfterSheet(req?: { title?: string | null; presets?: any[] }) {
+export function openTimerAfterSheet(req?: { title?: string | null; presets?: any[]; onReturn?: (() => void) | null }) {
   setTimeout(() => openTimer(req), 450)
 }
 
@@ -189,6 +203,8 @@ function IntervalTimer({ title, sessionPresets = [], resumed = null, entries = [
               onDelete={deleteEntry || null} />
           )}
         </View>
+        {/* This screen's own toasts: iOS draws it above the root's host (#94, F N6). */}
+        <ToastHost />
       </GestureHandlerRootView>
     </RNModal>
   )
@@ -244,12 +260,14 @@ function TimerSetup({ title, presets, onStart, onSave, onDelete, onClose, onPlac
 
   return (
     <>
+      {/* The exit at the top left, as on every workout screen (#75, #94 B F6): it
+          was the one X on the right. */}
       <View style={st.head}>
+        <IconBtn icon="X" size={20} label="Close the timer" onPress={onClose} />
         <View style={{ flex: 1, minWidth: 0 }}>
           <T size={font.title} weight={600} numberOfLines={1}>Interval timer</T>
           {title ? <Sub>{title}</Sub> : null}
         </View>
-        <IconBtn icon="X" size={20} label="Close the timer" onPress={onClose} />
       </View>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={[st.body, { paddingBottom: space[6] + insets.bottom }]}
         keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
@@ -861,7 +879,7 @@ const st = StyleSheet.create({
   it: { flex: 1, backgroundColor: colors.bg },
   head: {
     flexDirection: 'row', alignItems: 'center', gap: space[1],
-    paddingLeft: space.gutter, paddingRight: space[2], paddingVertical: space[2],
+    paddingLeft: space[2], paddingRight: space.gutter, paddingVertical: space[2],
     borderBottomWidth: 1, borderBottomColor: colors.line,
   },
   body: { paddingHorizontal: space.gutter, paddingTop: space[4], gap: space[3] },

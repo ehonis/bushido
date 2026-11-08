@@ -3,7 +3,11 @@
  * unchanged and in their old relative order. A case is [name, element | null, assert?].
  */
 import { renderToString } from 'react-dom/server'
-import { TodayTab, DaySwitcher } from '../src/tabs.jsx'
+import { TodayTab, DaySwitcher, EmptyDay } from '../src/tabs.jsx'
+import { tickSet, setHasNumber, planProgress } from '../src/lib/prescription.js'
+import { placedUndoText, placedToUndo } from '../src/lib/quicklog.js'
+import { activityFieldOf } from '../src/picker.jsx'
+import { readFileSync } from 'node:fs'
 import { SessionSheet } from '../src/sheet.jsx'
 import { RestPrompt } from '../src/App.jsx'
 import { LogTab } from '../src/log.jsx'
@@ -14,6 +18,86 @@ import {
 } from './fixtures.jsx'
 
 export default [
+  /*
+   * A DAY STILL TO COME (#94, A F8): "Nothing planned yet" was a dead end; it now
+   * offers the one way in, worded with the day the planner puts it on. A day
+   * that has come keeps Log a workout and Rest day, and no planning button.
+   */
+  ['EmptyDay(a day still to come offers "Plan a workout for <day>"; one that has come does not)', null, () => {
+    const later = isoShift(TODAY, 3)
+    const future = text(renderToString(<EmptyDay isFuture viewIso={later} onPlan={noop} onLog={noop} onRest={noop} quick={null} />))
+    if (!future.includes(`Plan a workout for ${dayWords(later)}`)) throw new Error('a day still to come offers no way to plan it')
+    if (/Log a workout|Rest day/.test(future)) throw new Error('a day still to come offers logging')
+    if (/Plan a workout for/.test(text(renderToString(<EmptyDay isFuture viewIso={later} onPlan={null} quick={null} />)))) throw new Error('a plan button with nothing to open')
+    const tomorrow = text(renderToString(<EmptyDay isFuture viewIso={isoShift(TODAY, 1)} onPlan={noop} quick={null} />))
+    if (!tomorrow.includes('Plan a workout for tomorrow')) throw new Error('"tomorrow" is not said as a word in the sentence')
+    const now = text(renderToString(<EmptyDay isFuture={false} viewIso={TODAY} onPlan={noop} onLog={noop} onRest={noop} quick={null} />))
+    if (/Plan a workout for/.test(now) || !/Log a workout/.test(now)) throw new Error('today\u2019s empty day changed')
+  }],
+  /*
+   * A PLAN IN PROGRESS SAYS HOW FAR IT HAS GOT (#94, A F7): one ticked set read
+   * "1 exercise · 1 set · 900 lb" over a plan of six exercises. Untouched it is
+   * still "Planned", and its whole line.
+   */
+  ['TodayTab(a plan being done on its day: "k of n sets", not what is logged so far)', null, () => {
+    const lift = PRESCRIPTION.blocks.flatMap(b => b.items).find(it => (it.sets || []).some(x => setHasNumber(x)))
+    const set = lift.sets.find(x => setHasNumber(x))
+    const ticked = tickSet(PRESCRIPTION, lift.id, set.id, true)
+    const { done, total } = planProgress(ticked)
+    const going = { ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, plan: ticked } }
+    const t = text(renderToString(<TodayTab plan={plan} entries={[going]} upsertEntry={noop} deleteEntry={noop} />))
+    if (!t.includes(`${done} of ${total} sets`)) throw new Error(`no "${done} of ${total} sets" on the row`)
+    if (/\d[\d,]* lb/.test((t.match(/list-row-meta[\s\S]*?<\/span><\/span>/) || [''])[0])) throw new Error('the row reports volume mid-workout')
+    const fresh = text(renderToString(<TodayTab plan={plan} entries={[PLANNED_ENTRY]} upsertEntry={noop} deleteEntry={noop} />))
+    if (/ of \d+ sets/.test(fresh) || !/Planned/.test(fresh)) throw new Error('an untouched plan does not read as Planned')
+  }],
+  /*
+   * A WAY BACK FROM ONE TAP (#94, A F3). A quick-log row writes a done workout
+   * and opens its sheet; closed with nothing on it, the sheet says what was
+   * logged with Undo. `placedUndoText` is those words, or null once anything
+   * was put on it. The closing itself is DaySessions' (an effect SSR cannot
+   * run), so its wiring is pinned in the source on both platforms.
+   */
+  ['placedUndoText("Logged Walk" for a tap and nothing else; null once anything is on it)', null, () => {
+    const field = activityFieldOf(plan)
+    const card = plan.dailyMenu.find(m => m.id === 'log-workout')
+    const tapped = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, data: { optId: card.id, name: 'Walk', done: true, out: { activity: 'walk' } } }
+    const said = placedUndoText(tapped, card, field)
+    if (!/^Logged \S/.test(said || '')) throw new Error(`a bare tap says "${said}"`)
+    for (const out of [{ activity: 'walk', notes: 'nice' }, { activity: 'walk', rpe: 4 }, { activity: 'walk', minutesSpent: 30 }, { activity: 'walk', title: 'Dog' }]) {
+      if (placedUndoText({ ...tapped, data: { ...tapped.data, out } }, card, field) !== null) throw new Error(`offered to undo a log with ${Object.keys(out).join(', ')} on it`)
+    }
+    if (placedUndoText({ ...tapped, data: { ...tapped.data, plan: PRESCRIPTION } }, card, field) !== null) throw new Error('offered to undo a plan')
+    if (placedUndoText({ ...tapped, deleted: true }, card, field) !== null) throw new Error('offered to undo a removed workout')
+    // Decided when Undo is PRESSED, from the entries then (#101 review): closed, reopened
+    // within the six seconds and given a note, the workout is a log someone meant.
+    if (placedToUndo([tapped], tapped.id, card, field) !== tapped) throw new Error('Undo does not remove a workout that is still only the tap')
+    const noted = { ...tapped, data: { ...tapped.data, out: { activity: 'walk', notes: 'with the dog' } } }
+    if (placedToUndo([noted], tapped.id, card, field) !== null) throw new Error('a stale Undo removes a workout written on since')
+    if (placedToUndo([], tapped.id, card, field) !== null) throw new Error('Undo on a workout that is gone')
+    for (const f of ['src/tabs.jsx', '../mobile/src/features/tabs.tsx']) {
+      const src = readFileSync(new URL(`../${f}`, import.meta.url), 'utf8')
+      if (!/onClose=\{\(\) => closeSheet\(open\)\}/.test(src) || !/placedUndoText( as any\))?\(/.test(src)) {
+        throw new Error(`${f}: closing a just-placed sheet offers no Undo`)
+      }
+      if (!/placed\.current = hit\.id/.test(src)) throw new Error(`${f}: a placed entry is not remembered as placed`)
+      if (!/const now = \(placedToUndo( as any)?\)\(latest\.current, entry\.id/.test(src) || !/if \(now\) onUnplace\(now\)/.test(src)) {
+        throw new Error(`${f}: Undo removes the entry as it was at close, not as it is now`)
+      }
+      if (!/useEffect\(\(\) => \{ if \(sheet\) dropUndo\(\) \}, \[sheet\]\)/.test(src)) throw new Error(`${f}: reopening the row leaves its Undo up`)
+      if (!/useEffect\(\(\) => \(\) => dropUndo\(\), \[\]\)/.test(src)) throw new Error(`${f}: the Undo outlives Today`)
+    }
+    // The planner's "See it on Mon" is applied once, then cleared, so Today does not jump
+    // back to that day every time it mounts again (#101 review).
+    for (const [f, re] of [['src/App.jsx', /showDay=\{showDay\} onDayShown=\{\(\) => setShowDay\(null\)\}/],
+      ['../mobile/src/features/screens/TodayScreen.tsx', /showDay=\{showDay\} onDayShown=\{\(\) => setShowDay\(null\)\}/]]) {
+      if (!re.test(readFileSync(new URL(`../${f}`, import.meta.url), 'utf8'))) throw new Error(`${f}: the asked-for day is never cleared`)
+    }
+    for (const f of ['src/tabs.jsx', '../mobile/src/features/tabs.tsx']) {
+      const src = readFileSync(new URL(`../${f}`, import.meta.url), 'utf8')
+      if (!/if \(showDay\?\.date\) \{ setIso\(showDay\.date\); onDayShown\?\.\(\) \}/.test(src)) throw new Error(`${f}: Today does not hand the asked-for day back`)
+    }
+  }],
   ['TodayTab', <TodayTab plan={plan} entries={entries} upsertEntry={noop} deleteEntry={noop} />,
     (html) => {
       const t = text(html)

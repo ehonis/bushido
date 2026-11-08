@@ -14,8 +14,8 @@ import { LoadCalendar } from '../lib/viz'
 import { restStats } from '../lib/stats.js'
 import { totalSets } from './setlog'
 import { liftedLine, liftFieldIn } from '../lib/lifts.js'
-import { pushToast } from '../lib/toast'
-import { localIso, fromIso, isoShift, dayWords } from '../lib/dates.js'
+import { pushToast, dismissToast } from '../lib/toast'
+import { localIso, fromIso, isoShift, dayWords, dayPhrase } from '../lib/dates.js'
 import { metaText } from './metaline'
 import { isDone, extraEntryId, doneWhenPlaced, markDone } from '../lib/store.js'
 import { sessionOps } from '../lib/sessionops.js'
@@ -24,7 +24,7 @@ import { WorkoutRunner } from './runner'
 import { PlanWhy } from './planner'
 import { SessionSheet, runnable } from './sheet'
 import { optFor } from '../lib/menu.js'
-import { prescriptionLine, prescriptionSteps, runProgress } from '../lib/prescription.js'
+import { prescriptionLine, prescriptionSteps, runProgress, planProgress } from '../lib/prescription.js'
 import { hasWorkout } from '../lib/workout.js'
 import { minutesFor, loggedMinutes, resolveMinutes } from '../lib/minutes.js'
 import { levelFor } from '../lib/level.js'
@@ -37,6 +37,9 @@ import { withLine } from '../lib/shared.js'
 import { rememberSide } from './sharedwith'
 import { SidesWorkout, PeopleDays } from './trainer'
 import { QuickLog } from './quicklog'
+import { placedUndoText, placedToUndo } from '../lib/quicklog.js'
+import { UNDO_MS } from '../lib/sessionops.js'
+import { activityFieldOf } from './picker'
 import * as trainerLib from '../lib/trainer.js'
 
 // Default parameters in the ported JS narrow TypeScript's inference (mobile/AGENTS.md).
@@ -85,8 +88,10 @@ const AFTER_SHEET = 450
 export function TodayTab({
   plan, entries, upsertEntry, deleteEntry,
   openEntryId = null, onOpened = () => {},
-  onPlan = null, onLog = null, onRest = null, onViewDay = null,
+  onPlan = null, onLog = null, onRest = null, onViewDay = null, showDay = null, onDayShown = null,
 }: {
+  showDay?: { date: string; seq: number } | null
+  onDayShown?: (() => void) | null
   plan: any
   entries: any[]
   upsertEntry: (e: any) => void
@@ -100,6 +105,9 @@ export function TodayTab({
 }) {
   const today = todayIso()
   const [iso, setIso] = useState(today)
+  // A day asked for from elsewhere: the planner's "See it on Mon" (#94). Applied
+  // once and handed back, so Today does not jump to it again on its next mount.
+  useEffect(() => { if (showDay?.date) { setIso(showDay.date); onDayShown?.() } }, [showDay])
   // The + button logs onto the day being looked at, so it has to know which.
   useEffect(() => { onViewDay?.(iso) }, [iso])
   const isFuture = iso > today
@@ -221,6 +229,14 @@ export function TodayTab({
 
   // The entry a quick-log row on the empty day just placed, opened like the +'s.
   const [placed, setPlaced] = useState<string | null>(null)
+  /* A shared workout opened from someone's week (#94, D N4): the owner's own
+     sheet, on its day and on their side, the same sheet as a tap on its row. */
+  const [sheetFor, setSheetFor] = useState<string | null>(null)
+  const openShared = (own: any, personId: string) => {
+    rememberSide(own.id, personId)
+    if (own.date) setIso(own.date)
+    setSheetFor(own.id)
+  }
 
 
   return (
@@ -236,11 +252,13 @@ export function TodayTab({
         viewIso={iso} isFuture={isFuture}
         openEntryId={openEntryId || placed}
         onOpened={() => { setPlaced(null); onOpened() }}
+        openSheetId={sheetFor} onSheetOpened={() => setSheetFor(null)}
         // The same rows as the + menu (quicklog.tsx), placing on the day being
         // looked at and opening what they placed.
         quick={<QuickLog plan={plan} entries={entries} upsertEntry={upsertEntry} date={iso} onPlaced={setPlaced}
           style={{ alignSelf: 'stretch' }} />}
-        onLog={onLog ? () => onLog(iso) : null} onRest={onRest} />
+        onLog={onLog ? () => onLog(iso) : null} onRest={onRest}
+        onPlan={onPlan} onUnplace={deleteEntry ? (e: any) => deleteEntry(e.id) : null} />
 
       {/* Below the day, and compact: how the user arrived, what the services
           recorded that the log lacks, and someone else's day. Each renders
@@ -258,7 +276,8 @@ export function TodayTab({
 
       {/* The owner's window onto someone else's days, to coach without acting as
           them. Nothing for anyone else, while acting, or with one person. */}
-      <PeopleDays people={planPeople(currentMe())} date={iso} plan={plan} />
+      <PeopleDays people={planPeople(currentMe())} date={iso} plan={plan}
+        entries={entries} onOpenShared={openShared} />
 
       {/* Nothing logged yet, nothing to chart: a fresh install's calendar was
           one empty square under "0 days on" (#55). */}
@@ -340,8 +359,9 @@ const ROW_STATE: Record<string, { icon: string; label: string; color: string }> 
  * beside the chevron, the "planned" chip and the dashed "Log another workout",
  * which said what the + beside the dock already does.
  */
-function DayList({ rows, onOpen, isFuture, viewIso, onLog = null, onRest = null, quick = null }: {
+function DayList({ rows, onOpen, isFuture, viewIso, onLog = null, onRest = null, onPlan = null, quick = null }: {
   rows: any[]
+  onPlan?: (() => void) | null
   onOpen: (key: string) => void
   isFuture: boolean
   viewIso: string
@@ -350,7 +370,7 @@ function DayList({ rows, onOpen, isFuture, viewIso, onLog = null, onRest = null,
   quick?: React.ReactNode
 }) {
   if (!rows.length) {
-    return <EmptyDay isFuture={isFuture} viewIso={viewIso} onLog={onLog} onRest={onRest} quick={quick} />
+    return <EmptyDay isFuture={isFuture} viewIso={viewIso} onLog={onLog} onRest={onRest} onPlan={onPlan} quick={quick} />
   }
   return (
     <Card style={{ paddingVertical: space[1] }}>
@@ -379,15 +399,27 @@ function DayList({ rows, onOpen, isFuture, viewIso, onLog = null, onRest = null,
  * first, Log a workout as the one primary for anything else, a rest day as a
  * quiet button. No paragraph: the + is on screen, and planning lives behind it.
  */
-function EmptyDay({ isFuture, viewIso, onLog, onRest, quick }: {
+function EmptyDay({ isFuture, viewIso, onLog, onRest, onPlan = null, quick }: {
+  onPlan?: (() => void) | null
   isFuture: boolean
   viewIso: string
   onLog: (() => void) | null
   onRest: (() => void) | null
   quick: React.ReactNode
 }) {
+  /* A day still to come is planned, not logged: its one way in, worded with the
+     day the planner puts it on (#78, #94 A F8: "Nothing planned yet" was a dead end). */
   if (isFuture) {
-    return <Empty style={{ marginBottom: space[3] }}><T size={font.title} weight={600}>Nothing planned yet</T></Empty>
+    return (
+      <Empty style={{ marginBottom: space[3] }}>
+        <T size={font.title} weight={600} align="center">Nothing planned yet</T>
+        {onPlan ? (
+          <View style={{ alignSelf: 'stretch' }}>
+            <Btn kind="secondary" title={`Plan a workout for ${dayPhrase(viewIso)}`} onPress={onPlan} />
+          </View>
+        ) : null}
+      </Empty>
+    )
   }
   const words = dayWords(viewIso)
   const when = words === 'Today' || words === 'Yesterday' ? words.toLowerCase() : `on ${words}`
@@ -423,13 +455,32 @@ function DaySessions({
   plan, entries, mainEntry, extraEntries,
   onPickMain, onAddExtra, onRemove, onSaveOutputs, onSaveRun, onSavePlan,
   onSetDone, onSetTraining, viewIso, isFuture, onSaveEntry = null,
-  openEntryId = null, onOpened = () => {},
-  onLog = null, onRest = null, quick = null,
+  openEntryId = null, onOpened = () => {}, openSheetId = null, onSheetOpened = () => {},
+  onLog = null, onRest = null, onPlan = null, quick = null, onUnplace = null,
 }: any) {
   const [sheet, setSheet] = useState<string | null>(null)   // row key: 'main' | an extra entry id
   const [workout, setWorkout] = useState<string | null>(null) // same key, training in front of it
   const [workoutSide, setWorkoutSide] = useState<string | null>(null) // whose side a shared workout opens on
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The entry the sheet was opened on because a tap just wrote it (+ → Run, a pick
+  // in Log a workout), for the way back when it closes with nothing on it.
+  const placed = useRef<string | null>(null)
+  /*
+   * The Undo a just-placed sheet left on closing, and the entries as they are
+   * now (#101 review). Pressed, it removes the workout only if it is STILL just
+   * the tap (`placedToUndo`); it goes away once the workout is written on, its
+   * sheet is opened again, or this screen goes, so a stale Undo never takes a
+   * note typed since with it.
+   */
+  const undo = useRef<{ id: string; toast: number | null } | null>(null)
+  const latest = useRef(entries)
+  latest.current = entries
+  const dropUndo = () => {
+    if (undo.current?.toast != null) dismissToast(undo.current.toast)
+    undo.current = null
+  }
+  useEffect(() => () => dropUndo(), [])
+  useEffect(() => { if (sheet) dropUndo() }, [sheet])
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
   const later = (fn: () => void) => {
     if (timer.current) clearTimeout(timer.current)
@@ -454,9 +505,23 @@ function DaySessions({
     // workout" and then "put it on today"; a third tap to start it asks them to
     // confirm something they have already said twice.
     const toRunner = hit.data?.plan && runnable(null, hit.data.plan)
+    if (!toRunner) placed.current = hit.id
     later(() => (toRunner ? setWorkout(key) : setSheet(key)))
     onOpened()
   }, [openEntryId, mainEntry?.id, extraEntries.length])
+
+  // The sheet of an entry already on the day (a shared workout opened from
+  // someone's week): always the sheet, never the runner, and not a placement.
+  // After the week's full screen has gone (one modal at a time).
+  useEffect(() => {
+    if (!openSheetId) return
+    const hit = [mainEntry, ...extraEntries].find(e => e?.id === openSheetId)
+    if (!hit) return
+    placed.current = null
+    const key = hit.id === mainEntry?.id ? 'main' : hit.id
+    later(() => setSheet(key))
+    onSheetOpened()
+  }, [openSheetId, mainEntry?.id, extraEntries.length])
 
   const logged = optFor(menu, mainEntry?.data?.optId)
   const resting = logged?.role === 'rest'
@@ -478,6 +543,13 @@ function DaySessions({
     const p: any = (runProgress as any)(e.data.run, prescriptionSteps(e.data.plan))
     if (!p.total) return null
     return `${p.done} of ${p.total} sets`
+  }
+
+  /** "4 of 18 sets": a plan on its day with some sets ticked and some still to do. */
+  const inProgress = (e: any) => {
+    if (!e?.data?.plan || e.date !== todayIso() || e.data?.run?.endedAt || e.data?.undone === true) return null
+    const p: any = (planProgress as any)(e.data.plan)
+    return p.done > 0 && p.done < p.total ? `${p.done} of ${p.total} sets` : null
   }
 
   const extras = extraEntries
@@ -502,6 +574,10 @@ function DaySessions({
     const out = entry.data?.out || {}
     const me = currentMe()
     if (isRunning(entry)) return metaText([runLine(entry), (withLine as any)(entry, me.people)])
+    // A plan being done on its sheet, on its day: how far it has got ("4 of 18
+    // sets", like a run under way), not what has been logged so far (#94, A F7).
+    const going = inProgress(entry)
+    if (going) return metaText([going, (withLine as any)(entry, me.people), plannedLine(entry, me)])
     const bits: (string | null)[] = []
     if (!isDone(entry)) bits.push(entry.data?.undone === true ? 'Not done' : 'Planned')
     if (opt.role === 'rest') bits.push(...(restStats as any)(entry, opt))
@@ -557,6 +633,7 @@ function DaySessions({
    * to its sheet. Deciding here keeps `DayList` a list.
    */
   const openRow = (key: string) => {
+    placed.current = null
     const row = resolve(key)
     if (row?.entry && isRunning(row.entry)) setWorkout(key)
     else setSheet(key)
@@ -564,6 +641,40 @@ function DaySessions({
 
   const open = resolve(sheet)
   const training = workout ? resolve(workout) : null
+
+  // Written on since it closed (from here, another tab or another device): no Undo.
+  useEffect(() => {
+    const u = undo.current
+    if (u && !placedToUndo(entries, u.id, null, activityFieldOf(plan))) dropUndo()
+  }, [entries])
+
+  /*
+   * Closing the sheet. One a tap just wrote (+ → Run, a pick in Log a workout)
+   * and that is closed with nothing put on it says what was logged, with Undo
+   * (#94, A F3): before, a mis-tap left a done workout in the streak whose only
+   * way back was the bin and a confirm. Anything added makes it a log someone
+   * meant, and it closes as any sheet does.
+   */
+  const closeSheet = (row: any) => {
+    const id = placed.current
+    placed.current = null
+    setSheet(null)
+    const entry = row?.entry
+    if (!onUnplace || !entry || entry.id !== id) return
+    const words = (placedUndoText as any)(entry, row.opt, activityFieldOf(plan))
+    if (!words) return
+    dropUndo()
+    const opt = row.opt
+    const toast = pushToast(words, 'info', {
+      duration: UNDO_MS,
+      action: { label: 'Undo', icon: null, onClick: () => {
+        undo.current = null
+        const now = (placedToUndo as any)(latest.current, entry.id, opt, activityFieldOf(plan))
+        if (now) onUnplace(now)
+      } },
+    })
+    undo.current = { id: entry.id, toast }
+  }
 
   /**
    * Starting a workout is doing the session, so put it on the day if it isn't
@@ -638,7 +749,7 @@ function DaySessions({
   return (
     <>
       <DayList rows={rows} onOpen={openRow} isFuture={isFuture} viewIso={viewIso}
-        onLog={onLog} quick={quick}
+        onLog={onLog} onPlan={onPlan} quick={quick}
         // The day the user is LOOKING at, so a forgotten rest day can be logged
         // from the day it belongs to. Not a future one — resting is not a plan.
         onRest={onRest && viewIso <= localIso() ? () => onRest(viewIso) : null} />
@@ -657,7 +768,7 @@ function DaySessions({
           onTraining={open.entry && CASUAL_DISCIPLINES.includes(
             (disciplineFor as any)(open.opt, open.entry.data?.out))
             ? onSetTraining(open.entry, open.opt) : null}
-          onClose={() => setSheet(null)}
+          onClose={() => closeSheet(open)}
         />
       )}
     </>

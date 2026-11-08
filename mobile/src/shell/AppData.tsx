@@ -53,6 +53,9 @@ export interface AppData {
   dayLabel: (date: string | null) => string | null
   openEntryId: string | null
   setOpenEntryId: (id: string | null) => void
+  /** A day for Today to show, asked for from elsewhere (the planner's "See it on Mon", #94). */
+  showDay: { date: string; seq: number } | null
+  setShowDay: (d: { date: string; seq: number } | null) => void
   setTab: (t: TabId) => void
   placeAll: (items: { optId: string; data?: any }[], opts?: { open?: boolean; close?: boolean; date?: string }) => string[]
   placeToday: (optId: string, data?: any, opts?: { open?: boolean; close?: boolean; date?: string }) => string | null
@@ -107,6 +110,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const [fab, setFab] = useState<Fab>(null)
   const [openEntryId, setOpenEntryId] = useState<string | null>(null)
+  const [showDay, setShowDay] = useState<{ date: string; seq: number } | null>(null)
   const [menuFrom, setMenuFrom] = useState<string | null>(null)
   const openMenu = (fromTab: string) => { setMenuFrom(fromTab); setFab('menu') }
 
@@ -229,7 +233,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const value: AppData = {
     store, plan, reloadPlan: loadPlan, me, fab, setFab, openMenu, menuFrom, viewDay, setViewDay,
-    logAt, openLog, dayLabel, openEntryId, setOpenEntryId, setTab,
+    logAt, openLog, dayLabel, openEntryId, setOpenEntryId, showDay, setShowDay, setTab,
     placeAll, placeToday, keepPlan, startPlanned, placeCircuit, logCircuit, people, keepPlanFor: keepPlanForPerson, shareKeptWith,
     restOpt, restOn, restDate, askRest, takeRest,
   }

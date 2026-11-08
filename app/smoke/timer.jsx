@@ -3,6 +3,7 @@
  * unchanged and in their old relative order. A case is [name, element | null, assert?].
  */
 import { renderToString } from 'react-dom/server'
+import { readFileSync } from 'node:fs'
 import { PlanProvider } from '../src/lib/planctx.jsx'
 import { TimerSetup, TimerRun, timerRequestFor } from '../src/timer.jsx'
 import {
@@ -13,7 +14,52 @@ import {
   plan, entries, noop, text, HELD_PLAN,
 } from './fixtures.jsx'
 
+const src = (f) => readFileSync(new URL(`../${f}`, import.meta.url), 'utf8')
+
 export default [
+  /* The setup's exit is the X at the top left, as on every workout screen (#75; #94, B F6). */
+  ['TimerSetup(the exit is the X at the top left, before the title)', null, () => {
+    const html = renderToString(<TimerSetup presets={[]} onStart={noop} onClose={noop} />)
+    const head = (html.match(/<header class="it-head">([\s\S]*?)<\/header>/) || [])[1] || ''
+    const x = head.indexOf('aria-label="Close the timer"'), name = head.indexOf('Interval timer')
+    if (x < 0 || !(x < name)) throw new Error('the setup\u2019s X is not at the top left')
+    const native = src('../mobile/src/features/timer.tsx')
+    const setup = native.slice(native.indexOf('function TimerSetup'))
+    const nx = setup.indexOf('label="Close the timer"'), nn = setup.indexOf('>Interval timer<')
+    if (nx < 0 || !(nx < nn)) throw new Error('the phone\u2019s setup X is not at the top left')
+  }],
+  /*
+   * THE TIMER COMES BACK TO THE SHEET (#94, F N2). iOS presents one modal at a
+   * time: the row closed the sheet and the timer's close left Today. Now the
+   * sheet hides (`Modal hidden`), opens the timer once it has gone (`onDismiss`),
+   * and comes back where it was scrolled on `onReturn`. On the web the sheet
+   * stays under the timer. Native frames, so pinned in the source.
+   */
+  ['TimerHost(native: the sheet steps aside and comes back; every full-screen workout has its own toasts)', null, () => {
+    const timer = src('../mobile/src/features/timer.tsx')
+    if (!/export function closeTimer\(\) \{\s*const back = request\?\.onReturn/.test(timer)) throw new Error('closing the timer goes back to nothing')
+    const sheet = src('../mobile/src/features/sheet.tsx')
+    if (/onClose\(\); openTimerAfterSheet/.test(sheet)) throw new Error('the timer row throws the sheet away again')
+    if (!/hidden=\{timing\}/.test(sheet) || !/onReturn: \(\) => setTiming\(false\)/.test(sheet)) throw new Error('the sheet does not come back from the timer')
+    const frame = src('../mobile/src/ui/Sheet.tsx')
+    if (!/visible=\{!hidden\}/.test(frame) || !/onDismiss=\{hidden \? onHidden : undefined\}/.test(frame) || !/contentOffset=\{offset\}/.test(frame)) {
+      throw new Error('Modal cannot step aside and come back at its scroll position')
+    }
+    for (const [f, n] of [['timer', 1], ['runner', 2], ['workout', 1], ['trainer', 1]]) {
+      const s = src(`../mobile/src/features/${f}.tsx`)
+      const modals = (s.match(/<RNModal visible animationType="slide" presentationStyle="fullScreen"/g) || []).length
+      const hosts = (s.match(/<ToastHost \/>\s*<\/GestureHandlerRootView>\s*<\/RNModal>/g) || []).length
+      if (modals !== n || hosts !== n) throw new Error(`${f}.tsx: ${modals} full-screen modals, ${hosts} with their own toasts`)
+    }
+    const runner = src('../mobile/src/features/runner.tsx')
+    if (/useKeyboardUp|keyboardWillHide/.test(runner) || !/const typing = useKeyboardShown\(\)/.test(runner)) {
+      throw new Error('the runner\u2019s actions come back while the keys are still leaving')
+    }
+    const css = src('src/css/runner.css')
+    if (!/@media \(pointer: coarse\) \{\s*\.run:has\(\.run-body input:focus\) \.run-acts \{ display: none; \}/.test(css)) {
+      throw new Error('on a touch screen the runner\u2019s Start sits under a focused box')
+    }
+  }],
   ['TimerSetup(the default first, saved presets after, a climbing card\'s timer offered as one)', null, () => {
     const card = plan.dailyMenu.find(m => m.id === 'max-hangs')
     const entries = [

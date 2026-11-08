@@ -3,7 +3,7 @@
  * unchanged and in their old relative order. A case is [name, element | null, assert?].
  */
 import { renderToString } from 'react-dom/server'
-import { isoShift, dayWords } from '../src/lib/dates.js'
+import { isoShift, dayWords, dayPhrase } from '../src/lib/dates.js'
 import { readFileSync } from 'node:fs'
 import { Modal, isTextEntry, footerShown, sheetDismissable, EDIT_SETTLE_MS } from '../src/modal.jsx'
 import { SessionSheet, planTalkWhere } from '../src/sheet.jsx'
@@ -13,7 +13,7 @@ import { WorkoutRunner } from '../src/runner.jsx'
 import { climbingFolders } from '../src/lib/folders.js'
 import { normalizePrescription, emptyRun, setCircuit, tickSet } from '../src/lib/prescription.js'
 import { PlanProvider } from '../src/lib/planctx.jsx'
-import { SessionLog, NameField, SessionDetails } from '../src/sessionlog.jsx'
+import { SessionLog, NameField, SessionDetails, DetailsSheet, NOTE_HINTS } from '../src/sessionlog.jsx'
 import { SetLog, withoutClimb, withClimbBack } from '../src/setlog.jsx'
 import { ExerciseCard, implementPick } from '../src/exercises.jsx'
 import { liftFieldOf } from '../src/lib/lifts.js'
@@ -22,7 +22,9 @@ import { HowSheet, MovesList, HowRow } from '../src/howto.jsx'
 import { FIGURES, hasFigure } from '../src/lib/figures.jsx'
 import { resolveCeiling, ceilingState } from '../src/lib/force.js'
 import { hasWorkout } from '../src/lib/workout.js'
-import { TimerHost, openTimer, closeTimer, timerRequestFor } from '../src/timer.jsx'
+import { TimerHost, openTimer, closeTimer, timerRequestFor, TimerSetup } from '../src/timer.jsx'
+import { ToastList, toastTop } from '../src/toast.jsx'
+import { DoneChip, doneChipLabel } from '../src/sheetparts.jsx'
 import { BUILT_INS } from '../src/lib/timer.js'
 import {
   plan, example, entries, noop, otherCard, priorLifts, TODAY, back, rich, noteHistory,
@@ -49,29 +51,96 @@ export default [
     if (!t.includes(opt.name)) throw new Error('the sheet is not about the session it was handed')
   }],
   /*
-   * The pencil and the bin, beside the X: delete sits at the top near the close
-   * button, behind a confirmation screen, with an edit pencil next to it. The
-   * thing they replaced was two text links at the very bottom of the form, which
-   * is a long scroll to do something irreversible.
-   *
-   * The pencil grew from "rename" to the whole of `SessionDetails`: everything
-   * below the WHOOP and Strava blocks, except the notes and "how hard was it",
-   * moved into the edit modal.
+   * THE HEADER IS EDIT AND CLOSE; REMOVE IS IN EDIT (#94, C N13). The bin used
+   * to sit in the header beside the pencil and the X (three 44px buttons 12px
+   * apart), and on a day still to come, with no pencil, right beside the X. It
+   * replaced two text links at the very foot of the form, a long scroll to do
+   * something irreversible; it now sits at the foot of the pencil's panel, which
+   * holds everything set once about the workout, two layers and a question from
+   * the X. Pinned from both sides: no bin in the sheet's header, and Remove
+   * workout in the panel, worded, asking first.
    */
-  ['SessionSheet(edit and remove live in the header)', null, () => {
+  ['SessionSheet(the header is Edit and Close: no bin beside the X, on today or a day to come)', null, () => {
     const opt = plan.dailyMenu.find(m => m.id === 'log-workout')
     const entry = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
       data: { slot: 'main', optId: opt.id, level: 2, name: 'Ride', minutes: 45, out: { activity: 'bike' } } }
+    const head = (html) => (html.match(/<header class="modal-head[^"]*">([\s\S]*?)<\/header>/) || [])[1] || ''
     const html = renderToString(
       <SessionSheet opt={opt} entry={entry} tone="rec" entries={rich} isFuture={false}
         onLog={noop} onSave={noop} onSetDone={noop} onRemove={noop} onClose={noop} />)
-    if (!/aria-label="Edit this workout"/.test(html)) throw new Error('no pencil beside the X')
-    if (!/aria-label="Remove workout"/.test(html)) throw new Error('no remove button beside the X')
-    // And the old footer link is gone, so there is exactly one way to do it.
-    if (/Remove workout<\/button>/.test(html.replace(/aria-label="Remove workout"[^>]*>/, '')) &&
-        /linkbtn extra-rm/.test(html)) {
-      throw new Error('the footer remove link survived')
+    if (!/aria-label="Edit this workout"/.test(head(html))) throw new Error('no pencil in the header')
+    if (/Trash2|Remove workout|modal-btn danger/.test(head(html))) throw new Error('the bin is back in the header beside the X')
+    if (/linkbtn extra-rm/.test(html)) throw new Error('the footer remove link survived')
+    const later = isoShift(TODAY, 2)
+    const future = renderToString(<PlanProvider plan={plan}>
+      <SessionSheet opt={PLANNED_CARD} entry={{ ...PLANNED_ENTRY, id: `daily-${later}`, date: later }} entries={rich} isFuture
+        onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onRemove={noop} onClose={noop} />
+    </PlanProvider>)
+    if (/Remove workout|Trash2/.test(head(future))) throw new Error('a day still to come has the bin beside the X')
+    if (!/aria-label="Edit this workout"/.test(head(future))) throw new Error('a day still to come has no way to its name and Remove')
+  }],
+  ['DetailsSheet(Remove workout at its foot, worded; no footer "Done"; the name hint is the title on the sheet)', null, () => {
+    const draw = (props) => renderToString(<PlanProvider plan={plan}>
+      <DetailsSheet session={PLANNED_CARD} entry={PLANNED_ENTRY} entries={rich} onSave={noop} onClose={noop} {...props} />
+    </PlanProvider>)
+    const html = draw({ onRemove: noop })
+    if (!/class="details-remove"[\s\S]*Remove workout/.test(html)) throw new Error('no Remove workout in Edit this workout')
+    if (/<footer/.test(html)) throw new Error('Edit this workout has a footer (its "Done" was a Close)')
+    if (/>Done<\/button>/.test(html)) throw new Error('a second control called Done on the sheet')
+    const head = (html.match(/<header[\s\S]*?<\/header>/) || [''])[0]
+    if (/Remove|Trash2/.test(head)) throw new Error('Remove sits in the panel\u2019s header beside its X')
+    if (/details-remove/.test(draw({}))) throw new Error('Remove offered where the caller cannot remove')
+    const title = PRESCRIPTION.title
+    if (!new RegExp(`class="out-name-box"[^>]*placeholder="${title}"`).test(html)) {
+      throw new Error(`the name box's hint is not "${title}", the title the sheet shows`)
     }
+    if (/placeholder="Planned workout"/.test(html)) throw new Error('the name box offers the card\u2019s name over the plan\u2019s')
+    const future = draw({ onRemove: noop, future: true })
+    if (/Time spent|out-casual/.test(future)) throw new Error('a day still to come asks how long it took')
+  }],
+  ['SessionLog(the note boxes hint, short and about no sport; never a climb written out as if logged)', null, () => {
+    const lift = plan.dailyMenu.find(m => m.id === 'log-workout')
+    const entry = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z', data: { optId: lift.id, out: { activity: 'lift' } } }
+    const html = renderToString(<SessionLog session={lift} entry={entry} entries={[]} onSave={noop} />)
+    if (/rowed 10 min|knee grumbled|problem 3|chalking/.test(html)) throw new Error('the old example notes are back')
+    for (const h of Object.values(NOTE_HINTS)) {
+      if (!html.includes(`placeholder="${h}"`)) throw new Error(`no "${h}" hint`)
+      if (h.length > 30 || /climb|grade|problem|run|ride|lift/i.test(h)) throw new Error(`"${h}" is long or about a sport`)
+    }
+    const css = readFileSync(new URL('../src/css/sheet.css', import.meta.url), 'utf8')
+    if (!/\.notefield textarea::placeholder \{ font-size: var\(--fs-label\); \}/.test(css)) throw new Error('the hint is body-sized, like a note')
+  }],
+  ['DoneChip(named by what is true and what a tap does, never a bare "Done")', null, () => {
+    const on = renderToString(<DoneChip done onToggle={noop} />)
+    if (!/aria-label="Done, mark undone"/.test(on) || !/>Done</.test(on)) throw new Error('the done chip is not "Done, mark undone"')
+    if (!/aria-label="Sam: Not done, mark done"/.test(renderToString(<DoneChip done={false} whose="Sam" onToggle={noop} />))) {
+      throw new Error('someone else\u2019s chip does not say whose and what a tap does')
+    }
+    if (doneChipLabel(true) === 'Done') throw new Error('the chip is named "Done", like the menus\u2019 close')
+  }],
+  /*
+   * TOASTS UNDER THE TOPMOST HEADER (#94, A F10, B F4). On the web the deck sat
+   * at a fixed 60px, over an open sheet's header: its ✕ landed where the sheet's
+   * Close is. The phone starts its deck under the sheet's header; the web now
+   * measures the header on top and starts under it.
+   */
+  ['toastTop(under the last header laid out; nothing open, the CSS place) and ToastList(top)', null, () => {
+    const head = (bottom, height = 60) => ({ getBoundingClientRect: () => ({ top: bottom - height, bottom, height }) })
+    const doc = (heads) => ({ querySelectorAll: (sel) => (/\.modal-head/.test(sel) && /\.wk-head/.test(sel) && /\.it-head/.test(sel) ? heads : []) })
+    const H = 844
+    if (toastTop(doc([head(120)]), H)?.top !== 128) throw new Error('the deck does not start under the sheet\u2019s header')
+    if (toastTop(doc([head(120), head(200)]), H)?.top !== 208) throw new Error('a sheet over a sheet: not under the top one')
+    if (toastTop(doc([head(120), head(0, 0)]), H)?.top !== 128) throw new Error('a hidden header (a side not on screen) was measured')
+    if (toastTop(doc([]), H) !== null || toastTop(null, H) !== null) throw new Error('with nothing open the deck is not left to the CSS')
+    // Edit this workout at 390: a bottom panel whose header starts at 476 of 844. Under
+    // it the deck covered the Name box; it goes above the panel instead (#101 review).
+    const low = toastTop(doc([head(120), head(536, 60)]), H)
+    if (low?.bottom !== H - 476 + 8 || low.top != null) throw new Error(`a low panel's deck is ${JSON.stringify(low)}, not above the panel`)
+    const list = renderToString(<ToastList toasts={[{ id: 1, text: 'Removed Pull', kind: 'info', count: 1 }]} at={{ top: 128 }} />)
+    if (!/class="toasts" style="top:128px"/.test(list)) throw new Error('the deck is not placed where it was measured')
+    const above = renderToString(<ToastList toasts={[{ id: 1, text: 'x', kind: 'info', count: 1 }]} at={{ bottom: 376 }} />)
+    if (!/class="toasts" style="top:auto;bottom:376px"/.test(above)) throw new Error('the deck is not placed above a low panel')
+    if (/style=/.test(renderToString(<ToastList toasts={[{ id: 1, text: 'x', kind: 'info', count: 1 }]} />))) throw new Error('a deck with no header moved off the CSS place')
   }],
   // Every menu entry has to survive being read in all three viewers: the picker
   // dialog, the day-list sheet, and the fullscreen page. These are where a bad
@@ -917,18 +986,6 @@ export default [
     const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
     if (!/\.fs\[data-editing\] \.plan-actions\.sticky \{ display: none; \}/.test(css)) throw new Error('the planner’s sticky bar stays up while typing')
   }],
-  /* The header (#77): the bin is never beside the X; the pencil sits between them. */
-  ['SessionSheet(header: bin, pencil, then the X)', null, () => {
-    const html = renderToString(
-      <PlanProvider plan={plan}>
-        <SessionSheet opt={PLANNED_CARD} entry={PLANNED_ENTRY} tone="rec" entries={rich} isFuture={false}
-          onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onRemove={noop} onClose={noop} />
-      </PlanProvider>)
-    const head = (html.match(/<header class="modal-head[^"]*">([\s\S]*?)<\/header>/) || [])[1] || ''
-    const at = (re) => head.search(re)
-    const bin = at(/aria-label="Remove workout"/), pencil = at(/aria-label="Edit this workout"/), x = at(/aria-label="Close"/)
-    if (!(bin >= 0 && pencil > bin && x > pencil)) throw new Error(`header order bin ${bin}, pencil ${pencil}, close ${x}`)
-  }],
   /*
    * THE HEADER AT 390 (#82, from #91's review). For any day older than yesterday
    * the line under the title ("Wed, Nov 4 · 3 exercises") wrapped beside the bin,
@@ -947,8 +1004,10 @@ export default [
         <SessionSheet opt={PLANNED_CARD} entry={entry} tone="rec" entries={rich} isFuture={false}
           onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onRemove={noop} onRename={noop} onClose={noop} />
       </PlanProvider>)
-    const head = (html.match(/<header class="modal-head full">([\s\S]*?)<\/header>/) || [])[1]
-    if (!head) throw new Error('a header with both the bin and the pencil is not marked full')
+    // The bin went into Edit (#94), so the header is the pencil and the X, and the
+    // icon well stays: there is room for it at 390 beside two buttons.
+    const head = (html.match(/<header class="modal-head">([\s\S]*?)<\/header>/) || [])[1]
+    if (!head) throw new Error('the header is marked full with only the pencil and the X')
     const row = (head.match(/^<div class="modal-headrow">([\s\S]*?)<\/div><div class="modal-status">/) || [])[1]
     if (!row) throw new Error('the state row is not its own row under the title row')
     if (/done-chip/.test(row)) throw new Error('the done chip is squeezed into the title row')
@@ -1162,7 +1221,7 @@ export default [
     }
     // Running is Today's: history offers no Start.
     if (/Start workout|Carry on/.test(fromLog)) throw new Error('the Log offers to start a workout')
-    if (!/aria-label="Remove workout"/.test(fromLog) || /from today/.test(fromLog)) throw new Error('an earlier day’s bin says "from today"')
+    if (/from today/.test(fromLog)) throw new Error('an earlier day’s remove says "from today"')
   }],
   ['SessionLog(a planned entry: no second "What did you lift?"; rows a run logged still show)', null, () => {
     const bare = renderToString(<SessionLog session={PLANNED_CARD} entry={PLANNED_ENTRY} entries={[]} onSave={noop} />)

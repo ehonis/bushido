@@ -185,14 +185,16 @@ export function TimerSetup({ title, presets, onStart, onSave = null, onDelete = 
 
   return (
     <div className="it it-setup" role="dialog" aria-modal="true" aria-label="Interval timer">
+      {/* The exit at the top left, as on every workout screen (#75, #94 B F6): it
+          was the one X on the right. */}
       <header className="it-head">
+        <button className="iconbtn it-exit" onClick={onClose} aria-label="Close the timer">
+          <Icon name="X" size={20} />
+        </button>
         <div className="it-title">
           <div className="it-name">Interval timer</div>
           {title && <div className="it-sub">{title}</div>}
         </div>
-        <button className="iconbtn" onClick={onClose} aria-label="Close the timer">
-          <Icon name="X" size={20} />
-        </button>
       </header>
 
       <div className="it-body">

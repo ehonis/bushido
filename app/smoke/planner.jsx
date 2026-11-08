@@ -3,8 +3,9 @@
  * unchanged and in their old relative order. A case is [name, element | null, assert?].
  */
 import { renderToString } from 'react-dom/server'
+import { readFileSync } from 'node:fs'
 import {
-  PlanFlow, KeptStep, PlanTalk, BuildStep, groupedKinds, DraftList, Working, KindChips,
+  PlanFlow, KeptStep, seeWords, PlanTalk, BuildStep, groupedKinds, DraftList, Working, KindChips,
   AskStep, MinuteChips, PlanDay, WORKING_LINE, FileAs,
 } from '../src/planner.jsx'
 import { blankFor, fileChoices } from '../src/lib/planflow.js'
@@ -361,6 +362,25 @@ export default [
       // sentence becomes a lie and the test is the only thing that would say so.
       if (!/Nothing has started/.test(t)) throw new Error('it does not say the clock is not running')
     }],
+  /*
+   * KEPT FOR A LATER DAY (#94, C N15): a plan for Monday offered Plan another and
+   * Back to today, and no way to open it. "See it on Mon" takes Today to it, in
+   * Back to today's place. The parts' line sits apart from the last card.
+   */
+  ['KeptStep(a later day: "See it on <day>" in Back to today\'s place; the line apart from the cards)', null, () => {
+    const later = text(renderToString(<KeptStep pres={PRESCRIPTION} onStart={null} onAnother={noop} onDone={noop}
+      onSee={noop} seeLabel="See it on Mon, Nov 9" />))
+    if (!later.includes('See it on Mon, Nov 9')) throw new Error('no way to the day it was put on')
+    if (/Back to today/.test(later)) throw new Error('two ways out where one goes to the workout')
+    if (seeWords('2026-11-09', '2026-11-08') !== 'See it tomorrow') throw new Error(`"${seeWords('2026-11-09', '2026-11-08')}", not "See it tomorrow"`)
+    if (!/^See it on \S/.test(seeWords('2026-11-12', '2026-11-08'))) throw new Error('a later day is not "See it on <day>"')
+    const css = readFileSync(new URL('../src/css/planner.css', import.meta.url), 'utf8')
+    if (!/\.kept-parts \+ p\.sub \{ margin-top: var\(--sp-4\); \}/.test(css)) throw new Error('"Nothing has started." sits on the last card')
+    for (const f of ['src/planner.jsx', '../mobile/src/features/planner.tsx']) {
+      const src = readFileSync(new URL(`../${f}`, import.meta.url), 'utf8')
+      if (!/onSee=\{onShowDay && kept\.who\?\.me !== false && kept\.date && kept\.date > f\.today/.test(src)) throw new Error(`${f}: no "See it on" for a plan kept for a later day`)
+    }
+  }],
   ['KeptStep(kept, but nothing to start)',
     <KeptStep pres={PRESCRIPTION} onStart={null} onAnother={noop} onDone={noop} />,
     (html) => {

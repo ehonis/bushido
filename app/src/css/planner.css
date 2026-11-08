@@ -204,6 +204,8 @@
 /* Only the paragraph is centred. `.kept .sub` also matched the sub-line inside
    each named part, and `margin: 0 auto` centred it under a left-aligned title. */
 .kept > p.sub { max-width: 30em; margin: 0 auto; }
+/* Apart from the cards above it, so it reads as the screen's line, not a card's (#94, C N15). */
+.kept-parts + p.sub { margin-top: var(--sp-4); }
 .kept-acts { display: grid; gap: var(--sp-2); margin-top: var(--sp-8); }
 .kept-acts .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2);

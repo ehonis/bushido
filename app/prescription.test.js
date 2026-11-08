@@ -20,7 +20,7 @@ import {
   splitPrescription, moveItem, isLiftOnly,
   blankPrescription, appendPiece, dropEmptyBlocks, patchItem, reviseWeightModes, followWeightModes, patchRunItem,
   measureOfItem, addBlock, renameBlock, noteBlock, removeBlock, moveBlock, tickSet, setTicked, itemTicked, firstUnticked,
-  patchBlock,
+  patchBlock, planProgress, doingMove,
 } from './src/lib/prescription.js'
 import { liftVolume, liftsIn, liftSummary, rememberedWeightMode, liftsDone } from './src/lib/lifts.js'
 import { createRequire } from 'node:module'
@@ -1097,6 +1097,26 @@ t('a tick on a plan for today makes it the log: liftsDone sees the ticked set', 
   assert.equal(rows.length, 1)
   assert.equal(rows[0].sets.length, 1, 'only the ticked set')
   assert.equal(Number(rows[0].sets[0].weight), 90)
+})
+
+/* #94: a plan in progress says how far it has got, and doing mode moves on. */
+t('planProgress counts ticked sets out of every set (the Today row: "4 of 18 sets")', () => {
+  const p = threeBlocks()
+  const all = planProgress(p)
+  assert.ok(all.total > 1, 'the fixture has sets')
+  assert.equal(all.done, 0, 'nothing ticked yet')
+  const one = planProgress(tickSet(p, 'b1i0', 'b1i0s0', true))
+  assert.deepEqual(one, { done: 1, total: all.total })
+  assert.deepEqual(planProgress(null), { done: 0, total: 0 })
+})
+
+t('doingMove: the card just finished folds; the card that just became next is revealed', () => {
+  assert.deepEqual(doingMove({ finished: false, focus: true }, { finished: true, focus: false }), { fold: true, reveal: false })
+  assert.deepEqual(doingMove({ finished: false, focus: false }, { finished: false, focus: true }), { fold: false, reveal: true })
+  // Nothing moves on a write that changed neither, nor on one that unticked a finished card.
+  assert.deepEqual(doingMove({ finished: true, focus: false }, { finished: true, focus: false }), { fold: false, reveal: false })
+  assert.deepEqual(doingMove({ finished: true, focus: false }, { finished: false, focus: true }), { fold: false, reveal: true })
+  assert.deepEqual(doingMove({ finished: false, focus: true }, { finished: false, focus: true }), { fold: false, reveal: false })
 })
 
 console.log(`prescription: ${pass} checks passed`)

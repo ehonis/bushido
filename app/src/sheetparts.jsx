@@ -22,11 +22,15 @@ import { UNDO_MS } from './exercises.jsx'
  * top of the sheet, a flip says what it did in a toast with Undo, and a flip of
  * someone else's copy says whose.
  */
+/** The chip's name: what is true, then what a tap does, so it is never a bare "Done" (#94, D N7). */
+export const doneChipLabel = (done, whose = null) =>
+  `${whose ? `${whose}: ` : ''}${done ? 'Done' : 'Not done'}, ${done ? 'mark undone' : 'mark done'}`
+
 export function DoneChip({ done, whose = null, onToggle }) {
   const said = done ? 'Done' : 'Not done'
   return (
     <button type="button" className={`done-chip ${done ? 'on' : ''}`} role="switch" aria-checked={done}
-      aria-label={whose ? `${whose}: ${said}` : said} title={done ? 'Mark undone' : 'Mark done'} onClick={onToggle}>
+      aria-label={doneChipLabel(done, whose)} title={done ? 'Mark undone' : 'Mark done'} onClick={onToggle}>
       <Icon name={done ? 'CircleCheck' : 'Circle'} size={16} />
       <span>{said}</span>
     </button>

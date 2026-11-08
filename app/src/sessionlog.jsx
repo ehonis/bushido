@@ -23,6 +23,7 @@ import { quickNames, titleOf, nameFor, rename, titleFor } from './lib/naming.js'
 import { GearPicker } from './gearpicker.jsx'
 import { WhoopWorkouts } from './whoop.jsx'
 import { StravaActivities } from './strava.jsx'
+import { dayWords } from './lib/dates.js'
 
 /* --------------------------------------------------------------- notes --- */
 
@@ -33,13 +34,9 @@ import { StravaActivities } from './strava.jsx'
  */
 export { priorSessions, priorIdsOf } from './lib/history.js'
 
-const dayLabel = (iso) => {
-  const days = Math.round((Date.now() - new Date(`${iso}T12:00:00`)) / 86400000)
-  if (days <= 0) return 'earlier today'
-  if (days === 1) return 'yesterday'
-  if (days < 14) return `${days} days ago`
-  return iso
-}
+/* One date format on the sheet (#94, A F6): the day in words, as the header and
+   "last time" say it ("Yesterday", "Sat, Oct 24"), never "2026-10-20" beside "yesterday". */
+const dayLabel = (iso) => dayWords(iso)
 
 /**
  * "3 sets, 21 reps · 5.10+" — what the session itself was, off what was logged.
@@ -108,6 +105,15 @@ export function PriorNote({ entries, session, excludeId, entry = null, all = fal
     </div>
   )
 }
+
+/**
+ * What the two note boxes say while they are empty (#94, A F5, B F13): a hint,
+ * short and about no sport in particular. They were a warm-up row and a climbing
+ * problem written out as if logged ("rowed 10 min to warm up; left knee grumbled
+ * on the last set", "drop a grade on problem 3"), on a lift workout too, in body
+ * text that read as something already written down.
+ */
+export const NOTE_HINTS = { notes: 'Anything worth remembering', improve: 'One thing to change' }
 
 /**
  * Free text saves on a timer rather than per keystroke — the store rewrites its
@@ -206,7 +212,7 @@ function Yours({ value }) {
  */
 const NAMES_SHOWN = 6
 
-export function NameField({ session, out, onChange }) {
+export function NameField({ session, out, plan: pres = null, onChange }) {
   const plan = usePlan()
   const mine = titleOf(out)
   const [draft, setDraft] = useState(mine || '')
@@ -226,7 +232,9 @@ export function NameField({ session, out, onChange }) {
   useEffect(() => { setDraft(mine || '') }, [mine])
 
   const names = quickNames(plan, session, out)
-  const otherwise = nameFor(session, { ...out, title: undefined }) || session?.name || ''
+  // What the sheet's header calls it without a name of its own: a planned workout
+  // is its plan's title ("Pull"), never the card's "Planned workout" (#94, A F9).
+  const otherwise = titleFor(session, { ...out, title: undefined }, pres) || nameFor(session, { ...out, title: undefined }) || session?.name || ''
   const pick = (name) => { setDraft(name === mine ? '' : name); commit.current(name === mine ? '' : name) }
 
   const chip = (name) => (
@@ -362,7 +370,7 @@ function TimeSpent({ session, out, onChange }) {
  * `onTraining` is absent where the question is nonsense — a commute is a ride,
  * not a set of max hangs — and then the toggle simply is not there.
  */
-export function SessionDetails({ session, entry, entries, onSave, training, onTraining = null }) {
+export function SessionDetails({ session, entry, entries, onSave, training, onTraining = null, future = false }) {
   const out = entry?.data?.out || {}
   // Pruned on the way in exactly as the form does it, so a value corrected here
   // cannot leave a hidden field's answer behind. See lib/outputs.js.
@@ -375,7 +383,10 @@ export function SessionDetails({ session, entry, entries, onSave, training, onTr
         * Blank is not nameless: the box is EMPTY with the session's current name
         * as its placeholder, so clearing it hands the default back. See NameField.
         */}
-      <NameField session={session} out={out} onChange={v => onSave(rename(out, v))} />
+      <NameField session={session} out={out} plan={entry?.data?.plan || null} onChange={v => onSave(rename(out, v))} />
+
+      {/* A day still to come has a name and nothing done on it yet. */}
+      {!future && (<>
 
       {/*
         * What it was done on. App-level rather than declared per session, because
@@ -410,6 +421,7 @@ export function SessionDetails({ session, entry, entries, onSave, training, onTr
       {!asksItsOwnDuration(session) && (
         <TimeSpent session={session} out={out} onChange={v => set('minutesSpent', v)} />
       )}
+      </>)}
     </div>
   )
 }
@@ -427,19 +439,53 @@ export function SessionDetails({ session, entry, entries, onSave, training, onTr
  * A Modal on top of a Modal works because `useModalLayer` counts rather than
  * flags: the first one to close must not unlock the page under the second.
  */
+/*
+ * NO FOOTER (#94, A F9, D N7). Its "Done" was Close in a footer (#77 took those
+ * off every sheet: everything here saves as it is typed, and the header X
+ * closes), and it was the second control called Done on the sheet, beside the
+ * done chip that marks the workout done.
+ *
+ * REMOVE LIVES HERE (#94, C N13). The bin sat in the sheet's header beside the
+ * pencil and the X, three 44px buttons 12px apart, and on a day still to come,
+ * with no pencil, right beside the X. Removing a workout is set-once like the
+ * rest of this panel, so it is a worded button at its foot, two layers and a
+ * question from the X, and the sheet's header is Edit and Close only.
+ */
 export function DetailsSheet({
   session, entry, entries, onSave, onClose, training, onTraining = null, planTalk = null,
+  onRemove = null, future = false,
 }) {
+  const [confirming, setConfirming] = useState(false)
   return (
     <Modal title="Edit this workout"
       sub={titleFor(session, entry?.data?.out, entry?.data?.plan)}
-      icon="Pencil" onClose={onClose}
-      footer={<button className="btn" onClick={onClose}>Done</button>}>
-      {/* Asking the model to change a planned workout (#79): planning, so here,
-          one layer up from the sets, while the workout is being done. */}
-      {planTalk}
-      <SessionDetails session={session} entry={entry} entries={entries} onSave={onSave}
-        training={training} onTraining={onTraining} />
+      icon="Pencil" onClose={onClose}>
+      {confirming ? (
+        <div className="confirm">
+          <span className="confirm-ico"><Icon name="TriangleAlert" size={34} /></span>
+          <h3>Remove workout?</h3>
+          <p className="sub">It comes off the day and out of your training load. Anything you logged on it goes with it.</p>
+          <div className="confirm-acts">
+            <button type="button" className="btn secondary" onClick={() => setConfirming(false)}>Keep it</button>
+            <button type="button" className="btn destructive" onClick={() => { setConfirming(false); onClose(); onRemove(entry) }}>
+              <Icon name="Trash2" size={16} /> Remove
+            </button>
+          </div>
+        </div>
+      ) : (<>
+        {/* Asking the model to change a planned workout (#79): planning, so here,
+            one layer up from the sets, while the workout is being done. */}
+        {planTalk}
+        <SessionDetails session={session} entry={entry} entries={entries} onSave={onSave}
+          training={training} onTraining={onTraining} future={future} />
+        {onRemove && (
+          <div className="details-remove">
+            <button type="button" className="btn secondary details-remove-btn" onClick={() => setConfirming(true)}>
+              <Icon name="Trash2" size={16} /> Remove workout
+            </button>
+          </div>
+        )}
+      </>)}
     </Modal>
   )
 }
@@ -657,14 +703,14 @@ export function SessionLog({
             <NoteField
               key={`notes-${entry?.id}`}
               label="Notes"
-              hint="rowed 10 min to warm up; left knee grumbled on the last set"
+              hint={NOTE_HINTS.notes}
               value={out.notes}
               onCommit={v => set('notes', v.trim() || undefined)}
             />
             <NoteField
               key={`improve-${entry?.id}`}
               label="What to improve next time"
-              hint="start the timer before chalking; drop a grade on problem 3"
+              hint={NOTE_HINTS.improve}
               value={out.improve}
               onCommit={v => set('improve', v.trim() || undefined)}
             />

@@ -25,11 +25,15 @@ import { UNDO_MS } from './exercises'
  * a flip says what it did in a toast with Undo, and a flip of someone else's
  * copy says whose.
  */
+/** The chip's name: what is true, then what a tap does, so it is never a bare "Done" (#94, D N7). */
+export const doneChipLabel = (done: boolean, whose: string | null = null) =>
+  `${whose ? `${whose}: ` : ''}${done ? 'Done' : 'Not done'}, ${done ? 'mark undone' : 'mark done'}`
+
 export function DoneChip({ done, whose = null, onToggle }: { done: boolean; whose?: string | null; onToggle: () => void }) {
   const said = done ? 'Done' : 'Not done'
   return (
     <Press onPress={onToggle} hitSlop={6} accessibilityRole="switch" accessibilityState={{ checked: done }}
-      accessibilityLabel={whose ? `${whose}: ${said}` : said}
+      accessibilityLabel={doneChipLabel(done, whose)}
       accessibilityHint={done ? 'Marks it undone' : 'Marks it done'}
       style={[st.chip, done && st.chipOn]}>
       <Icon name={done ? 'CircleCheck' : 'Circle'} size={16} color={done ? colors.accent : colors.inkFaint} />
