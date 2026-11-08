@@ -101,7 +101,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Interval timer | `app/src/timer.jsx`, `app/src/timer.css`, `app/src/lib/timer.js` | The general timer: from any workout's sheet and the + menu. Pure model, `now` as an argument; presets are `kind: 'timer'` entries (§6.5). |
 | Circuits | `app/src/circuit.jsx`, `lib/timer.js` (`exercises`, `circuitDone`, `stopRun`), `lib/prescription.js` (`block.circuit`, `blockTimer`, `endCircuit`, `circuitPlan`, `loggedCircuit`) | #68. One editor (Work / Rest / Rounds, each exercise's own timing behind a tap) for a plan's block switched to Circuit and a timer preset with exercises; both run on `TimerRun` and log themselves (§6.5, §6.6). Tested by `app/circuit.test.js`. |
 | Planner UI | `app/src/planner.jsx`, `app/src/lib/planflow.js`, `app/src/lib/plannerapi.js`, `app/src/lib/drafts.js` | + → Plan a workout; `AskStep` (one box: what you want to do) → `ReviewStep` (by model), or `BuildStep` (by hand, open at once; the kinds are an optional Start from); `DraftList` reopens a draft at its step. The flow's state is `usePlanFlow` / `flowReducer` in `lib/planflow.js`, shared with the phone; each platform's `PlanFlow` is only its view (#78). `plannerContext` sends the last week's logged workouts (`groupContext` one paragraph per person for a group). `lib/markdown.jsx` renders its reasoning. |
-| Pickers | `app/src/picker.jsx`, `app/src/lib/folders.js` | `PickerScreen`, `ActivityChooser` (Log a workout: the sports catalog, then the plan's cards under Climbing, in folders by `sched.discipline`). Declaration order, no ranking. |
+| Pickers | `app/src/picker.jsx`, `app/src/lib/folders.js` | `PickerScreen`, `ActivityChooser` (Log a workout: Recent, the Climbing door, the sports catalog, then the plan's cards under Climbing, in folders by `sched.discipline` or `folderOf`'s inference). Declaration order, no ranking. |
 | Quick log | `app/src/quicklog.jsx`, `app/src/lib/quicklog.js` | `<QuickLog plan entries upsertEntry date onPlaced />`: up to three recent activities (then the catalog's pins), one tap each; under Log a workout in the + menu, Recent in Log a workout, and Today's empty day. Places through `placeEntries`, so the id and done-by-default are Log a workout's own. |
 | Unlogged workouts | `app/src/lib/unlogged.js`, `app/src/unlogged.jsx` | What WHOOP/Strava saw that the log lacks; `pairUp`, `mergeTargets`, `outWith()`. |
 | Session sheet / edit panel | `app/src/sessionlog.jsx` | `SessionLog`, `SessionDetails`, `DetailsSheet`, `NameField`. |
@@ -597,7 +597,7 @@ override, and its absence must render exactly like the app before it existed.
   not training: a plan put on today counts for nothing (streak, habit, Progress, "last
   time") until its first set. A plan put on an earlier day is logging after the fact and
   is written done. That is a READ rule: nothing wakes at midnight and nothing is
-  rewritten. The sheet's **Mark undone** writes `done: false` plus `undone: true` (`markDone`, the only
+  rewritten. The sheet's done chip, flipped to undone (**Mark undone**), writes `done: false` plus `undone: true` (`markDone`, the only
   writer of `undone`), which no date ever flips back; **Mark done** writes `done: true` and
   drops the marker. `done: true` beats everything; an absent `done` means true (older
   entries predate the flag). A `done: false` with no marker on a day that has passed is
@@ -623,7 +623,13 @@ override, and its absence must render exactly like the app before it existed.
     `done: false`, which now reads as done. New code never does that, so the server's merge
     (`keepUntick` in `server.js`) adds `undone: true` when a bare `done: false` replaces an
     entry stored as done, and keeps a marker the stored copy already has. An entry already
-    stored as `done: false` without one (a plan, a legacy entry) is never touched.
+    stored as `done: false` without one (a plan, a legacy entry) is never touched. The one
+    exception is `undone: false`, which only new code writes, and only when it must: an Undo
+    of a done tap putting back an entry that was never marked, over one the merge would
+    otherwise mark (`markDone(entry, doneState(before))`, #77). The merge honours it only
+    over the result of a tap (stored `undone: true`, or a `doneAt`) and never stores the
+    key, so the entry goes back exactly as it was; anywhere else it is dropped and the write
+    read as before, so an old client echoing it is still kept as an untick.
   - **"Done" no longer means "finished running".** A session logged for today is done
     before it starts (and a plan is, once touched), so "Start" asks `canStart()` (on today and later always, a finished run
     included, which Start reopens (#75); on an earlier day, only once undone) and the
@@ -662,10 +668,15 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   `minutesFrom` let a session rewrite its own entry from what was logged.
 - **Every menu session needs a `sched` block** (category, venue, finger load,
   `repeatable`, sport declarations); the suite fails otherwise. `sched.discipline`
-  (`bouldering` / `rock-climbing`) says which folder of Log a workout the card sits in;
-  a card without one lands in "From the plan" (`lib/folders.js`). Where the folders sit
-  (after the sports catalog) is decided in `picker.jsx`, not by content, because the
-  owner's plan file is not in the repository.
+  (`bouldering` / `rock-climbing`) says which folder of Log a workout the card sits in.
+  A card without one (every card of a plan written before it existed) is filed by what it
+  says about itself (`folderOf(opt, plan)`, #81): climbing if its `discipline`, its
+  category's discipline or `sched.whoopSport` says so, then Bouldering if it grades only
+  on the V scale (or is named for bouldering), else Rock climbing; anything not climbing
+  lands in "From the plan", never guessed into a sport. A declared folder always wins.
+  Where the folders sit (after the sports catalog, with one Climbing door under Recent)
+  is decided in `picker.jsx`, not by content, because the owner's plan file is not in the
+  repository.
 - **A session is never deleted, only `retired: true`.** Every logged entry's `optId`
   resolves against `dailyMenu`; removing a card orphans every day it was trained. A
   renamed card lists its old ids in `aka`; a card that inherits history from a split card
@@ -803,16 +814,52 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   (`minutesSource: 'typed'`) against recomputation. Several attached measurements SUM.
 - **A rename lives on the OUT** (`out.title`), because saving any output recomputes
   `data.name`. Order: the user's words > the planner's title > the card.
-- **Grades are picked off a ladder, never typed.** `lib/grades.js` owns the only scales:
-  routes 5.7–5.12 with −/plain/+ stored as `base.tenth` with 1/2/3 (5.10− = `10.1`),
-  boulders V0–V10 as integers. Off-ladder legacy values are shown raw and never rounded
-  onto a rung. `grades` is the one logged field that is a LIST (one per rep, kept the
-  length of `reps` by `fitGrades()`; `writeSet()` skips `Number()` on it). Charts plot the
-  rung index (`gradeIndex`/`rungLabel`), never the decimal.
-- **Per-climb detail on fun days is opt-in per entry.** Off by default; presence of the
-  `climbs` list is the state; turning it off strips it. While on, the count is stepped
-  (`stepClimbs()`), never typed, because typing "12" passes through "1" and refits the
-  list. Charts take the harder of the session-level field and the per-climb detail.
+- **Grades are picked off a ladder, never typed.** `lib/grades.js` owns the only scales.
+- **Grade encoding is a data contract** (#81). A stored grade is a NUMBER, and every value
+  on the old ladder (5.7–5.12 with −/+, V0–V10) reads exactly as it did; the encodings only
+  gain values. Widening the ladder did turn some numbers that were off it, and so shown raw,
+  into rungs (`7.1` is now 5.7−, `12.3` 5.12+, `13.2` 5.13, `10.25` 5.10c, `11` on a V card
+  V11); nothing else moved. Both are pinned in `workout.test.js`.
+  - Routes, plus/minus: `base.tenth`, tenth 1 = −, 2 = plain, 3 = + (5.10− = `10.1`,
+    5.10 = `10.2`, 5.10+ = `10.3`, 5.7 = `7.2`). The original encoding, unchanged.
+  - Routes, letters (5.10 and up only): `base.x5`, a = `.05`, b = `.15`, c = `.25`,
+    d = `.35` (5.10a = `10.05`, 5.11b = `11.15`). Chosen so the two interleave in numeric
+    order: a < − < b < plain < c < + < d < the next grade's a. `Math.max` over a mixed log
+    is still the hardest; nothing parses a label.
+  - The route ladder is 5.5–5.15 (no 5.5−, no 5.15+); boulders are V0–V17 as integers.
+  - Anything else is OFF-LADDER (a hand-typed `10.4` from the "enter 10.4 for 5.10d"
+    days, an integer typed before the ladder): shown raw, never rounded onto a rung, never
+    plotted, never "the hardest".
+  - Which ladder a number is on is said by the FIELD, never guessed from the number (V8 and
+    5.8 are both near 8): `climbLog.scale` on the exercise (`'v'`, else routes), a per-rep
+    `grades` list is routes, a `type: "grade"` output is routes, and an output keyed
+    `hardest` is V (`scaleOfExercise`, `scaleOfOutput`). `climbsOf(opt, out)` is the one
+    reader of a session's climbs; metrics, the Log row line and the pyramid all use it.
+  - Which way a route picker WRITES (letters or plus/minus) is a device setting
+    (`routeSystem`, `bushido:route-grades`, plus/minus by default), switched where grades
+    are entered. A value written the other way keeps its own label and its own option.
+  - Charts plot the rung's index on the full ladder (`gradeIndex`/`rungLabel`), never the
+    decimal; groupings use the whole grade (`bandOf`: every 5.10, lettered or not, is
+    band 10). `grades` is the one logged field that is a LIST (one per rep, kept the length
+    of `reps` by `fitGrades()`; `writeSet()` skips `Number()` on it).
+- **How a climb went is `outcome`** on its record: `onsight` (routes only), `flash`,
+  `send`, `fell`; `tries` is how many goes, optional. `fell` is kept equal to
+  `outcome === 'fell'` so an older app reads a new record. A record with no `outcome`
+  (every record before #81) reads as it always did: a fall if `fell`, otherwise climbed
+  clean (`outcomeOf`, `isClean`). A down-climb only is climbing but not a send. "Hardest"
+  on Progress and the Log is the hardest SENT (`hardestSent`), with "tried" said as such.
+- **Described climbs win over the typed "hardest" field.** On a ladder where the session
+  graded its climbs one by one, the hardest, the pyramid and the grade filter read those
+  climbs and their outcomes; the card's own "hardest" field (one number for the evening,
+  usually the hardest tried) counts only on a ladder with no graded climb, where it is all
+  there is and is read as a send (`hardestSent`, `hardestTried`, `pyramidOf`).
+- **Per-climb detail is opt-in per entry.** Off by default; presence of the `climbs` list
+  is the state. While on, the list is the count: it is stepped (`stepClimbs()`, `Add`,
+  `Remove` with Undo), never typed, because typing "12" passes through "1" and refits the
+  list. Switching it on keeps the count (`detailOn`; 25 problems stay 25, up to
+  `MAX_CLIMBS`, 99, the bound the per-rep grade pickers share). Switching it off strips the
+  list, and asks first when anything was said on it (`saidIn`). Per-rep grade pickers have
+  the same bound (`repCount`), so a lap's grade and its record always pair up.
 - **Lifts are chosen at log time**, so they are `out.lifts` (one record per exercise with
   `implement` and `sets: [{ reps, weight }]`), not `out.sets`. Rows store their own
   `name`/`implementLabel` so retiring a catalog entry never blanks history. The exercise
@@ -1369,7 +1416,10 @@ every climbing card while every test passed — the origin of the reachability r
 "Pick a session" came back as that route, and went again on 2026-10-14: two doors for
 "write down what I did" meant knowing which list a thing lived in, and it only ever placed
 on today. The plan's cards are now folders (Bouldering, Rock climbing, by
-`sched.discipline`) inside Log a workout, under Climbing after the sports catalog, and Log
+`sched.discipline` or inferred, §5) inside Log a workout, under Climbing after the sports
+catalog, with ONE row right after Recent, **Climbing**, that opens every climbing card on
+one screen by folder (#81: a board session was twelve screens of sports away; the row is a
+door to the cards, not an activity, so the hard-finger question still comes with them). Log
 a workout lands on **the day Today is showing**, never a future one, so a past climb can be
 logged on its own day. `FabMenu(four doors…)` and `TodayTab(empty day offers nothing)` pin
 the absence of the old door.
@@ -1464,7 +1514,9 @@ What that means for the code that stays:
 - **Climbing follows, it does not lead.** In Log a workout the sports catalog comes first
   and the Climbing folders after it; on Progress the headline is general and the Climbing
   group is last. Both are ordered in code, because the owner's plan file is outside the
-  repo and cannot be reordered from here.
+  repo and cannot be reordered from here. The one exception is a single **Climbing** row
+  under Recent in Log a workout (#81): a door, the same as Recent being the person's own
+  history, not climbing leading the catalog.
 - **Navigation is Today, Log, Progress** for everyone (`tabsFor`), and the + offers Log a
   workout, Log a rest day, Plan a workout and the interval timer, in that order.
 - Pinned: `TodayTab(legacy entries are ignored)`, `LogTab(legacy entries are not workouts)`,
@@ -1494,13 +1546,50 @@ The owner called the old screens atrocious. Same functions; what changed, each p
 - **The sheet**: the header is the name over "Today · 29 min" (the day and the time as
   typed); the log form is always open (the "How did it go?" / "Session logged" fold is
   gone); the activity is a row that opens the picker; the card's example numbers are no
-  longer placeholders (a placeholder is a guess the app made, §6.4); the footer's primary
-  is **Close** (or Start, when there is something to run) with **Mark undone** / **Mark
-  done** quiet beside it, and neither on a later day; the interval timer is a row at the
-  foot of the body.
+  longer placeholders (a placeholder is a guess the app made, §6.4); the interval timer
+  is a row at the foot of the body. (Its footer and done control were redone in #77,
+  §10.10.)
 - **Removing** a workout closes the sheet and shows a toast with **Undo**, which writes
   the entry (and its test result) back. A failed write to someone else's copy shows one
   with **Retry**.
+
+### 10.10 No more mis-taps (#77, 2026-11-08)
+
+The owner's first complaint: editing a weight on a planned workout, he hit Close over and
+over. Close was the lime footer primary 0px under the first set, and on the iPhone the
+footer rode the keyboard onto the decimal pad, which has no Done key. Web and native, each
+pinned in `app/smoke/sheet.jsx` and `app/smoke/editor.jsx`:
+
+- **No Close in a sheet's footer.** The header X closes (and Escape, the scrim and the
+  swipe, until something is changed, and not while a box has focus; focusing alone is not
+  a change: `modal.jsx` `sheetDismissable` / `ui/Sheet.tsx` with `ui/sheetDirty.ts` own
+  that, not callers).
+  The session sheet's footer is Start, putting a card on the day, or nothing.
+- **Done is a chip under the title** (`DoneChip`, "Done" / "Not done"), not a footer
+  button. Every flip shows a toast with Undo, which puts back the old `done`, `undone` and
+  `doneAt` exactly through `markDone(entry, doneState(before))` (still the only writer of
+  `undone`; see `keepUntick` in §4 for `undone: false`); a flip of someone else's copy says
+  whose. An untouched plan for today Undone after a Mark done is untouched again, and its
+  first typed set makes it done (D10).
+- **No footer while typing.** Web: a sheet renders no footer while a box in it has focus
+  (`useEditing`, `footerShown`), back `EDIT_SETTLE_MS` after the last box lets go;
+  `.fs[data-editing]` hides the planner's sticky bar. Native: no footer (and no planner
+  sticky bar) while the keyboard is up, back on `keyboardDidHide`.
+- **Every native input has the keyboard bar** (`ui/KeyboardBar.tsx`: ‹ › Done editing),
+  an `InputAccessoryView` per input, mounted by kit's `Input`. "Done editing" only puts
+  the keyboard away.
+- **A set row is numbers only.** No ✕: removing a set or the exercise is the card's
+  **Edit** mode (and a swipe on native), far from Add a set, and every removal goes
+  through `useUndoable` (toast with Undo, which puts back this side exactly). **THE RULE
+  for its words** (`lib/removal.js`, the phone's too): a toast never claims what happened on
+  someone else's side, because the server decides that (set counts adjusted, what they
+  logged kept) from data this device does not have. "Removed set 2 of Hip adduction" /
+  "Removed Hip adduction", and on a synced workout one static line: "Exercises stay in step
+  with Sam: what Sam has logged stays on Sam's side." Two review rounds of per-case claims
+  ("from both workouts", "Sam keeps it", guessed by set position) were wrong both ways.
+  ± are 44px and the number box takes the row's spare width.
+- **Native toasts show over sheets.** iOS draws a presented sheet above the root, so every
+  presented layer in `ui/Sheet.tsx` mounts its own `ToastHost` and only the topmost renders.
 
 ## 11. Before you finish
 

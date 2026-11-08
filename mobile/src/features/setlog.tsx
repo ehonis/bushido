@@ -14,30 +14,35 @@
  * remove (the X stays, it is the visible affordance), and the range input is a
  * gesture-handler track.
  */
-import React, { useMemo, useRef, useState } from 'react'
+import React, { useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-import { colors, mix, TAP } from '../theme'
+import { colors, font, mix, radius, space, TAP } from '../theme'
 import { T } from '../ui/Text'
-import { Press } from '../ui/kit'
-import { showMenu } from '../ui/menu'
+import { Btn, Chip, Press, Segmented } from '../ui/kit'
+import { Fold } from '../ui/Fold'
+import { confirm, showMenu } from '../ui/menu'
 import { impact, tap } from '../ui/haptics'
+import { pushToast } from '../lib/toast'
 import { Icon } from '../lib/icons'
 import { NumInput } from './numinput'
 import { SwipeRemove } from './exercises'
 import {
-  GRADES, GRADE_FIELD, gradeLabel, hardestGrade, gradesIn, hasGrades, fitGrades, repCount,
-  VGRADES, vLabel, CLIMB_FIELD, offersClimbs, climbsOn, blankClimb, fitClimbs, fallsIn,
-  stepClimbs, FELT_MIN, FELT_MAX, feltLabel, DOWN_OPTIONS, downsIn, lengthsIn,
+  GRADE_FIELD, hardestGrade, gradesIn, hasGrades, fitGrades, repCount,
+  VGRADES, CLIMB_FIELD, offersClimbs, climbsOn, blankClimb, fitClimbs, fallsIn, climbsIn,
+  stepClimbs, FELT_MIN, FELT_MAX, feltLabel, DOWN_OPTIONS, downLabel, downsIn, lengthsIn,
+  routeLadder, routeSystem, setRouteSystem, ROUTE_SYSTEMS, labelOn, scaleOfExercise,
+  climbCount, detailOn, dropClimb, putClimb, climbSaid, saidIn, isClean,
+  outcomesFor, outcomeOf, outcomeLabel, withOutcome, MAX_CLIMBS,
 } from '../lib/grades.js'
 
 const FIELD_META: Record<string, { label: string; width?: number; step?: number; kind?: string }> = {
-  reps: { label: 'reps', width: 58, step: 1 },
-  seconds: { label: 'secs', width: 58, step: 1 },
-  weight: { label: 'lb', width: 68, step: 0.5 },
+  reps: { label: 'reps', width: 58 },
+  seconds: { label: 'secs', width: 58 },
+  weight: { label: 'lb', width: 68 },
   // Crimp crawls have no load cell and no counterweight — how high the feet are
   // IS the intensity dial, so the stair number is logged per set like a weight.
-  stair: { label: 'stair', width: 58, step: 1 },
+  stair: { label: 'stair', width: 58 },
   // The one field that is a LIST rather than a number: a doubled lead lap is two
   // laps in one set and they are not always the same route, so the grade belongs
   // to the rep. The list mechanics live in lib/grades.js.
@@ -45,7 +50,11 @@ const FIELD_META: Record<string, { label: string; width?: number; step?: number;
 }
 
 /** An unrecognised field renders as a plain number rather than crashing the log. */
-const meta = (f: string) => FIELD_META[f] || { label: f, width: 62, step: 1 }
+const meta = (f: string) => FIELD_META[f] || { label: f, width: 62 }
+
+/** "route" → "routes"; the plan's own word for one climb, counted. */
+export const plural = (word: string, n = 2) => (n === 1 ? word : /(s|sh|ch|x)$/.test(word) ? `${word}es` : `${word}s`)
+const cap = (w: string) => (w ? w[0].toUpperCase() + w.slice(1) : w)
 
 /** Build the default set rows for one exercise straight from the prescription. */
 export function seedSets(exercise: any) {
@@ -81,17 +90,38 @@ function SelectBox({ text, label, onPress, dim, style }: {
 }) {
   return (
     <Press onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={[st.select, style]}>
-      <T size={16} tabular color={dim ? colors.inkDim : colors.ink} numberOfLines={1}>{text}</T>
+      <T size={font.input} tabular color={dim ? colors.inkDim : colors.ink} numberOfLines={1}>{text}</T>
       <Icon name="ChevronDown" size={13} color={colors.inkFaint} />
     </Press>
   )
 }
 
+/*
+ * Letters (5.10a) or plus/minus (5.10+): the climber's choice, kept on the device
+ * (lib/grades.js `routeSystem`). A tiny store so every route picker on screen
+ * follows the switch at once.
+ */
+const sysListeners = new Set<() => void>()
+const subscribeSystem = (fn: () => void) => { sysListeners.add(fn); return () => { sysListeners.delete(fn) } }
+export function useRouteSystem(): [string, (s: string) => void] {
+  const system = useSyncExternalStore(subscribeSystem, routeSystem, () => 'pm')
+  const set = (next: string) => { setRouteSystem(next); for (const fn of sysListeners) fn() }
+  return [system, set]
+}
+
+/** The explicit scale choice, beside the route pickers it changes. Two 44pt segments. */
+export function GradeSystemSwitch() {
+  const [system, setSystem] = useRouteSystem()
+  return (
+    <Segmented tap value={system} onChange={(v) => setSystem(v)}
+      options={ROUTE_SYSTEMS.map((x) => ({ value: x.key, label: x.label }))} style={{ flexGrow: 0 }} />
+  )
+}
+
 /**
- * One value off a fixed ladder.
- *
- * Shared with the session-level grade field, workout mode's review screen and
- * the per-climb detail, so a grade is entered the same way wherever it is.
+ * One value off a fixed ladder: a box showing the answer that opens the system
+ * action sheet. Shared with the session-level grade field, workout mode's review
+ * screen and the per-climb detail, so a grade is entered the same way wherever it is.
  */
 function LadderSelect({ ladder, fmt, value, onChange, label, style }: any) {
   const n = Number(value)
@@ -99,8 +129,8 @@ function LadderSelect({ ladder, fmt, value, onChange, label, style }: any) {
   const known = has && ladder.some((g: any) => g.value === n)
   const open = () => showMenu([
     { label: '—', onPress: () => onChange('') },
-    // An off-ladder value keeps its own option, so opening the picker on an old
-    // hand-written grade cannot silently overwrite it.
+    // A value off this ladder (an old hand-written grade, or one written the
+    // other way) keeps its own option, so opening the picker cannot overwrite it.
     ...(has && !known ? [{ label: fmt(n), onPress: () => onChange(n) }] : []),
     ...ladder.map((g: any) => ({ label: g.label, onPress: () => onChange(g.value) })),
   ], { title: label })
@@ -108,9 +138,12 @@ function LadderSelect({ ladder, fmt, value, onChange, label, style }: any) {
   return <SelectBox text={text} label={label} onPress={open} style={style} />
 }
 
-/** The route ladder — 5.7 to 5.12. */
+const ladderFor = (scale: string, system: string) => (scale === 'v' ? VGRADES : routeLadder(system))
+
+/** The route ladder, written the way this device writes it (5.5 to 5.15). */
 export function GradeSelect({ value, onChange, label, style }: any) {
-  return <LadderSelect ladder={GRADES} fmt={gradeLabel} value={value} onChange={onChange} label={label} style={style} />
+  const [system] = useRouteSystem()
+  return <LadderSelect ladder={routeLadder(system)} fmt={(v: any) => labelOn('yds', v)} value={value} onChange={onChange} label={label} style={style} />
 }
 
 /**
@@ -126,7 +159,7 @@ export function GradeLaps({ count, values, onChange, what = 'rep', where = '' }:
     <View style={st.gradelaps}>
       {Array.from({ length: count }, (_, i) => (
         <View key={i} style={st.gradelap}>
-          <T size={12} faint>{`${what} ${i + 1}`}</T>
+          <T size={font.caption} faint>{`${what} ${i + 1}`}</T>
           <GradeSelect value={list[i]} onChange={(v: any) => at(i, v)} label={`${where}${what} ${i + 1} grade`} />
         </View>
       ))}
@@ -204,89 +237,173 @@ export function RangeSlider({ min, max, step = 1, value, onChange, label, style,
   )
 }
 
+/** What a described climb says, in one line: "Sent · vert · up + down · a touch stiff". */
+export function climbWords(c: any) {
+  const felt = c.felt === '' || c.felt == null ? null : Number(c.felt)
+  const tries = Number(c.tries)
+  return [
+    outcomeLabel(outcomeOf(c)),
+    c.style || '',
+    downLabel(c.down),
+    felt == null ? '' : feltLabel(felt),
+    Number.isFinite(tries) && tries > 1 ? `${tries} tries` : '',
+  ].filter(Boolean).join(' · ')
+}
+
 /**
- * The optional per-climb detail — one record per rep: grade, style, whether the
- * user fell, and how honest the grade felt.
+ * The per-climb log (D12, issue #81): one record per climb.
  *
- * `spec` is the exercise's `climbLog` from the plan: `scale` picks the ladder
- * ('v' for boulders) and `styles` is the vocabulary. The felt slider appears only
- * once a climb HAS a grade, and stays unanswered until touched.
- *
- * `omitGrade` is for exercises that ALREADY log a grade per rep — two grade
- * pickers per lap is a bug waiting to disagree with itself — so there this
- * renders only what it adds: the style and whether the user fell.
+ * Climbs already described are one readable row each; a tap opens one again. The
+ * CURRENT climb is the only one with controls: its grade, how it went (Onsight on
+ * routes, Flash, Sent, Fell), and behind Details the optional rest (style, up or
+ * down where the plan offers it, felt once graded, tries, Remove). The next climb
+ * is added from directly under it. Undescribed climbs after the current one are
+ * one quiet line. `omitGrade` is for the doubled lead laps, which already ask a
+ * grade per lap; `onDrop(i)` where a climb can be taken out (the set log, with
+ * Undo); workout mode moves the count with its own stepper.
  */
-export function ClimbLog({ count, values, spec, onChange, onMore, what = 'climb', where = '', omitGrade = false }: any) {
+export function ClimbLog({ count, values, spec, onChange, onMore, onDrop, what = 'climb', where = '', omitGrade = false, initialCurrent = null }: any) {
+  const [system] = useRouteSystem()
+  const scale = spec?.scale === 'v' ? 'v' : 'yds'
+  const ladder = ladderFor(scale, system)
+  const fmt = (v: any) => labelOn(scale, v)
   const list = Array.isArray(values) ? values : []
-  const climbAt = (i: number) => (list[i] && typeof list[i] === 'object' ? { ...blankClimb(), ...list[i] } : blankClimb())
-  const at = (i: number, patch: any) =>
-    onChange(Array.from({ length: count }, (_, k) => (k === i ? { ...climbAt(k), ...patch } : climbAt(k))))
-  const ladder = spec?.scale === 'v' ? VGRADES : GRADES
-  const fmt = spec?.scale === 'v' ? vLabel : gradeLabel
+  const climbs = Array.from({ length: count }, (_, i) =>
+    (list[i] && typeof list[i] === 'object' ? { ...blankClimb(), ...list[i] } : blankClimb())) as any[]
+  // Pinned once touched: the first undescribed climb is only the default, or
+  // picking a grade would move the editor away before the outcome was tapped.
+  const [picked, setPicked] = useState<number | null>(initialCurrent)
+  const current = picked != null && picked < count ? picked : climbs.findIndex((c) => !climbSaid(c))
+  const write = (i: number, rec: any) => { setPicked(i); onChange(climbs.map((c, k) => (k === i ? rec : c))) }
+  const at = (i: number, patch: any) => write(i, { ...climbs[i], ...patch })
+
+  const nextBlank = current >= 0 ? climbs.findIndex((c, k) => k > current && !climbSaid(c)) : -1
+  const untold = current >= 0 ? climbs.filter((c, k) => k > current && !climbSaid(c)).length : 0
+  const next = nextBlank >= 0
+    ? { label: `Next ${what}`, go: () => setPicked(nextBlank) }
+    : onMore ? { label: `Add ${what}`, go: () => { setPicked(count); onMore() } } : null
+  const nextButton = next ? <Btn kind="secondary" icon="Plus" title={next.label} onPress={next.go} /> : null
+
+  const editor = (i: number) => {
+    const c = climbs[i]
+    const tag = `${where}${what} ${i + 1}`
+    const felt = c.felt === '' || c.felt == null ? null : Number(c.felt)
+    const hasGrade = !omitGrade && c.grade !== '' && c.grade != null
+    const prev = omitGrade ? null
+      : [...climbs.slice(0, i)].reverse().find((p) => p.grade !== '' && p.grade != null)?.grade ?? null
+    const said = outcomeOf(c)
+    const tries = Number(c.tries)
+    const hasTries = Number.isFinite(tries) && tries >= 1
+    return (
+      <View style={st.edit}>
+        <View style={st.climbRow}>
+          <T size={font.small} faint>{`${what} ${i + 1}`}</T>
+          {!omitGrade && (
+            <LadderSelect ladder={ladder} fmt={fmt} value={c.grade} label={`${tag} grade`}
+              onChange={(v: any) => at(i, { grade: v })} />
+          )}
+          {/* The fast path: most of an evening is the same grade again. */}
+          {!hasGrade && !omitGrade && prev != null ? (
+            <Chip out label={`Same as last: ${fmt(prev)}`} onPress={() => at(i, { grade: prev })} />
+          ) : null}
+        </View>
+        <View style={st.outcomes} accessibilityLabel={`${tag}: how it went`}>
+          {outcomesFor(scale).map((o: any) => (
+            <Chip key={o.value} out on={said === o.value} label={o.label} style={{ minWidth: 72, justifyContent: 'center' }}
+              onPress={() => write(i, withOutcome(c, said === o.value ? null : o.value))} />
+          ))}
+        </View>
+        <Fold summary="Details">
+          <View style={[st.climbRow, { paddingTop: space[2] }]}>
+            {(spec?.styles?.length ?? 0) > 0 && (
+              <SelectBox
+                text={c.style || 'style —'} label={`${tag} style`}
+                onPress={() => showMenu([
+                  { label: 'style —', onPress: () => at(i, { style: '' }) },
+                  ...spec.styles.map((x: string) => ({ label: x, onPress: () => at(i, { style: x }) })),
+                ], { title: `${tag} style` })}
+              />
+            )}
+            {/* Only where the plan says down-climbing is a thing on this card. */}
+            {spec?.downClimb && (
+              <SelectBox
+                dim text={DOWN_OPTIONS.find((o) => o.value === (c.down || ''))?.label || DOWN_OPTIONS[0].label}
+                label={`${tag} up or down`}
+                onPress={() => showMenu(DOWN_OPTIONS.map((o) => ({ label: o.label, onPress: () => at(i, { down: o.value }) })),
+                  { title: `${tag} up or down` })}
+              />
+            )}
+            <View style={st.repstep}>
+              <Press onPress={() => { tap(); at(i, { tries: hasTries && tries > 1 ? tries - 1 : '' }) }} style={st.repstepB}
+                accessibilityLabel={`${tag}: one fewer try`}>
+                <T size={19} dim lineHeight={22}>−</T>
+              </Press>
+              <T size={font.small} dim tabular align="center" style={{ minWidth: 56 }}>
+                {hasTries ? `${tries} ${tries === 1 ? 'try' : 'tries'}` : 'tries —'}
+              </T>
+              <Press onPress={() => { tap(); at(i, { tries: hasTries ? tries + 1 : 1 }) }} style={st.repstepB}
+                accessibilityLabel={`${tag}: one more try`}>
+                <T size={19} dim lineHeight={22}>+</T>
+              </Press>
+            </View>
+          </View>
+          {hasGrade && (
+            <View style={st.felt}>
+              <RangeSlider min={FELT_MIN} max={FELT_MAX} step={1} value={felt ?? 0} unset={felt == null}
+                label={`${tag} felt for the grade`}
+                onChange={(v) => at(i, { felt: v })} style={{ flexGrow: 0, flexShrink: 1, flexBasis: 200 }} />
+              <T size={font.small} faint numberOfLines={1}>{felt == null ? 'for the grade: —' : feltLabel(felt)}</T>
+            </View>
+          )}
+          {onDrop ? (
+            <Btn kind="quiet" icon="Trash2" title={`Remove ${what}`} style={{ alignSelf: 'flex-start', marginTop: space[2] }}
+              onPress={() => { setPicked(null); onDrop(i) }} />
+          ) : null}
+        </Fold>
+        {nextButton}
+      </View>
+    )
+  }
 
   return (
     <View style={st.climblog}>
-      {Array.from({ length: count }, (_, i) => {
-        const c = climbAt(i)
-        const felt = c.felt === '' || c.felt == null ? null : Number(c.felt)
-        const hasGrade = !omitGrade && c.grade !== '' && c.grade != null
-        const tag = `${where}${what} ${i + 1}`
+      {climbs.map((c, i) => {
+        if (i === current) return <View key={i}>{editor(i)}</View>
+        // Undescribed climbs after the current one are the quiet line below.
+        if (current >= 0 && i > current && !climbSaid(c)) return null
+        const words = climbWords(c)
         return (
-          <View key={i} style={st.climb}>
-            <View style={st.climbRow}>
-              <T size={12} faint>{`${what} ${i + 1}`}</T>
-              {!omitGrade && (
-                <LadderSelect ladder={ladder} fmt={fmt} value={c.grade} label={`${tag} grade`}
-                  onChange={(v: any) => at(i, { grade: v })} />
-              )}
-              {(spec?.styles?.length ?? 0) > 0 && (
-                <SelectBox
-                  text={c.style || 'style —'} label={`${tag} style`}
-                  onPress={() => showMenu([
-                    { label: 'style —', onPress: () => at(i, { style: '' }) },
-                    ...spec.styles.map((s: string) => ({ label: s, onPress: () => at(i, { style: s }) })),
-                  ], { title: `${tag} style` })}
-                />
-              )}
-              {/* Only where the plan says down-climbing is a thing on this card —
-                  you down-climb a route, not a twelve-move boulder problem. */}
-              {spec?.downClimb && (
-                <SelectBox
-                  dim text={DOWN_OPTIONS.find((o) => o.value === (c.down || ''))?.label || DOWN_OPTIONS[0].label}
-                  label={`${tag} up or down`}
-                  onPress={() => showMenu(DOWN_OPTIONS.map((o) => ({ label: o.label, onPress: () => at(i, { down: o.value }) })),
-                    { title: `${tag} up or down` })}
-                />
-              )}
-              <Press
-                haptic onPress={() => at(i, { fell: !c.fell })}
-                accessibilityRole="button" accessibilityState={{ selected: Boolean(c.fell) }}
-                style={[st.fell, c.fell && st.fellOn]}
-              >
-                <Icon name={c.fell ? 'CircleSlash' : 'Circle'} size={13} color={c.fell ? colors.vizCrit : colors.inkFaint} />
-                <T size={12} color={c.fell ? colors.ink : colors.inkDim}>fell</T>
-              </Press>
-            </View>
-            {hasGrade && (
-              <View style={st.felt}>
-                <RangeSlider min={FELT_MIN} max={FELT_MAX} step={1} value={felt ?? 0} unset={felt == null}
-                  label={`${tag} felt for the grade`}
-                  onChange={(v) => at(i, { felt: v })} style={{ flexGrow: 0, flexShrink: 1, flexBasis: 200 }} />
-                <T size={11} faint numberOfLines={1}>{felt == null ? 'for the grade: —' : feltLabel(felt)}</T>
-              </View>
-            )}
-          </View>
+          <Press key={i} onPress={() => { tap(); setPicked(i) }} accessibilityRole="button"
+            accessibilityLabel={`${where}${what} ${i + 1}: change`} style={st.done}>
+            <T size={font.small} faint style={{ minWidth: 64 }}>{`${what} ${i + 1}`}</T>
+            {!omitGrade && <T size={font.input} weight={600} tabular style={{ minWidth: 52 }}>{fmt(c.grade) || '—'}</T>}
+            {words ? <T size={font.small} dim style={{ flex: 1, minWidth: 0 }} numberOfLines={2}>{words}</T> : <View style={{ flex: 1 }} />}
+            <Icon name="ChevronRight" size={16} color={colors.inkFaint} />
+          </Press>
         )
       })}
-      {/* The next climb is added from HERE: it is filled in one climb at a time
-          mid-session and the bottom of the list is where the thumb already is. */}
-      {onMore && (
-        <Press onPress={() => { impact(); onMore() }} style={[st.add, { alignSelf: 'flex-start' }]} accessibilityRole="button">
-          <T size={12} dim>{`+ one more ${what}`}</T>
-        </Press>
-      )}
+      {untold > 0 ? <T size={font.small} faint>{`${untold} more ${plural(what, untold)}, not described`}</T> : null}
+      {current < 0 ? nextButton : null}
     </View>
   )
+}
+
+/*
+ * Taking climb `k` out of a row, and putting it back (the Undo). A lap's grade
+ * (the doubles' per-rep list) goes and comes back WITH its climb.
+ */
+export function withoutClimb(row: any, k: number, perRep = false) {
+  const next = dropClimb(row, k)
+  if (!perRep) return next
+  const grades = fitGrades(row[GRADE_FIELD], row.reps)
+  return { ...next, [GRADE_FIELD]: fitGrades(grades.length > 1 ? grades.filter((_: any, x: number) => x !== k) : [''], next.reps) }
+}
+export function withClimbBack(row: any, k: number, climb: any, grade: any = '', perRep = false) {
+  const back = putClimb(row, k, climb)
+  if (!perRep) return back
+  const grades = fitGrades(row[GRADE_FIELD], row.reps)
+  const lone = back.reps === 1
+  return { ...back, [GRADE_FIELD]: fitGrades(lone ? [grade] : [...grades.slice(0, k), grade, ...grades.slice(k)], back.reps) }
 }
 
 function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null }: any) {
@@ -297,14 +414,22 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null }: any
   // this entry IS. Presence of the list is the state — see lib/grades.js.
   const offers = offersClimbs(exercise)
   const detailed = climbsOn(rows)
+  const routes = scaleOfExercise(exercise) === 'yds'
   const cols = fields.filter((f) => meta(f).kind !== 'grades')
+
+  // An Undo runs after this render is gone: it acts on the rows as they are
+  // THEN, through the writer as it is then.
+  const latest = useRef({ rows, onRows })
+  latest.current = { rows, onRows }
+  const undo = (message: string, restore: (now: any[]) => any[]) => pushToast(message, 'info', {
+    action: { label: 'Undo', icon: null, onClick: () => latest.current.onRows(restore(latest.current.rows)) },
+  })
 
   const set = (i: number, field: string, value: any) => {
     const next = rows.map((r: any, j: number) => {
       if (j !== i) return r
       const row = { ...r, [field]: value === '' || value === null ? '' : Number(value) }
-      // The pickers follow the rep count, live — change 2 laps to 3 and a third
-      // grade appears rather than the row quietly logging two.
+      // The pickers follow the rep count, live.
       if (perRep && field === 'reps') row[GRADE_FIELD] = fitGrades(row[GRADE_FIELD], row.reps)
       if (Array.isArray(row[CLIMB_FIELD]) && field === 'reps') row[CLIMB_FIELD] = fitClimbs(row[CLIMB_FIELD], row.reps)
       return row
@@ -312,130 +437,150 @@ function Exercise({ exercise, rows, sign, onRows, onSign, hintRows = null }: any
     onRows(next)
   }
 
-  const setDetail = (on: boolean) => onRows(rows.map((r: any) => {
-    // Reps is normalised to the row count on the way in: from here the list is
-    // the source of truth and the box only displays it.
-    if (on) return { ...r, reps: repCount(r.reps), [CLIMB_FIELD]: fitClimbs(r[CLIMB_FIELD], r.reps) }
-    const { [CLIMB_FIELD]: _dropped, ...rest } = r
-    return rest
-  }))
+  // On: one record per climb already counted, the count kept (lib/grades.js).
+  const turnOn = () => { tap(); onRows(rows.map(detailOn)) }
+  const turnOff = () => onRows(rows.map((r: any) => { const { [CLIMB_FIELD]: _dropped, ...rest } = r; return rest }))
+  // Switching the detail off strips it, so when anything has been said it asks first.
+  const said = saidIn(rows)
+  const askOff = async () => {
+    if (said === 0) { tap(); turnOff(); return }
+    const ok = await confirm(`Remove what you logged for ${said} ${plural(what, said)}?`, {
+      message: 'The count stays; the grades and outcomes go.', confirmLabel: 'Remove',
+    })
+    if (ok) turnOff()
+  }
 
-  // The only way the count moves while the detail is on. One at a time and
-  // always at the end, so nothing filled in can vanish that was not on screen.
+  // The only way the count moves while the detail is on: one at a time.
   const bump = (i: number, delta: number) => { tap(); onRows(rows.map((r: any, j: number) => (j === i ? stepClimbs(r, delta) : r))) }
   const setList = (i: number, field: string, list: any) =>
     onRows(rows.map((r: any, j: number) => (j === i ? { ...r, [field]: list } : r)))
+  const removeClimb = (i: number, k: number) => {
+    const row = rows[i]
+    const gone = fitClimbs(row[CLIMB_FIELD], row.reps)[k]
+    const goneGrade = perRep ? fitGrades(row[GRADE_FIELD], row.reps)[k] ?? '' : ''
+    tap()
+    onRows(rows.map((r: any, j: number) => (j === i ? withoutClimb(r, k, perRep) : r)))
+    if (climbSaid(gone) || goneGrade !== '') {
+      undo(`${cap(what)} ${k + 1} removed`, (now) => now.map((r: any, j: number) =>
+        (j === i && Array.isArray(r[CLIMB_FIELD]) ? withClimbBack(r, k, gone, goneGrade, perRep) : r)))
+    }
+  }
   const addSet = () => { impact(); onRows([...rows, cloneRow(rows.at(-1) || {}, fields, rows.at(-1)?.reps)]) }
-  const dropSet = (i: number) => { tap(); onRows(rows.filter((_: any, j: number) => j !== i)) }
+  const dropSet = (i: number) => {
+    const gone = rows[i]
+    tap()
+    onRows(rows.filter((_: any, j: number) => j !== i))
+    undo(`Set ${i + 1} removed`, (now) => [...now.slice(0, i), gone, ...now.slice(i)])
+  }
 
   const hasWeight = fields.includes('weight')
+  const colLabel = (f: string) => (f === 'reps' && exercise.repName ? plural(exercise.repName) : meta(f).label)
+  // A described row whose only column is the count has nothing left for the table to show.
+  const inTable = (r: any) => !(Array.isArray(r[CLIMB_FIELD]) && cols.every((f) => f === 'reps'))
+  const table = rows.some(inTable)
+
   const total = rows.reduce((s: number, r: any) => s + (Number(r.reps) || 0), 0)
   const falls = detailed ? fallsIn(rows) : 0
-  // Lengths of wall: a lap climbed and reversed is two. Shown only when it
-  // differs from the rep count.
+  const sent = detailed ? climbsIn(rows).filter((c: any) => climbSaid(c) && isClean(c)).length : 0
+  // Lengths of wall: a lap climbed and reversed is two. Shown only when it differs.
   const downs = detailed ? downsIn(rows) : 0
   const lengths = detailed ? lengthsIn(rows) : 0
+  const noun = exercise.repName ? plural(exercise.repName, total) : 'reps'
+
+  const climbList = (r: any, i: number) => (
+    <ClimbLog count={climbCount(r.reps)} values={r[CLIMB_FIELD]}
+      spec={exercise.climbLog} what={what} omitGrade={perRep}
+      where={rows.length > 1 ? `set ${i + 1} ` : ''}
+      onChange={(list: any) => setList(i, CLIMB_FIELD, list)}
+      onDrop={(k: number) => removeClimb(i, k)}
+      onMore={climbCount(r.reps) < MAX_CLIMBS ? () => bump(i, 1) : undefined} />
+  )
 
   return (
-    <View>
+    <View style={{ gap: space[2] }}>
       <View style={st.head}>
-        <T size={13} weight={600} style={{ flex: 1, minWidth: 0 }}>{exercise.name}</T>
-        {/* A toggle rather than always-on: ten selects you scroll past is how a
-            twenty-second form stops being filled in. */}
-        {offers && (
-          <Press haptic onPress={() => setDetail(!detailed)} accessibilityState={{ selected: detailed }}
-            style={[st.signtog, detailed && { borderColor: mix(colors.accent, 40, colors.line) }]} hitSlop={6}>
-            <T size={11} color={detailed ? colors.accent : colors.inkDim}>{detailed ? `logging each ${what}` : `log each ${what}`}</T>
-          </Press>
-        )}
+        <T size={font.input} weight={600} style={{ flex: 1, minWidth: 0 }}>{exercise.name}</T>
+        {/* Letters or plus/minus, where route grades are asked. */}
+        {routes && (perRep || detailed) ? <GradeSystemSwitch /> : null}
         {hasWeight && (
           <Press haptic onPress={() => onSign(sign === '-' ? '+' : '-')}
-            style={[st.signtog, sign === '-' && { borderColor: mix(colors.series1, 40, colors.line) }]} hitSlop={6}>
-            <T size={11} color={sign === '-' ? colors.series1 : colors.inkDim}>{sign === '-' ? '− counterweight' : '+ added'}</T>
+            style={[st.signtog, sign === '-' && { borderColor: mix(colors.series1, 40, colors.line) }]}>
+            <T size={font.small} color={sign === '-' ? colors.series1 : colors.inkDim}>{sign === '-' ? '− counterweight' : '+ added'}</T>
           </Press>
         )}
       </View>
 
-      <View style={st.thead}>
-        <T size={12} faint weight={500} align="center" style={st.cSet}>set</T>
-        {cols.map((f) => (
-          <T key={f} size={12} faint weight={500} align="center" style={{ width: meta(f).width }}>{meta(f).label}</T>
-        ))}
-      </View>
+      {/* The per-climb option, as a button that says what it does. */}
+      {offers && !detailed ? (
+        <Btn kind="secondary" icon="ListPlus" title={`Log each ${what}`} onPress={turnOn} style={{ alignSelf: 'flex-start' }} />
+      ) : null}
+
+      {table ? (
+        <View style={st.thead}>
+          <T size={font.caption} faint weight={500} align="center" style={st.cSet}>set</T>
+          {cols.map((f) => (
+            <T key={f} size={font.caption} faint weight={500} align="center" style={{ width: meta(f).width }}>{colLabel(f)}</T>
+          ))}
+        </View>
+      ) : null}
 
       {rows.map((r: any, i: number) => (
         <View key={i}>
-          <SwipeRemove label="Remove" onRemove={() => dropSet(i)}>
-            <View style={st.row}>
-              <T size={13} faint tabular align="center" style={st.cSet}>{String(i + 1)}</T>
-              {cols.map((f) => (
-                <View key={f}>
-                  {/* While the detail is on, the climb list IS the count: the box
-                      only displays it and the steppers move it one at a time.
-                      Typing "12" over a 10 passes through "1" and each keystroke
-                      refit the list, deleting climbs already filled in. */}
-                  {f === 'reps' && Array.isArray(r[CLIMB_FIELD]) ? (
-                    <View style={st.repstep}>
-                      <Press onPress={() => bump(i, -1)} style={st.repstepB} accessibilityLabel={`set ${i + 1}: one fewer ${what}`}>
-                        <T size={19} dim lineHeight={22}>−</T>
-                      </Press>
-                      <View style={[st.numBox, { width: 44 }]} accessibilityLabel={`set ${i + 1} ${meta(f).label}`}>
-                        <T size={16} dim tabular align="center">{String(repCount(r.reps))}</T>
+          {inTable(r) ? (
+            <SwipeRemove label="Remove" onRemove={() => dropSet(i)}>
+              <View style={st.row}>
+                <T size={font.small} faint tabular align="center" style={st.cSet}>{String(i + 1)}</T>
+                {cols.map((f) => (
+                  <View key={f}>
+                    {/* While the detail is on, the climb list IS the count: shown, not typed. */}
+                    {f === 'reps' && Array.isArray(r[CLIMB_FIELD]) ? (
+                      <View style={[st.numBox, { width: 44 }]} accessibilityLabel={`set ${i + 1} ${colLabel(f)}`}>
+                        <T size={font.input} dim tabular align="center">{String(climbCount(r.reps))}</T>
                       </View>
-                      <Press onPress={() => bump(i, 1)} style={st.repstepB} accessibilityLabel={`set ${i + 1}: one more ${what}`}>
-                        <T size={19} dim lineHeight={22}>+</T>
-                      </Press>
-                    </View>
-                  ) : (
-                    <NumInput
-                      value={r[f] ?? ''} onChange={(v: any) => set(i, f, v)} blank=""
-                      placeholder={hintRows?.[i]?.[f] != null ? String(hintRows[i][f]) : undefined}
-                      placeholderTextColor={colors.inkFaint}
-                      accessibilityLabel={`set ${i + 1} ${meta(f).label}`}
-                      keyboardAppearance="dark" selectTextOnFocus selectionColor={colors.accent}
-                      style={[st.numBox, st.numIn, { width: meta(f).width }]}
-                    />
-                  )}
-                </View>
-              ))}
-              <View style={{ flex: 1 }} />
-              <Press onPress={() => dropSet(i)} style={st.x} accessibilityLabel={`Remove set ${i + 1}`} hitSlop={4}>
-                <Icon name="X" size={14} color={colors.inkFaint} />
-              </Press>
-            </View>
-          </SwipeRemove>
-          {/* The per-rep grades get their own line under the row: a third column
-              of selects pushes the reps cell off a phone screen. */}
+                    ) : (
+                      <NumInput
+                        value={r[f] ?? ''} onChange={(v: any) => set(i, f, v)} blank=""
+                        placeholder={hintRows?.[i]?.[f] != null ? String(hintRows[i][f]) : undefined}
+                        placeholderTextColor={colors.inkFaint}
+                        accessibilityLabel={`set ${i + 1} ${meta(f).label}`}
+                        keyboardAppearance="dark" selectTextOnFocus selectionColor={colors.accent}
+                        style={[st.numBox, st.numIn, { width: meta(f).width }]}
+                      />
+                    )}
+                  </View>
+                ))}
+              </View>
+            </SwipeRemove>
+          ) : rows.length > 1 ? (
+            <T size={font.small} dim style={{ paddingBottom: space[1] }}>{`Set ${i + 1}`}</T>
+          ) : null}
+          {/* The per-rep grades get their own line under the row. */}
           {perRep && (
-            <View style={st.under}>
+            <View style={table ? st.under : null}>
               <GradeLaps count={repCount(r.reps)} values={r[GRADE_FIELD]} what={what} where={`set ${i + 1} `}
                 onChange={(list: any) => setList(i, GRADE_FIELD, list)} />
             </View>
           )}
-          {/* The optional per-climb detail, same full-width slot. */}
           {Array.isArray(r[CLIMB_FIELD]) && (
-            <View style={st.under}>
-              <ClimbLog count={repCount(r.reps)} values={r[CLIMB_FIELD]}
-                spec={exercise.climbLog} what={what} omitGrade={perRep}
-                where={rows.length > 1 ? `set ${i + 1} ` : ''}
-                onChange={(list: any) => setList(i, CLIMB_FIELD, list)}
-                onMore={repCount(r.reps) < 20 ? () => bump(i, 1) : undefined} />
-            </View>
+            <View style={table ? st.under : null}>{climbList(r, i)}</View>
           )}
         </View>
       ))}
 
+      {detailed ? <Btn kind="quiet" title="Count only" onPress={askOff} style={{ alignSelf: 'flex-start' }} /> : null}
+
       <View style={st.foot}>
-        <Press onPress={addSet} style={st.add} accessibilityRole="button">
-          <T size={12} dim>+ add set</T>
-        </Press>
-        <T size={12} faint tabular style={{ flex: 1 }}>
-          {`${rows.length} set${rows.length === 1 ? '' : 's'}${total ? ` · ${total} reps` : ''}`
-            + `${downs > 0 ? ` · ${downs} down-climbed` : ''}`
-            + `${lengths > total ? ` · ${lengths} lengths` : ''}`
-            + `${falls > 0 ? ` · fell on ${falls}` : ''}`}
-        </T>
+        <Btn kind="secondary" icon="Plus" title="Add set" onPress={addSet} />
+        {/* Off the number row on purpose: the set comes back with Undo. */}
+        {rows.length > 1 ? <Btn kind="quiet" title="Remove last set" onPress={() => dropSet(rows.length - 1)} /> : null}
       </View>
+      <T size={font.small} faint tabular>
+        {(table ? `${rows.length} set${rows.length === 1 ? '' : 's'}${total ? ` · ${total} ${noun}` : ''}` : `${total} ${noun}`)
+          + `${sent > 0 ? ` · ${sent} sent` : ''}`
+          + `${falls > 0 ? ` · fell on ${falls}` : ''}`
+          + `${downs > 0 ? ` · ${downs} down-climbed` : ''}`
+          + `${lengths > total ? ` · ${lengths} lengths` : ''}`}
+      </T>
     </View>
   )
 }
@@ -467,14 +612,7 @@ export function SetLog({ session, out, onSave, hints = null }: any) {
           onSign={(s: string) => setSign(ex, s)}
         />
       ))}
-      <T size={12} faint lineHeight={17}>
-        {'Pre-filled from the plan — change anything that didn\'t match, add a set if you did more, '
-          + 'remove one if you stopped early. Load is per set, so a drop-off shows up; where a grade is '
-          + 'asked for it is per rep, so a set of two laps on two different routes reads as two.'
-          + (spec.exercises.some((e: any) => offersClimbs(e))
-            ? ' Entirely optional: "log each climb" opens a line per climb — style, whether you fell, and (where the grade is not already asked per rep) its grade and how honest that felt.'
-            : '')}
-      </T>
+      <T size={font.caption} faint lineHeight={17}>Pre-filled from the plan: change what didn't match, and add a set if you did more.</T>
     </View>
   )
 }
@@ -528,40 +666,44 @@ export function topLoad(out: any, key: string) {
 }
 
 const st = StyleSheet.create({
-  head: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 7 },
+  head: { flexDirection: 'row', alignItems: 'center', gap: space[2], flexWrap: 'wrap' },
   signtog: {
-    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: 999,
-    paddingHorizontal: 10, minHeight: 32, justifyContent: 'center',
+    backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.pill,
+    paddingHorizontal: space[3], minHeight: TAP, justifyContent: 'center',
   },
-  thead: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingBottom: 4 },
+  thead: { flexDirection: 'row', alignItems: 'center', gap: space[2], paddingBottom: space[1] },
   cSet: { width: 22 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 3, backgroundColor: colors.panel },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space[2], paddingVertical: 3, backgroundColor: colors.panel },
   numBox: {
-    minHeight: TAP, borderRadius: 8, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel2,
+    minHeight: TAP, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel2,
     justifyContent: 'center', paddingHorizontal: 6,
   },
-  numIn: { color: colors.ink, fontSize: 16, textAlign: 'center', fontVariant: ['tabular-nums'], paddingVertical: 6 },
-  x: { width: TAP, height: TAP, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
+  numIn: { color: colors.ink, fontSize: font.input, textAlign: 'center', fontVariant: ['tabular-nums'], paddingVertical: 6 },
   under: { paddingLeft: 30, paddingRight: 4 },
-  repstep: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  repstep: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
   repstepB: {
-    minWidth: TAP, minHeight: TAP, borderRadius: 8, borderWidth: 1, borderColor: colors.line,
+    minWidth: TAP, minHeight: TAP, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line,
     backgroundColor: colors.panel2, alignItems: 'center', justifyContent: 'center',
   },
-  gradelaps: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 12, rowGap: 8, paddingTop: 2, paddingBottom: 6 },
+  gradelaps: { flexDirection: 'row', flexWrap: 'wrap', columnGap: space[3], rowGap: space[2], paddingTop: 2, paddingBottom: 6 },
   gradelap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   select: {
     flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: TAP, paddingHorizontal: 10,
-    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: 8,
+    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm,
   },
-  climblog: { gap: 10, paddingTop: 4, paddingBottom: 6 },
-  climb: { gap: 2 },
-  climbRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  fell: {
-    flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: TAP, paddingHorizontal: 13,
-    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: 999,
+  climblog: { gap: space[2], paddingTop: 4, paddingBottom: 6 },
+  climbRow: { flexDirection: 'row', alignItems: 'center', gap: space[2], flexWrap: 'wrap' },
+  // A climb already described: one readable row, a tap opens it again.
+  done: {
+    flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: TAP, paddingHorizontal: space[2],
+    backgroundColor: colors.panel2, borderWidth: 1, borderColor: colors.line, borderRadius: radius.control,
   },
-  fellOn: { borderColor: mix(colors.accent, 55, colors.line), backgroundColor: mix(colors.accent, 12, colors.panel2) },
+  // The current climb: grade and how it went, then Details, then the next one.
+  edit: {
+    gap: space[2], padding: space[3], borderWidth: 1, borderColor: colors.lineStrong,
+    borderRadius: radius.control, backgroundColor: colors.panel,
+  },
+  outcomes: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
   felt: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 2 },
   slider: { height: TAP, justifyContent: 'center', flexGrow: 1 },
   track: { position: 'absolute', height: 6, borderRadius: 3, backgroundColor: colors.panel2, overflow: 'hidden' },
@@ -572,9 +714,6 @@ const st = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 3, shadowOffset: { width: 0, height: 1 },
   },
   thumbUnset: { backgroundColor: colors.panel3, borderWidth: 2, borderColor: colors.inkFaint, shadowOpacity: 0 },
-  foot: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6 },
-  add: {
-    borderWidth: 1, borderStyle: 'dashed', borderColor: colors.line, borderRadius: 7,
-    paddingHorizontal: 11, minHeight: TAP, justifyContent: 'center',
-  },
+  // Add and remove sit under the rows, never beside a box being typed in.
+  foot: { flexDirection: 'row', alignItems: 'center', gap: space[2], flexWrap: 'wrap', marginTop: space[1] },
 })

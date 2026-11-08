@@ -17,6 +17,9 @@ import { NumInput } from './numinput'
 import { localIso } from '../lib/dates.js'
 import { measured, testResultFrom } from '../lib/tests.js'
 
+/** The test series the ±CF_NOISE_PCT band belongs to: critical force and CFmin. */
+const CF_NOISED = new Set(['critical-force.cfKg', 'critical-force.cfMinKg'])
+
 // The same one-liner as tabs.tsx's: the local day, not UTC's.
 const todayIso = () => localIso()
 
@@ -57,7 +60,11 @@ export function TestingTab({ plan, entries = [], upsertEntry }: { plan: any; ent
                 .map(r => ({ x: r.date, y: (measured as any)(r.data[m.key]) }))
               return pts.length ? (
                 <LineChart key={m.key} points={pts} label={m.label} unit={m.unit || ''}
-                  color={SERIES[mi % SERIES.length]} goal={m.goal} />
+                  color={SERIES[mi % SERIES.length]} goal={m.goal}
+                  /* The critical-force readings carry the protocol's measured
+                     test-retest CV (AGENTS.md §6.1): a rise inside it is noise. Only
+                     those two series; impulse and the same-day max have no band. */
+                  noisePct={CF_NOISED.has(`${t.id}.${m.key}`) ? CF_NOISE_PCT : undefined} />
               ) : null
             })}
 

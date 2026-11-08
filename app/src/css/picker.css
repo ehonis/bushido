@@ -80,6 +80,8 @@
 .spick-search input::placeholder { color: var(--ink-faint); }
 .spick-search input:focus { outline: none; }
 .spick-group + .spick-group .section-head { margin-top: var(--sp-6); }
+/* A group with no heading (the Climbing door under Recent, #81) still stands apart. */
+.spick-group + .spick-group > .spick-list:first-child { margin-top: var(--sp-4); }
 .card.spick-list { padding-block: 0; margin-bottom: 0; }
 .spick-row > svg:first-child { color: var(--ink-dim); }
 .spick-row:active { background: var(--panel-2); }

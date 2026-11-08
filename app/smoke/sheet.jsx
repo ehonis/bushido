@@ -3,12 +3,15 @@
  * unchanged and in their old relative order. A case is [name, element | null, assert?].
  */
 import { renderToString } from 'react-dom/server'
+import { readFileSync } from 'node:fs'
+import { Modal, isTextEntry, footerShown, sheetDismissable, EDIT_SETTLE_MS } from '../src/modal.jsx'
 import { SessionSheet } from '../src/sheet.jsx'
 import { WorkoutRunner } from '../src/runner.jsx'
 import { climbingFolders } from '../src/lib/folders.js'
 import { normalizePrescription, emptyRun, setCircuit } from '../src/lib/prescription.js'
 import { PlanProvider } from '../src/lib/planctx.jsx'
 import { SessionLog, NameField, SessionDetails } from '../src/sessionlog.jsx'
+import { SetLog, withoutClimb, withClimbBack } from '../src/setlog.jsx'
 import { ExerciseCard, implementPick } from '../src/exercises.jsx'
 import { liftFieldOf } from '../src/lib/lifts.js'
 import { SectionBody } from '../src/session.jsx'
@@ -549,46 +552,102 @@ export default [
       data: { optId: 'fun-boulder', level: 2, minutes: 90, out: { sets: { problems: [{ reps: 10 }] } } } }}
     entries={noteHistory} onSave={noop} bare />,
     html => {
-      if (!/log each problem/.test(text(html))) throw new Error('the per-problem option is not offered')
+      if (!/>Log each problem</.test(text(html).replace(/<svg.*?<\/svg>\s*/g, '>'))) throw new Error('the per-problem option is not offered as a button that says so')
+      if (/logging each/.test(html)) throw new Error('the old display-looking toggle is back')
       if (/climblog/.test(html)) throw new Error('per-climb detail rendered before he asked for it')
       // With the detail off the count is an ordinary typed number, not a stepper.
       if (/repstep/.test(html)) throw new Error('the stepper belongs to the detail, not the plain log')
       const reps = html.match(/<input[^>]*aria-label="set 1 reps"[^>]*>/)?.[0] || ''
       if (/readonly/i.test(reps)) throw new Error('the plain reps box must stay typeable')
     }],
-  // ...and ON, each climb is a grade off its own ladder (V for boulders), a
-  // style, a fell mark, and a felt-for-the-grade slider that speaks in words.
+  /* ...and ON (#81): a climb already described is ONE readable row, the first
+   * undescribed one is the current climb with its grade and how it went, and
+   * the rest are one quiet line. Was: a row of pickers per climb, 2,968px tall
+   * for five routes (2026-11-08 grading, E F13). */
   ['SessionLog(fun day, per-problem detail)', <SessionLog session={plan.dailyMenu.find(m => m.id === 'fun-boulder')}
     entry={{ id: 'fb1', kind: 'daily', date: '2026-10-07', updatedAt: 'z',
       data: { optId: 'fun-boulder', level: 3, minutes: 90,
-        out: { sets: { problems: [{ reps: 3, climbs: [
+        out: { sets: { problems: [{ reps: 5, climbs: [
           { grade: 4, fell: true, felt: 1, style: 'roof' },
-          { grade: 5, fell: false, felt: '', style: '' },
+          { grade: 5, fell: false, felt: '', style: '', outcome: 'flash' },
+          { grade: '', fell: false, felt: '', style: '' },
+          { grade: '', fell: false, felt: '', style: '' },
           { grade: '', fell: false, felt: '', style: '' },
         ] }] } } } }}
     entries={noteHistory} onSave={noop} bare />,
     html => {
       const t = text(html)
-      const selected = [...html.matchAll(/<option value="([^"]*)" selected=""[^>]*>([^<]*)</g)].map(m => m[2])
-      if (!selected.includes('V4') || !selected.includes('V5')) {
-        throw new Error(`the per-problem V grades did not render as themselves: ${selected.join() || 'none'}`)
-      }
-      if (!selected.includes('roof')) throw new Error('the style did not render as picked')
-      if (!/problem 1/.test(t)) throw new Error('the problems are not numbered in the plan’s own word')
-      if (!/a touch stiff/.test(t)) throw new Error('felt must speak in words, not a bare number')
-      if (!/fell on 1/.test(t)) throw new Error('the footer must count the falls')
-      // Two graded problems, two felt sliders: "hard for the grade" is not a
-      // question until a climb has a grade.
-      const sliders = [...html.matchAll(/felt for the grade/g)].length
-      if (sliders !== 2) throw new Error(`expected 2 felt sliders, saw ${sliders}`)
-      if (!/for the grade: —/.test(t)) throw new Error('an untouched felt must read as unanswered, never "spot on"')
-      // While the detail is on, the count is stepped and never typed — a typed
-      // edit passes through states that truncate the list and delete climbs.
-      const reps = html.match(/<input[^>]*aria-label="set 1 reps"[^>]*>/)?.[0] || ''
-      if (!/readonly/i.test(reps)) throw new Error('a typeable count can still delete filled-in climbs')
-      if (!/one more problem/.test(html)) throw new Error('no way to add a problem without retyping the count')
-      if (!/one fewer problem/.test(html)) throw new Error('no way to remove one without retyping the count')
+      // The two described problems read as rows, in words, with their grades.
+      const done = [...html.matchAll(/class="climb-done"[\s\S]*?<\/button>/g)].map(m => m[0].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
+      if (done.length !== 2) throw new Error(`expected 2 described rows, got ${done.length}`)
+      if (!/problem 1 V4 Fell · roof · a touch stiff/.test(done[0])) throw new Error(`problem 1 reads "${done[0]}"`)
+      if (!/problem 2 V5 Flash/.test(done[1])) throw new Error(`problem 2 reads "${done[1]}"`)
+      // One editor: problem 3, its V ladder (to V17) and the outcomes a boulder has.
+      if ((html.match(/class="climb-edit"/g) || []).length !== 1) throw new Error('one climb has controls at a time')
+      if ((html.match(/class="gradesel"/g) || []).length !== 1) throw new Error('a grade picker per climb is back')
+      if (!/aria-label="problem 3 grade"/.test(html)) throw new Error('the current climb is not the first undescribed one')
+      if (!/>V17</.test(html)) throw new Error('the V ladder stops short of V17')
+      for (const o of ['Flash', 'Sent', 'Fell']) if (!new RegExp(`>${o}<`).test(html)) throw new Error(`no ${o} outcome`)
+      if (/>Onsight</.test(html)) throw new Error('onsight is a route word, not a boulder one')
+      if (!/Same as last: V5/.test(t)) throw new Error('no one-tap repeat of the last grade')
+      // The rest of the evening is one line, and the next one is a tap beside the current.
+      if (!/2 more problems, not described/.test(t)) throw new Error('the undescribed problems are not one quiet line')
+      if (!/>Next problem</.test(t.replace(/<svg.*?<\/svg>\s*/g, '>'))) throw new Error('no Next problem beside the current one')
+      // Style, felt, tries and Remove wait behind Details.
+      if (!/<details class="climb-more"><summary>Details<\/summary>/.test(html)) throw new Error('the optional detail is not folded')
+      if (!/Remove problem/.test(t)) throw new Error('no way to remove a problem')
+      if (!/1 sent/.test(t) || !/fell on 1/.test(t) || !/5 problems/.test(t)) throw new Error('the footer must count problems, sends and falls')
+      // The count is the list now: no reps box, no stepper, no table.
+      if (/aria-label="set 1 reps"/.test(html) || /one more problem/.test(html)) throw new Error('the count is typed or stepped beside the list')
+      if (/exlog-table/.test(html)) throw new Error('a one-column table for a list of climbs')
+      if (/>Count only</.test(t)) {} else throw new Error('no way back to a plain count')
+      // Boulders have no route-grade switch.
+      if (/gradesys/.test(html)) throw new Error('a boulder card offers the route grade switch')
     }],
+  // Turning the detail off with answers in it ASKS, in place (#81, E F1): it
+  // used to strip every grade in one tap on a control that looked like a label.
+  ['SetLog(turning the detail off asks first)', null, () => {
+    const opt = plan.dailyMenu.find(m => m.id === 'fun-sport')
+    const html = renderToString(<SetLog session={opt} onSave={noop} initialConfirm="routes"
+      out={{ sets: { routes: [{ reps: 2, climbs: [{ grade: 10.2, fell: false, felt: '', style: '' }, { grade: '', fell: false, felt: '', style: '' }] }] } }} />)
+    const t = text(html)
+    if (!/Remove what you logged for 1 route\?/.test(t)) throw new Error('the question is missing')
+    if (!/>Keep it</.test(t) || !/class="btn bad"[^>]*>Remove</.test(html)) throw new Error('both answers must be offered')
+    if (/>Count only</.test(t)) throw new Error('the control stays while its question is open')
+    // A route card offers the letters / plus-minus switch, and routes are named as routes.
+    if (!/class="seg tap gradesys"/.test(html) || !/>5\.10a</.test(html) || !/>5\.10\+</.test(html)) throw new Error('no route grade switch')
+    if (!/Onsight/.test(t)) throw new Error('a route offers onsight')
+    if (!/>5\.15</.test(html)) throw new Error('the route ladder stops short of 5.15')
+  }],
+  // Removing a lap takes its grade with it, and Undo puts both back where they
+  // were: the doubles log a grade per lap beside the climb records.
+  ['SetLog(a removed lap and its grade come back together)', null, () => {
+    const row = { reps: 3, grades: [10.1, 10.2, 10.3], climbs: [
+      { grade: '', fell: false, felt: '', style: 'vert', down: '' },
+      { grade: '', fell: true, felt: '', style: '', down: '' },
+      { grade: '', fell: false, felt: '', style: 'roof', down: '' },
+    ] }
+    const gone = withoutClimb(row, 1, true)
+    if (gone.reps !== 2 || gone.grades.join() !== '10.1,10.3') throw new Error(`the grade did not leave with its lap: ${gone.grades}`)
+    if (gone.climbs.map(c => c.style).join() !== 'vert,roof') throw new Error('the wrong lap went')
+    const back = withClimbBack(gone, 1, row.climbs[1], 10.2, true)
+    if (back.reps !== 3 || back.grades.join() !== '10.1,10.2,10.3') throw new Error(`Undo misplaced the grade: ${back.grades}`)
+    if (back.climbs[1].fell !== true) throw new Error('Undo did not bring the lap back where it was')
+    // A count of 25 survives switching the detail on: no cap at twenty (E F8).
+    const html = renderToString(<SetLog session={plan.dailyMenu.find(m => m.id === 'fun-boulder')} onSave={noop}
+      out={{ sets: { problems: [{ reps: 25, climbs: Array.from({ length: 25 }, () => ({ grade: '', fell: false, felt: '', style: '' })) }] } }} />)
+    if (!/24 more problems, not described/.test(text(html)) || !/25 problems/.test(text(html))) throw new Error('a 25-problem evening was cut short')
+  }],
+  // Sets come off from the foot, with Undo, never from an X beside the number
+  // being typed (#81, E F1: a 30px X removed a whole evening's routes).
+  ['SetLog(no remove beside the numbers)', null, () => {
+    const opt = plan.dailyMenu.find(m => m.id === 'repeaters')
+    const html = renderToString(<SetLog session={opt} out={{}} onSave={noop} />)
+    if (/Remove set \d/.test(html) || /exlog-x/.test(html)) throw new Error('the per-row X is back')
+    if (!/Remove last set/.test(html)) throw new Error('no way to take a set off')
+    if (/type="number"/.test(html)) throw new Error('a controlled number input eats the trailing dot')
+    if (/log each/i.test(html)) throw new Error('a hangboard set offers per-climb detail')
+  }],
   ['SessionLog(a rest day)', <SessionLog session={plan.dailyMenu.find(m => m.role === 'rest')}
     entry={{ id: 'r', kind: 'daily', date: '2026-10-02', updatedAt: 'z',
       data: { optId: 'off', level: 1, minutes: 0, out: {} } }}
@@ -732,64 +791,139 @@ export default [
     const entry = { id: `daily-${TODAY}`, kind: 'daily', date: TODAY, updatedAt: 'z',
       data: { slot: 'main', optId: 'planned', name: pres.title, minutes: 45, level: 2,
         done: false, plan: pres, out: {} } }
-    const t = text(renderToString(
+    const html = renderToString(
       <PlanProvider plan={plan}>
         <SessionSheet opt={PLANNED_CARD} entry={entry} tone="rec" entries={rich} isFuture={false}
           onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={noop}
           onClose={noop} />
-      </PlanProvider>))
+      </PlanProvider>)
+    const t = text(html)
     if (/Start the workout/.test(t)) throw new Error('a lift session is offering a clock again')
-    // Kept for today and untouched, it is not done yet (D10, #74): the sheet offers to mark it done.
-    if (!/Mark done/.test(t) || /Mark undone/.test(t)) throw new Error('an untouched plan for today does not offer "Mark done"')
+    // The chip by the title (#77), never a footer under the sets.
+    const chip = (h) => (h.match(/<button[^>]*class="done-chip[^"]*"[^>]*>/) || [''])[0]
+    if (/<footer class="modal-foot">/.test(html)) throw new Error('a lift session with nothing to start has a footer (a Close?) under its sets')
+    // Kept for today and untouched, it is not done yet (D10, #74): the chip says so and its tap is Mark done.
+    if (!/aria-checked="false"/.test(chip(html)) || !/title="Mark done"/.test(chip(html)) || !/>Not done</.test(t)) {
+      throw new Error('an untouched plan for today does not read "Not done" with Mark done on its chip')
+    }
     const typed = { ...pres, blocks: pres.blocks.map(b => ({ ...b, items: b.items.map(it => ({ ...it, sets: it.sets.map((x, i) => (i ? x : { ...x, typed: true })) })) })) }
-    const done = text(renderToString(
+    const doneHtml = renderToString(
       <PlanProvider plan={plan}>
         <SessionSheet opt={PLANNED_CARD} entry={{ ...entry, data: { ...entry.data, plan: typed } }} tone="rec" entries={rich} isFuture={false}
           onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={noop}
           onClose={noop} />
-      </PlanProvider>))
-    if (!/Mark undone/.test(done)) throw new Error('with no runner, a set typed in has to make it done and offer to undo it')
+      </PlanProvider>)
+    if (!/aria-checked="true"/.test(chip(doneHtml)) || !/title="Mark undone"/.test(chip(doneHtml))) {
+      throw new Error('with no runner, a set typed in has to make it done, and its chip offer to undo it')
+    }
     // And no rest box anywhere in the editor.
     if (/rest sec/.test(t)) throw new Error('lifting grew a rest interval back')
   }],
   /*
-   * DONE BY DEFAULT (AGENTS.md §4), and THE FOOTER (#41). Every field saves as
-   * typed, so the footer's primary is Close (or Start, where there is a workout
-   * to run); beside it, quiet, "Mark undone" on a session done by default, "Mark
-   * done" on one marked undone, and neither on a later day. Pinned absent: the old
-   * toggles that put a state and an action in one label ("Done · Mark undone").
+   * THE FOOTER (#77): a real action or nothing. Close was the lime primary
+   * 0px under the first set's weight stepper and the owner hit it over and over
+   * mid-workout; the header X closes, so the footer holds Start (where there is
+   * something to run), putting a card on the day, or nothing at all. Pinned
+   * absent: Close and the done toggle in the footer. Pinned present: Start, the
+   * card's own action and the header X.
    */
-  ['SessionSheet(Close is the primary; Mark undone quiet beside it; Mark done once undone; neither later)', null, () => {
+  ['SessionSheet(no Close in the footer: Start, the card’s action, or no footer; the X closes)', null, () => {
     const sheet = (entry, isFuture = false, opt = PLANNED_CARD) => renderToString(
       <PlanProvider plan={plan}>
         <SessionSheet opt={opt} entry={entry} tone="rec" entries={rich} isFuture={isFuture}
           onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={noop}
           onClose={noop} />
       </PlanProvider>)
-    const foot = (html) => (html.match(/<footer class="modal-foot">([\s\S]*?)<\/footer>/) || [])[1] || ''
-    // A plan for today is done once something is done on it (D10, #74): untouched, a quiet "Mark done".
-    const kept = foot(sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false } }))
-    if (!/class="btn quiet"[^>]*>Mark done</.test(kept) || /Mark undone/.test(kept)) throw new Error('an untouched plan for today has no quiet "Mark done"')
-    if (!/class="btn"[^>]*>.*Start the workout/.test(kept)) throw new Error('an untouched plan for today lost its Start')
-    const today = foot(sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false, out: { ...(PLANNED_ENTRY.data.out || {}), rpe: 6 } } }))
-    if (!/class="btn quiet"[^>]*>Mark undone</.test(today)) throw new Error('a session done today has no quiet "Mark undone"')
-    if (/Done · Mark undone|tap to undo|Mark as done/.test(text(today))) throw new Error('an old done toggle is back')
-    // This one has a clock to run, so Start is the primary rather than Close.
-    if (!/class="btn"[^>]*>.*Start the workout/.test(today)) throw new Error('a done-by-default session lost its Start')
-    const undone = text(foot(sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false, undone: true } })))
-    if (!/Mark done/.test(undone) || /Mark undone/.test(undone)) throw new Error('a session marked undone does not offer "Mark done"')
-    // A run finished today is reopened by Start (#75: one mis-tap on Finish
-    // used to end the workout for good); on an earlier day, once done, nothing
-    // is left to start and Close is the primary.
+    const foot = (html) => (html.match(/<footer class="modal-foot">([\s\S]*?)<\/footer>/) || [])[1] ?? null
+    const today = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: true } })
+    if (!/Start the workout/.test(foot(today) || '')) throw new Error('a runnable session lost its Start')
+    if (/>Close</.test(foot(today) || '')) throw new Error('Close is back in the footer beside Start')
+    if (/Mark (un)?done/.test(foot(today) || '')) throw new Error('the done toggle is back in the footer')
+    if (!/class="modal-btn close"[^>]*aria-label="Close"/.test(today)) throw new Error('the header X is gone: no way to close')
+    // A plan for today is done once something is done on it (D10, #74). Untouched, it still
+    // offers Start in the footer and its chip (not the footer) reads "Not done".
+    const kept = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false } })
+    if (!/Start the workout/.test(foot(kept) || '') || /Mark (un)?done|>Close</.test(foot(kept) || '')) throw new Error('an untouched plan for today: the footer is not just Start')
+    if (!/class="done-chip "[^>]*aria-checked="false"/.test(kept)) throw new Error('an untouched plan for today reads as done')
+    const logged = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false, out: { ...(PLANNED_ENTRY.data.out || {}), rpe: 6 } } })
+    if (!/class="done-chip on"[^>]*aria-checked="true"/.test(logged)) throw new Error('a plan with something logged on it today does not read as done')
+    // A run finished today is reopened by Start (#75); on an earlier day, once
+    // done, nothing is left to start: no footer at all, rather than a Close.
     const finished = foot(sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: true, run: { startedAt: 1, endedAt: 2 } } }))
-    if (!/Start the workout/.test(finished)) throw new Error('a run finished today cannot be reopened')
-    const past = foot(sheet({ ...PLANNED_ENTRY, date: '2026-01-05', data: { ...PLANNED_ENTRY.data, done: true, run: { startedAt: 1, endedAt: 2 } } }))
-    if (/Start the workout/.test(past)) throw new Error('an earlier day\'s finished, done workout offers Start')
-    if (!/<button type="button" class="btn">Close<\/button>/.test(past)) throw new Error('Close is not the primary once nothing is left to start')
-    const later = foot(sheet({ ...PLANNED_ENTRY, date: '2999-01-01', data: { ...PLANNED_ENTRY.data, done: false } }, true))
-    if (/Mark (un)?done/.test(later)) throw new Error('a session on a later day offers a done control')
-    if (!/>Close</.test(later)) throw new Error('a later day has no way to close its sheet')
+    if (!/Start the workout/.test(finished || '') || />Close</.test(finished || '')) throw new Error('a run finished today cannot be reopened, or Close came back')
+    const past = sheet({ ...PLANNED_ENTRY, date: '2026-01-05', data: { ...PLANNED_ENTRY.data, done: true, run: { startedAt: 1, endedAt: 2 } } })
+    if (foot(past) !== null) throw new Error(`a sheet with nothing to start still has a footer: ${text(foot(past))}`)
+    const later = sheet({ ...PLANNED_ENTRY, date: '2999-01-01', data: { ...PLANNED_ENTRY.data, done: false } }, true)
+    if (foot(later) !== null) throw new Error('a later day grew a footer')
+    if (/done-chip|Mark (un)?done/.test(later)) throw new Error('a session on a later day offers a done control')
     if (/Preview only/.test(text(later))) throw new Error('the explanatory preview line is back')
+    // A card with nothing on the day yet: putting it there is the footer's one action.
+    const card = foot(renderToString(<SessionSheet opt={otherCard} entry={null} tone="rec" entries={[]}
+      onLog={noop} onSave={noop} onSetDone={noop} onClose={noop} />)) || ''
+    if (!/Add to today/.test(card) || />Close</.test(card)) throw new Error(`the unplaced card's footer reads "${text(card)}"`)
+  }],
+  /*
+   * DONE IS A CHIP BY THE TITLE (#77), at its new address: `.modal-status` in
+   * the header, a switch that says the state ("Done" / "Not done"). Done by
+   * default (AGENTS.md §4) still holds; the chip only reads `isDone`.
+   */
+  ['SessionSheet(done is a chip under the title: "Done" lit, "Not done" once undone)', null, () => {
+    const sheet = (entry) => renderToString(
+      <PlanProvider plan={plan}>
+        <SessionSheet opt={PLANNED_CARD} entry={entry} tone="rec" entries={rich} isFuture={false}
+          onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onStartWorkout={noop} onClose={noop} />
+      </PlanProvider>)
+    const status = (html) => (html.match(/<div class="modal-status">([\s\S]*?)<\/div>/) || [])[1] || ''
+    const done = status(sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: true } }))
+    if (!/class="done-chip on"[^>]*role="switch"[^>]*aria-checked="true"/.test(done)) throw new Error('a done session has no lit chip')
+    if (!/>Done</.test(done)) throw new Error('the chip does not say "Done"')
+    const undone = status(sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: false, undone: true } }))
+    if (!/class="done-chip "[^>]*aria-checked="false"/.test(undone) || !/>Not done</.test(undone)) {
+      throw new Error('a session marked undone does not say "Not done"')
+    }
+    // The chip sits in the header, above every input: never in the body or the foot.
+    const html = sheet({ ...PLANNED_ENTRY, data: { ...PLANNED_ENTRY.data, done: true } })
+    if (html.indexOf('done-chip') > html.indexOf('class="modal-body"')) throw new Error('the done chip left the header')
+    if (/Done · Mark undone|tap to undo|Mark as done/.test(text(html))) throw new Error('an old done toggle is back')
+  }],
+  /*
+   * NO FOOTER WHILE TYPING (#77), the shell's policy for every sheet and the
+   * planner's sticky bar. SSR cannot focus a box, so the parts are pinned: what
+   * counts as typing, the rule that a sheet hides its footer then, and the
+   * full screen's CSS. The footer renders when nothing is focused.
+   */
+  ['Modal(the footer steps aside while a box has focus; a switch or a button is not typing)', null, () => {
+    const el = (tagName, extra = {}) => ({ tagName, ...extra })
+    const typing = [el('INPUT'), el('INPUT', { type: 'text' }), el('INPUT', { type: 'number' }), el('TEXTAREA'), el('DIV', { isContentEditable: true })]
+    const not = [null, el('BUTTON'), el('INPUT', { type: 'checkbox' }), el('INPUT', { type: 'range' }), el('INPUT', { readOnly: true }), el('TEXTAREA', { disabled: true }), el('DIV')]
+    for (const e of typing) if (!isTextEntry(e)) throw new Error(`${e.tagName}${e.type ? `[${e.type}]` : ''} is not counted as typing`)
+    for (const e of not) if (isTextEntry(e)) throw new Error(`${e?.tagName} counted as typing`)
+    if (footerShown({ footer: 'x', editing: true })) throw new Error('a sheet keeps its footer while a box has focus')
+    if (footerShown({ footer: 'x', confirming: true })) throw new Error('the footer shows over the delete confirmation')
+    if (!footerShown({ footer: 'x' })) throw new Error('a sheet at rest lost its footer')
+    // Focusing a box holds the scrim and Escape while it has focus, but is not a change:
+    // once it lets go, an untouched sheet closes the fast way again. A real edit locks it.
+    if (sheetDismissable({ editing: true })) throw new Error('the scrim closes a sheet while a box has focus')
+    if (!sheetDismissable({ editing: false, touched: false })) throw new Error('focusing a box (no change) locked the sheet to its X')
+    if (sheetDismissable({ touched: true })) throw new Error('a sheet with something typed in it closes on the scrim')
+    if (sheetDismissable({ dismissable: false })) throw new Error('the caller\u2019s dirty flag is ignored')
+    if (!(EDIT_SETTLE_MS >= 250)) throw new Error('the footer can slide back under a finger that just blurred a box')
+    const html = renderToString(<Modal title="t" onClose={noop} footer={<button className="btn">Go</button>}>body</Modal>)
+    if (!/<footer class="modal-foot">/.test(html) || /data-editing/.test(html)) throw new Error('a sheet at rest renders no footer, or starts out editing')
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    if (!/\.fs\[data-editing\] \.plan-actions\.sticky \{ display: none; \}/.test(css)) throw new Error('the planner’s sticky bar stays up while typing')
+  }],
+  /* The header (#77): the bin is never beside the X; the pencil sits between them. */
+  ['SessionSheet(header: bin, pencil, then the X)', null, () => {
+    const html = renderToString(
+      <PlanProvider plan={plan}>
+        <SessionSheet opt={PLANNED_CARD} entry={PLANNED_ENTRY} tone="rec" entries={rich} isFuture={false}
+          onLog={noop} onSave={noop} onSavePlan={noop} onSetDone={noop} onRemove={noop} onClose={noop} />
+      </PlanProvider>)
+    const head = (html.match(/<header class="modal-head">([\s\S]*?)<\/header>/) || [])[1] || ''
+    const at = (re) => head.search(re)
+    const bin = at(/aria-label="Remove from today"/), pencil = at(/aria-label="Edit this workout"/), x = at(/aria-label="Close"/)
+    if (!(bin >= 0 && pencil > bin && x > pencil)) throw new Error(`header order bin ${bin}, pencil ${pencil}, close ${x}`)
   }],
   /*
    * THE HEADER (#41): the name, then the day and the time as typed. It used to

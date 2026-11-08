@@ -26,6 +26,9 @@ import {
   DOWN_OPTIONS, downLabel, downsIn, lengthsIn,
   fitClimbs, climbsIn, hardestClimbed, fallsIn, feltLabel, FELT_MIN, FELT_MAX,
   stepClimbs,
+  ROUTE_GRADES, routeLadder, gradeSystemOf, routeSystem, setRouteSystem, bandOf, bandLabel,
+  outcomeOf, withOutcome, isClean, outcomesFor, triesOf, climbsOf, hardestSent, hardestTried,
+  climbVolume, climbLine, bandsOf, detailOn, dropClimb, putClimb, climbSaid, saidIn, MAX_CLIMBS,
 } from './src/lib/grades.js'
 import {
   minutesFor, minutesOf, dayMinutes, resolveMinutes, asksItsOwnDuration, minutesSourceOf,
@@ -1087,12 +1090,15 @@ check('the day total adds up what each session actually cost', () => {
 
 /* ----------------------------------------------------- the route-grade ladder */
 
-check('the ladder is 5.7 to 5.12 with modifiers, and nothing outside it', () => {
-  eq(GRADES[0].label, '5.7', 'easiest rung')
-  eq(GRADES.at(-1).label, '5.12', 'hardest rung')
-  eq(GRADES.length, 16, 'rungs')
+check('the plus/minus ladder is 5.5 to 5.15 with modifiers, and nothing outside it', () => {
+  // Was 5.7 to 5.12 until #81: the seed's own profile says 5.11b and the route
+  // log could not record it, nor a 5.6 or a 5.12+.
+  eq(GRADES[0].label, '5.5', 'easiest rung')
+  eq(GRADES.at(-1).label, '5.15', 'hardest rung')
+  eq(GRADES.length, 31, 'rungs')
   // The endpoints carry no modifier that would leave the stated range.
-  ok(!GRADES.some(g => g.label === '5.7−' || g.label === '5.12+'), 'ladder ran past its ends')
+  ok(!GRADES.some(g => g.label === '5.5−' || g.label === '5.15+'), 'ladder ran past its ends')
+  ok(GRADES.some(g => g.label === '5.6') && GRADES.some(g => g.label === '5.12+'), 'the new rungs')
   // Ordered, easiest first — the charts and hardestGrade both rely on it.
   const vals = GRADES.map(g => g.value)
   eq(vals.join(), [...vals].sort((a, b) => a - b).join(), 'rungs out of order')
@@ -1166,6 +1172,174 @@ check('the grade list is exactly as long as the rep count', () => {
   eq(fitGrades('nonsense', 1).join(), '')
 })
 
+/* -------------------------------------- the grade encoding (issue #81, a contract) */
+
+check('every value on the old ladder reads exactly as it did', () => {
+  // The original encoding: base.tenth, 1 minus, 2 plain, 3 plus, on the old
+  // ladder (5.7 to 5.12 with modifiers, V0 to V10). Unchanged.
+  for (const [v, label] of [[10.1, '5.10−'], [10.2, '5.10'], [10.3, '5.10+'], [7.2, '5.7'], [12.2, '5.12'],
+    [9.3, '5.9+'], [11.1, '5.11−']]) {
+    eq(gradeLabel(v), label, `${v}`)
+    ok(isGrade(v), `${v} fell off the ladder`)
+  }
+  // Off-ladder hand-written values stay raw, never rounded onto a rung, and are
+  // not rungs a chart could plot: the old "10.4 for 5.10d", an integer typed
+  // before the ladder existed.
+  for (const v of [10.4, 10.45, 10, 7, 104]) {
+    eq(gradeLabel(v), String(v), `${v} was relabelled`)
+    eq(gradeIndex(v), -1, `${v} became a rung`)
+  }
+  // V integers are what they were, and V0 is a grade, not "nothing".
+  eq(vLabel(0), 'V0'); eq(vLabel(4), 'V4'); eq(vLabel(10), 'V10')
+  eq(vLabel(4.5), '4.5', 'off the V ladder stays raw')
+  for (const g of [...GRADES, ...ROUTE_GRADES].filter(x => x.base >= 7 && x.base <= 12 && x.system !== 'letters')) {
+    if (g.label === '5.7−' || g.label === '5.12+') continue
+    eq(gradeLabel(g.value), g.label)
+  }
+})
+
+check('values outside the old ladder, shown raw before #81, now read as their rung', () => {
+  // Unavoidable with a wider ladder: these were off-ladder on the 5.7–5.12,
+  // V0–V10 ladder and were shown as the raw number. Each is exactly a rung now.
+  for (const [v, label] of [[7.1, '5.7−'], [12.3, '5.12+'], [13.2, '5.13'], [5.2, '5.5'], [10.25, '5.10c']]) {
+    eq(gradeLabel(v), label, `${v}`)
+  }
+  eq(vLabel(11), 'V11'); eq(vLabel(17), 'V17')
+  // Still off-ladder, still raw: nothing in between became a rung.
+  for (const v of [10.4, 10.45, 7, 104, 5.1, 15.3]) eq(gradeLabel(v), String(v), `${v}`)
+})
+
+check('letter grades have their own encoding, which sorts between the modifiers', () => {
+  eq(gradeLabel(10.05), '5.10a'); eq(gradeLabel(10.15), '5.10b')
+  eq(gradeLabel(10.25), '5.10c'); eq(gradeLabel(10.35), '5.10d'); eq(gradeLabel(11.15), '5.11b')
+  eq(gradeSystemOf(10.15), 'letters'); eq(gradeSystemOf(10.3), 'pm'); eq(gradeSystemOf(10.2), 'plain')
+  // a < − < b < plain < c < + < d < next a: a mixed log still sorts and maxes.
+  const order = [10.05, 10.1, 10.15, 10.2, 10.25, 10.3, 10.35, 11.05].map(gradeLabel)
+  eq(order.join(' '), '5.10a 5.10− 5.10b 5.10 5.10c 5.10+ 5.10d 5.11a')
+  eq(ROUTE_GRADES.map(g => g.value).join(), [...ROUTE_GRADES.map(g => g.value)].sort((a, b) => a - b).join(), 'full ladder out of order')
+  eq(hardestGrade([10.3, 10.35, 10.15]), 10.35, '5.10d beats 5.10+')
+  eq(hardestGrade([10.25, 10.3]), 10.3, '5.10+ beats 5.10c')
+  // No letters below 5.10; letters to 5.15d; the letters ladder writes no modifiers.
+  ok(!ROUTE_GRADES.some(g => /^5\.[5-9][a-d]$/.test(g.label)), 'a 5.9b')
+  const letters = routeLadder('letters').map(g => g.label)
+  eq(letters[0], '5.5'); eq(letters.at(-1), '5.15d')
+  ok(letters.includes('5.11b') && !letters.some(l => /[−+]$/.test(l)), letters.join())
+  ok(!routeLadder('pm').some(g => g.system === 'letters'), 'the plus/minus ladder offers letters')
+  // Every rung round-trips through a picker's string.
+  for (const g of ROUTE_GRADES) ok(g.value === Number(String(g.value)) && isGrade(Number(String(g.value))), g.label)
+})
+
+check('the V ladder runs to V17, and the axis is ordinal across both route systems', () => {
+  eq(VGRADES.at(-1).label, 'V17'); eq(VGRADES.length, 18)
+  eq(vLabel(17), 'V17'); eq(vLabel(18), '18', 'past the ladder stays raw')
+  // One rung between 5.10 and 5.10c, one between 5.10c and 5.10+.
+  eq(gradeIndex(10.25) - gradeIndex(10.2), 1)
+  eq(rungLabel(gradeIndex(10.15)), '5.10b')
+  // Bands group a whole grade written either way: the pyramid's rows.
+  eq(bandOf('yds', 10.05), 10); eq(bandOf('yds', 10.3), 10); eq(bandOf('yds', 10.4), null)
+  eq(bandOf('v', 4), 4); eq(bandOf('v', 4.5), null); eq(bandLabel('yds', 10), '5.10'); eq(bandLabel('v', 0), 'V0')
+})
+
+check('which way route pickers write is a device setting, plus/minus by default', () => {
+  const store = new Map()
+  globalThis.localStorage = { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)) }
+  try {
+    eq(routeSystem(), 'pm', 'default')
+    setRouteSystem('letters'); eq(routeSystem(), 'letters')
+    setRouteSystem('nonsense'); eq(routeSystem(), 'pm')
+  } finally { delete globalThis.localStorage }
+  eq(routeSystem(), 'pm', 'no storage at all (a server render)')
+})
+
+check('an outcome per climb, and records from before outcomes read as they did', () => {
+  // Old shape: no outcome key. fell decides, exactly as the old chip meant.
+  eq(outcomeOf({ grade: 10.2, fell: true }), 'fell')
+  eq(outcomeOf({ grade: 10.2, fell: false }), '')
+  ok(isClean({ grade: 10.2, fell: false }), 'an old climb without a fall went clean')
+  ok(!isClean({ grade: 10.2, fell: true }), 'a fall is not a send')
+  ok(!isClean({ grade: 10.2, down: 'only' }), 'a down-climb only is not a send of the route')
+  // New: picking an outcome writes it and keeps `fell` in step for an older app.
+  const flash = withOutcome(blankClimb(), 'flash')
+  eq(flash.outcome, 'flash'); eq(flash.fell, false); ok(isClean(flash))
+  const fell = withOutcome(flash, 'fell')
+  eq(fell.fell, true); eq(outcomeOf(fell), 'fell'); ok(!isClean(fell))
+  const cleared = withOutcome(fell, null)
+  ok(!('outcome' in cleared) && cleared.fell === false, 'clearing leaves the old shape')
+  eq(outcomesFor('v').map(o => o.value).join(), 'flash,send,fell', 'no onsight on a boulder')
+  eq(outcomesFor('yds')[0].value, 'onsight')
+  eq(fallsIn([{ reps: 2, climbs: [withOutcome(blankClimb(), 'fell'), { grade: 4, fell: true }] }]), 2)
+  eq(triesOf({ tries: 3 }), 3); eq(triesOf({}), 1); eq(triesOf({ tries: '' }), 1)
+})
+
+check('a session\'s climbs are read on the scale the plan declares, both list shapes', () => {
+  const laps = opt('lead-laps')
+  // The doubled lead laps' grades are the per-rep list; the metrics used to miss them (F6).
+  const got = climbsOf(laps, { sets: { doubles: [{ reps: 2, grades: [10.1, 10.2] }] } })
+  eq(got.map(c => `${c.scale}:${c.grade}`).join(), 'yds:10.1,yds:10.2')
+  // With the detail on too, the outcome comes from the matching climb record.
+  const both = climbsOf(laps, { sets: { doubles: [{ reps: 2, grades: [10.1, 10.2],
+    climbs: [{ fell: true }, withOutcome(blankClimb(), 'send')] }] } })
+  eq(both.map(c => c.clean).join(), 'false,true')
+  eq(hardestSent(laps, { sets: { doubles: [{ reps: 2, grades: [10.1, 10.3], climbs: [{}, { fell: true }] }] } }, 'yds'), 10.1,
+    'the hardest SENT ignores the lap that was a fall')
+  eq(hardestTried(laps, { sets: { doubles: [{ reps: 2, grades: [10.1, 10.3], climbs: [{}, { fell: true }] }] } }, 'yds'), 10.3)
+  // A boulder card's grades are V by its declaration, whatever the number.
+  const board = opt('board')
+  const v = climbsOf(board, { sets: { intervals: [{ reps: 2, climbs: [{ grade: 8 }, { grade: 0 }] }] } })
+  eq(v.map(c => `${c.scale}:${c.grade}`).join(), 'v:8,v:0', 'V8 is not 5.8 and V0 is a grade')
+  eq(hardestSent(board, { sets: { intervals: [{ reps: 1, climbs: [{ grade: 8 }] }] } }, 'yds'), null, 'V8 is not a route')
+  // An off-ladder value is kept on the record and never becomes "the hardest".
+  eq(hardestSent(opt('fun-sport'), { hardestYds: 10.4 }, 'yds'), null)
+  eq(hardestSent(opt('fun-sport'), { hardestYds: 11.15 }, 'yds'), 11.15, 'the card\'s own field counts')
+  eq(hardestSent(opt('fun-boulder'), { hardest: 5 }, 'v'), 5, 'the boulder card\'s "hardest" is V')
+  // Described climbs win over the typed field: the only 5.11+ of the night was a
+  // fall, and "hardest route you climbed: 5.11+" was the hardest TRIED (the
+  // seed's 2026-08-20). The field counts only with no graded climb on its ladder.
+  const night = { hardestYds: 11.3, sets: { routes: [{ reps: 3, climbs: [{ grade: 10.2 }, { grade: 11.2 }, { grade: 11.3, fell: true }] }] } }
+  eq(hardestSent(opt('fun-sport'), night, 'yds'), 11.2)
+  eq(hardestTried(opt('fun-sport'), night, 'yds'), 11.3)
+  eq(climbLine(opt('fun-sport'), night), '3 routes · hardest 5.11')
+  eq(hardestSent(opt('fun-sport'), { hardestYds: 11.3, sets: { routes: [{ reps: 4 }] } }, 'yds'), 11.3,
+    'count only: the typed field is all there is')
+  eq(hardestSent(opt('fun-sport'), { hardestYds: 11.3, sets: { routes: [{ reps: 1, climbs: [{ grade: 11.3, fell: true }] }] } }, 'yds'), null,
+    'every described climb fell: nothing was sent, whatever was typed')
+  // Count-only rows are volume, not described climbs.
+  eq(climbsOf(opt('fun-boulder'), { sets: { problems: [{ reps: 12 }] } }).length, 0)
+  eq(climbVolume(opt('fun-boulder'), { sets: { problems: [{ reps: 12 }, { reps: 3 }] } }), 15)
+  eq(climbVolume(opt('max-hangs'), { sets: { maxhang: [{ reps: 5, seconds: 10 }] } }), 0, 'hangs are not climbs')
+})
+
+check('a climbing session reads as one line: how many, and the hardest that went', () => {
+  eq(climbLine(opt('fun-sport'), { sets: { routes: [{ reps: 8, climbs: [
+    { grade: 10.3 }, { grade: 11.2, fell: true }, ...Array.from({ length: 6 }, () => blankClimb())] }] } }),
+  '8 routes · hardest 5.10+')
+  eq(climbLine(opt('fun-boulder'), { sets: { problems: [{ reps: 1, climbs: [{ grade: 6, fell: true }] }] } }),
+    '1 problem · tried V6', 'nothing sent says so')
+  eq(climbLine(opt('fun-boulder'), { sets: { problems: [{ reps: 12 }] } }), '12 problems')
+  eq(climbLine(opt('max-hangs'), { sets: { maxhang: [{ reps: 5 }] } }), '', 'a hangboard day is not a climb count')
+  eq(bandsOf(opt('fun-sport'), { hardestYds: 10.05, sets: { routes: [{ reps: 1, climbs: [{ grade: 10.3 }] }] } }).join(), 'yds:10')
+})
+
+check('describing a session never shortens it, and removing a climb can be undone', () => {
+  // F8: switching the detail on used to write repCount(25) = 20 into the count.
+  const on = detailOn({ reps: 25 })
+  eq(on.reps, 25); eq(on.climbs.length, 25)
+  eq(detailOn({ reps: '' }).reps, 1, 'a blank count becomes the one record a list needs')
+  eq(stepClimbs({ reps: 25, climbs: on.climbs }, 1).reps, 26, 'one more past twenty')
+  eq(lengthsIn([{ reps: 25 }]), 25, 'lengths are not capped at twenty either')
+  eq(stepClimbs({ reps: MAX_CLIMBS }, 1).reps, MAX_CLIMBS)
+  const row = { reps: 3, climbs: [{ grade: 4 }, { grade: 5 }, { grade: 6 }] }
+  const dropped = dropClimb(row, 1)
+  eq(dropped.reps, 2); eq(dropped.climbs.map(c => c.grade).join(), '4,6')
+  const back = putClimb(dropped, 1, row.climbs[1])
+  eq(back.reps, 3); eq(back.climbs.map(c => c.grade).join(), '4,5,6')
+  const last = dropClimb({ reps: 1, climbs: [{ grade: 4 }] }, 0)
+  eq(last.reps, 1); ok(!climbSaid(last.climbs[0]), 'the last one is cleared, not removed')
+  eq(putClimb(last, 0, { grade: 4 }).climbs.map(c => c.grade).join(), '4', 'and Undo brings it back')
+  eq(saidIn([{ reps: 3, climbs: [blankClimb(), { grade: 4 }, { ...blankClimb(), style: 'slab' }] }]), 2)
+  ok(!climbSaid(blankClimb()) && climbSaid({ outcome: 'flash' }) && climbSaid({ tries: 2 }))
+})
+
 check('a blank rep count still offers one picker, and a silly one is capped', () => {
   eq(repCount(''), 1, 'no reps typed must not hide the grade input')
   eq(repCount(0), 1)
@@ -1173,7 +1347,8 @@ check('a blank rep count still offers one picker, and a silly one is capped', ()
   eq(repCount('nonsense'), 1)
   eq(repCount(2), 2)
   eq(repCount(2.7), 2, 'a fractional lap is not a lap')
-  eq(repCount(500), 20, 'capped')
+  eq(repCount(500), MAX_CLIMBS, 'capped, at the same bound as the climb records')
+  eq(repCount(25), 25, 'a set of 25 laps has 25 grade pickers, one per climb record')
 })
 
 check('the grades of a whole session read out in the order they were climbed', () => {
@@ -1200,10 +1375,10 @@ check('a per-rep list survives being written back as a set', () => {
 
 /* ------------------------------------------- the fun days' per-climb detail */
 
-check('the V ladder is V0 to V10, ordered, and its value is its position', () => {
+check('the V ladder is V0 to V17, ordered, and its value is its position', () => {
   eq(VGRADES[0].label, 'V0')
-  eq(VGRADES.at(-1).label, 'V10')
-  eq(VGRADES.length, 11)
+  eq(VGRADES.at(-1).label, 'V17')
+  eq(VGRADES.length, 18)
   // V is ordinal-by-integer: the stored value IS the chart position, so the
   // ladder must be the plain integers in order.
   VGRADES.forEach((g, i) => eq(g.value, i, `${g.label} is not its own position`))
@@ -1452,9 +1627,10 @@ check('stepping the count never deletes a climb already logged', () => {
   eq(back.reps, 2)
   eq(back.climbs[0].grade, 4)
   eq(back.climbs[1].grade, 5)
-  // The floor is one row and the cap matches the picker cap.
+  // The floor is one row; the cap is MAX_CLIMBS, not the twenty grade pickers
+  // a set of laps shows (#81: an evening is often more than twenty problems).
   eq(stepClimbs({ reps: 1, climbs: [{ grade: 4 }] }, -1).reps, 1)
-  eq(stepClimbs({ reps: 20 }, 1).reps, 20)
+  eq(stepClimbs({ reps: 20 }, 1).reps, 21)
   // A blank count reads as the one row already on screen, so + makes two.
   eq(stepClimbs({ reps: '' }, 1).reps, 2)
 })

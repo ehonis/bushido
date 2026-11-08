@@ -42,6 +42,10 @@
 .viz-tick { fill: var(--viz-muted); font-size: var(--fs-micro); font-variant-numeric: tabular-nums; }
 .viz-tip { fill: var(--ink); font-size: var(--fs-small); font-weight: 600; font-variant-numeric: tabular-nums; }
 .viz-tip-sm { fill: var(--ink-dim); font-size: var(--fs-micro); }
+/* The grade pyramid (#81): grades read at arm's length, so the row labels are
+   body-size ink, and the counts beside the bars dim. */
+.viz-pyr-label { fill: var(--ink); font-size: var(--fs-body); font-weight: 500; font-variant-numeric: tabular-nums; }
+.viz-pyr-count { fill: var(--ink-dim); font-size: var(--fs-small); font-variant-numeric: tabular-nums; }
 
 .viz-table { margin-top: var(--sp-1); }
 .viz-scroll { overflow-x: auto; scrollbar-width: thin; }
@@ -78,6 +82,8 @@
 /* "All" and the categories logged. They wrap: a chip off the right edge is a
    filter nobody finds. */
 .logfilters { margin-bottom: var(--sp-2); }
+/* The Log's second question (#81): a grade, under Climbing, as Progress asks it. */
+.loggrade { margin-bottom: var(--sp-3); }
 
 /* A day: the base section head (it is the section's first child, so it has no
    top margin) over one card of base list rows, icons in the rows' own ink. */
@@ -111,6 +117,7 @@
 }
 .proghead-seg { margin: var(--sp-4) 0 0; }
 
+.progacts { margin-bottom: var(--sp-2); }
 .progcats { margin-bottom: var(--sp-3); }
 
 /* "Just one thing": a row over an invisible native select, so the list it

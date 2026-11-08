@@ -122,6 +122,23 @@ Use `npx expo install <pkg>` for dependencies so versions match the SDK.
   timed sets), workout mode and `TimerRun` all use them, as the web's `timer.jsx` does. The
   runner's set screen draws no bottom actions while the keyboard is up, so nothing rides onto
   the keypad.
+- **Keyboards (#77).** Every `Input` from `ui/kit.tsx` (so every `NumInput`) mounts its own
+  keyboard bar (`ui/KeyboardBar.tsx`: ‹ › walk the fields through react-native-keyboard-controller,
+  **Done editing** puts the keyboard away): the decimal pad has no return key, and before this
+  the way out was the footer's Close sitting on the keys. One `InputAccessoryView` per input,
+  because on the new architecture one binds to one input. A raw `TextInput` gets no bar; use
+  `Input`. While the keyboard is up a `Modal` shows no footer and allows no swipe-down, and
+  the planner's `StepPage` hides its sticky bar (`useKeyboardShown`); they come back on
+  `keyboardDidHide`. Deliberate and native: the web hides its footers on focus instead.
+- **Toasts over sheets (#77).** A presented `Modal`, `FullScreen` or `Popover` is drawn above
+  the root, so each mounts its own `ToastHost` (inside its native modal) and only the most
+  recently mounted live host renders (`useTopHost` in `ui/ToastHost.tsx`); the root's takes
+  over when the last sheet goes. A screen presenting its own `RNModal` (the runner, workout
+  mode) should mount `<ToastHost />` inside it the same way.
+- **Removing a set is a swipe on its row or the card's Edit**, never a ✕ in the row; every
+  removal of an exercise or a set has an Undo toast (`useUndoable` in `features/exercises.tsx`),
+  worded by `lib/removal.js` (the web's, copied): never a claim about the other side of a
+  synced workout.
 - Scrolling screens pad their foot by `FAB_CLEAR` (or `DOCK_CLEAR` with no + row) so nothing ends
   up under the floating bar.
 

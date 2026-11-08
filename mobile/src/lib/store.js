@@ -351,10 +351,39 @@ export const doneWhenPlaced = (date, today = localIso(), { plan = false } = {}) 
  * the marker off again and stamps `doneAt`, which is what tells the server's
  * "nice session" push that someone said so (a session put on today is done
  * before anything happens, and that is not news; server/notify-facts.js).
+ *
+ * UNDO OF A TAP (#77): `done` may instead be what `doneState(entry)` read
+ * before the tap, and then exactly those fields come back: `done`, `undone`
+ * and `doneAt` as they were, absent where they were absent. One key more, and
+ * only when it is needed: a return to "not done and not marked" (a plan for
+ * today nothing was done on, a legacy `done: false`) over an entry the server
+ * would otherwise read as an old client's untick (it is done now, or marked
+ * undone) is written `undone: false`. The server honours that only over the
+ * result of a tap and stores the entry without it (`keepUntick`), so an Undo
+ * leaves the entry as it was. `isDone` reads `undone: false` as no marker.
  */
 export function markDone(entry, done, at = new Date().toISOString()) {
   const { undone: _undone, doneAt: _doneAt, ...data } = entry?.data || {}
+  if (done && typeof done === 'object' && done.restore === true) {
+    const was = done
+    const next = { ...data }
+    if (was.done === undefined) delete next.done
+    else next.done = was.done
+    if (was.doneAt !== undefined) next.doneAt = was.doneAt
+    const cur = entry?.data || {}
+    if (was.undone === true) next.undone = true
+    else if (next.done === false && (cur.done !== false || cur.undone === true)) next.undone = false
+    return { ...entry, data: next }
+  }
   return { ...entry, data: done ? { ...data, done: true, doneAt: at } : { ...data, done: false, undone: true } }
+}
+
+/** An entry's done fields as they stand, for `markDone` to put back on an Undo. */
+export function doneState(entry) {
+  const d = entry?.data || {}
+  const out = { restore: true }
+  for (const k of ['done', 'undone', 'doneAt']) if (d[k] !== undefined) out[k] = d[k]
+  return out
 }
 
 /*

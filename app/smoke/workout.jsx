@@ -174,14 +174,13 @@ export default [
           entries={[]} onSave={noop} />,
         html => {
           const t2 = text(html)
-          if (!/3 reps/.test(t2)) throw new Error('the rep count must be untouched')
+          if (!/3 laps/.test(t2)) throw new Error('the lap count must be untouched')
           if (!/4 lengths/.test(t2)) throw new Error('a reversed lap should read as two lengths')
           if (!/2 down-climbed/.test(t2)) throw new Error('the down-climb count is missing')
-          // Three pickers per climb on a route card: grade, style, up/down.
-          if ((html.match(/class="climb-style climb-down"/g) || []).length !== 3) {
-            throw new Error('the up/down picker is missing from a route card')
-          }
-          if (!/up \+ down/.test(t2) || !/down only/.test(t2)) throw new Error('both states must be offerable')
+          // Since #81 a described lap is one readable row; the up/down choice is
+          // in the current climb's Details, and a row says what was picked.
+          if ((html.match(/class="climb"/g) || []).length !== 3) throw new Error('one row per lap')
+          if (!/up \+ down/.test(t2) || !/down only/.test(t2)) throw new Error('both states must read back on their rows')
         }],
       // The same detail on a BOULDER card offers no down-climb picker, and its
       // total stays a plain rep count.
@@ -196,6 +195,15 @@ export default [
         html => {
           if (/climb-down/.test(html)) throw new Error('a boulder card grew a down-climb picker')
           if (/lengths/.test(text(html))) throw new Error('and it should not talk about lengths')
+        }],
+      // #81: past twenty, the review screen showed and wrote back only twenty
+      // climbs (repCount's cap), so an evening of 25 problems lost five.
+      ['Review(25 problems stay 25)',
+        <Review step={boardStep()} draft={{ reps: 25, seconds: 104, climbs: Array.from({ length: 25 }, () => ({ grade: 3 })) }}
+          onDraft={noop} onCommit={noop} isLastSet={false} />,
+        html => {
+          if (!/value="25"/.test(html)) throw new Error('the count shown is not 25')
+          if (!/problem 25/.test(text(html))) throw new Error('the 25th problem is not on screen')
         }],
       ['Review(a set that already carried climbs)',
         <Review step={boardStep({ sets: { intervals: [{ reps: 3, seconds: 104, climbs: climbed }] } })}

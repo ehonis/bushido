@@ -10,8 +10,8 @@ import { FabMenu, ActingBanner, tabsFor } from '../src/App.jsx'
 import { QuickLog } from '../src/quicklog.jsx'
 import { ActivityPicker } from '../src/activitypicker.jsx'
 import { recentActivities, quickEntry } from '../src/lib/quicklog.js'
-import { ActivityChooser, activityGroups, activityFieldOf } from '../src/picker.jsx'
-import { climbingFolders } from '../src/lib/folders.js'
+import { ActivityChooser, activityGroups, activityFieldOf, climbingRows, climbingShortcut } from '../src/picker.jsx'
+import { climbingFolders, folderOf } from '../src/lib/folders.js'
 import {
   plan, starter, example, entries, noop, TODAY, back, text, LIFT_FIELD, QUICK_LOG,
 } from './fixtures.jsx'
@@ -188,6 +188,72 @@ export default [
     }]),
   // A WHOOP climb is logged on a climbing card, never the catalog: the route from
   // the unlogged card shows the folders and no sport.
+  /*
+   * A plan written before `sched.discipline` existed (the owner's own is one):
+   * no card declares a folder. The climbing cards must still be under Bouldering
+   * and Rock climbing, filed by what they say about themselves, and every
+   * startable card must still be somewhere (issue #81).
+   */
+  ['ActivityChooser(an untagged plan still has its climbing folders)', null, () => {
+    const untagged = { ...plan, dailyMenu: plan.dailyMenu.map(m => ({ ...m, sched: { ...m.sched, discipline: undefined } })) }
+    const keys = climbingFolders(untagged).map(f => f.key)
+    if (!keys.includes('bouldering') || !keys.includes('rock-climbing')) throw new Error(`folders are ${keys.join(', ')}`)
+    const where = (id) => folderOf(untagged.dailyMenu.find(m => m.id === id), untagged)
+    for (const id of ['board', 'four-by-four', 'fun-boulder', 'limit-boulder']) {
+      if (where(id) !== 'bouldering') throw new Error(`${id} is in ${where(id)}`)
+    }
+    for (const id of ['lead-laps', 'fun-sport', 'crag-day', 'max-hangs', 'arc']) {
+      if (where(id) !== 'rock-climbing') throw new Error(`${id} is in ${where(id)}`)
+    }
+    // Not climbing by its own account: the catch-all, never guessed into a sport.
+    if (where('core') !== 'plan') throw new Error('a support card was guessed into climbing')
+    const startable = untagged.dailyMenu.filter(m => m.role !== 'adjunct' && m.role !== 'rest' && !m.retired && !m.sched?.repeatVia)
+    const listed = new Set(climbingFolders(untagged).flatMap(f => f.groups.flatMap(g => g.items.map(m => m.id))))
+    const missing = startable.filter(m => !listed.has(m.id)).map(m => m.id)
+    if (missing.length) throw new Error(`unreachable: ${missing.join(', ')}`)
+    // A declared folder always wins over what the card looks like.
+    const declared = { ...plan.dailyMenu.find(m => m.id === 'board'), sched: { discipline: 'rock-climbing' } }
+    if (folderOf(declared, plan) !== 'rock-climbing') throw new Error('a declared folder was second-guessed')
+  }],
+  // The Climbing door near the top: one row right after Recent, before the
+  // catalog; the Climbing group itself still follows the sports (§10.8).
+  ['ActivityChooser(a Climbing door right under Recent)',
+    <ActivityChooser plan={plan} field={activityFieldOf(plan)} onPick={noop} onPickCard={noop} onClose={noop}
+      entries={QUICK_LOG} />,
+    (html) => {
+      const t = text(html)
+      const door = t.indexOf('Bouldering · Rock climbing')
+      if (door < 0) throw new Error('no Climbing door')
+      if (door < t.indexOf('Recent')) throw new Error('the Climbing door is above Recent')
+      const firstGroup = activityGroups(activityFieldOf(plan), plan, QUICK_LOG).find(g => g.key !== '_recent').name
+      if (door > t.indexOf(firstGroup)) throw new Error(`the Climbing door is below ${firstGroup}`)
+      if (t.lastIndexOf('Climbing') < t.indexOf('Running')) throw new Error('the Climbing group is not after the activities')
+    }],
+  ['ActivityChooser(the Climbing door is absent on a plan with no climbing)', null, () => {
+    if (climbingShortcut(example)) throw new Error('a Climbing door on the example plan')
+    const t = text(renderToString(<ActivityChooser plan={example} field={activityFieldOf(example)} onPick={noop}
+      onPickCard={noop} onClose={noop} entries={QUICK_LOG} />))
+    if (t.includes('Bouldering · Rock climbing')) throw new Error('a Climbing door on the example plan')
+  }],
+  // Behind the door: every climbing card on one screen, by folder, each saying
+  // its category, and found by the words a climber would type.
+  ['ActivityChooser(Climbing: every climbing card, by folder)',
+    <ActivityChooser plan={plan} field={activityFieldOf(plan)} onPick={noop} onPickCard={noop} onClose={noop}
+      initialFolder="_climbing" />,
+    (html) => {
+      const t = text(html)
+      if (!t.includes('Gym: board') || !t.includes('Doubled lead laps')) throw new Error('a climbing card is missing')
+      if (t.indexOf('Bouldering') > t.indexOf('Rock climbing')) throw new Error('folders out of order')
+      if (t.includes('Mountain bike')) throw new Error('a catalog sport behind the Climbing door')
+      const rows = climbingRows(plan).flatMap(g => g.items)
+      const board = rows.find(r => r.key === 'card:board')
+      if (!/boulder/.test(board.search)) throw new Error('"boulder" does not find the board')
+      if (!/route/.test(rows.find(r => r.key === 'card:lead-laps').search)) throw new Error('"route" does not find the lead laps')
+      const listed = new Set(rows.map(r => r.key))
+      for (const f of climbingFolders(plan).filter(x => x.key !== 'plan')) {
+        for (const m of f.groups.flatMap(g => g.items)) if (!listed.has(`card:${m.id}`)) throw new Error(`${m.id} is not behind the door`)
+      }
+    }],
   ['ActivityChooser(a climb offers only the climbing cards)',
     <ActivityChooser plan={plan} field={activityFieldOf(plan)} onPick={noop} onPickCard={noop}
       onClose={noop} climbingOnly dayLabel="for Mon, Oct 12" />,

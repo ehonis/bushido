@@ -1,8 +1,9 @@
 /*
  * The session sheet: one session opened from the day list, with its header, its
- * body and its footer. Moved out of tabs.jsx in #73, unchanged, so Today
- * (tabs.jsx) and the sheet are separate files; mobile/src/features/sheet.tsx is
- * its twin.
+ * body and its footer. Moved out of tabs.jsx in #73, so Today (tabs.jsx) and the
+ * sheet are separate files; mobile/src/features/sheet.tsx is its twin. Its header
+ * and footer were redone in #77: no Close in the footer, done is a chip by the
+ * title, and every flip has Undo.
  */
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from './lib/icons.jsx'
@@ -12,7 +13,7 @@ import { SessionLog, PriorNote, DetailsSheet } from './sessionlog.jsx'
 import { liftFieldOf } from './lib/lifts.js'
 import { dayWords } from './lib/dates.js'
 import { MetaLine, metaParts } from './metaline.jsx'
-import { isDone, markDone } from './lib/store.js'
+import { isDone, markDone, doneState } from './lib/store.js'
 import { openTimer, timerRequestFor } from './timer.jsx'
 import { PrescriptionEditor } from './editor.jsx'
 import { PlanTalk } from './planner.jsx'
@@ -34,7 +35,9 @@ import {
   TogetherPending,
 } from './sharedwith.jsx'
 import { usePersonLog } from './trainer.jsx'
+import { Undo2 } from 'lucide-react'
 import { pushToast, dismissToast } from './lib/toast.js'
+import { UNDO_MS } from './exercises.jsx'
 
 /* --------------------------------------------------------- session sheets */
 
@@ -65,6 +68,25 @@ import { pushToast, dismissToast } from './lib/toast.js'
 export function runnable(opt, pres) {
   if (pres) return !isLiftOnly(pres)
   return hasWorkout(opt)
+}
+
+/**
+ * DONE IS A STATE BY THE TITLE (#77), not a footer button. "Mark undone" sat
+ * beside Close at the foot, directly under the set steppers, so a near miss took
+ * a workout out of the streak with nothing on screen to say so (on someone
+ * else's copy too). Now the chip says what is true ("Done" / "Not done") at the
+ * top of the sheet, a flip says what it did in a toast with Undo, and a flip of
+ * someone else's copy says whose.
+ */
+export function DoneChip({ done, whose = null, onToggle }) {
+  const said = done ? 'Done' : 'Not done'
+  return (
+    <button type="button" className={`done-chip ${done ? 'on' : ''}`} role="switch" aria-checked={done}
+      aria-label={whose ? `${whose}: ${said}` : said} title={done ? 'Mark undone' : 'Mark done'} onClick={onToggle}>
+      <Icon name={done ? 'CircleCheck' : 'Circle'} size={16} />
+      <span>{said}</span>
+    </button>
+  )
 }
 
 /**
@@ -137,7 +159,6 @@ export function SessionSheet({
      name, level and minutes it implies. Never a test result: that is a separate
      entry, and their log is theirs to keep. */
   const saveTheirs = (out) => { setDirty(true); theirs.update(cur => applyOut(cur, opt, out)) }
-  const setTheirsDone = (v) => { setDirty(true); theirs.update(cur => markDone(cur, v)) }
   /* Their plan, edited from their side: the same write `savePlan` makes on the owner's. */
   const saveTheirPlan = (next) => { setDirty(true); theirs.update(cur => applyPlan(cur, opt, next)) }
   const theirPres = theirs.entry?.data?.plan || null
@@ -147,6 +168,32 @@ export function SessionSheet({
   const setSync = (person, v) => onSaveEntry(withSync(latestEntry.current, person.id, v))
   const copyMine = () => { setDirty(true); theirs.update(cur => copyExercises(cur, latestEntry.current)) }
   const theirDone = Boolean(theirs.entry && isDone(theirs.entry))
+  /* A flip of their copy says whose it was, and Undo puts back exactly what it had.
+     Taken down with the sheet: their copy is written through this sheet's queue. */
+  const theirUndo = useRef(null)
+  useEffect(() => () => { if (theirUndo.current != null) dismissToast(theirUndo.current) }, [])
+  const flipTheirs = () => {
+    const before = theirs.entry
+    const v = !isDone(before)
+    setDirty(true)
+    theirs.update(cur => markDone(cur, v))
+    theirUndo.current = pushToast(`${v ? 'Marked done' : 'Marked undone'} for ${sidePerson?.name}`, 'info', {
+      duration: UNDO_MS,
+      action: { label: 'Undo', icon: Undo2, onClick: () => { theirUndo.current = null; theirs.update(cur => markDone(cur, doneState(before))) } },
+    })
+  }
+  /* The owner's own: the same toast. Undo puts back exactly the done fields the tap
+     replaced, through the same write (`markDone` with `doneState`). */
+  const flipMine = () => {
+    const before = latestEntry.current
+    const v = !isDone(before)
+    setDirty(true)
+    onSetDone(before, v)
+    pushToast(v ? 'Marked done' : 'Marked undone', 'info', {
+      duration: UNDO_MS,
+      action: { label: 'Undo', icon: Undo2, onClick: () => onSetDone(latestEntry.current, doneState(before)) },
+    })
+  }
 
   /* A write to their log that did not land says so, with the way to send it again
      (the latest copy, as it stands: `update` re-sends it unchanged). It stays
@@ -175,34 +222,28 @@ export function SessionSheet({
   const sub = metaParts(subBits).length ? <MetaLine bits={subBits} /> : null
 
   /*
-   * The footer (docs/DESIGN.md, "Session sheet"). Every field saves as it is
-   * typed, so the one thing left to do is close it; that is the primary, unless
-   * the session can be started, which is. Beside it, quiet, the rare undo: "Mark
-   * undone" on a session done by default (today or earlier, AGENTS.md §4), "Mark
-   * done" on one marked undone. A day still to come shows neither.
+   * THE FOOTER HOLDS A REAL ACTION OR NOTHING (#77). Every field saves as it is
+   * typed, so "Close" was a non-action dressed as the primary: the brightest
+   * thing on the sheet, 0px under the first set's weight stepper, and the owner
+   * hit it over and over mid-workout. The header X closes (Escape and the scrim
+   * too, until something is entered). What is left for the footer: Start, where
+   * there is something to run, or putting a card on the day. Done is the chip
+   * under the title (`DoneChip`); a day still to come has no done state to flip.
    */
-  const close = <button type="button" className="btn" onClick={onClose}>Close</button>
   const start = (side = null) => (
     <button type="button" className="btn" onClick={() => { setDirty(true); onStartWorkout(opt, side) }}>
       <Icon name="Play" size={17} /> {pres ? 'Start the workout' : 'Start workout'}
     </button>
   )
-  const doneToggle = (isNowDone, onToggle, whose = '') => (
-    <button type="button" className="btn quiet" onClick={onToggle} aria-pressed={!isNowDone}>
-      {isNowDone ? `Mark undone${whose}` : `Mark done${whose}`}
-    </button>
-  )
-  let footer
+  let footer = null
+  let status = null
   if (sidePerson) {
     const theirsLive = theirs.entry && !theirs.entry.deleted
-    footer = (
-      <div className="sheet-foot">
-        {!isFuture && theirsLive && doneToggle(theirDone, () => setTheirsDone(!theirDone), ` for ${sidePerson.name}`)}
-        {/* Their side starts the same shared workout, on their side of the switcher. */}
-        {!isFuture && theirsLive && onStartWorkout && pres && theirPres && runnable(opt, theirPres) && canStart(theirs.entry)
-          ? start(sidePerson.id) : close}
-      </div>
-    )
+    if (!isFuture && theirsLive) status = <DoneChip done={theirDone} whose={sidePerson.name} onToggle={flipTheirs} />
+    /* Their side starts the same shared workout, on their side of the switcher. */
+    if (!isFuture && theirsLive && onStartWorkout && pres && theirPres && runnable(opt, theirPres) && canStart(theirs.entry)) {
+      footer = <div className="sheet-foot">{start(sidePerson.id)}</div>
+    }
   } else if (!planned && onLog && !isFuture) {
     // A card opened with nothing on the day yet: putting it there IS the action.
     footer = (
@@ -217,13 +258,14 @@ export function SessionSheet({
        declares a timer — what it walks is the prescription on the entry.
        Not "while not done": today's session is done before it starts. */
     const startable = !isFuture && onLog && onStartWorkout && runnable(opt, pres) && canStart(entry)
-    footer = (
-      <div className="sheet-foot">
-        {planned && !isFuture && onLog && doneToggle(done, () => { setDirty(true); onSetDone(entry, !done) })}
-        {startable ? start() : close}
-      </div>
-    )
+    if (planned && !isFuture && onLog) status = <DoneChip done={done} onToggle={flipMine} />
+    if (startable) footer = <div className="sheet-foot">{start()}</div>
   }
+  /* The other sides of a synced workout, for a removal toast's one line about them
+     (lib/removal.js: never a claim about what happened there). */
+  const syncedWith = sidePerson
+    ? (synced ? ['you'] : null)
+    : (() => { const s = on.filter(p => isSynced(entry, p.id)).map(p => p.name); return s.length ? s : null })()
 
   return (
     <Modal
@@ -238,6 +280,7 @@ export function SessionSheet({
       // shows it; the workout card's generic one only until an activity is picked.
       icon={loggedActivity(opt, entry?.data?.out)?.icon || opt.icon}
       tone={tone}
+      status={status}
       dismissable={!dirty}
       onClose={onClose}
       /* The name, one layer up: a rename is a thing you do TO the session you are
@@ -274,7 +317,7 @@ export function SessionSheet({
              exercises, with their own numbers, and "last time" from THEIR log. */
           plan={theirPres && (
             <PrescriptionEditor pres={theirPres} liftField={liftField} entries={theirLog.entries} entryId={theirs.entry?.id}
-              categories={thePlan?.quotaCategories || []} onChange={saveTheirPlan} compact />
+              categories={thePlan?.quotaCategories || []} onChange={saveTheirPlan} syncedWith={syncedWith} compact />
           )} />
       ) : (<>
       {/*
@@ -308,10 +351,10 @@ export function SessionSheet({
           {/* Still talkable-to after it lands. The thread lives on the entry, so a
               session written at eight can be argued with at six. */}
           <PlanTalk pres={pres} compact entries={entries} entryId={entry?.id}
-            onChange={(next) => { setDirty(true); onSavePlan?.(entry, next) }} />
+            onChange={(next) => { setDirty(true); onSavePlan?.(latestEntry.current, next) }} />
           <PrescriptionEditor pres={pres} liftField={liftField}
             entries={entries} entryId={entry?.id} categories={thePlan?.quotaCategories || []}
-            onChange={(next) => { setDirty(true); onSavePlan?.(entry, next) }} compact />
+            onChange={(next) => { setDirty(true); onSavePlan?.(latestEntry.current, next) }} syncedWith={syncedWith} compact />
           {pres.notes?.length > 0 && (
             <ul className="plan-notes">
               {pres.notes.map((n, i) => <li key={i}><Icon name="Info" size={13} /> {n}</li>)}

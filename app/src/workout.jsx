@@ -39,7 +39,7 @@ import { WorkHead, LeaveDialog, ControlRow } from './timer.jsx'
 import { totalSets, totalReps, GradeLaps, ClimbLog } from './setlog.jsx'
 import {
   GRADE_FIELD, hasGrades, fitGrades, repCount,
-  CLIMB_FIELD, fitClimbs, stepClimbs, fallsIn,
+  CLIMB_FIELD, fitClimbs, stepClimbs, fallsIn, climbCount, detailOn, saidIn, MAX_CLIMBS,
 } from './lib/grades.js'
 
 const FIELD_LABEL = { reps: 'reps', seconds: 'secs', weight: 'lb' }
@@ -550,13 +550,18 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }) {
   const detailed = Array.isArray(draft[CLIMB_FIELD])
   const setDetail = (on) => {
     if (!on) {
+      // Switching the detail off strips the list (#81): ask first when anything was said on it.
+      const said = saidIn([draft])
+      if (said && typeof window !== 'undefined' &&
+        !window.confirm(`Remove what you logged for ${said} ${what}${said === 1 ? '' : 's'}?`)) return
       const { [CLIMB_FIELD]: dropped, ...rest } = draft
       onDraft(rest)
       return
     }
     // Reps is normalised on the way in, because from here the list is the source
     // of truth and the box only displays it.
-    onDraft({ ...draft, reps: repCount(draft.reps), [CLIMB_FIELD]: fitClimbs(draft[CLIMB_FIELD], draft.reps) })
+    // detailOn keeps the count as it was (#81: 25 problems used to become 20).
+    onDraft(detailOn(draft))
   }
   // While the detail is on, the count moves one at a time and only from here —
   // typing "12" over a 10 passes through "1", and that refit used to delete the
@@ -596,7 +601,7 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }) {
               <span className="repstep wo-repstep">
                 <button type="button" className="repstep-b" onClick={() => bump(-1)}
                   aria-label={`one fewer ${what}`}>−</button>
-                <input type="text" inputMode="numeric" readOnly value={repCount(draft.reps)} aria-label={`${what}s`} />
+                <input type="text" inputMode="numeric" readOnly value={climbCount(draft.reps)} aria-label={`${what}s`} />
                 <button type="button" className="repstep-b" onClick={() => bump(1)}
                   aria-label={`one more ${what}`}>+</button>
               </span>
@@ -613,11 +618,11 @@ export function Review({ step, draft, onDraft, onCommit, isLastSet }) {
           <span className="wo-gradesh">
             each {what}{falls > 0 ? ` · fell on ${falls}` : ''}
           </span>
-          <ClimbLog count={repCount(draft.reps)} values={draft[CLIMB_FIELD]}
+          <ClimbLog count={climbCount(draft.reps)} values={draft[CLIMB_FIELD]}
             spec={step.climbLog} what={what} omitGrade={perRep}
             where={`set ${step.setIndex + 1} `}
             onChange={list => onDraft({ ...draft, [CLIMB_FIELD]: list })}
-            onMore={repCount(draft.reps) < 20 ? () => bump(1) : undefined} />
+            onMore={climbCount(draft.reps) < MAX_CLIMBS ? () => bump(1) : undefined} />
         </div>
       )}
 

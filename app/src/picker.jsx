@@ -20,6 +20,14 @@
  * #31): this is a workout log, and the general ways to log lead. Ordered here in
  * code, not in content, because the owner's plan file is not in the repository.
  *
+ * ONE ROW of climbing sits near the top (issue #81): "Climbing", right after
+ * Recent, opening every climbing card on one screen under Bouldering and Rock
+ * climbing. A climber logging a board session scrolled about twelve screens of
+ * sports to reach the folders, which is the app hiding the thing it is meant to
+ * track. The row is a door to the same cards, not a catalog activity (the
+ * hard-finger question is still on every card it opens, AGENTS.md §6.1), and the
+ * sports still come before the Climbing group itself.
+ *
  * NOTHING RANKS. A list of doors, in the order the content file declares them,
  * with a search box that reaches both. The user already knows what they did;
  * they need somewhere to press. The one exception is Recent, at the top: the
@@ -40,7 +48,9 @@ import { FullScreen } from './modal.jsx'
 import {
   catalogOf as activityCatalog, groupedActivities, searchActivities,
 } from './lib/activities.js'
-import { climbingFolders, folderCards, folderOf, FOLDERS } from './lib/folders.js'
+import {
+  climbingFolders, folderCards, folderOf, FOLDERS, isClimbingFolder, folderSearchWords,
+} from './lib/folders.js'
 import { recentActivities } from './lib/quicklog.js'
 
 export { groupedSessions, climbingFolders } from './lib/folders.js'
@@ -90,8 +100,10 @@ export function PickerScreen({
           : <p className="sub spick-none">Nothing matches “{query}”.</p>
       ) : (
         groups.map(g => (
-          <section key={g.key} className="spick-group" aria-label={g.name}>
-            <div className="section-head"><h3>{g.name}</h3></div>
+          <section key={g.key} className="spick-group" aria-label={g.name || g.label}>
+            {/* A group with no heading is one row that speaks for itself (the
+                Climbing door under Recent). */}
+            {g.name && <div className="section-head"><h3>{g.name}</h3></div>}
             <div className="card spick-list list">
               {g.items.map(r => <Row key={r.key} row={r} onPick={onPick} />)}
             </div>
@@ -168,11 +180,48 @@ export function activityGroups(field, plan, entries = []) {
 /* ------------------------------------------------------- the plan's cards */
 
 // `folderName` only in search results, where the folder is not the heading above.
-const cardRow = (m, folderName = null) => ({
+// The folder's own words ride along in `search`, so "boulder" finds the board.
+const cardRow = (m, folderName = null, plan = null) => ({
   key: `card:${m.id}`, name: m.name, sub: folderName, icon: m.icon,
   meta: m.minutes ? `${m.minutes} min` : null,
-  search: m.dose,
+  search: [m.dose, folderSearchWords(m, plan)].filter(Boolean).join(' '),
 })
+
+const count = (n) => `${n} workout${n === 1 ? '' : 's'}`
+
+/** The plan's climbing folders only (not the catch-all), with their cards. */
+const climbingOnlyFolders = (plan) => climbingFolders(plan).filter(f => isClimbingFolder(f.key))
+
+/**
+ * The Climbing door near the top: one row, no heading, only when the plan has
+ * climbing cards. Opens `climbingRows`.
+ */
+export function climbingShortcut(plan) {
+  const folders = climbingOnlyFolders(plan)
+  if (!folders.length) return null
+  const n = folders.reduce((s, f) => s + f.count, 0)
+  return {
+    key: '_climbjump', name: null, label: 'Climbing',
+    items: [{
+      key: 'folder:_climbing', name: 'Climbing', icon: 'Mountain',
+      sub: folders.map(f => f.name).join(' · '), meta: count(n),
+    }],
+  }
+}
+
+/**
+ * Every climbing card on one screen: a section per folder (Bouldering, Rock
+ * climbing), each card saying its category, in plan order within the folder.
+ * One tap from the door to the card.
+ */
+export function climbingRows(plan) {
+  const cats = plan?.quotaCategories || []
+  const catName = (m) => cats.find(c => c.key === m.category)?.name || null
+  return climbingOnlyFolders(plan).map(f => ({
+    key: f.key, name: f.name,
+    items: f.groups.flatMap(g => g.items).map(m => cardRow(m, catName(m), plan)),
+  }))
+}
 
 /** The folder rows, after the activities: one per folder with any cards in it. */
 export function folderGroup(plan) {
@@ -185,7 +234,7 @@ export function folderGroup(plan) {
     key: '_climbing', name: climbing ? 'Climbing' : 'Your plan',
     items: folders.map(f => ({
       key: `folder:${f.key}`, name: f.name, icon: f.icon,
-      meta: `${f.count} workout${f.count === 1 ? '' : 's'}`,
+      meta: count(f.count),
     })),
   }
 }
@@ -194,7 +243,7 @@ export function folderGroup(plan) {
 export function folderRows(plan, key) {
   const f = climbingFolders(plan).find(x => x.key === key)
   if (!f) return []
-  return f.groups.map(g => ({ ...g, items: g.items.map(m => cardRow(m)) }))
+  return f.groups.map(g => ({ ...g, items: g.items.map(m => cardRow(m, null, plan)) }))
 }
 
 /**
@@ -210,7 +259,8 @@ export function folderRows(plan, key) {
  * logging Monday's climb from Wednesday must not look like logging it today.
  * `entries` is the log, for Recent; without it Recent is the catalog's pins.
  * `climbingOnly` is the route from a WHOOP climb on the unlogged card: the
- * catalog is the wrong answer there (AGENTS.md §6.1), so only the folders show.
+ * catalog is the wrong answer there (AGENTS.md §6.1), so it opens straight on the
+ * climbing cards (the Climbing screen), with the plan's other folders after them.
  */
 export function ActivityChooser({
   plan, field, onPick, onPickCard = null, onClose, entries = [],
@@ -218,16 +268,37 @@ export function ActivityChooser({
 }) {
   const [folder, setFolder] = useState(initialFolder)
   const climbing = useMemo(() => (onPickCard ? folderGroup(plan) : null), [plan, onPickCard])
-  const groups = useMemo(() => [
-    ...(climbingOnly ? [] : activityGroups(field, plan, entries)),
-    ...(climbing ? [climbing] : []),
-  ], [climbing, climbingOnly, field, plan, entries])
+  const shortcut = useMemo(() => (onPickCard ? climbingShortcut(plan) : null), [plan, onPickCard])
+  const groups = useMemo(() => {
+    if (climbingOnly) {
+      // Straight to the climbing cards; the plan's other folders after them.
+      const rest = climbing ? { ...climbing, items: climbing.items.filter(r => !isClimbingFolder(r.key.slice('folder:'.length))) } : null
+      return [...climbingRows(plan), ...(rest?.items.length ? [{ ...rest, name: 'Your plan' }] : [])]
+    }
+    const acts = activityGroups(field, plan, entries)
+    // The Climbing door goes right after Recent (or first, with no Recent).
+    const at = acts[0]?.key === '_recent' ? 1 : 0
+    return [
+      ...acts.slice(0, at), ...(shortcut ? [shortcut] : []), ...acts.slice(at),
+      ...(climbing ? [climbing] : []),
+    ]
+  }, [climbing, shortcut, climbingOnly, field, plan, entries])
   const cards = onPickCard ? folderCards(plan) : []
 
   const pick = (key) => {
     if (key.startsWith('folder:')) return setFolder(key.slice('folder:'.length))
     if (key.startsWith('card:')) return onPickCard(key.slice('card:'.length))
     return onPick(key)
+  }
+
+  if (folder === '_climbing') {
+    return (
+      <PickerScreen
+        title="Climbing" sub={dayLabel} icon="Mountain" placeholder="Search climbing"
+        groups={climbingRows(plan)} onPick={pick}
+        onClose={initialFolder ? onClose : () => setFolder(null)}
+      />
+    )
   }
 
   if (folder) {
@@ -259,7 +330,7 @@ export function ActivityChooser({
         const words = q.toLowerCase().split(/\s+/).filter(Boolean)
         const name = (k) => FOLDERS.find(f => f.key === k)?.name
         const cardHits = cards
-          .map(m => cardRow(m, name(folderOf(m))))
+          .map(m => cardRow(m, name(folderOf(m, plan)), plan))
           .filter(r => {
             const hay = [r.name, r.sub, r.search].filter(Boolean).join(' ').toLowerCase()
             return words.every(w => hay.includes(w))

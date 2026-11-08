@@ -447,12 +447,26 @@ async function writeAtomic(space, doc) {
  * the stored copy already has, or the old device re-sending its copy at the same
  * `updatedAt` would strip it. An entry stored as `done: false` with no marker (a
  * plan, or a legacy one) is left exactly as it is.
+ *
+ * The one exception is an Undo of a done tap (#77): `markDone(entry,
+ * doneState(before))` putting back "not done, not marked" sends `undone: false`.
+ * It is honoured only over the RESULT of a tap (stored `undone: true`, or a
+ * `doneAt`, which only "Mark done" writes), and the key is never stored: the
+ * entry goes back exactly as it was before the tap. Anywhere else (an old
+ * client echoing a copy that held the key, a stale device) it is dropped and
+ * the write is read as before.
  */
 function keepUntick(mine, theirs) {
   if (!mine || mine.deleted || theirs.deleted || (theirs.kind || mine.kind) !== 'daily') return theirs
   const was = mine.data || {}
-  const now = theirs.data || {}
+  let now = theirs.data || {}
   if (now.done !== false || now.undone === true) return theirs
+  if (now.undone === false) {
+    const { undone: _key, ...bare } = now
+    if (was.undone === true || was.doneAt) return { ...theirs, data: bare }
+    now = bare
+    theirs = { ...theirs, data: bare }
+  }
   if (was.done === false && was.undone !== true) return theirs
   return { ...theirs, data: { ...now, undone: true } }
 }

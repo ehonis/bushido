@@ -23,6 +23,11 @@
  * Since wave 2 (issue #43) it is one card per DAY with each workout a row: name,
  * one line of time and distance, a chevron. The row opens the sheet; gear, effort
  * and WHOOP/Strava are read there, not repeated on every row.
+ *
+ * Since #81 the filter asks what Progress asks, in the same words: the kind of
+ * thing first (Climbing, Lift, Run, Bike, Swim, Other: lib/scope.js), the plan's
+ * categories inside it, and under Climbing a whole grade. A climbing row says
+ * what was climbed ("8 routes · hardest 5.10+", lib/grades.js `climbLine`).
  */
 
 import { restStats } from './lib/stats.js'
@@ -44,6 +49,8 @@ import { Undo2 } from 'lucide-react'
 import { withLine } from './lib/shared.js'
 import { plannedLine } from './lib/trainer.js'
 import { currentMe } from './lib/whoami.js'
+import { climbLine, bandsOf, bandLabel } from './lib/grades.js'
+import { ACTIVITY_SCOPES, activityScopeOf } from './lib/scope.js'
 
 const todayIso = () => localIso()
 
@@ -78,6 +85,9 @@ export function statsOf(entry, opt) {
   const mins = loggedMinutes(entry, opt)
 
   if (mins !== null) s.push(`${mins} min`)
+  // What was climbed, said once: the count and the hardest send (lib/grades.js).
+  const climbed = opt ? climbLine(opt, out) : ''
+  if (climbed) s.push(climbed)
   if (Number(out.distance) > 0) s.push(`${fmt1(Number(out.distance))} mi`)
   if (Number(out.poolDistance) > 0) s.push(`${Math.round(Number(out.poolDistance))} yd`)
   const lifts = Array.isArray(out.lifts) ? out.lifts.length : 0
@@ -98,7 +108,8 @@ export function rowName(opt, entry) {
 
 export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }) {
   const today = todayIso()
-  const [filter, setFilter] = useState('all')
+  // What the feed is narrowed to: the activity, a category inside it, a grade.
+  const [filter, setFilter] = useState({ activity: null, category: null, band: null })
   /*
    * WHICH workout is open, never a copy of it.
    *
@@ -140,6 +151,9 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }) {
         category: categoryOf(e, menu),
         discipline: disciplineOf(e, menu),
         rest: Number(e.data?.level) === 0 || opt?.role === 'rest',
+        // The first question (lib/scope.js); a rest day is none of them.
+        activity: Number(e.data?.level) === 0 || opt?.role === 'rest' ? null : activityScopeOf(e, plan),
+        bands: opt ? bandsOf(opt, e.data?.out) : [],
         // Logged as activity rather than training — a commute, an errand on the
         // bike. Its miles count; its load and its quota do not, so the card says so.
         casual: !isTraining(e),
@@ -151,17 +165,42 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }) {
     })
     .sort((a, b) => String(b.entry.date).localeCompare(String(a.entry.date)) ||
                     String(b.entry.id).localeCompare(String(a.entry.id))),
-    [entries, menu])
+    [entries, menu, plan])
 
   // Only offer filters that would actually match something. A row of chips where
   // half return nothing is a row of chips that teaches you not to use it.
-  const cats = useMemo(() => {
+  const allCats = useMemo(() => {
     const live = new Set(workouts.map(w => w.category).filter(Boolean))
     return (plan?.quotaCategories || []).filter(c => live.has(c.key))
   }, [workouts, plan])
-  const catName = (key) => cats.find(c => c.key === key)?.name || null
+  const catName = (key) => allCats.find(c => c.key === key)?.name || null
 
-  const shown = filter === 'all' ? workouts : workouts.filter(w => w.category === filter)
+  const acts = useMemo(
+    () => ACTIVITY_SCOPES.filter(a => workouts.some(w => w.activity === a.key)),
+    [workouts])
+  // The second level sits under the activity picked, or under the only one logged.
+  const within = filter.activity || (acts.length === 1 ? acts[0].key : null)
+  const cats = useMemo(() => {
+    if (!within) return []
+    const live = new Set(workouts.filter(w => w.activity === within).map(w => w.category).filter(Boolean))
+    return allCats.filter(c => live.has(c.key))
+  }, [workouts, allCats, within])
+  // Grades: boulders, then routes, easiest first, each one only once something is graded at it.
+  const bands = useMemo(() => {
+    if (within !== 'climbing') return []
+    const keys = new Set(workouts.flatMap(w => w.bands))
+    return [...keys].map(k => {
+      const [scale, b] = k.split(':')
+      return { value: k, scale, band: Number(b), label: bandLabel(scale, Number(b)) }
+    }).sort((a, b) => a.scale.localeCompare(b.scale) || a.band - b.band)
+  }, [workouts, within])
+
+  const narrowed = Boolean(filter.activity || filter.category || filter.band)
+  const shown = workouts.filter(w =>
+    (!filter.activity || w.activity === filter.activity) &&
+    (!filter.category || w.category === filter.category) &&
+    (!filter.band || w.bands.includes(filter.band)))
+  const pickActivity = (key) => setFilter(f => ({ activity: f.activity === key ? null : key, category: null, band: null }))
 
   // Re-derived on every render, so a save inside the sheet is on screen at once.
   const open = openId ? workouts.find(w => w.entry.id === openId) || null : null
@@ -181,17 +220,51 @@ export function LogTab({ plan, entries, upsertEntry, deleteEntry, onLog }) {
       {/* Where a removal's Undo appears; only the first host mounted draws, so
           this and Today's never show one toast twice (toast.jsx). */}
       <ToastHost />
-      {/* "All" and the categories actually logged, wrapping rather than running
-          off the right edge. No counts: a number inside a chip read as part of
-          its name ("Bike 10"). Only shown when there is something to choose. */}
-      {cats.length > 1 && (
+      {/* "All" and the kinds of thing actually logged, wrapping rather than
+          running off the right edge. No counts: a number inside a chip read as
+          part of its name ("Bike 10"). Only shown when there is something to choose. */}
+      {acts.length > 1 && (
         <div className="filters logfilters" role="group" aria-label="Show">
-          <button className={`chip ${filter === 'all' ? 'on' : ''}`} aria-pressed={filter === 'all'}
-            onClick={() => setFilter('all')}>All</button>
-          {cats.map(c => (
-            <button key={c.key} className={`chip ${filter === c.key ? 'on' : ''}`} aria-pressed={filter === c.key}
-              onClick={() => setFilter(c.key)}>{c.name}</button>
+          <button className={`chip ${!narrowed ? 'on' : ''}`} aria-pressed={!narrowed}
+            onClick={() => setFilter({ activity: null, category: null, band: null })}>All</button>
+          {acts.map(a => (
+            <button key={a.key} className={`chip ${filter.activity === a.key ? 'on' : ''}`}
+              aria-pressed={filter.activity === a.key} onClick={() => pickActivity(a.key)}>{a.name}</button>
           ))}
+        </div>
+      )}
+      {/* Inside it, the plan's categories (Fun, Fingers, Endurance…). */}
+      {cats.length > 1 && (
+        <div className="filters logfilters logcats" role="group" aria-label="Category">
+          {cats.map(c => (
+            <button key={c.key} className={`chip ${filter.category === c.key ? 'on' : ''}`}
+              aria-pressed={filter.category === c.key}
+              onClick={() => setFilter(f => ({ ...f, category: f.category === c.key ? null : c.key }))}>{c.name}</button>
+          ))}
+        </div>
+      )}
+      {/* Under Climbing, one whole grade: the sessions that touched it, sent or not. */}
+      {bands.length > 0 && (
+        <div className="card list progpick loggrade">
+          <label className="list-row progpick-row">
+            <span className="list-row-main"><span className="list-row-title">Grade</span></span>
+            <span className={`progpick-value ${filter.band ? 'on' : ''}`}>
+              {bands.find(b => b.value === filter.band)?.label || 'Any grade'}
+            </span>
+            <Icon name="ChevronRight" size={16} className="list-row-chev" />
+            <select className="progpick-sel" aria-label="Grade" value={filter.band || ''}
+              onChange={e => { const v = e.target.value || null; setFilter(f => ({ ...f, band: v })) }}>
+              <option value="">Any grade</option>
+              {bands.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
+      {narrowed && !shown.length && workouts.length > 0 && (
+        <div className="empty">
+          <span>Nothing logged for that</span>
+          <button type="button" className="btn secondary"
+            onClick={() => setFilter({ activity: null, category: null, band: null })}>Show everything</button>
         </div>
       )}
 

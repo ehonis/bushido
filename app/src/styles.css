@@ -753,13 +753,18 @@ button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .modal-titles { flex: 1; min-width: 0; }
 .modal-title { font-size: var(--fs-title); font-weight: 600; line-height: var(--lh-tight); }
 .modal-sub { font-size: var(--fs-small); color: var(--ink-dim); margin-top: 2px; }
+/* A state you can flip, under the title (the session sheet's done chip, #77). */
+.modal-status { display: flex; margin-top: var(--sp-2); }
 .modal-body {
   flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain;
   padding: var(--sp-4); -webkit-overflow-scrolling: touch;
 }
 .modal-body .sess { margin-top: 4px; }
 /* Sheet footer: the sheet's one primary action, full width, with at most one
-   ghost beside it. Pinned, so the action is never below the fold. */
+   ghost beside it. Pinned, so the action is never below the fold. Never Close
+   (the header X closes), and not rendered at all while a box in the sheet has
+   focus (modal.jsx, #77). A full screen's sticky bar, the planner's, follows
+   the same rule from `data-editing`, below. */
 .modal-foot {
   flex: 0 0 auto; display: flex; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4);
   border-top: 1px solid var(--line); background: var(--panel);
@@ -857,6 +862,10 @@ button.btn.bad { background: var(--viz-crit); color: var(--bg); border-color: va
   padding: 16px 16px calc(28px + env(safe-area-inset-bottom));
   -webkit-overflow-scrolling: touch;
 }
+/* While a box on a full screen has focus its committing bar steps aside, as a
+   sheet's footer does (modal.jsx `useEditing`, #77): "Put it on today" and Redo
+   are not things to land on reaching for the keyboard. */
+.fs[data-editing] .plan-actions.sticky { display: none; }
 .fs-body .sess { margin-top: 0; border-top: 0; padding-top: 0; }
 .fs-body .outlog { margin-top: 0; border-top: 0; padding-top: 0; }
 

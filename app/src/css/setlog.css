@@ -10,16 +10,22 @@
 /* ------------------------------------------------------------ per-set log */
 
 .setlog { display: grid; gap: 18px; }
-.setlog-note { margin: 0; font-size: 12px; color: var(--ink-faint); }
+.setlog-note { margin: 0; font-size: var(--fs-caption); color: var(--ink-faint); }
 
-.exlog-head { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
-.exlog-name { font-size: 13px; font-weight: 600; flex: 1; min-width: 0; }
+.exlog { display: flex; flex-direction: column; gap: var(--sp-2); }
+.exlog-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.exlog-name { font-size: 16px; font-weight: 600; flex: 1; min-width: 0; }
 
+/* 44px since #81: pressed mid-session like everything else here. */
 .signtog {
-  font: inherit; font-size: 11px; white-space: nowrap;
+  font: inherit; font-size: 14px; white-space: nowrap;
   background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
-  color: var(--ink-dim); padding: 4px 9px; cursor: pointer; min-height: 30px;
+  color: var(--ink-dim); padding: 4px 12px; cursor: pointer; min-height: var(--tap);
 }
+/* Letters or plus/minus: two segments, beside the pickers they change. */
+.gradesys { flex: 0 0 auto; }
+.gradesys button { font-variant-numeric: tabular-nums; min-width: 64px; }
+.exlog-each { align-self: flex-start; }
 .signtog.neg { color: var(--series-1); border-color: color-mix(in oklab, var(--series-1) 40%, var(--line)); }
 
 .exlog-table { width: auto; font-size: 13px; }
@@ -33,17 +39,16 @@
   text-align: center; font-variant-numeric: tabular-nums;
 }
 
-.exlog-x {
-  background: transparent; border: 0; color: var(--ink-faint); cursor: pointer;
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; border-radius: 6px;
+.exlog-table input { min-height: var(--tap); }
+/* The count while each climb is logged: shown, never typed. */
+.exlog-count {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 44px;
+  min-height: var(--tap); font-size: 16px; color: var(--ink-dim); font-variant-numeric: tabular-nums;
 }
-.exlog-x:hover { color: var(--viz-crit); background: var(--panel); }
 
 /* A per-rep row spans the table, so the table has to take the card's width or a
    third lap pushes it wider than the phone instead of wrapping inside it. */
 .exlog-table.perrep { width: 100%; }
-.exlog-table.perrep td:last-child, .exlog-table.perrep th:last-child { width: 34px; }
 
 /* One grade per rep, on its own line under the set. 16px so iOS does not zoom,
    44px so it is a real target mid-session. */
@@ -63,9 +68,41 @@
    felt-for-the-grade slider that only appears once the climb has a grade. Same
    16px/44px rules as the grade pickers — this is filled in with chalky hands. */
 .signtog.on { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 40%, var(--line)); }
-.climblog { display: flex; flex-direction: column; gap: 10px; padding: 4px 0 6px; }
+.climblog { display: flex; flex-direction: column; gap: var(--sp-2); padding: 4px 0 6px; }
 .climb { display: flex; flex-direction: column; gap: 2px; }
 .climb-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* A climb already described: one readable row, a tap opens it again. */
+.climb-done {
+  font: inherit; display: flex; align-items: center; gap: var(--sp-2); width: 100%;
+  min-height: var(--tap); padding: 0 var(--sp-2); text-align: left; cursor: pointer;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-control);
+  color: var(--ink);
+}
+.climb-done .gradelap-n { min-width: 64px; }
+.climb-grade { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 52px; }
+.climb-words { flex: 1; min-width: 0; font-size: 14px; color: var(--ink-dim); }
+.climb-done .list-row-chev { margin-left: auto; color: var(--ink-faint); }
+
+/* The current climb: grade and how it went, then Details, then the next one. */
+.climb-edit {
+  display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3);
+  border: 1px solid var(--line-strong); border-radius: var(--r-control); background: var(--panel);
+}
+.climb-outcomes { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.climb-outcomes .out-chip { min-width: 72px; justify-content: center; }
+.climb-same { font-size: 14px; }
+.climb-more > summary {
+  font-size: 14px; color: var(--ink-dim); cursor: pointer; min-height: var(--tap);
+  display: flex; align-items: center; list-style-position: inside;
+}
+.climb-more[open] > summary { margin-bottom: var(--sp-2); }
+.climb-more { display: flex; flex-direction: column; gap: var(--sp-2); }
+.climb-tries { gap: var(--sp-2); }
+.climb-triesn { font-size: 14px; color: var(--ink-dim); min-width: 56px; text-align: center; font-variant-numeric: tabular-nums; }
+.climb-drop { align-self: flex-start; margin-top: var(--sp-2); }
+.climb-next { align-self: stretch; }
+.climb-untold { margin: 0; font-size: 14px; color: var(--ink-faint); }
 /* The up/down picker sits with the style one and reads as a statement about the
    climb rather than a filter: its default option is the ordinary case. */
 .climb-down { color: var(--ink-dim); }
@@ -74,12 +111,9 @@
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
   color: var(--ink);
 }
-.climb-fell { font-size: 12px; min-height: 44px; }
-.climb-fell.on svg { color: var(--viz-crit); }
 .climb-felt { display: flex; align-items: center; gap: 10px; padding-left: 2px; }
 .climb-felt .slider { flex: 0 1 200px; }
-.climb-feltword { font-size: 11px; color: var(--ink-faint); white-space: nowrap; }
-.climblog > .exlog-add { align-self: flex-start; }
+.climb-feltword { font-size: 14px; color: var(--ink-faint); white-space: nowrap; }
 
 /* While the detail is on, the count is stepped, never typed — typing passes
    through states that truncate the climb list. 44px: pressed mid-session. */
@@ -92,11 +126,15 @@
 }
 .repstep-b:hover { color: var(--ink); border-color: var(--ink-faint); }
 
-.exlog-foot { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
-.exlog-add {
-  font: inherit; font-size: 12px; color: var(--ink-dim); background: transparent;
-  border: 1px dashed var(--line); border-radius: 7px; padding: 6px 11px;
-  cursor: pointer; min-height: 34px;
+/* Add and remove sit under the rows, never beside a box being typed in. */
+.exlog-foot { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-1); }
+.exlog-off { align-self: flex-start; }
+.exlog-total { margin: 0; font-size: 14px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.exlog-setn { font-size: 14px; color: var(--ink-dim); margin-bottom: var(--sp-1); }
+/* Turning the detail off with answers in it: the question in place of the control. */
+.exlog-confirm {
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+  padding: var(--sp-3); border: 1px solid var(--line-strong); border-radius: var(--r-control);
+  background: var(--panel-2); font-size: 14px;
 }
-.exlog-add:hover { color: var(--ink); border-color: var(--ink-faint); }
-.exlog-total { font-size: 12px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.exlog-confirm > span { flex: 1 1 100%; }

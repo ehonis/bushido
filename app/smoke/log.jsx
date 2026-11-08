@@ -82,15 +82,45 @@ export default [
     }],
   // Filters: "All" and the categories actually logged, no counts, and none at all
   // when there is only one thing to show.
+  // #81: the first row is the KIND of thing, as on Progress; categories are the
+  // second question, under the activity picked.
   ['LogTab(filters are All plus what you log, chips that fit)', <LogTab plan={plan} entries={rich} upsertEntry={noop} deleteEntry={noop} />,
     (html) => {
       const t = text(html)
       const chips = [...t.matchAll(/<button class="chip[^"]*"[^>]*>([^<]*)<\/button>/g)].map(m => m[1])
       if (chips[0] !== 'All') throw new Error(`the first filter should be All: ${chips}`)
-      if (chips.length < 2) throw new Error('more than one category is logged, so there is something to filter')
+      if (chips.length < 2) throw new Error('more than one kind of thing is logged, so there is something to filter')
       if (/<em>/.test(t) || chips.some(c => /\d/.test(c))) throw new Error(`a count rides in a chip: ${chips}`)
-      const named = (plan.quotaCategories || []).map(c => c.name)
-      for (const c of chips.slice(1)) if (!named.includes(c)) throw new Error(`"${c}" is not a category`)
+      const acts = ['Climbing', 'Lift', 'Run', 'Bike', 'Swim', 'Other']
+      for (const c of chips.slice(1)) if (!acts.includes(c)) throw new Error(`"${c}" is not an activity`)
+      // Gone from the first row: the categories beside the sports.
+      if (chips.includes('Fingers') || chips.includes('Fun')) throw new Error(`a training category at the first level: ${chips}`)
+      if (/logcats|aria-label="Grade"/.test(t)) throw new Error('second-level filters before an activity is picked')
+    }],
+  // Only climbing logged: its categories are offered at once, and a grade.
+  ['LogTab(climbing only: its categories and a grade)', <LogTab plan={plan} upsertEntry={noop} deleteEntry={noop}
+    entries={rich.filter(e => e.data?.optId && !/log-workout|planned/.test(e.data.optId))} />,
+    (html) => {
+      const t = text(html)
+      const cats = t.match(/<div class="filters logfilters logcats"[^>]*>([^]*?)<\/div>/)?.[1] || ''
+      const names = [...cats.matchAll(/>([^<]+)<\/button>/g)].map(m => m[1])
+      if (!names.includes('Fun') || !names.includes('Fingers')) throw new Error(`climbing's categories: ${names}`)
+      if (!/<select[^>]*aria-label="Grade"/.test(t)) throw new Error('no grade filter under Climbing')
+      if (!/<option value="yds:10">5\.10<\/option>/.test(t)) throw new Error('5.10 was climbed but is not offered')
+    }],
+  // A climbing row says what was climbed: the count, named as the plan names it, and the hardest send.
+  ['LogTab(a climbing row reads "N routes · hardest 5.10")', <LogTab plan={plan} upsertEntry={noop} deleteEntry={noop} entries={[
+    { id: 'cr1', kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { optId: 'fun-sport', level: 2, done: true, out: { minutesSpent: 90, hardestYds: 10.3,
+        sets: { routes: [{ reps: 8 }] } } } },
+    { id: 'cr2', kind: 'daily', date: TODAY, updatedAt: 'z',
+      data: { optId: 'fun-boulder', level: 2, done: true, out: { sets: { problems: [{ reps: 3, climbs: [
+        { grade: 5, outcome: 'fell' }, { grade: 4, outcome: 'flash' }, { grade: '' }] }] } } } },
+  ]} />,
+    (html) => {
+      const t = text(html)
+      if (!/90 min · 8 routes · hardest 5\.10\+/.test(t)) throw new Error(`the route row: ${[...t.matchAll(/list-row-meta">([^<]*)/g)].map(m => m[1])}`)
+      if (!/3 problems · hardest V4/.test(t)) throw new Error('the boulder row should name its hardest SEND, not the fall')
     }],
   ['LogTab(one category, no filters)', <LogTab plan={plan} upsertEntry={noop} deleteEntry={noop} entries={[
     { id: 'o1', kind: 'daily', date: TODAY, updatedAt: 'z',

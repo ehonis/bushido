@@ -14,6 +14,7 @@
 
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { localIso } from './dates.js'
+import { timeX, dateWords, needsYear } from './vizscale.js'
 
 export const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)']
 
@@ -138,8 +139,12 @@ export function LineChart({ points, label, help, unit = '', height = 190, color 
   const padL = padFor(ticks.map(fmtTick), 42)
   const innerW = Math.max(W - padL - padR, 10)
 
-  const xAt = i => padL + (data.length === 1 ? innerW / 2 : (i / (data.length - 1)) * innerW)
+  // Spaced by TIME (lib/vizscale.js): a month off is a month of axis, not one step.
+  const xAt = timeX(data.map(d => d.x), padL, innerW)
   const yAt = v => padT + innerH - ((v - lo) / (hi - lo || 1)) * innerH
+  // The year is said when it is not obvious: the series crosses one, or is not this year's.
+  const withYear = needsYear(data.map(d => d.x))
+  const day = (x) => dateWords(x, { withYear })
 
   const path = data.map((d, i) => `${i ? 'L' : 'M'}${xAt(i).toFixed(1)},${yAt(d.y).toFixed(1)}`).join('')
   const last = data[data.length - 1]
@@ -168,8 +173,8 @@ export function LineChart({ points, label, help, unit = '', height = 190, color 
             <span className={`viz-delta ${real ? (delta > 0 ? 'up' : 'down') : 'noise'}`}>
               {delta > 0 ? '▲' : '▼'}{' '}
               {fmtY
-                ? `${fmt(first.y)} → ${fmt(last.y)} since ${fmtDate(first.x)}`
-                : `${Math.abs(Number(delta.toFixed(1)))}${unit} since ${fmtDate(first.x)}`}
+                ? `${fmt(first.y)} → ${fmt(last.y)} since ${day(first.x)}`
+                : `${Math.abs(Number(delta.toFixed(1)))}${unit} since ${day(first.x)}`}
               {noisePct && !real && ' · inside noise'}
             </span>
           )
@@ -181,7 +186,7 @@ export function LineChart({ points, label, help, unit = '', height = 190, color 
           <thead><tr><th>Date</th><th>{label}</th></tr></thead>
           <tbody>
             {[...data].reverse().map(d => (
-              <tr key={d.x}><td className="num">{fmtDate(d.x)}</td><td className="num">{fmt(d.y)}</td></tr>
+              <tr key={d.x}><td className="num">{day(d.x)}</td><td className="num">{fmt(d.y)}</td></tr>
             ))}
           </tbody>
         </table>
@@ -230,16 +235,16 @@ export function LineChart({ points, label, help, unit = '', height = 190, color 
               stroke="var(--viz-axis)" strokeWidth="1" />
           )}
 
-          <text x={xAt(0)} y={height - 8} textAnchor="start" className="viz-tick">{fmtDate(first.x)}</text>
+          <text x={xAt(0)} y={height - 8} textAnchor="start" className="viz-tick">{day(first.x)}</text>
           {data.length > 1 && (
-            <text x={xAt(data.length - 1)} y={height - 8} textAnchor="end" className="viz-tick">{fmtDate(last.x)}</text>
+            <text x={xAt(data.length - 1)} y={height - 8} textAnchor="end" className="viz-tick">{day(last.x)}</text>
           )}
 
           {hover != null && (
             <g transform={`translate(${Math.min(Math.max(xAt(hover), padL + 46), W - padR - 46)}, ${padT + 6})`}>
               <rect x={-46} y={-4} width={92} height={34} rx={6}
                 fill="var(--panel-2)" stroke="var(--line)" />
-              <text x={0} y={9} textAnchor="middle" className="viz-tip-sm">{fmtDate(data[hover].x)}</text>
+              <text x={0} y={9} textAnchor="middle" className="viz-tip-sm">{day(data[hover].x)}</text>
               <text x={0} y={24} textAnchor="middle" className="viz-tip">{fmt(data[hover].y)}</text>
             </g>
           )}
@@ -425,6 +430,70 @@ export function BarChart({ bars, label, help, unit = '', height = 170, refLine, 
           ? `${weekly ? `Week of ${fmtX(data[hover].x)}` : fmtX(data[hover].x)}: ${data[hover].y}${unit}`
           : (refLabel || ' ')}
       </div>
+    </div>
+  )
+}
+
+/* ---------------------------------------------------------------- pyramid */
+
+/**
+ * rows: [{ label, sent, tried }], HARDEST FIRST — the grade pyramid (D12, #81).
+ *
+ * One horizontal bar per grade. The climbs TRIED at a grade are the outlined
+ * bar and the ones SENT fill it from the left, in the one series colour: the
+ * same hue at two strengths, so attempts against sends is read off one row and
+ * no second colour claims a second series. The count is written at the end of
+ * every row ("3 / 5"), and the table view lists both numbers, so nothing is
+ * carried by the fill alone. The head says the period's total, sent of tried.
+ */
+export function Pyramid({ rows, label, help, color = SERIES[0] }) {
+  const [ref, w] = useWidth()
+  const [showTable, setShowTable] = useState(false)
+  const data = (rows || []).filter(r => r.tried > 0)
+  if (!data.length) return <div className="empty">Nothing graded for {label.toLowerCase()} yet.</div>
+
+  const sent = data.reduce((n, r) => n + r.sent, 0)
+  const tried = data.reduce((n, r) => n + r.tried, 0)
+  const W = Math.max(w, 240)
+  const rowH = 26, gap = 6, padT = 2
+  const padL = padFor(data.map(r => r.label), 44)
+  const countW = 52
+  const innerW = Math.max(W - padL - countW, 10)
+  const max = Math.max(...data.map(r => r.tried))
+  const H = padT + data.length * (rowH + gap)
+
+  return (
+    <div ref={ref} className="viz">
+      <VizHead label={label} help={help} showTable={showTable} onTable={() => setShowTable(t => !t)} hero={<>
+        {sent}<span className="viz-unit">{` sent of ${tried} tried`}</span>
+      </>} />
+      {showTable ? (
+        <table className="viz-table">
+          <thead><tr><th>Grade</th><th>Sent</th><th>Tried</th></tr></thead>
+          <tbody>{data.map(r => (
+            <tr key={r.label}><td className="num">{r.label}</td><td className="num">{r.sent}</td><td className="num">{r.tried}</td></tr>
+          ))}</tbody>
+        </table>
+      ) : (
+        <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} role="img"
+          aria-label={`${label}: ${data.map(r => `${r.label} ${r.sent} of ${r.tried}`).join(', ')}`}>
+          {data.map((r, i) => {
+            const y = padT + i * (rowH + gap)
+            const tw = Math.max((r.tried / max) * innerW, 4)
+            const sw = (r.sent / max) * innerW
+            return (
+              <g key={r.label}>
+                <text x={padL - 8} y={y + rowH / 2 + 5} textAnchor="end" className="viz-pyr-label">{r.label}</text>
+                <rect x={padL + 0.5} y={y + 0.5} width={tw - 1} height={rowH - 1} rx={4}
+                  fill={color} fillOpacity="0.16" stroke={color} strokeOpacity="0.7" strokeWidth="1" />
+                {sw > 0 && <rect x={padL} y={y} width={sw} height={rowH} rx={4} fill={color} />}
+                <text x={padL + tw + 8} y={y + rowH / 2 + 5} className="viz-pyr-count">{r.sent} / {r.tried}</text>
+              </g>
+            )
+          })}
+        </svg>
+      )}
+      <div className="viz-tipline">Filled: sent. Outline: everything tried.</div>
     </div>
   )
 }

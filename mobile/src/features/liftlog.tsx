@@ -16,14 +16,15 @@
  * previous set carries forward** (`addLiftSet` copies what the user TYPED).
  * **What the user lifted last time is on screen** (`lastLift`).
  */
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { View } from 'react-native'
 import {
   implementsFor, weightLabelOf, weightModeOf, liftsIn, liftSummary, liftsLine, liftMeasure,
   addLift, removeLift, patchLift, addLiftSet, removeLiftSet, setLiftSet, moveLift,
   LIFT_FIELD, blankSet,
 } from '../lib/lifts.js'
-import { ExerciseSection } from './exercises'
+import { removalWords } from '../lib/removal.js'
+import { ExerciseSection, useUndoable } from './exercises'
 import { Btn } from '../ui/kit'
 
 /**
@@ -66,7 +67,11 @@ const hintFor = (theirs: any[], lift: any) => theirs.find((l) => l.uid === lift.
 
 export function LiftLog({ field, out, entries = [], entryId = null, onSave, hints = null }: any) {
   const list = liftsIn(out)
-  const write = (next: any) => onSave({ ...out, [LIFT_FIELD]: next })
+  // The out as of the latest render: an Undo lands seconds later, over whatever was logged since.
+  const outNow = useRef(out)
+  outNow.current = out
+  const { change: write, remove } = useUndoable(list, (next: any) => onSave({ ...outNow.current, [LIFT_FIELD]: next }))
+  const liftOf = (uid: any) => list.find((l: any) => l.uid === uid)
   const line = (liftsLine as any)(out, field)
   // Open, because on the log side this section IS the form. Foldable all the same.
   const [open, setOpen] = useState(true)
@@ -108,8 +113,9 @@ export function LiftLog({ field, out, entries = [], entryId = null, onSave, hint
         onPatch={(uid: any, patch: any) => write(patchLift(field, list, uid, patch))}
         onPatchSet={(uid: any, setId: any, patch: any) => write(setLiftSet(list, uid, Number(setId), patch))}
         onAddSet={(uid: any) => write(addLiftSet(list, uid))}
-        onRemoveSet={(uid: any, setId: any) => write(removeLiftSet(list, uid, Number(setId)))}
-        onRemove={(uid: any) => write(removeLift(list, uid))}
+        onRemoveSet={(uid: any, setId: any) => remove(removeLiftSet(list, uid, Number(setId)),
+          removalWords(liftOf(uid), Number(setId), { lastTakesItem: false }))}
+        onRemove={(uid: any) => remove(removeLift(list, uid), removalWords(liftOf(uid)))}
         onMove={(uid: any, dir: any) => { write(moveLift(list, uid, dir)); return uid }}
         // Hands back the new row's id so the card it just made opens.
         onAdd={(key: any) => {

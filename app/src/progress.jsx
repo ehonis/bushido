@@ -21,6 +21,12 @@
  *
  * Climbing charts come LAST (2026-10-25, issue #31): this is a workout log first.
  *
+ * The filter asks two questions since #81, in the order a person asks them: what
+ * kind of thing (Climbing, Lift, Run, Bike, Swim, Other: lib/scope.js
+ * `ACTIVITY_SCOPES`, the same row the Log shows), then, inside it, the plan's
+ * categories. One row used to mix Bike with Fingers and Endurance, a sport beside
+ * a training intent. Under Climbing a grade picks a whole grade ("V4", "5.10").
+ *
  * Wave 2 (issue #43) turned the page round: it used to open on a filter card
  * (Category, Just one thing, Since) before a single number, then five tiles in a
  * 2-up grid with one left over. Now it LEADS with the answer, workouts and time
@@ -31,11 +37,11 @@
  */
 
 import { useMemo, useState } from 'react'
-import { LineChart, BarChart, SERIES } from './lib/viz.jsx'
+import { LineChart, BarChart, Pyramid, SERIES } from './lib/viz.jsx'
 import { Icon } from './lib/icons.jsx'
 import { localIso } from './lib/dates.js'
 import { EMPTY_SCOPE, resolveScope, scopeOptions } from './lib/scope.js'
-import { metricsFor, totalsFor } from './lib/metrics.js'
+import { metricsFor, totalsFor, bodyweightSeries } from './lib/metrics.js'
 
 export const RANGES = [
   { weeks: 4, label: '4 wk' },
@@ -64,8 +70,8 @@ export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }) {
    * finger.
    */
   const options = useMemo(
-    () => scopeOptions({ plan, entries, today, weeks: null }),
-    [plan, entries, today])
+    () => scopeOptions({ plan, entries, today, weeks: null, activity: scope.activity }),
+    [plan, entries, today, scope.activity])
 
   const resolved = useMemo(
     () => resolveScope({ plan, entries, scope, today }),
@@ -75,25 +81,35 @@ export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }) {
   const totals = useMemo(() => totalsFor(plan, resolved), [plan, resolved])
 
   const set = (patch) => setScope(s => ({ ...s, ...patch }))
-  const narrowed = Boolean(scope.category || scope.session || scope.exercise)
+  const narrowed = Boolean(scope.activity || scope.category || scope.session || scope.exercise || scope.band)
   const clear = () => setScope(s => ({ ...EMPTY_SCOPE, weeks: s.weeks }))
   // What the numbers are OF, in words, whenever it is not everything: "Bike ·
   // Mountain bike". Said in the headline, beside the way back, so a page narrowed
   // from a row further down never passes for the whole log.
   const named = (list, v) => (list || []).find(o => o.value === v)?.label || v
   const narrowedTo = [
+    scope.activity && named(options.activities, scope.activity),
     scope.category && named(options.categories, scope.category),
     scope.session && named(options.sessions, scope.session),
     scope.exercise && named(options.exercises, scope.exercise),
+    scope.band && named(options.bands, scope.band),
   ].filter(Boolean).join(' · ')
   const loggedAny = options.sessions.length > 0
 
+  // The categories are the second question: under the activity picked, or, when
+  // only one kind of thing is logged, under that one (its row would be one chip).
+  const oneActivity = options.activities.length === 1 ? options.activities[0].value : null
+  const within = scope.activity || oneActivity
+  const showCats = Boolean(within) && options.categories.length > 1
+  // A whole grade, offered only inside Climbing and only once something was graded.
+  const showBands = within === 'climbing' && options.bands.length > 0
+  const pickActivity = (v) => setScope(s => ({
+    ...EMPTY_SCOPE, weeks: s.weeks, activity: s.activity === v ? null : v,
+  }))
+
   // Bodyweight is not a workout, so it is not in the scope — but it is the one
-  // series worth seeing next to the volume, and it belongs to no filter.
-  const bw = useMemo(() => entries
-    .filter(e => e.kind === 'bodyweight' && !e.deleted && e.date && Number(e.data?.lb) > 0)
-    .map(e => ({ x: e.date, y: Number(e.data.lb) }))
-    .sort((a, b) => String(a.x).localeCompare(String(b.x))), [entries])
+  // series worth seeing next to the volume. It keeps to the page's period (F17).
+  const bw = useMemo(() => bodyweightSeries(entries, resolved.from), [entries, resolved.from])
 
   if (!loggedAny) {
     return (
@@ -142,12 +158,23 @@ export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }) {
         </div>
       </div>
 
-      {options.categories.length > 1 && (
-        <div className="filters progcats" role="group" aria-label="Category">
+      {options.activities.length > 1 && (
+        <div className="filters progacts" role="group" aria-label="Activity">
           {/* "All" is lit only when nothing is narrowed: with one workout picked
               below, the page is not showing all of anything. */}
           <button type="button" className={`chip ${!narrowed ? 'on' : ''}`} aria-pressed={!narrowed}
             onClick={clear}>All</button>
+          {options.activities.map(o => (
+            <button key={o.value} type="button" className={`chip ${scope.activity === o.value ? 'on' : ''}`}
+              aria-pressed={scope.activity === o.value} onClick={() => pickActivity(o.value)}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {showCats && (
+        <div className="filters progcats" role="group" aria-label="Category">
           {options.categories.map(o => (
             <button key={o.value} type="button" className={`chip ${scope.category === o.value ? 'on' : ''}`}
               aria-pressed={scope.category === o.value}
@@ -161,6 +188,10 @@ export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }) {
       <div className="card list progpick">
         <ScopePick label="Just one thing" options={options.sessions} value={scope.session}
           onPick={v => set({ session: v, exercise: null })} all="Any workout" />
+        {showBands && (
+          <ScopePick label="Grade" options={options.bands} value={scope.band}
+            onPick={v => set({ band: v })} all="Any grade" />
+        )}
         {options.exercises.length > 0 && (
           <ScopePick label="One lift" options={options.exercises} value={scope.exercise}
             onPick={v => set({ exercise: v })} all="Any exercise" />
@@ -184,7 +215,9 @@ export function ProgressView({ plan, entries, initialScope = EMPTY_SCOPE }) {
                 {/* Every chart is one series, so every chart wears the first
                     series colour: a colour that changed from chart to chart
                     would claim a difference that is not there. */}
-                {m.kind === 'bar'
+                {m.kind === 'pyramid'
+                  ? <Pyramid rows={m.points} label={m.label} help={m.help} color={SERIES[0]} />
+                  : m.kind === 'bar'
                   ? <BarChart bars={m.points} label={m.label} help={m.help} unit={m.unit || ''}
                       refLine={m.ref} refLabel={m.refLabel} color={SERIES[0]} />
                   : <LineChart points={m.points} label={m.label} help={m.help} unit={m.unit || ''}

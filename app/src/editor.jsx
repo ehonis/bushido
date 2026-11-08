@@ -12,7 +12,8 @@ import {
   prescriptionSteps, itemLine, setLine, patchSet, addSet, removeSet, removeItem, patchItem,
   patchBlock, appendLift, moveItem, setCircuit, setTiming, circuitTiming,
 } from './lib/prescription.js'
-import { ExerciseSection } from './exercises.jsx'
+import { removalWords } from './lib/removal.js'
+import { ExerciseSection, useUndoable } from './exercises.jsx'
 import { CircuitSteppers, CircuitList, SecondsRow } from './circuit.jsx'
 
 /* ------------------------------------------------------------- the editor */
@@ -154,7 +155,7 @@ const loadOf = (it) => {
   return w !== null && w !== undefined && w !== '' ? `${w} ${it.weightLabel || 'lb'}` : null
 }
 
-function CircuitBlock({ block: b, pres, onChange, liftField, entries, entryId, open, onToggle, extra }) {
+function CircuitBlock({ block: b, pres, onChange, onDrop, liftField, entries, entryId, open, onToggle, extra }) {
   const [more, setMore] = useState(false)
   const c = b.circuit
   const items = b.items.map(it => ({ id: it.id, key: it.exercise, name: it.name, timing: circuitTiming(it), load: loadOf(it) }))
@@ -184,7 +185,7 @@ function CircuitBlock({ block: b, pres, onChange, liftField, entries, entryId, o
           )}
           <CircuitList items={items} work={c.work} liftField={liftField}
             onTiming={(i, t) => onChange(setTiming(pres, items[i].id, t))}
-            onRemove={(i) => onChange(removeItem(pres, items[i].id))}
+            onRemove={(i) => onDrop(items[i].id)}
             onMove={(i, dir) => onChange(moveItem(pres, items[i].id, dir).pres)}
             onAdd={(key) => onChange(appendLift(pres, liftField, key, { blockId: b.id, entries, excludeId: entryId }))} />
         </>
@@ -234,9 +235,19 @@ export function addedId(before, next, blockId) {
  * several that agree today.
  */
 export function PrescriptionEditor({
-  pres, onChange, liftField, entries = [], entryId = null, categories = [], compact = false,
-  canReorder = true, onAddPiece = null,
+  pres, onChange: emit, liftField, entries = [], entryId = null, categories = [], compact = false,
+  canReorder = true, onAddPiece = null, syncedWith = null,
 }) {
+  // Every write goes through `onChange`; a removal through `remove`, which offers
+  // Undo (#77). `syncedWith` names the other sides of a synced workout, for the
+  // toast's one line about them (lib/removal.js: it never claims what happened there).
+  const { change: onChange, remove } = useUndoable(pres, emit)
+  const itemOf = (id) => (pres?.blocks || []).flatMap(b => b.items || []).find(it => it.id === id)
+  const dropSet = (id, setId) => {
+    const it = itemOf(id)
+    remove(removeSet(pres, id, setId), removalWords(it, (it?.sets || []).findIndex(s => s.id === setId), { syncedWith }))
+  }
+  const dropItem = (id) => remove(removeItem(pres, id), removalWords(itemOf(id), null, { syncedWith }))
   const [shut, setShut] = useState(() => new Set())  // blockIds folded away
 
   const total = prescriptionSteps(pres).length
@@ -253,7 +264,7 @@ export function PrescriptionEditor({
   return (
     <div className={`presc ${compact ? 'compact' : ''}`}>
       {(pres.blocks || []).map(b => (b.circuit ? (
-        <CircuitBlock key={b.id} block={b} pres={pres} onChange={onChange} liftField={liftField}
+        <CircuitBlock key={b.id} block={b} pres={pres} onChange={onChange} onDrop={dropItem} liftField={liftField}
           entries={entries} entryId={entryId}
           open={!shut.has(b.id)} onToggle={() => toggleBlock(b.id)}
           extra={<>
@@ -283,8 +294,8 @@ export function PrescriptionEditor({
           onPatch={(id, patch) => onChange(patchItem(pres, id, patch))}
           onPatchSet={(id, setId, patch) => onChange(patchSet(pres, id, setId, patch))}
           onAddSet={(id) => onChange(addSet(pres, id))}
-          onRemoveSet={(id, setId) => onChange(removeSet(pres, id, setId))}
-          onRemove={(id) => onChange(removeItem(pres, id))}
+          onRemoveSet={dropSet}
+          onRemove={dropItem}
           onMove={canReorder ? (id, dir) => {
             const r = moveItem(pres, id, dir)
             onChange(r.pres)
