@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Is it all green? `npm run check` (#98): what CI runs, in one command, each
+/* Is it all green? `pnpm run check` (#98): what CI runs, in one command, each
  * step run even when an earlier one failed, and a line per step at the end.
  *   tests      every app and server suite (scripts/test.mjs)
  *   lint       ESLint over app/src (app/eslint.config.js)
@@ -12,10 +12,10 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const STEPS = [
-  ['tests', 'npm test'],
-  ['lint', 'npm run lint'],
-  ['build', 'npm run build'],
-  ['typecheck', 'npm run typecheck:mobile'],
+  ['tests', 'pnpm test'],
+  ['lint', 'pnpm run lint'],
+  ['build', 'pnpm run build'],
+  ['typecheck', 'pnpm run typecheck:mobile'],
 ]
 const results = []
 for (const [name, cmd] of STEPS) {

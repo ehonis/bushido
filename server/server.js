@@ -1150,7 +1150,7 @@ async function serveStatic(req, res, urlPath) {
       'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
     })
   } catch {
-    send(res, 404, 'app not built yet — run `npm run build` in bushido/app')
+    send(res, 404, 'app not built yet — run `pnpm run build` in bushido/app')
   }
 }
 

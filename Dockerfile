@@ -2,10 +2,12 @@
 # settings and the owner account live in /data; mount a volume there.
 FROM node:22-alpine AS build
 WORKDIR /src
-COPY app/package.json app/package-lock.json app/
-RUN npm --prefix app ci --no-audit --no-fund
+RUN corepack enable pnpm
+COPY app/package.json app/pnpm-lock.yaml app/pnpm-workspace.yaml app/
+# Corepack takes pnpm's version from the package.json in the working directory.
+RUN cd app && pnpm install --frozen-lockfile
 COPY . .
-RUN npm --prefix app run build
+RUN cd app && pnpm run build
 
 FROM node:22-alpine
 WORKDIR /app

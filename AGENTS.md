@@ -19,8 +19,8 @@ reasons behind the design, and the things that have been removed on purpose.
 ## 0. If you read nothing else
 
 1. **Build before you say it is done.** A change under `app/src` is not live until
-   `npm run build` has written `dist/`. Content files are read at runtime; app code is not.
-2. **Run `npm test` at the repo root** after any change to the app, the server or a
+   `pnpm run build` has written `dist/`. Content files are read at runtime; app code is not.
+2. **Run `pnpm test` at the repo root** after any change to the app, the server or a
    content file. It runs every app suite, the SSR smoke render of every tab, and every
    server suite (including `server/http.test.js`, which boots real servers).
 3. **Stored data is never deleted or rewritten to suit the code.** Old entries of kinds
@@ -56,7 +56,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | `test/fixtures/plan.json` | A large synthetic climbing-and-triathlon programme used by the test suites (smoke render, every app suite, `starter.test.mjs`) and by `starter.build.mjs` / `muscles.build.mjs`. The canonical fixture, and the source both generated files are built from. |
 | `data/` | Runtime state. Gitignored. Never commit, delete or rewrite it (§4). |
 | `deploy/bushido.service` | The systemd user unit. |
-| `scripts/start.js` | `npm start`: builds the app if there is no build, then runs the server. |
+| `scripts/start.js` | `pnpm start`: builds the app if there is no build, then runs the server. |
 | `Dockerfile`, `docker-compose.yml` | Container path; data in a volume at `/data`, no Claude CLI in the image. |
 | `.github/workflows/ci.yml` | CI: app tests, server tests, build. A private repo runs it on a self-hosted runner labelled `box`; a public copy on GitHub's hosted runner. |
 
@@ -81,7 +81,7 @@ reasons behind the design, and the things that have been removed on purpose.
 
 | Thing | Path | Notes |
 |---|---|---|
-| Render smoke suite | `app/smoke/` | `npm run smoke` in `app/`. Mounts every tab and session viewer against real content: one file of cases per area (`today.jsx`, `sheet.jsx`, `editor.jsx`, `planner.jsx`, `runner.jsx`, `workout.jsx`, `timer.jsx`, `log.jsx`, `progress.jsx`, `profile.jsx`, `people.jsx`, `misc.jsx`, `system.jsx`: the visual system), shared `fixtures.jsx`, one runner `index.jsx`. |
+| Render smoke suite | `app/smoke/` | `pnpm run smoke` in `app/`. Mounts every tab and session viewer against real content: one file of cases per area (`today.jsx`, `sheet.jsx`, `editor.jsx`, `planner.jsx`, `runner.jsx`, `workout.jsx`, `timer.jsx`, `log.jsx`, `progress.jsx`, `profile.jsx`, `people.jsx`, `misc.jsx`, `system.jsx`: the visual system), shared `fixtures.jsx`, one runner `index.jsx`. |
 | Store, merge, `isDone`, `markDone`, `doneWhenPlaced`, `isTraining`, entry ids | `app/src/lib/store.js` | The server's word-for-word copy of `isDone` is in `server/notify-facts.js` (§4). |
 | Session lookup | `app/src/lib/menu.js` | `optFor(menu, optId)`; renamed cards declare old ids as `aka`. |
 | Categories | `app/src/lib/category.js` | `categoryOf`, `disciplineOf`: what an entry files under, for the Log filter and Progress. |
@@ -119,7 +119,7 @@ reasons behind the design, and the things that have been removed on purpose.
 | Number inputs | `app/src/numinput.jsx`, `app/src/lib/numtext.js` | Text inputs that own their text (§6.4). |
 | Body diagram | `app/src/lib/bodymap.jsx`, `app/muscles.build.mjs` | `react-body-highlighter` + `free-exercise-db`; nothing hand-drawn. |
 | How-to figures | `app/src/howto.jsx`, `app/src/lib/figuredata.js`, `app/src/lib/figures.jsx` | The drawings are data in `figuredata.js` (one skeleton, `body()`; copied byte for byte to mobile), and `figures.jsx` / `figures.tsx` only render them. Tested by `app/figures.test.jsx` (#109). |
-| Palette | `app/src/styles.css` `:root`, `app/validate_palette.js` | `npm run palette`; a real gate (§6.10). The rest of the token contract is pinned by `app/smoke/system.jsx` (§10.13). |
+| Palette | `app/src/styles.css` `:root`, `app/validate_palette.js` | `pnpm run palette`; a real gate (§6.10). The rest of the token contract is pinned by `app/smoke/system.jsx` (§10.13). |
 | Styles | `app/src/styles.css` (tokens, base components, shell), `app/src/css/<area>.css` (each screen area's rules, one owner each), `app/src/timer.css` | A new rule goes in its area's file (`sheet.css`, `today.css`, `planner.css`, `editor.css`, `runner.css`, `workout.css`, …); `main.jsx` imports them in cascade order. See `docs/DESIGN.md`, "Visual system". |
 | Notifications client | `app/src/lib/push.js`, `app/src/notifications.jsx` | |
 | Device screen probe | `app/src/screeninfo.jsx` | Measures the iOS safe-area bug on the device (§10.5). |
@@ -132,23 +132,28 @@ reasons behind the design, and the things that have been removed on purpose.
 ## 2. Running, building, testing
 
 ```bash
-npm install && npm start      # builds on first run, serves on :8099
-npm run dev                   # Vite on :5173, proxies /api and sign-in to :8099 (run npm start alongside)
-npm run build                 # app/ → dist/
-npm test                      # app suites + palette + SSR smoke + server suites
+pnpm install && pnpm start    # builds on first run, serves on :8099
+pnpm run dev                  # Vite on :5173, proxies /api and sign-in to :8099 (run pnpm start alongside)
+pnpm run build                # app/ → dist/
+pnpm test                     # app suites + palette + SSR smoke + server suites
 node app/starter.build.mjs    # regenerate content/starter.json and examples/plan.json
 ```
 
+- **pnpm, not npm: never run `npm install` or `npm ci` at the root or in `app/`.** npm ignores
+  `pnpm-lock.yaml` and writes its own tree. `mobile/` is the exception: it stays on npm
+  (`npm ci` there): under pnpm its installed tree differed (e.g. metro 0.84.6 for
+  0.84.5 at the top level), and EAS's cloud build would switch to pnpm, which only a real
+  build could check.
 - **A change under `app/src` is invisible until built.** The server serves `dist/` from
   disk, so no restart is needed after a build, but without one the running app is the old
   bundle while every test passes. To confirm a deploy picked it up, check that the
   `assets/…` hash in the served `index.html` changed.
-- **Content files need no rebuild** — they are fetched at runtime — but run `npm test`
+- **Content files need no rebuild** — they are fetched at runtime — but run `pnpm test`
   after editing one anyway: the suites walk every session set by set and catch a bad
   property access in hand-written JSON here rather than on a phone mid-session.
-- `npm test` at the root runs `scripts/test.mjs`: every app suite, then every
+- `pnpm test` at the root runs `scripts/test.mjs`: every app suite, then every
   `server/*.test.js`, each one even when an earlier one failed, then a PASS/FAIL line per
-  suite and a non-zero exit if any failed (`npm --prefix app test` and `npm run test:server`
+  suite and a non-zero exit if any failed (`pnpm --dir app test` and `pnpm run test:server`
   run each half). The app half is its `test:*` scripts in the runner's order: the handoff
   test, the palette check, the per-area suites (`test:fingers`, `test:streak`, `test:gear`,
   `test:progress`, `test:workout`, `test:tests` (test-result sessions), `test:lifts`,
@@ -1050,9 +1055,9 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
 
 ### 6.10 Palette
 
-**Never change a viz colour without `npm run palette`.** It checks contrast against the
+**Never change a viz colour without `pnpm run palette`.** It checks contrast against the
 panel, all-pairs separation under the three dichromacies, and a monotonic load ramp, and it
-is part of `npm test`. It has already caught a shipped palette failing.
+is part of `pnpm test`. It has already caught a shipped palette failing.
 
 ---
 
@@ -1612,8 +1617,8 @@ The regrade's code findings, behaviour unchanged except where a test names a bug
 - **Files say what is in them**: `tabs.jsx` is Today, `daylist.jsx` its rows,
   `dayswitcher.jsx` the switcher; `App.jsx` renders, `appdata.jsx` decides, `shell.jsx`
   is the frame's pieces. The phone's `tabs.tsx` split the same way (`daylist.tsx`).
-- **ESLint** (`npm run lint`): undefined names, hooks, and a reason after `--` on every
-  suppression. **`npm run check`** is tests, lint, build and the mobile typecheck.
+- **ESLint** (`pnpm run lint`): undefined names, hooks, and a reason after `--` on every
+  suppression. **`pnpm run check`** is tests, lint, build and the mobile typecheck.
 - **Lazy parts** (`lazy.jsx`): Plan a workout (`planner.jsx`), the interval timer's screen
   (`timer.jsx`; its host, `timerhost.jsx`, is static) and WHOOP on Today (`whoopday.jsx`).
   **Nothing a sheet or a workout in progress draws is lazy**: `PlanTalk` is `plantalk.jsx`,
@@ -1627,7 +1632,7 @@ The regrade's code findings, behaviour unchanged except where a test names a bug
 
 ## 11. Before you finish
 
-- `npm run check` at the repo root passes: every suite, `npm run lint` (ESLint over
+- `pnpm run check` at the repo root passes: every suite, `pnpm run lint` (ESLint over
   `app/src`: undefined names, the rules of hooks, and a reason after `--` on every
   suppression), the build and the mobile typecheck.
 - If you touched shared content in `test/fixtures/plan.json`, you ran

@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /* Every test suite, one after another, and a summary at the end:
- *   node scripts/test.mjs            app suites, then server suites (`npm test`)
- *   node scripts/test.mjs app        the app's own (`npm --prefix app test`)
- *   node scripts/test.mjs server     server/*.test.js (`npm run test:server`)
+ *   node scripts/test.mjs            app suites, then server suites (`pnpm test`)
+ *   node scripts/test.mjs app        the app's own (`pnpm --dir app test`)
+ *   node scripts/test.mjs server     server/*.test.js (`pnpm run test:server`)
  *
  * It runs every suite even when one fails, and exits non-zero if any did. It used
  * to be one `&&` chain, so the first red suite stopped the run and everything after
  * it never started: a red result that did not say nothing else had been tried.
  *
  * The app's suites are its package.json scripts, run here in APP_SUITES order (so
- * `npm --prefix app run test:gear` still runs one alone); the server's are every
+ * `pnpm --dir app run test:gear` still runs one alone); the server's are every
  * server/*.test.js.
  */
 
@@ -70,7 +70,7 @@ if (!suites.length) {
   process.exit(2)
 }
 
-// What `npm run` would add: the app's local binaries (esbuild) on the PATH.
+// What `pnpm run` would add: the app's local binaries (esbuild) on the PATH.
 const env = { ...process.env, PATH: [join(APP, 'node_modules', '.bin'), process.env.PATH].join(delimiter) }
 
 const results = []
