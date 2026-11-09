@@ -2,6 +2,7 @@
   "name": "bushido-app",
   "private": true,
   "license": "MIT",
+  "packageManager": "pnpm@10.34.9",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ehonis/bushido.git",

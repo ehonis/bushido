@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// Builds straight into ../dist, which the Node server serves. During `npm run dev`
+// Builds straight into ../dist, which the Node server serves. During `pnpm run dev`
 // the API is proxied to the live service so dev and prod behave identically.
 export default defineConfig({
   plugins: [react()],

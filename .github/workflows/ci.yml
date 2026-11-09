@@ -19,22 +19,25 @@ jobs:
         working-directory: app
     steps:
       - uses: actions/checkout@v4
+      # pnpm at the version package.json's packageManager names.
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: app/package-lock.json
-      - run: npm ci
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
       # Every app and server suite, each run even when one fails, with a summary at
       # the end (scripts/test.mjs). The root package has no dependencies of its own.
       - name: tests
         working-directory: .
-        run: npm test
+        run: pnpm test
       # ESLint: undefined names, the rules of hooks, and every suppression says why.
-      - run: npm run lint
-      - run: npm run build
+      - run: pnpm run lint
+      - run: pnpm run build
 
   # The iPhone app: strict TypeScript over mobile/src, including the lib copies.
+  # mobile/ stays on npm: under pnpm its bundle came out different.
   mobile:
     runs-on: ${{ github.event.repository.private && 'box' || 'ubuntu-latest' }}
     defaults:

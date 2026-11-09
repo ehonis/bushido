@@ -88,15 +88,16 @@ server/server.js  ── Node 22, no npm dependencies ────────�
 
 ## Quick start
 
-Requirements: **Node.js 22 or newer** and npm. Optional: the
+Requirements: **Node.js 22 or newer** and pnpm (`corepack enable pnpm` gives you the version
+`package.json` names). Optional: the
 [Claude Code CLI](https://docs.claude.com/en/docs/claude-code/overview) for the AI
 features.
 
 ```bash
 git clone https://github.com/ehonis/bushido.git
 cd bushido
-npm install      # installs the app's dependencies
-npm start        # builds the app on first run, then serves it on port 8099
+pnpm install     # installs the app's dependencies
+pnpm start       # builds the app on first run, then serves it on port 8099
 ```
 
 1. The server prints a one-time setup link:
@@ -168,12 +169,15 @@ and WHOOP back from Bushido; it is not in this repository.
 ## Development
 
 ```bash
-npm start                # the server on :8099 (run it alongside the dev server)
-npm run dev              # Vite on :5173 with hot reload; proxies /api and sign-in to :8099
-npm test                 # app suites, the render smoke test, then the server suites
+pnpm start               # the server on :8099 (run it alongside the dev server)
+pnpm run dev             # Vite on :5173 with hot reload; proxies /api and sign-in to :8099
+pnpm test                # app suites, the render smoke test, then the server suites
 ```
 
-Editing the content file needs no rebuild. Run `npm test` after editing it anyway,
+The root and `app/` use pnpm, not npm: never run `npm install` or `npm ci` there (npm ignores
+`pnpm-lock.yaml`). The iPhone app in `mobile/` is the exception and stays on npm.
+
+Editing the content file needs no rebuild. Run `pnpm test` after editing it anyway,
 because the suites check every session against the code.
 
 ## Documentation

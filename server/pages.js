@@ -109,7 +109,7 @@ function setupClosedPage({ hasOwner }) {
       : `<h1>Setup link needed</h1>
 <p class="sub">Open the one-time setup link the server printed when it started. It looks like
 <code>http://&lt;host&gt;:8099/setup?token=…</code> and is in the server's log
-(<code>journalctl --user -u bushido</code>, <code>docker compose logs</code>, or the terminal running <code>npm start</code>).</p>`,
+(<code>journalctl --user -u bushido</code>, <code>docker compose logs</code>, or the terminal running <code>pnpm start</code>).</p>`,
   })
 }
 

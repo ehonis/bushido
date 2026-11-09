@@ -532,7 +532,7 @@ element.
   `today.css` (the day title and the day list) and `toast.css`; WHOOP, Strava and unlogged
   workouts moved from `profile.css` to `integrations.css`. Section for section, imported by
   `main.jsx` in the order that keeps the cascade. A new rule goes in its area's file.
-- **`npm test` runs every suite and says which failed** (`scripts/test.mjs`), and CI runs it plus
+- **`pnpm test` runs every suite and says which failed** (`scripts/test.mjs`), and CI runs it plus
   `npm --prefix mobile run typecheck`. `app/libsync.test.js` holds every file in
   `mobile/src/lib` to its web original, less the native edits written down in
   `app/libsync.native.diff`. `app/gear.test.js` reads a committed Strava fixture, never `data/`.
@@ -543,7 +543,7 @@ element.
   path, keep the change minimal and say so in the PR.
 - Branch from fresh `origin/main`, push to `origin` only, open a PR with `Closes #N`.
 - `nice -n 10` for installs, builds and tests. Tests never reach the network.
-- Before opening the PR: `npm run check` at the repo root (every suite, ESLint over `app/src`,
+- Before opening the PR: `pnpm run check` at the repo root (every suite, ESLint over `app/src`,
   the build and the mobile typecheck, each run and summarised; it needs `npm --prefix mobile ci`).
 - UI work is looked at, not just tested: screenshot the web screens you changed at phone width
   (the `ui-screenshot` skill) and attach or describe them in the PR. A throwaway server uses its

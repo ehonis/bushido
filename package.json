@@ -4,6 +4,7 @@
   "private": true,
   "description": "Self-hosted health and training log: weekly quotas, every sport, an AI coach, WHOOP and Strava.",
   "license": "MIT",
+  "packageManager": "pnpm@10.34.9",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ehonis/bushido.git"
@@ -12,14 +13,14 @@
     "node": ">=22"
   },
   "scripts": {
-    "postinstall": "npm --prefix app ci --no-audit --no-fund",
+    "postinstall": "pnpm --dir app install --frozen-lockfile",
     "start": "node scripts/start.js",
-    "build": "npm --prefix app run build",
-    "dev": "npm --prefix app run dev",
+    "build": "pnpm --dir app run build",
+    "dev": "pnpm --dir app run dev",
     "test": "node scripts/test.mjs",
     "test:server": "node scripts/test.mjs server",
     "typecheck:mobile": "npm --prefix mobile run typecheck",
-    "lint": "npm --prefix app run lint",
+    "lint": "pnpm --dir app run lint",
     "check": "node scripts/check.mjs"
   }
 }

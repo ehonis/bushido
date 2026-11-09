@@ -8,7 +8,7 @@ The unit expects the checkout at `~/bushido`. Settings that belong in the enviro
 exists.
 
 ```bash
-cd ~/bushido && npm install && npm run build     # app dependencies + the built app
+cd ~/bushido && pnpm install && pnpm run build   # app dependencies + the built app
 cp deploy/bushido.service ~/.config/systemd/user/
 ln -sfn "$(readlink -f "$(which node)")" ~/.local/bin/apps-node   # stable node path
 systemctl --user daemon-reload
@@ -26,8 +26,8 @@ on the machine that serves the app, so nothing has to reach that machine from ou
 Each deploy:
 
 1. stops if the live checkout has uncommitted changes to tracked files or is not on `main`;
-2. fast-forwards it to `origin/main` (nothing new, nothing done), runs `npm ci` only if a
-   `package.json` or lockfile changed, and builds;
+2. fast-forwards it to `origin/main` (nothing new, nothing done), runs `pnpm install
+   --frozen-lockfile` only if a `package.json` or lockfile changed, and builds;
 3. restarts the service (`launchctl kickstart -k` on macOS,
    `systemctl --user restart` on Linux), then waits up to a minute for the health URL;
 4. if the build, the restart or the health check fails, resets to the commit it started
@@ -46,8 +46,10 @@ It does nothing until the repository is told where the install is:
 # runner gives the download and the token).
 ./config.sh --url https://github.com/<you>/<repo> --token <token> --labels bushido-deploy --no-default-labels
 ./svc.sh install && ./svc.sh start
-# Give it the PATH npm needs, in .env beside config.sh, e.g.:
-#   PATH=/opt/homebrew/opt/node/bin:/opt/homebrew/bin:/usr/bin:/bin
+# Give it the PATH node needs, in .env beside config.sh, e.g. (the workflow gets pnpm
+# from node's own Corepack, which Node 22 and 24 ship and Node 25+ does not, so use a
+# versioned node):
+#   PATH=/opt/homebrew/opt/node@22/bin:/opt/homebrew/bin:/usr/bin:/bin
 
 # Repository variables (Settings → Secrets and variables → Actions):
 gh variable set DEPLOY_DIR -b /path/to/the/live/checkout
@@ -78,7 +80,7 @@ cp deploy/bushido.service ~/.config/systemd/user/
 ln -sfn "$(readlink -f "$(which node)")" ~/.local/bin/apps-node
 systemctl --user daemon-reload
 systemctl --user enable --now bushido
-cd app && npm ci && npm run build
+pnpm install --frozen-lockfile && pnpm run build
 ```
 
 `ExecStart` points at `~/.local/bin/apps-node` rather than `node` because node
@@ -134,7 +136,7 @@ overwritten.
 
 **4. Set the frontend's build-time hosts, then rebuild.** The app no longer ships any
 hostname. If the app used to live at another hostname, put both in `app/.env` (template:
-`app/.env.example`) and rebuild with `cd app && npm run build`:
+`app/.env.example`) and rebuild with `pnpm run build`:
 
 ```bash
 VITE_BUSHIDO_HOST=bushido.example.com              # the hostname the app is served at

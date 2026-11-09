@@ -1,5 +1,6 @@
-# Build output — regenerate with `cd app && npm run build`
+# Build output — regenerate with `cd app && pnpm run build`
 dist/
+node_modules/
 app/node_modules/
 app/smoke/.smoke.mjs
 app/.mdtest.mjs

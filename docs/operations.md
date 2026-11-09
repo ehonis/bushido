@@ -58,20 +58,20 @@ See [`deploy/README.md`](../deploy/README.md) for installing the unit.
 ## Rebuilding the app
 
 ```
-cd app && npm run build              # writes ../dist, no service restart needed
-npm run dev                                 # hot reload on :5173, proxies /api to :8099
-npm test                                    # every app suite + render smoke + server suites
+pnpm run build                              # writes dist/, no service restart needed
+pnpm run dev                                # hot reload on :5173, proxies /api to :8099
+pnpm test                                   # every app suite + render smoke + server suites
 ```
 
 Editing the content file (`data/plan.json`, or whichever one Settings says is in
 use) needs no rebuild at all — the app fetches it at runtime.
-Run `npm test` after you edit it anyway: the suites check it set by set and catch a bad
+Run `pnpm test` after you edit it anyway: the suites check it set by set and catch a bad
 property access here rather than on your phone in a basement.
 
 ## Frontend build settings
 
 The built app reads two optional values from `app/.env` at **build** time (template:
-`app/.env.example`); change one and run `npm run build` again.
+`app/.env.example`); change one and run `pnpm run build` again.
 
 | variable | what it does | unset |
 |---|---|---|
