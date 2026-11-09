@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs'
 import { renderToString } from 'react-dom/server'
 import { ProgressView } from '../src/progress.jsx'
+import { EMPTY_SCOPE } from '../src/lib/scope.js'
 import { LogTab } from '../src/log.jsx'
 import {
   plan, starter, entries, TODAY, back, rich, cfEntries, text, isoShift, LEGACY, noop,
@@ -21,7 +22,13 @@ export default [
       if (!/Nothing logged yet/.test(t)) throw new Error('a legacy entry was counted as a workout')
       if (/Achievement/.test(t)) throw new Error('the achievement filter is back')
     }],
-  ['ProgressView(rich)', <ProgressView plan={plan} entries={rich} />,
+  /*
+   * All time, not the default 8 weeks: `rich` is dated August–September 2026 and
+   * the window counts back from the real clock, so from about 2026-11-09 the
+   * default period no longer reached the sends and this case failed with nothing
+   * changed. The case is about the grade charts, not the period.
+   */
+  ['ProgressView(rich)', <ProgressView plan={plan} entries={rich} initialScope={{ ...EMPTY_SCOPE, weeks: null }} />,
     html => {
       const t = text(html)
       /*
@@ -156,11 +163,13 @@ export default [
       if (t.indexOf('>Boulders by grade</h3>') > t.indexOf('>Climbs per week</h3>')) throw new Error('volume leads the pyramids')
     }],
   // The other side of that move: on the whole page Climbing still comes last (§10.8).
-  ['ProgressView(climbing follows the general charts on the whole page)', <ProgressView plan={plan} entries={rich} />,
+  // All time, like ProgressView(rich): `rich` ends in September. Over all time its
+  // August bodyweight readings add a Body card, which isn't a general chart.
+  ['ProgressView(climbing follows the general charts on the whole page)', <ProgressView plan={plan} entries={rich} initialScope={{ ...EMPTY_SCOPE, weeks: null }} />,
     (html) => {
       const names = metricsGroups(text(html))
       if (!names.includes('Climbing')) throw new Error(`no Climbing group: ${names}`)
-      if (names.filter(n => n !== 'This session').at(-1) !== 'Climbing') throw new Error(`climbing is not last: ${names}`)
+      if (names.filter(n => n !== 'This session' && n !== 'Body').at(-1) !== 'Climbing') throw new Error(`climbing is not last: ${names}`)
     }],
   // The filter chips are one sideways row, not a wrapped stack (#97, F3).
   ['ProgressView(the activity chips are one row)', null, () => {
@@ -187,7 +196,7 @@ export default [
     }],
   // Charts titled in plain words; each still declares when it applies, keeps its
   // table view, and the critical-force chart keeps its noise band.
-  ['ProgressView(charts in plain words, a table each, the noise band kept)', <ProgressView plan={plan} entries={[...rich, ...cfEntries]} />,
+  ['ProgressView(charts in plain words, a table each, the noise band kept)', <ProgressView plan={plan} entries={[...rich, ...cfEntries]} initialScope={{ ...EMPTY_SCOPE, weeks: null }} />,
     (html) => {
       const t = text(html)
       for (const w of ['Workouts per week', 'Time per week', 'Effort per week']) {
@@ -237,7 +246,7 @@ export default [
   // keeps its first digit, and a count axis never ticks at 0.5.
   ['ProgressView(axis numbers fit, counts tick in whole numbers)', <ProgressView plan={plan} entries={[...rich,
     ...[0, 1, 2, 3].map(i => ({ id: `big${i}`, kind: 'daily', date: isoShift(TODAY, -i), updatedAt: 'z',
-      data: { optId: 'log-workout', level: 2, done: true, out: { activity: 'run', duration: 300, rpe: 9 } } }))]} />,
+      data: { optId: 'log-workout', level: 2, done: true, out: { activity: 'run', duration: 300, rpe: 9 } } }))]} initialScope={{ ...EMPTY_SCOPE, weeks: null }} />,
     (html) => {
       const t = text(html)
       const chart = (title) => t.slice(t.indexOf(`>${title}</h3>`), t.indexOf('</svg>', t.indexOf(`>${title}</h3>`)))
