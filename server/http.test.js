@@ -1247,6 +1247,8 @@ async function waitFor(fn, label, ms = 8000) {
     const cache = await (await get(`${sv.base}/api/strava`, as('sam@example.com'))).json()
     eq([cache.configured, cache.activities.map(a => a.id)], [true, [99]])
     ok(!fs.existsSync(path.join(sv.dataDir, 'strava.json')), 'Sam\'s pull wrote the owner\'s cache')
+    const pulled = await (await samPost('/api/strava/pull')).json()
+    eq([pulled.configured, pulled.activities.map(a => a.id)], [true, [99]], 'the app keeps a pull\'s reply as its cache, so it says configured as the GET does')
   })
 
   await step('own Strava: a callback with a state nobody started is refused', async () => {

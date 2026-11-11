@@ -1,7 +1,7 @@
 // Every tab's frame: the web's header (.hdr: the mark, "Bushido", the streak,
 // the profile button), the acting banner, and a scrolling body that clears the
-// floating tab bar (--dock-clear). Pull down to sync, the native form of the
-// store re-reading on focus.
+// floating tab bar (--dock-clear). Pull down to sync the log and pull WHOOP
+// and Strava (pullRefresh.ts).
 import React, { useState } from 'react'
 import { RefreshControl, ScrollView, StyleSheet, View, type ScrollViewProps } from 'react-native'
 import { Image } from 'expo-image'
@@ -11,6 +11,9 @@ import { T } from '../ui/Text'
 import { Icon } from '../lib/icons'
 import { streakDays } from '../lib/streak.js'
 import { useApp } from './AppData'
+import { pullRefresh } from './pullRefresh'
+import { useWhoop } from '../lib/whoop.jsx'
+import { useStrava } from '../lib/strava.jsx'
 import { ActingBanner, tabsFor } from '../features/app'
 import { ProfileMenu } from '../features/profile'
 
@@ -73,11 +76,14 @@ export function Screen({ children, scroll = true, fabs = true, contentStyle, scr
 }) {
   const insets = useSafeAreaInsets()
   const { store, me, reloadPlan } = useApp()
+  const whoop = useWhoop()
+  const strava = useStrava()
   const [refreshing, setRefreshing] = useState(false)
   const refresh = async () => {
     setRefreshing(true)
-    reloadPlan()
-    try { await store.refresh() } finally { setRefreshing(false) }
+    try {
+      await pullRefresh({ refresh: store.refresh, reloadPlan, whoop, strava })
+    } finally { setRefreshing(false) }
   }
   const foot = (fabs && !compactDock(me) ? FAB_CLEAR : DOCK_CLEAR) + insets.bottom
   return (
