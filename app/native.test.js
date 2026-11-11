@@ -8,6 +8,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { keyboardEvents, showFoot, canSwipe, showActs } from '../mobile/src/ui/sheetPolicy.ts'
+import { pullRefresh, wantsPull, FRESH_MS } from '../mobile/src/shell/pullRefresh.ts'
 
 const ROOT = new URL('../mobile/src/', import.meta.url).pathname
 const read = (f) => readFileSync(join(ROOT, f), 'utf8')
@@ -86,6 +87,74 @@ test('every Input carries the keyboard bar, and no sheet footer is a Close', () 
 test('the coach is gone from the dock too (#31, F F8)', () => {
   if (/coach/.test(read('shell/TabBar.tsx'))) throw new Error('the tab bar still checks for a coach tab')
   if (/coach/i.test(read('lib/foreground.ts'))) throw new Error('foreground.ts still names a coach provider')
+})
+
+/*
+ * Pull down on a tab: the log syncs AND WHOOP and Strava are pulled.
+ * Their GETs only serve the server's cache, so without a pull the ride that
+ * just synced showed up one refresh late.
+ */
+const NOW = Date.parse('2026-11-11T12:00:00Z')
+const ago = (ms) => new Date(NOW - ms).toISOString()
+const calls = () => {
+  const log = []
+  const later = (name, ms = 0, value) => () => new Promise(r => setTimeout(() => { log.push(name); r(value) }, ms))
+  const svc = (name, cache, pull = later(name)) => ({ cache, pull })
+  const base = { refresh: later('log', 0, true), reloadPlan: () => log.push('plan'), now: NOW }
+  return { log, later, svc, base }
+}
+const on = (fetchedAt = ago(10 * 60_000)) => ({ configured: true, fetchedAt })
+
+test('pull to refresh pulls WHOOP and Strava along with the log', async () => {
+  const { log, svc, base } = calls()
+  await pullRefresh({ ...base, whoop: svc('whoop', on()), strava: svc('strava', on(null)) })
+  assert.deepEqual([...log].sort(), ['log', 'plan', 'strava', 'whoop'], 'a cache never fetched is pulled too')
+})
+
+test('pull to refresh never pulls a service its cache says is not connected', async () => {
+  const { log, svc, base } = calls()
+  await pullRefresh({ ...base, whoop: svc('whoop', { configured: false, fetchedAt: null }), strava: svc('strava', null) })
+  assert.deepEqual([...log].sort(), ['log', 'plan'], 'not connected, or no answer yet: only the log')
+})
+
+test('pull to refresh leaves a copy fetched in the last minute alone', async () => {
+  const { log, svc, base } = calls()
+  await pullRefresh({ ...base, whoop: svc('whoop', on(ago(FRESH_MS - 1000))), strava: svc('strava', on(ago(FRESH_MS + 1000))) })
+  assert.deepEqual([...log].sort(), ['log', 'plan', 'strava'])
+  assert.equal(wantsPull(on('not a date'), NOW), true, 'an unreadable fetchedAt is not fresh')
+})
+
+test('offline, the log is retried and the services are not touched', async () => {
+  const { log, later, svc, base } = calls()
+  await pullRefresh({ ...base, refresh: later('log', 0, false), whoop: svc('whoop', on()), strava: svc('strava', on()) })
+  assert.deepEqual(log, ['plan', 'log'], 'an offline pull would leave a network error on every block')
+  log.length = 0
+  await pullRefresh({ ...base, refresh: () => Promise.reject(new Error('offline')), whoop: svc('whoop', on()), strava: svc('strava', on()) })
+  assert.deepEqual(log, ['plan'], 'a log sync that throws counts as offline')
+})
+
+test('a failed or slow service never holds the spinner past the log and the cap', async () => {
+  const { log, later, svc, base } = calls()
+  const t0 = Date.now()
+  await pullRefresh({ ...base, refresh: later('log', 5, true), waitMs: 30,
+    whoop: svc('whoop', on(), () => new Promise(() => {})), strava: svc('strava', on(), () => Promise.reject(new Error('down'))) })
+  assert.deepEqual(log, ['plan', 'log'])
+  assert.ok(Date.now() - t0 < 500, 'a hung WHOOP pull let the spinner go at the cap')
+})
+
+test('the services are pulled once the log has reached the server, and the spinner waits for both', async () => {
+  const { log, later, svc, base } = calls()
+  await pullRefresh({ ...base, refresh: later('log', 20, true), reloadPlan: () => {}, whoop: svc('whoop', on(), later('whoop', 10)), strava: svc('strava', null) })
+  assert.deepEqual(log, ['log', 'whoop'])
+  log.length = 0
+  await pullRefresh({ ...base, refresh: later('log', 0, undefined), reloadPlan: () => {}, whoop: svc('whoop', on()), strava: svc('strava', null) })
+  assert.deepEqual(log, ['log'], 'a log sync skipped behind a push in flight has not said the server is there')
+})
+
+test('Screen is the only pull to refresh, so none skips the services', () => {
+  if (!/pullRefresh\(/.test(read('shell/Screen.tsx'))) throw new Error('Screen.tsx no longer refreshes through pullRefresh')
+  const others = walk('.').filter(f => f !== 'shell/Screen.tsx' && /<RefreshControl|\bonRefresh=/.test(read(f)))
+  if (others.length) throw new Error(`a second pull to refresh that skips the services: ${others.join(', ')}`)
 })
 
 /*

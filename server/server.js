@@ -2191,7 +2191,8 @@ const server = http.createServer(async (req, res) => {
       const status = stravaStateOf(space)
       if (!result.ok) return send(res, 502, { error: result.error, status })
       const cache = readStravaCache(space)
-      return send(res, 200, { ...(cache || {}), status })
+      // `configured` as the GET says it: the app keeps this reply as its cache.
+      return send(res, 200, { ...(cache || {}), configured: true, status })
     }
 
     // One activity in full, for the moment the user attaches it. Live; not cached here.
@@ -2237,7 +2238,7 @@ const server = http.createServer(async (req, res) => {
       })
       if (!result.ok) return send(res, 502, { error: result.error, status: whoopState })
       const cache = readWhoopCache()
-      return send(res, 200, { ...(cache || {}), status: whoopState })
+      return send(res, 200, { ...(cache || {}), configured: true, status: whoopState })
     }
 
     if (p === '/api/content' && req.method === 'GET') {

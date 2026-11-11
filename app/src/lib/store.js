@@ -197,6 +197,8 @@ export function useStore() {
   const pushRef = useRef(null)
   pushRef.current = push
 
+  // Resolves true once the server answered, false when it could not be
+  // reached, undefined when a push was already in flight.
   const pull = useCallback(async () => {
     if (inFlight.current) return
     try {
@@ -214,8 +216,10 @@ export function useStore() {
       setLastSync(new Date())
       if (dirtyRef.current) push()
       else handoffIfSynced(() => dirtyRef.current)
+      return true
     } catch {
       setStatus('offline')
+      return false
     }
   }, [push])
 
