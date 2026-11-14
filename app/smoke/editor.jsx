@@ -9,7 +9,7 @@ import { normalizePrescription, setCircuit, noteBlock, tickSet, setTicked, addSe
 import { SessionLog } from '../src/sessionlog.jsx'
 import { readFileSync } from 'node:fs'
 import * as EXERCISES from '../src/exercises.jsx'
-import { ExercisePicker, ExerciseSheet, ExerciseCard, ExerciseSection, SetTick, STEP, undoControl, UNDO_MS, Stepper, modeFlip, cardKey, copyDownWrite } from '../src/exercises.jsx'
+import { ExercisePicker, ExerciseSheet, ExerciseCard, ExerciseSection, SetTick, STEP, undoControl, UNDO_MS, Stepper, modeFlip, cardKey, copyDownWrite, clearLastNote } from '../src/exercises.jsx'
 import { removalWords, syncLine } from '../src/lib/removal.js'
 import { searchExercises } from '../src/lib/lifts.js'
 import {
@@ -147,6 +147,72 @@ export default [
       // beside the ⓘ (#63 follow-up), folded or open.
       if (!/class="presc-itemname">[\s\S]*?<span class="presc-itemline">1 × 10<\/span><\/span>/.test(html)) throw new Error('the summary is beside the name again')
       if (/class="pop/.test(html)) throw new Error('the sheet is open before anyone asked')
+    }],
+  /* Drop sets and an exercise's own note (the owner's ask, 2026-11-14). A drop is
+   * a set marked `drop`, numbered as nothing (↳), offered on its own line under
+   * the last set once it holds a number, never in a set row; the note is a box
+   * under the head while there is one, else Note in the foot. */
+  ['ExerciseCard(a drop set reads ↳ under its working sets; Drop set under the last; the note under the head)',
+    <ExerciseCard item={{ id: 'c', kind: 'lift', name: 'Squat', exercise: SQUAT.key, memo: 'Belt on from set 2', line: '',
+      sets: [{ id: '0', reps: 5, weight: 100 }, { id: '1', reps: 5, weight: 100 }, { id: '2', reps: 4, weight: 80, drop: true }] }}
+      liftField={LIFT_FIELD} defaultOpen blank=""
+      onPatch={noop} onPatchSet={noop} onAddSet={noop} onRemoveSet={noop} onRemove={noop} />,
+    html => {
+      const rows = html.match(/<div class="presc-set(?: [^"]*)?">/g) || []
+      if (rows.length !== 3 || !/presc-set drop/.test(rows[2]) || /drop/.test(rows[0] + rows[1])) throw new Error(`the drop set is not marked: ${rows}`)
+      const nums = [...html.matchAll(/<span class="presc-setn"[^>]*>([\s\S]*?)<\/span>/g)].map(m => m[1])
+      if (nums[0] !== '1' || nums[1] !== '2' || !/<svg/.test(nums[2] || '')) throw new Error(`sets are not numbered 1, 2, ↳: ${nums}`)
+      if (!/class="presc-dropline"><button[^>]*aria-label="Add a drop set after this drop of Squat"/.test(html)) throw new Error('no Drop set under the last set')
+      const sets = (html.match(/<div class="presc-sets">([\s\S]*?)<div class="presc-(?:dropline|itemfoot)">/) || [])[1] || ''
+      if (/Drop set</.test(sets)) throw new Error('Drop set sits in a set row')
+      if (!/<textarea[^>]*aria-label="Note on Squat"[^>]*>Belt on from set 2<\/textarea>/.test(html)) throw new Error('the note is not a box under the head')
+      if (/aria-label="Add a note on Squat"/.test(html)) throw new Error('Note is offered beside a note')
+    }],
+  ['ExerciseCard(the last note shows with its day and a Clear; a note cleared on this card hides it)',
+    <>
+      {[undefined, ''].map((memo, i) => (
+        <ExerciseCard key={i} item={{ id: `c${i}`, kind: 'lift', name: 'Squat', exercise: SQUAT.key, memo, line: '', sets: [{ id: '0', reps: '', weight: '' }] }}
+          liftField={LIFT_FIELD} defaultOpen blank="" entryId="today"
+          entries={[{ id: 'past', kind: 'daily', date: '2026-11-03', data: { done: true, out: { lifts: [{ uid: 'x', key: SQUAT.key, name: 'Squat', memo: 'seat at 4', sets: [{ reps: 5, weight: 100 }] }] } } },
+            { id: 'today', kind: 'daily', date: '2026-11-08', data: { out: {} } }]}
+          onPatch={noop} onPatchSet={noop} onAddSet={noop} onRemoveSet={noop} onRemove={noop} />
+      ))}
+    </>,
+    html => {
+      const lines = html.match(/class="presc-priormemo"/g) || []
+      if (lines.length !== 1) throw new Error(`last note shown ${lines.length} times (want once: not on the card that cleared it)`)
+      if (!/Last note · [^<]*<!-- -->: <!-- -->seat at 4|Last note · .*seat at 4/.test(html)) throw new Error('the last note does not say what it was')
+      if (!/<button[^>]*aria-label="Clear the last note on Squat"/.test(html)) throw new Error('no way to clear a last note that no longer applies')
+    }],
+  ['clearLastNote(Clear writes the cleared note, says so, and Undo takes it off again)', null, () => {
+    const writes = []
+    let said = null
+    clearLastNote('Squat', (p) => writes.push(p), { push: (msg, kind, opts) => { said = { msg, opts }; return 1 } })
+    if (JSON.stringify(writes) !== JSON.stringify([{ memo: '' }])) throw new Error(`Clear wrote ${JSON.stringify(writes)}`)
+    if (said?.msg !== 'Cleared the last note on Squat' || said.opts?.action?.label !== 'Undo' || said.opts.duration !== UNDO_MS) throw new Error('no Undo toast')
+    said.opts.action.onClick()
+    if (!('memo' in writes[1]) || writes[1].memo !== undefined) throw new Error('Undo did not take the cleared note off')
+    // A note written since the Clear stays: Undo does nothing to it.
+    const later = []
+    let undo = null
+    clearLastNote('Squat', (p) => later.push(p), { push: (m, k, o) => { undo = o.action.onClick } }, () => ({ memo: 'new note' }))
+    undo()
+    if (later.length !== 1) throw new Error('Undo wiped a note written after the Clear')
+  }],
+  ['ExerciseCard(no note yet: Note in the foot; a blank last set and a hold offer no drop)',
+    <>
+      <ExerciseCard item={{ id: 'c', kind: 'lift', name: 'Squat', exercise: SQUAT.key, line: '', sets: [{ id: '0', reps: '', weight: '' }] }}
+        liftField={LIFT_FIELD} defaultOpen blank=""
+        onPatch={noop} onPatchSet={noop} onAddSet={noop} onRemoveSet={noop} onRemove={noop} />
+      <ExerciseCard item={{ id: 'h', kind: 'lift', name: 'Plank', exercise: 'plank', measure: 'time', line: '', sets: [{ id: '0', seconds: 45, weight: '' }] }}
+        liftField={HELD_FIELD} defaultOpen blank=""
+        onPatch={noop} onPatchSet={noop} onAddSet={noop} onRemoveSet={noop} onRemove={noop} />
+    </>,
+    html => {
+      if (/presc-dropline|Drop set/.test(html)) throw new Error('a drop set offered on an empty set or a hold')
+      const foot = (html.match(/<div class="presc-itemfoot">([\s\S]*?)<\/div>/) || [])[1] || ''
+      if (!/aria-label="Add a note on Squat"[^>]*>[\s\S]*Note/.test(foot)) throw new Error('no Note in the foot')
+      if (/<textarea/.test(html)) throw new Error('a note box with no note and no ask')
     }],
   ['ExerciseCard(a piece with no catalog identity: one button that folds, no ⓘ)',
     <ExerciseCard item={{ ...PRESCRIPTION.blocks[0].items[0], line: '10 min' }} liftField={HELD_FIELD}

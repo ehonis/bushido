@@ -42,6 +42,7 @@ import {
   searchExercises, implementsFor, lastLift, catalogOf, exerciseOf, muscleName, measureFor,
   weightModesFor, weightPatch, nextWeightMode, rememberedWeightMode, weightModeWords,
   implementChoices, implementLabel, weightModeOf, weightMeaning, weightUnit, lastTimeFill, lastTimeWhen,
+  canDrop, setNumbers, isDropSet, memoText, MEMO_MAX, lastMemo,
   pickerGroupFor, copyDownFills, canCopyDown, unfills, cardIdentity, cardKey,
 } from '../lib/lifts.js'
 import { ExerciseBody, BodyMap, musclesOf, muscleWords } from '../lib/bodymap'
@@ -601,16 +602,22 @@ function pickImplement(liftField: any, item: any, entries: any[], entryId: strin
  * `edited` (#111): a number typed or stepped, logged but not ticked, is an accent
  * ring round the number, and a tap on it ticks it; only a ticked set comes off.
  */
-export function SetTick({ n, on, onToggle, locked = false, empty = false, edited = false, onPrompt }: {
-  n: number; on: boolean; onToggle: (v: boolean) => void; locked?: boolean; empty?: boolean; edited?: boolean; onPrompt?: () => void
+export function SetTick({ n, on, onToggle, locked = false, empty = false, edited = false, onPrompt, drop = false }: {
+  n: number | null; on: boolean; onToggle: (v: boolean) => void; locked?: boolean; empty?: boolean; edited?: boolean; onPrompt?: () => void
+  drop?: boolean
 }) {
+  // A drop set has no number of its own (lib/lifts.js `setNumbers`): ↳ in its place.
+  const what = drop ? 'Drop set' : `Set ${n}`
+  const face = (faint: boolean) => (drop
+    ? <Icon name="CornerDownRight" size={16} color={faint ? colors.inkFaint : colors.ink} />
+    : <T size={font.label} dim={!faint} faint={faint} tabular>{String(n)}</T>)
   /* A done plan's earlier day (`asWritten`): its sets ARE the log as written, so
      the mark is read, not toggled; a number changed or a set removed corrects it. */
   if (locked) {
     return (
-      <View accessible accessibilityRole="image" accessibilityLabel={on ? `Set ${n} done` : `Set ${n}, nothing logged`}
+      <View accessible accessibilityRole="image" accessibilityLabel={on ? `${what} done` : `${what}, nothing logged`}
         style={[st.tick, on ? st.tickOn : { borderStyle: 'dashed' }]}>
-        {on ? <Icon name="Check" size={20} color={colors.ink} /> : <T size={font.label} dim tabular>{String(n)}</T>}
+        {on ? <Icon name="Check" size={20} color={colors.ink} /> : face(false)}
       </View>
     )
   }
@@ -619,21 +626,74 @@ export function SetTick({ n, on, onToggle, locked = false, empty = false, edited
   if (empty && !on) {
     return (
       <Press onPress={() => { tap(); onPrompt?.() }} accessibilityRole="checkbox"
-        accessibilityState={{ checked: false, disabled: true }} accessibilityLabel={`Set ${n}: type what you did first`}
+        accessibilityState={{ checked: false, disabled: true }} accessibilityLabel={`${what}: type what you did first`}
         style={[st.tick, { borderStyle: 'dashed' }]}>
-        <T size={font.label} faint tabular>{String(n)}</T>
+        {face(true)}
       </Press>
     )
   }
   return (
     <Press onPress={() => { if (!on) success(); else tap(); onToggle(!on) }}
       accessibilityRole="checkbox" accessibilityState={{ checked: on ? true : edited ? 'mixed' : false }}
-      accessibilityLabel={!on && edited ? `Set ${n}: logged as typed. Tick it` : `Set ${n} done`}
+      accessibilityLabel={!on && edited ? `${what}: logged as typed. Tick it` : `${what} done`}
       style={[st.tick, on ? st.tickOn : edited && st.tickEdited]}>
-      {on ? <Icon name="Check" size={20} color={colors.ink} />
-        : <T size={font.label} dim tabular>{String(n)}</T>}
+      {on ? <Icon name="Check" size={20} color={colors.ink} /> : face(false)}
     </Press>
   )
+}
+
+/**
+ * An exercise's own note (`memo`, lib/lifts.js; the web's `ExerciseNote`): "seat
+ * at 4", "left shoulder pinched on the last rep". A box under the card's head
+ * while there is one or the foot's Note asked for it; cleared, the box goes. Its
+ * text is held while typed and stored when the box is left or the card goes, as
+ * a block's note is (editor.tsx `BlockNote`): stored per keystroke, the trim ate
+ * the space being typed.
+ */
+export function ExerciseNote({ memo, asked = false, name, onCommit, onDone }: {
+  memo: string; asked?: boolean; name: string; onCommit: (v: string) => void; onDone?: () => void
+}) {
+  const [text, setText] = useState(memo || '')
+  const pending = useRef<string | null>(null)
+  const commit = useRef(onCommit)
+  commit.current = onCommit
+  useEffect(() => { if (pending.current === null) setText(memo || '') }, [memo])
+  useEffect(() => () => { if (pending.current !== null) commit.current(pending.current) }, [])
+  const leave = () => {
+    if (pending.current !== null) {
+      const v = pending.current
+      pending.current = null
+      commit.current(v)
+    }
+    onDone?.()
+  }
+  return (
+    <View style={{ flexDirection: 'row', gap: space[2], alignItems: 'flex-start', marginTop: space[1], marginBottom: space[2] }}>
+      {/* Whose words these are: the planner's cue is plain text above; this is the person's own (#120 review). */}
+      <Icon name="NotebookPen" size={16} color={colors.inkDim} style={{ marginTop: space[3] }} />
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Input multiline value={text} onChangeText={(v: string) => { pending.current = v; setText(v) }}
+          autoFocus={asked} onBlur={leave} maxLength={MEMO_MAX}
+          accessibilityLabel={`Note on ${name}`} placeholder="Anything worth remembering"
+          style={{ minHeight: 64 }} />
+      </View>
+    </View>
+  )
+}
+
+/**
+ * "Last note"'s Clear (#120 review; the web's `clearLastNote`): `''` on this card,
+ * the newest word on the note (lib/lifts.js `lastMemo`), with Undo, which takes
+ * the key off again so the last note shows as before.
+ */
+export function clearLastNote(name: string, patch: (p: any) => void, toast: { push: typeof pushToast } = { push: pushToast },
+  latest: () => any = () => ({ memo: '' })) {
+  patch({ memo: '' })
+  return toast.push(`Cleared the last note on ${name}`, 'info', {
+    duration: UNDO_MS,
+    // Only while it is still cleared: a note written since is the person's and stays.
+    action: { label: 'Undo', icon: null, onClick: () => { if (latest()?.memo === '') patch({ memo: undefined }) } },
+  })
 }
 
 /**
@@ -659,6 +719,8 @@ export function ExerciseCard({
   const [about, setAbout] = useState(false)
   // Removing is its own mode (#77): never a ✕ beside a stepper.
   const [editing, setEditing] = useState(defaultEditing)
+  // The foot's Note asked for a box on a card with no note yet.
+  const [noting, setNoting] = useState(false)
   // The next exercise to do opens as the last one is ticked off.
   useEffect(() => { if (focus) setOpen(true) }, [focus])
   /*
@@ -672,7 +734,7 @@ export function ExerciseCard({
   useEffect(() => {
     if (seen.current === ident) return
     seen.current = ident
-    setEditing(false); setOpen(defaultOpen)
+    setEditing(false); setNoting(false); setOpen(defaultOpen)
   }, [ident])
   // The card's writes as of the latest render, for an Undo that lands seconds later.
   const patchNow = useRef(onPatch)
@@ -732,6 +794,18 @@ export function ExerciseCard({
   }
 
   const lastTime = prior ? <LastTime prior={prior} onUse={fill.length ? () => { impact(); onFill(fill) } : null} /> : null
+  /* Sets are numbered as working sets; a drop set has no number (lib/lifts.js
+     `setNumbers`). A drop is offered under the last set once it holds a number:
+     it is done straight after that set, so that is where it is asked for. */
+  const nums: (number | null)[] = setNumbers(item.sets)
+  const dropping = Boolean(onAddSet) && canDrop(item) && !asWritten
+  const lastSet = item.sets.at(-1)
+  const offerDrop = dropping && Boolean(lastSet) && setHasNumber(lastSet)
+  const memo: string = item.memo || ''
+  // The last note left on this exercise (any session before, `lastMemo`), while this one has none of its own.
+  const lastNote: any = useMemo(() => (item.exercise ? lastMemo(entries, item.exercise, entryId) : null), [entries, item.exercise, entryId])
+  // A note this card has said anything about ('' is one cleared) is the word on it: no last note under it.
+  const priorMemo: any = typeof item.memo !== 'string' && !noting && lastNote ? lastNote : null
   /* What the weight means and how a hold is counted: once, on the card, beside
      what it is done with. Never in a set's cell (#93). */
   const switches = (
@@ -783,6 +857,19 @@ export function ExerciseCard({
       {open && (
         <>
           {item.note ? <T size={font.label} faint style={{ marginTop: space[1], marginBottom: space[2] }}>{item.note}</T> : null}
+          {memo || noting ? (
+            <ExerciseNote memo={memo} asked={noting} name={item.name}
+              onCommit={(v) => { if (memoText(v) !== memo) patchNow.current({ memo: memoText(v) }) }}
+              onDone={() => setNoting(false)} />
+          ) : null}
+          {priorMemo ? (
+            <View style={[st.prior, { alignItems: 'center' }]}>
+              <Icon name="NotebookPen" size={12} color={colors.inkFaint} />
+              <T size={font.label} faint style={{ flex: 1 }}>{`Last note · ${lastTimeWhen(priorMemo)}: ${priorMemo.memo}`}</T>
+              {/* A note that no longer applies goes from here on: '' on this card is the newest word on it. */}
+              <Btn kind="quiet" title="Clear" style={st.footBtn} onPress={() => { tap(); clearLastNote(item.name, (p: any) => patchNow.current(p), undefined, () => itemNow.current) }} />
+            </View>
+          ) : null}
 
           {doing ? (
             /* One line under the head: what it is done with (the switch), what
@@ -825,9 +912,11 @@ export function ExerciseCard({
             <View style={st.sets}>
               {item.sets.map((s: any, i: number) => (
                 <View key={s.id} style={st.editRow}>
-                  <T size={font.label} dim tabular align="center" style={{ width: 20 }}>{String(i + 1)}</T>
-                  <T size={font.body} tabular numberOfLines={1} style={{ flex: 1 }}>{setWords(item, s)}</T>
-                  <RemoveBtn label="Remove" a11y={`Remove set ${i + 1}`} onPress={() => onRemoveSet(s.id)} />
+                  {isDropSet(s)
+                    ? <View style={{ width: 20, alignItems: 'center' }}><Icon name="CornerDownRight" size={14} color={colors.ink} /></View>
+                    : <T size={font.label} dim tabular align="center" style={{ width: 20 }}>{String(nums[i])}</T>}
+                  <T size={font.body} tabular numberOfLines={1} style={{ flex: 1 }}>{isDropSet(s) ? `Drop · ${setWords(item, s)}` : setWords(item, s)}</T>
+                  <RemoveBtn label="Remove" a11y={isDropSet(s) ? 'Remove drop set' : `Remove set ${nums[i]}`} onPress={() => onRemoveSet(s.id)} />
                 </View>
               ))}
               {/* The whole exercise is a different size of removal, so it looks
@@ -843,9 +932,13 @@ export function ExerciseCard({
                 <SwipeRemove label="Remove" onRemove={() => onRemoveSet(s.id)}>
                   <View style={[st.set, ticking && { gap: SET_ROW.tickGap }]}>
                     {ticking ? (
-                      <SetTick n={i + 1} on={setTicked(s, asWritten)} locked={asWritten} onToggle={(v) => onTick(s.id, v)}
+                      <SetTick n={nums[i]} drop={isDropSet(s)} on={setTicked(s, asWritten)} locked={asWritten} onToggle={(v) => onTick(s.id, v)}
                         empty={!setHasNumber(s)} edited={setEdited(s)} onPrompt={() => setAsked({ id: s.id, n: (asked?.n || 0) + 1 })} />
-                    ) : <T size={font.label} dim tabular align="center" style={{ width: 20 }}>{String(i + 1)}</T>}
+                    ) : isDropSet(s) ? (
+                      <View accessible accessibilityLabel="Drop set" style={{ width: 20, alignItems: 'center' }}>
+                        <Icon name="CornerDownRight" size={14} color={colors.ink} />
+                      </View>
+                    ) : <T size={font.label} dim tabular align="center" style={{ width: 20 }}>{String(nums[i])}</T>}
                     <View style={[st.setFields, ticking && { gap: SET_ROW.seam }]}>
                       {setFieldsFor(item, s).map((f: string, fi: number) => {
                         const box = boxFor(f, item, s)
@@ -877,6 +970,13 @@ export function ExerciseCard({
               ))}
             </View>
           )}
+          {/* A drop set, under the set it drops from (the last, once it holds a
+              number): its own quiet line at the right edge, out of every set row.
+              Lighter weight, straight after, no rest. */}
+          {offerDrop && !editing ? (
+            <Btn kind="quiet" icon="CornerDownRight" title="Drop set" style={[st.copyDown, { marginBottom: 0 }]}
+              onPress={() => { impact(); onAddSet({ drop: true }) }} />
+          ) : null}
 
           {/* Add on the left; Edit (where removing lives) on the far right, and in
               Edit nothing destructive takes Add's place: Done editing comes back
@@ -888,6 +988,11 @@ export function ExerciseCard({
             ) : (
               <>
                 <Btn kind="quiet" icon="Plus" title="Add a set" style={st.footBtn} onPress={() => { impact(); onAddSet() }} />
+                {/* The exercise's own note, while it has none (with one, its box is under the head). */}
+                {!memo && !noting ? (
+                  <Btn kind="quiet" icon="NotebookPen" title="Note" style={st.footBtn}
+                    onPress={() => { tap(); setNoting(true) }} />
+                ) : null}
                 <Btn kind="quiet" icon="Pencil" title="Edit" style={[st.footBtn, { marginLeft: 'auto' }]}
                   onPress={() => { tap(); setEditing(true) }} />
               </>
@@ -1112,7 +1217,7 @@ export function ExerciseSection({
                 focus={Boolean(focusId) && it.id === focusId}
                 onPatch={(patch: any) => onPatch(it.id, patch)}
                 onPatchSet={(setId: any, patch: any) => onPatchSet(it.id, setId, patch)}
-                onAddSet={() => onAddSet(it.id)}
+                onAddSet={(opts?: { drop?: boolean }) => onAddSet(it.id, opts)}
                 onRemoveSet={(setId: any) => onRemoveSet(it.id, setId)}
                 onRemove={() => onRemove(it.id)}
                 onFill={onFill ? (fills: any[]) => onFill(it.id, fills) : null} growFill={growFill} />

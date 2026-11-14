@@ -113,6 +113,17 @@
 .presc-itemhead { align-items: flex-start; }
 .presc-itemhead .alt-chev { flex: 0 0 auto; padding-top: 1px; }
 .presc-itemnote { margin: var(--sp-1) 0 var(--sp-2); font-size: var(--fs-label); }
+/* The exercise's own note (`memo`): a box under the head while there is one. */
+.presc-memo { display: flex; gap: var(--sp-2); align-items: flex-start; margin: var(--sp-1) 0 var(--sp-2); }
+.presc-memo > svg { flex: 0 0 auto; margin-top: var(--sp-3); color: var(--ink-dim); }
+.presc-memo textarea { flex: 1; min-width: 0; }
+/* Last time's note, while this one has none: read, like last time's numbers. */
+.presc-priormemo {
+  display: flex; gap: var(--sp-2); align-items: center;
+  margin: var(--sp-1) 0 var(--sp-2); font-size: var(--fs-label); color: var(--ink-faint);
+}
+.presc-priormemo > span { flex: 1; min-width: 0; }
+.btn.quiet.presc-priorclear { flex: 0 0 auto; min-height: var(--tap); padding: 0 var(--sp-3); margin-right: calc(-1 * var(--sp-3)); font-size: var(--fs-label); }
 
 .presc-impl {
   display: flex; flex-wrap: nowrap; gap: var(--sp-2); margin: var(--sp-2) 0;
@@ -360,6 +371,16 @@
   justify-self: end; min-height: var(--tap); padding: 0 var(--sp-3); margin: var(--sp-2) 0;
   font-size: var(--fs-label); color: var(--ink-dim);
 }
+/* A drop set (exercises.jsx, lib/lifts.js `isDropSet`): its own quiet line under
+   the last set, at the right edge as Copy down is, outside the set rows. The drop's row is not indented, since the
+   doing row's 328px has no 16 to spare: ↳ in the number's place says it. */
+.presc-dropline { display: flex; justify-content: flex-end; }
+.btn.quiet.presc-adddrop {
+  min-height: var(--tap); padding: 0 var(--sp-3); margin: var(--sp-2) 0 0;
+  font-size: var(--fs-label); color: var(--ink-dim);
+}
+.presc-set.drop .presc-setn, .presc-set.drop .presc-tickn, .presc-editrow.drop .presc-setn { color: var(--ink); }
+.presc-setn svg, .presc-tickn svg { display: block; margin: 0 auto; }
 .presc-sets.doing .presc-setfields > .stepper { flex-basis: calc(3 * var(--tap) - 2px); }
 .presc-sets.doing .presc-setfields > .stepper .stepper-mid { min-width: calc(var(--tap) - 4px); }
 .presc-sets.doing .presc-setfields > .stepper:first-child:not(:last-child) { flex-grow: 0; }

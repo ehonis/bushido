@@ -27,7 +27,9 @@ import {
   weightModeWords, liftFieldIn, weightBoxOf, liftMeasure, measureFor, muscleName, blankSet, canSwitchMeasure,
   liftsDone, planLifts, liftedLine, implementChoices,
   lastTimeFill, fillLift, lastTimeWhen, withFills, copyDownFills, canCopyDown, unfills, cardKey, cardIdentity, rememberedImplement, defaultImplement, weightUnit, weightMeaning, pickerGroupFor,
+  isDropSet, setNumbers, workingSets, canDrop, memoText, MEMO_MAX, lastMemo,
 } from './src/lib/lifts.js'
+import { removalWords } from './src/lib/removal.js'
 import { isRepeatable, extraEntryId } from './src/lib/store.js'
 import { gateResolver, catalogOf as activityCatalog } from './src/lib/activities.js'
 import { levelFor } from './src/lib/level.js'
@@ -1156,6 +1158,104 @@ check('#111 C F2: "Use" on an untouched card rebuilds last time\'s sets, and onl
   eq(lastTimeFill(liftField, card([{ id: 's0', reps: null, weight: null, typed: true }]), prior, { grow: true }).some(f => f.add), false)
   // As many sets as last time already: nothing to add.
   eq(lastTimeFill(liftField, card([{ id: 'a' }, { id: 'b' }, { id: 'c' }].map(x => ({ ...x, reps: null, weight: null }))), prior, { grow: true }).some(f => f.add), false)
+})
+
+/* ------------------------------------------------------------ drop sets and an exercise's own note */
+
+check('a drop set is a set marked drop: numbered as nothing, the working sets 1, 2', () => {
+  const sets = [{ reps: 10, weight: 90 }, { reps: 10, weight: 90 }, { reps: 8, weight: 70, drop: true }, { reps: 6, weight: 50, drop: true }]
+  eq(setNumbers(sets), [1, 2, null, null])
+  eq(workingSets(sets), 2)
+  eq(sets.map(isDropSet), [false, false, true, true])
+  eq(removalWords({ name: 'Curl', sets }, 2, { lastTakesItem: false }), 'Removed a drop set of Curl')
+  eq(removalWords({ name: 'Curl', sets: [sets[0], sets[2], sets[1]] }, 2, { lastTakesItem: false }), 'Removed set 2 of Curl')
+  eq(removalWords({ name: 'Curl', sets: sets.slice(0, 2) }, 1, { lastTakesItem: false }), 'Removed set 2 of Curl', 'a list with no drops reads as before')
+})
+
+check('adding a drop set: blank, marked; adding a set after one copies the last WORKING set', () => {
+  const list = [{ uid: 'c1', key: 'curl', sets: [{ reps: '10', weight: '30' }] }]
+  const dropped = addLiftSet(list, 'c1', { drop: true })
+  eq(dropped[0].sets, [{ reps: '10', weight: '30' }, { reps: '', weight: '', drop: true }])
+  eq(addLiftSet(dropped, 'c1')[0].sets.at(-1), { reps: '10', weight: '30' }, 'a new working set copied the drop')
+  eq(addLiftSet(list, 'c1')[0].sets, [{ reps: '10', weight: '30' }, { reps: '10', weight: '30' }], 'a plain add is as it was')
+})
+
+check('volume and sets count a drop set as what it was; the summary says it after the working sets', () => {
+  const row = { uid: 'c1', key: 'curl', sets: [{ reps: 10, weight: 30 }, { reps: 10, weight: 30 }, { reps: 8, weight: 20, drop: true }] }
+  eq(liftVolume({ lifts: [row] }), 760)
+  eq(liftSets({ lifts: [row] }), 3)
+  eq(liftSummary(row), '2 × 10 @ 30 lb, drop 8 @ 20 lb')
+  eq(liftSummary({ ...row, sets: [...row.sets, { reps: 6, weight: 10, drop: true }] }), '2 × 10 @ 30 lb, drops 8 @ 20 lb, 6 @ 10 lb')
+  eq(liftSummary({ ...row, sets: row.sets.slice(0, 2) }), '2 × 10 @ 30 lb', 'no drops reads as before')
+})
+
+check('copy down and last time go like with like: working sets to working sets, drops to drops', () => {
+  const sets = [{ id: 'a', reps: 10, weight: 90 }, { id: 'b', reps: null, weight: null }, { id: 'c', reps: null, weight: null, drop: true }]
+  eq(copyDownFills(sets, 'a').map(f => f.setId), ['b'], 'a working set copied into a drop')
+  eq(canCopyDown([sets[0], sets[2]], 0), false, 'Copy down offered over a drop')
+  const prior = { row: { implement: 'barbell', sets: [{ reps: 10, weight: 95 }, { reps: 8, weight: 95 }, { reps: 7, weight: 65, drop: true }] } }
+  const card = { kind: 'lift', implement: 'barbell', sets: [{ id: 's0', reps: null, weight: null }, { id: 's1', reps: null, weight: null, drop: true }] }
+  eq(lastTimeFill(liftField, card, prior).map(f => [f.setId, f.patch.reps, f.patch.weight]), [['s0', 10, 95], ['s1', 7, 65]])
+  // No drop last time: a drop is left blank, never handed a working set's numbers.
+  const plain = { row: { implement: 'barbell', sets: [{ reps: 10, weight: 95 }] } }
+  eq(lastTimeFill(liftField, card, plain).map(f => f.setId), ['s0'])
+  // Grown from an untouched card, a drop stays a drop and an added set takes no mark of the last.
+  const grown = lastTimeFill(liftField, { kind: 'lift', implement: 'barbell', sets: [{ id: 's0', reps: null, weight: null }] }, prior, { grow: true })
+  eq(withFills([{ id: 's0', reps: null, weight: null, drop: true }], grown.filter(f => f.add)).map(x => x.drop === true), [true, false, true])
+})
+
+check('a done plan reads its drop sets as the log does (liftsDone); its note is read by lastMemo', () => {
+  const entry = { id: 'p1', kind: 'daily', date: '2026-11-01', data: { done: true, plan: { blocks: [{ id: 'b0', items: [
+    { id: 'b0i0', uid: 'U', kind: 'lift', name: 'Curl', exercise: 'curl', memo: 'slow down', implement: '', sets: [
+      { id: 's0', reps: 10, weight: 30 }, { id: 's1', reps: 8, weight: 20, drop: true }] },
+  ] }] } } }
+  const [row] = liftsDone(entry, '2026-11-08')
+  eq(row.sets, [{ reps: 10, weight: 30 }, { reps: 8, weight: 20, drop: true }])
+  eq(lastMemo([entry], 'curl', null, '2026-11-08')?.memo, 'slow down', 'a plan\'s note is not read')
+})
+
+check('the last note stays on screen until it is changed, not only the session after it was written', () => {
+  const day = (date, memo) => ({ id: `d-${date}`, kind: 'daily', date, data: { done: true, out: { lifts: [
+    { uid: 'u', key: 'leg-press', name: 'Leg press', ...(memo === undefined ? {} : { memo }), sets: [{ reps: 10, weight: 200 }] }] } } })
+  const log = [day('2026-11-03', 'seat at 4'), day('2026-11-05'), day('2026-11-07')]
+  eq(lastMemo(log, 'leg-press', null, '2026-11-08'), { date: '2026-11-03', memo: 'seat at 4' }, 'two sessions on, the note was gone')
+  eq(lastMemo([...log, day('2026-11-08', 'seat at 5')], 'leg-press', 'd-2026-11-08', '2026-11-08')?.memo, 'seat at 4', 'the entry being edited read as its own last note')
+  eq(lastMemo([...log, day('2026-11-06', 'seat at 5')], 'leg-press', null, '2026-11-08')?.memo, 'seat at 5', 'not the newest note')
+  eq(lastMemo(log, 'squat', null, '2026-11-08'), null)
+  // Cleared in a later session (the box emptied stores ''): it stays gone.
+  eq(lastMemo([...log, day('2026-11-06', '')], 'leg-press', null, '2026-11-08'), null, 'a cleared note came back')
+  // On a PLANNED workout, done or not, typed or not: the plan item's '' stays gone too (#120 council R3).
+  const planned = (date, memo, done) => ({ id: `p-${date}`, kind: 'daily', date, data: { done, plan: { blocks: [{ id: 'b0', items: [
+    { id: 'b0i0', kind: 'lift', name: 'Leg press', exercise: 'leg-press', memo, sets: [{ id: 's0', reps: null, weight: null }] }] }] } } })
+  eq(lastMemo([...log, planned('2026-11-06', '', false)], 'leg-press', null, '2026-11-08'), null, 'Clear on an untouched plan did not stick')
+  eq(lastMemo([...log, planned('2026-11-06', 'seat at 5', false)], 'leg-press', null, '2026-11-08')?.memo, 'seat at 5')
+  eq(lastMemo([...log, planned('2026-11-09', 'later', false)], 'leg-press', null, '2026-11-08')?.memo, 'seat at 4', 'a plan for a later day was read')
+  // A run's logged row with no note, on a plan whose item has one: the item's.
+  const ran = { ...planned('2026-11-06', 'from the plan', true), data: { ...planned('2026-11-06', 'from the plan', true).data, out: { lifts: [{ uid: 'b0i0', key: 'leg-press', sets: [{ reps: 10, weight: 200 }] }] } } }
+  eq(lastMemo([...log, ran], 'leg-press', null, '2026-11-08')?.memo, 'from the plan')
+})
+
+check('"Use last time" grows a drop blank where the weight means something else, never with a working set\'s weight', () => {
+  const list = [{ uid: 'u', key: 'curl', implement: 'dumbbell', sets: [{ reps: '', weight: '' }] }]
+  const fills = [{ setId: '0', patch: { reps: 10 } }, { setId: null, add: true, patch: { reps: 8, drop: true } }]
+  eq(fillLift(list, 'u', fills)[0].sets, [{ reps: 10, weight: '' }, { reps: 8, weight: '', drop: true }])
+})
+
+check('a drop set is offered on a lift counted in reps, never on a hold, a piece or in a circuit', () => {
+  eq(canDrop({ kind: 'lift', sets: [{ reps: 10, weight: 30 }] }), true)
+  eq(canDrop({ kind: 'lift', sets: [{ reps: '', weight: '' }] }), true)
+  eq(canDrop({ kind: 'lift', sets: [{ seconds: 45, weight: null, reps: null }] }), false)
+  eq(canDrop({ kind: 'lift', measure: 'time', sets: [{ seconds: '', weight: '' }] }), false)
+  eq(canDrop({ kind: 'interval', sets: [{ reps: 4 }] }), false)
+  eq(canDrop({ kind: 'lift', sets: [{ reps: 10 }] }, { circuit: true }), false)
+})
+
+check('an exercise\'s own note is trimmed and bounded, and patched like anything else on the row', () => {
+  eq(memoText('  seat at 4  '), 'seat at 4')
+  eq(memoText('x'.repeat(MEMO_MAX + 20)).length, MEMO_MAX)
+  eq(memoText(null), '')
+  const list = [{ uid: 'c1', key: 'curl', sets: [{ reps: '10', weight: '30' }] }]
+  eq(patchLift(liftField, list, 'c1', { memo: 'seat at 4' })[0], { uid: 'c1', key: 'curl', sets: [{ reps: '10', weight: '30' }], memo: 'seat at 4' })
 })
 
 console.log(failed ? `\n${failed} lift/output test(s) failed` : '\nall lift and output tests pass')

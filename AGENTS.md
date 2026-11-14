@@ -838,6 +838,24 @@ no rebuild. An older plan file may also carry `recommender`, `checkin`, `journal
   not hidden. Interval pieces keep their rest.
 - **Adding a set copies what was done** (`addSetLike` in the runner, appended, so no ids
   renumber).
+- **A drop set is a set marked `drop: true`** (`isDropSet` in `lib/lifts.js`), on a logged
+  row and a plan item alike, in the order done; only a drop carries the key. Every reader
+  that adds sets up reads it as the reps and weight it was; what changes is its name: it
+  has no number (`setNumbers`, ↳ on the card, "Drop set" in the runner via `setName`).
+  Offered on a lift counted in reps only (`canDrop`: no holds, pieces or circuits), on its
+  own line under the last set once it holds a number. A drop starts blank (lighter by
+  definition, so copying would be a guess), "Add a set" copies the last WORKING set, and
+  Copy down and "last time" go like with like. Shared sync carries sets as a count, so the
+  mark is not structure; a set that crosses where the other side's is a drop arrives as a
+  blank drop (`dropOf` in `server/sharedsync.js`, `blankLike` in `lib/shared.js`).
+- **An exercise's own note is `memo`**, on a logged row and a plan item; the plan item's
+  `note` stays the planner's read-only cue. A box under the card's head while there is one
+  (else Note in the foot), stored when the box is left; "last time's note" shows while this
+  one has none. It is the writer's, like a weight: copies strip it (`noMemo`), the
+  server's sync never carries it, and a plan for several people drops it (`noLoads`,
+  `withoutLoads`). The planner may write drop sets and memos (reply schema, HOW TO WRITE
+  IT); a revision may write, change or clear ('') a memo, and one it left out on an
+  exercise it kept stays (`keepMemos`, in `lib/prescription.js` and `server/drafts.js`).
 
 ### 6.5 Workout mode and the runner
 

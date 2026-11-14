@@ -15,6 +15,17 @@
  * the phone say the same words.
  */
 
+/**
+ * A set as the card numbers it: "set 2", counting working sets only, or "a drop
+ * set" (lib/lifts.js `setNumbers`, repeated here so this file imports nothing).
+ */
+function setSaid(sets, i) {
+  const list = Array.isArray(sets) ? sets : []
+  if (list[i]?.drop === true) return 'a drop set'
+  if (!list.some(s => s?.drop === true)) return `set ${i + 1}`
+  return `set ${list.slice(0, i + 1).filter(s => s?.drop !== true).length}`
+}
+
 /** "Sam", "Sam and Alex", "Sam, Alex and Jo". */
 export const bothWords = (names) =>
   names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
@@ -44,6 +55,6 @@ export function syncLine(names) {
 export function removalWords(item, setIndex = null, { lastTakesItem = true, syncedWith = null } = {}) {
   const name = item?.name || 'the exercise'
   const whole = setIndex === null || setIndex < 0 || (lastTakesItem && (item?.sets?.length || 0) <= 1)
-  const said = `Removed ${whole ? name : `set ${setIndex + 1} of ${name}`}`
+  const said = `Removed ${whole ? name : `${setSaid(item?.sets, setIndex)} of ${name}`}`
   return syncedWith?.length ? `${said}. ${syncLine(syncedWith)}` : said
 }

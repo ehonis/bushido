@@ -229,6 +229,22 @@ function createDrafts({ max = MAX_DRAFTS, maxAgeMs = MAX_AGE_MS, now = () => Dat
   }
 
   /*
+   * An exercise's own note (`memo`) through a revision: the model may write,
+   * change or clear ('') any, but one it kept (same `uid`) and sent back with
+   * no memo keeps the one it had. The same rule as `keepMemos` in
+   * app/src/lib/prescription.js.
+   */
+  function keepMemos(before, after) {
+    const items = (blocks) => (Array.isArray(blocks) ? blocks : []).flatMap(b => (Array.isArray(b?.items) ? b.items : []))
+    const had = new Map(items(before).filter(it => it?.uid && typeof it.memo === 'string' && it.memo).map(it => [it.uid, it.memo]))
+    if (!had.size) return after
+    return after.map(b => (Array.isArray(b?.items) ? {
+      ...b,
+      items: b.items.map(it => (it?.uid && had.has(it.uid) && !('memo' in it) ? { ...it, memo: had.get(it.uid) } : it)),
+    } : b))
+  }
+
+  /*
    * The model's answer, laid onto the draft the way the planner screen always
    * laid it: on a first draft the first kind picked fills what the model left
    * blank; on a revision the user's own category choice stands, and `changed`
@@ -244,7 +260,7 @@ function createDrafts({ max = MAX_DRAFTS, maxAgeMs = MAX_AGE_MS, now = () => Dat
         ...d, status: 'ready', error: null, updatedAt: stamp(),
         pres: {
           ...cur, ...built,
-          blocks: withWeightModes(cur.blocks, built.blocks, remembered, lifting),
+          blocks: keepMemos(cur.blocks, withWeightModes(cur.blocks, built.blocks, remembered, lifting)),
           category: cur.category || built.category || null,
           activity: cur.activity || built.activity || null,
           ask: cur.ask || null,

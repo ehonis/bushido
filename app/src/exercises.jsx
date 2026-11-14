@@ -15,9 +15,12 @@
  *
  * WHAT THE TWO SIDES HAND OVER is a normalised item:
  *
- *   { id, name, group, exercise, note, kind, line,
+ *   { id, name, group, exercise, note, memo, kind, line,
  *     implement, implementLabel, weightLabel,
- *     sets: [{ id, reps, weight, seconds, distance, unit, restSec }] }
+ *     sets: [{ id, reps, weight, seconds, distance, unit, restSec, drop }] }
+ *
+ * `note` is the planner's cue, read; `memo` is the person's own note on the
+ * exercise, written here; `drop` marks a drop set (lib/lifts.js `isDropSet`).
  *
  * A PRESCRIPTION item already is one. A LOGGED lift is adapted in `liftlog.jsx`,
  * where the only interesting difference lives: its sets are POSITIONAL (the shape
@@ -39,6 +42,7 @@ import {
   searchExercises, implementsFor, lastLift, catalogOf, exerciseOf, muscleName, measureFor,
   weightModesFor, weightPatch, nextWeightMode, rememberedWeightMode, weightModeWords,
   implementChoices, implementLabel, weightModeOf, weightMeaning, weightUnit, lastTimeFill, lastTimeWhen,
+  canDrop, setNumbers, isDropSet, memoText, MEMO_MAX, lastMemo,
   pickerGroupFor, copyDownFills, canCopyDown, unfills, cardIdentity, cardKey,
 } from './lib/lifts.js'
 import { setTicked, setEdited, itemTicked, itemProgress, setHasNumber, doingMove } from './lib/prescription.js'
@@ -502,14 +506,17 @@ const choosesImplement = (liftField, item) =>
  * stepped: logged, so an accent ring round the number) and ticked (✓). A tap on
  * an edited set ticks it; only a ticked one comes off.
  */
-export function SetTick({ n, on, onToggle, locked = false, empty = false, edited = false, onPrompt = null }) {
+export function SetTick({ n, on, onToggle, locked = false, empty = false, edited = false, onPrompt = null, drop = false }) {
+  // A drop set has no number of its own (lib/lifts.js `setNumbers`): ↳ in its place.
+  const what = drop ? 'Drop set' : `Set ${n}`
+  const face = drop ? <Icon name="CornerDownRight" size={16} /> : n
   /* A done plan's earlier day (`asWritten`): its sets ARE the log as written,
      so the mark is read, not toggled; a number changed or a set removed is the
      correction, as anywhere in the log. */
   if (locked) {
     return (
-      <span className={`presc-tick locked${on ? ' on' : ''}`} role="img" aria-label={on ? `Set ${n} done` : `Set ${n}, nothing logged`}>
-        {on ? <Icon name="Check" size={20} /> : <span className="presc-tickn">{n}</span>}
+      <span className={`presc-tick locked${on ? ' on' : ''}`} role="img" aria-label={on ? `${what} done` : `${what}, nothing logged`}>
+        {on ? <Icon name="Check" size={20} /> : <span className="presc-tickn">{face}</span>}
       </span>
     )
   }
@@ -518,19 +525,67 @@ export function SetTick({ n, on, onToggle, locked = false, empty = false, edited
   if (empty && !on) {
     return (
       <button type="button" className="presc-tick unset" role="checkbox" aria-checked={false} aria-disabled="true"
-        aria-label={`Set ${n}: type what you did first`} onClick={onPrompt || undefined}>
-        <span className="presc-tickn">{n}</span>
+        aria-label={`${what}: type what you did first`} onClick={onPrompt || undefined}>
+        <span className="presc-tickn">{face}</span>
       </button>
     )
   }
   const look = on ? 'on' : edited ? 'edited' : ''
   return (
     <button type="button" className={`presc-tick ${look}`} role="checkbox" aria-checked={on ? true : edited ? 'mixed' : false}
-      aria-label={on ? `Set ${n} done` : edited ? `Set ${n}: logged as typed. Tick it` : `Set ${n} done`}
+      aria-label={on ? `${what} done` : edited ? `${what}: logged as typed. Tick it` : `${what} done`}
       onClick={() => onToggle(!on)}>
-      {on ? <Icon name="Check" size={20} /> : <span className="presc-tickn">{n}</span>}
+      {on ? <Icon name="Check" size={20} /> : <span className="presc-tickn">{face}</span>}
     </button>
   )
+}
+
+/**
+ * An exercise's own note (`memo`, lib/lifts.js): "seat at 4", "left shoulder
+ * pinched on the last rep". A box under the card's head while there is one or
+ * the foot's Note asked for it; cleared, the box goes. Its text is held while
+ * typed and stored when the box is left or the card goes, as a block's note is
+ * (editor.jsx `noteDraft`): stored per keystroke, the trim ate the space being typed.
+ */
+export function ExerciseNote({ memo, asked = false, name, onCommit, onDone = null }) {
+  const [text, setText] = useState(memo || '')
+  const pending = useRef(null)
+  const commit = useRef(onCommit)
+  commit.current = onCommit
+  useEffect(() => { if (pending.current === null) setText(memo || '') }, [memo])
+  // The card folding or the sheet closing under the box stores what was written.
+  useEffect(() => () => { if (pending.current !== null) commit.current(pending.current) }, [])
+  const leave = () => {
+    if (pending.current !== null) {
+      const v = pending.current
+      pending.current = null
+      commit.current(v)
+    }
+    onDone?.()
+  }
+  return (
+    <div className="presc-memo">
+      {/* Whose words these are: the planner's cue is plain text above; this is the person's own (#120 review). */}
+      <Icon name="NotebookPen" size={16} />
+      <textarea rows={2} value={text} aria-label={`Note on ${name}`} placeholder="Anything worth remembering"
+        maxLength={MEMO_MAX} autoFocus={asked} onBlur={leave}
+        onChange={e => { pending.current = e.target.value; setText(e.target.value) }} />
+    </div>
+  )
+}
+
+/**
+ * "Last note"'s Clear (#120 review): `''` on this card, the newest word on the
+ * note (lib/lifts.js `lastMemo`), so it is gone from here on, with Undo, which
+ * takes the key off again so the last note shows as before (one tap has a way back).
+ */
+export function clearLastNote(name, patch, toast = { push: pushToast }, latest = () => ({ memo: '' })) {
+  patch({ memo: '' })
+  return toast.push(`Cleared the last note on ${name}`, 'info', {
+    duration: UNDO_MS,
+    // Only while it is still cleared: a note written since is the person's and stays.
+    action: { label: 'Undo', icon: Undo2, onClick: () => { if (latest()?.memo === '') patch({ memo: undefined }) } },
+  })
 }
 
 /**
@@ -560,6 +615,8 @@ export function ExerciseCard({
   const [editing, setEditing] = useState(defaultEditing)
   // Doing mode keeps the implement behind its one switch until it is asked for.
   const [choosing, setChoosing] = useState(false)
+  // The foot's Note asked for a box on a card with no note yet.
+  const [noting, setNoting] = useState(false)
   // The next exercise to do opens as the last one is ticked off.
   useEffect(() => { if (focus) setOpen(true) }, [focus])
   /*
@@ -575,7 +632,7 @@ export function ExerciseCard({
   useEffect(() => {
     if (seen.current === ident) return
     seen.current = ident
-    setEditing(false); setChoosing(false); setOpen(defaultOpen)
+    setEditing(false); setChoosing(false); setNoting(false); setOpen(defaultOpen)
   }, [ident]) // eslint-disable-line react-hooks/exhaustive-deps -- reset when the card shows another exercise; defaultOpen moves as sets are ticked and must not refold the card being worked on
   // The card's writes as of the latest render, for an Undo that lands seconds later.
   const patchNow = useRef(onPatch)
@@ -628,6 +685,18 @@ export function ExerciseCard({
   const fill = onFill && prior && !asWritten ? lastTimeFill(liftField, item, prior, { grow: growFill }) : []
   const copyDown = onFill && !asWritten ? (s) => copyDownWrite(item, s.id, (f) => fillNow.current?.(f), undefined, () => itemNow.current) : null
   const lastTime = prior && <LastTime prior={prior} onUse={fill.length ? () => onFill(fill) : null} />
+  /* Sets are numbered as working sets; a drop set has no number (lib/lifts.js
+     `setNumbers`). A drop is offered under the last set once it holds a number:
+     it is done straight after that set, so that is where it is asked for. */
+  const nums = setNumbers(item.sets)
+  const dropping = Boolean(onAddSet) && canDrop(item) && !asWritten
+  const lastSet = item.sets.at(-1)
+  const offerDrop = dropping && Boolean(lastSet) && setHasNumber(lastSet)
+  const memo = item.memo || ''
+  // The last note left on this exercise (any session before, `lastMemo`), while this one has none of its own.
+  const lastNote = useMemo(() => (item.exercise ? lastMemo(entries, item.exercise, entryId) : null), [entries, item.exercise, entryId])
+  // A note this card has said anything about ('' is one cleared) is the word on it: no last note under it.
+  const priorMemo = typeof item.memo !== 'string' && !noting && lastNote ? lastNote : null
   /* What the weight means and how a hold is counted: once, on the card, beside
      what it is done with. Never in a set's cell (#93). */
   const switches = (
@@ -678,6 +747,19 @@ export function ExerciseCard({
       {open && (
         <>
           {item.note && <p className="sub presc-itemnote">{item.note}</p>}
+          {(memo || noting) && (
+            <ExerciseNote memo={memo} asked={noting} name={item.name}
+              onCommit={(v) => { if (memoText(v) !== memo) patchNow.current({ memo: memoText(v) }) }}
+              onDone={() => setNoting(false)} />
+          )}
+          {priorMemo && (
+            <div className="presc-priormemo">
+              <Icon name="NotebookPen" size={12} /><span>Last note · {lastTimeWhen(priorMemo)}: {priorMemo.memo}</span>
+              {/* A note that no longer applies goes from here on: '' on this card is the newest word on it. */}
+              <button type="button" className="btn quiet presc-priorclear" onClick={() => clearLastNote(item.name, (p) => patchNow.current(p), undefined, () => itemNow.current)}
+                aria-label={`Clear the last note on ${item.name}`}>Clear</button>
+            </div>
+          )}
 
           {/* Doing: one line under the head, what it is done with (the switch),
               what its weight means, and last time. */}
@@ -724,11 +806,11 @@ export function ExerciseCard({
           {editing ? (
             <div className="presc-sets presc-edit">
               {item.sets.map((s, i) => (
-                <div key={s.id} className="presc-editrow">
-                  <span className="presc-setn">{i + 1}</span>
-                  <span className="presc-editwhat">{setWords(item, s)}</span>
+                <div key={s.id} className={isDropSet(s) ? 'presc-editrow drop' : 'presc-editrow'}>
+                  <span className="presc-setn">{nums[i] ?? <Icon name="CornerDownRight" size={14} />}</span>
+                  <span className="presc-editwhat">{isDropSet(s) ? `Drop · ${setWords(item, s)}` : setWords(item, s)}</span>
                   <button type="button" className="btn quiet presc-rm" onClick={() => onRemoveSet(s.id)}
-                    aria-label={`Remove set ${i + 1}`}><Icon name="Trash2" size={16} /> Remove</button>
+                    aria-label={isDropSet(s) ? `Remove drop set` : `Remove set ${nums[i]}`}><Icon name="Trash2" size={16} /> Remove</button>
                 </div>
               ))}
               {/* The whole exercise is a different size of removal, so it looks
@@ -742,12 +824,14 @@ export function ExerciseCard({
             <div className={ticking ? 'presc-sets doing' : 'presc-sets'}>
               {item.sets.map((s, i) => (
                 <Fragment key={s.id}>
-                <div className={ticking && setTicked(s, asWritten) ? 'presc-set ticked' : 'presc-set'}>
+                <div className={['presc-set', ticking && setTicked(s, asWritten) ? 'ticked' : '', isDropSet(s) ? 'drop' : ''].filter(Boolean).join(' ')}>
                   {ticking
-                    ? <SetTick n={i + 1} on={setTicked(s, asWritten)} locked={asWritten} onToggle={(v) => onTick(s.id, v)}
+                    ? <SetTick n={nums[i]} drop={isDropSet(s)} on={setTicked(s, asWritten)} locked={asWritten} onToggle={(v) => onTick(s.id, v)}
                         empty={!setHasNumber(s)} edited={setEdited(s)}
                         onPrompt={(e) => e.currentTarget.closest('.presc-set')?.querySelector('input')?.focus()} />
-                    : <span className="presc-setn">{i + 1}</span>}
+                    : <span className="presc-setn" aria-label={isDropSet(s) ? 'Drop set' : undefined}>
+                        {nums[i] ?? <Icon name="CornerDownRight" size={14} />}
+                      </span>}
                   <span className="presc-setfields">
                     {setFieldsFor(item, s).map(f => {
                       const box = boxFor(f, item, s)
@@ -777,6 +861,17 @@ export function ExerciseCard({
               ))}
             </div>
           )}
+          {/* A drop set, under the set it drops from (the last, once it holds a
+              number): its own quiet line at the right edge, out of every set row.
+              Lighter weight, straight after, no rest. */}
+          {offerDrop && !editing && (
+            <div className="presc-dropline">
+              <button type="button" className="btn quiet presc-adddrop" onClick={() => onAddSet({ drop: true })}
+                aria-label={`Add a drop set after ${isDropSet(lastSet) ? 'this drop' : `set ${nums.at(-1)}`} of ${item.name}`}>
+                <Icon name="CornerDownRight" size={16} /> Drop set
+              </button>
+            </div>
+          )}
 
           {/* Add on the left; Edit (where removing lives) on the far right, and in
               Edit nothing destructive takes Add's place: Done editing comes back
@@ -788,7 +883,14 @@ export function ExerciseCard({
               </button>
             ) : (
               <>
-                <button type="button" className="btn quiet" onClick={onAddSet}><Icon name="Plus" size={16} /> Add a set</button>
+                <button type="button" className="btn quiet" onClick={() => onAddSet()}><Icon name="Plus" size={16} /> Add a set</button>
+                {/* The exercise's own note, while it has none (with one, its box is under the head). */}
+                {!memo && !noting && (
+                  <button type="button" className="btn quiet presc-addmemo" onClick={() => { setNoting(true); setOpen(true) }}
+                    aria-label={`Add a note on ${item.name}`}>
+                    <Icon name="NotebookPen" size={16} /> Note
+                  </button>
+                )}
                 <button type="button" className="btn quiet presc-itemedit" onClick={() => setEditing(true)}>
                   <Icon name="Pencil" size={16} /> Edit
                 </button>
@@ -1015,7 +1117,7 @@ export function ExerciseSection({
                 focus={Boolean(focusId) && it.id === focusId}
                 onPatch={(patch) => onPatch(it.id, patch)}
                 onPatchSet={(setId, patch) => onPatchSet(it.id, setId, patch)}
-                onAddSet={() => onAddSet(it.id)}
+                onAddSet={(opts) => onAddSet(it.id, opts)}
                 onRemoveSet={(setId) => onRemoveSet(it.id, setId)}
                 onRemove={() => onRemove(it.id)}
                 onFill={onFill ? (fills) => onFill(it.id, fills) : null} growFill={growFill} />

@@ -298,14 +298,26 @@ function wantSets(t, b, n) {
 
 const blankPlanSet = (unit = null) => ({ reps: null, weight: null, seconds: null, distance: null, restSec: null, unit, note: '' })
 
-/** A set added from the other side: blank on a lift, a copy of this side's own last set on an interval. */
-function newPlanSet(item, sets) {
+/*
+ * A DROP SET (app/src/lib/lifts.js `isDropSet`) is a set marked `drop: true`.
+ * The sync carries sets as a COUNT (`shapeOf`), so the mark is not structure
+ * and no stored `syncBase` changes; but a set that arrives from the other side
+ * at a place where theirs is a drop arrives as a drop, blank like every lift
+ * set that crosses, so their drop set is not a mystery extra set here.
+ */
+const dropOf = (theirs) => (theirs?.drop === true ? { drop: true } : {})
+
+/**
+ * A set added from the other side: blank on a lift (a drop where `theirs`, their
+ * set at that place, is one), a copy of this side's own last set on an interval.
+ */
+function newPlanSet(item, sets, theirs = null) {
   const last = sets.at(-1)
   if (item.kind !== 'lift' && last) {
     const { typed: _t, ticked: _k, ...shape } = last
     return { ...shape, note: '' }
   }
-  return blankPlanSet(last?.unit ?? item.unit ?? null)
+  return { ...blankPlanSet(last?.unit ?? item.unit ?? null), ...dropOf(theirs) }
 }
 
 /*
@@ -326,7 +338,7 @@ function freshItem(s) {
     implement: '', implementLabel: null, weightLabel: null, note: '',
     sets: rows.map(x => {
       const setUnit = typeof x?.unit === 'string' ? x.unit : unit
-      if (s.kind === 'lift') return blankPlanSet(setUnit)
+      if (s.kind === 'lift') return { ...blankPlanSet(setUnit), ...dropOf(x) }
       // An interval's targets are its shape (prescription.js setFieldsFor); never a weight.
       return { ...blankPlanSet(setUnit), ...pick(x, SHAPE_SET_KEYS) }
     }),
@@ -336,7 +348,7 @@ function freshItem(s) {
 /** A logged lift arriving from the other side: which exercise, blank sets (held ones stay held). */
 const freshLift = (s) => ({
   uid: s.uid, ...pick(s, LIFT_KEYS), implement: '',
-  sets: Array.from({ length: Math.max(1, setsOf(s).length) }, () => blankLiftSet(s)),
+  sets: Array.from({ length: Math.max(1, setsOf(s).length) }, (_, i) => ({ ...blankLiftSet(s), ...dropOf(setsOf(s)[i]) })),
 })
 
 const freshBlock = (s, uid) => ({
@@ -530,7 +542,7 @@ function applyPlan(target, base, next, src, logged = null) {
       const sets = [...setsOf(item)]
       const want = wantSets(sets.length, bi.sets, ni.sets)
       const mine = logged?.get(uid)
-      while (sets.length < want) sets.push(newPlanSet(item, sets))
+      while (sets.length < want) sets.push(newPlanSet(item, sets, setsOf(srcItems.get(uid))[sets.length]))
       while (sets.length > want && !mine?.has(sets.length - 1)) sets.pop()
       item.sets = sets
     }
@@ -628,7 +640,7 @@ function applyLifts(target, base, next, src, protect) {
     if (b.sets !== n.sets) {
       const sets = [...setsOf(l)]
       const want = wantSets(sets.length, b.sets, n.sets)
-      while (sets.length < want) sets.push(blankLiftSet(l))
+      while (sets.length < want) sets.push({ ...blankLiftSet(l), ...dropOf(setsOf(srcBy.get(l.uid))[sets.length]) })
       while (sets.length > want && !(protect && liftSetMarked(sets.at(-1)))) sets.pop()
       row.sets = sets
     }

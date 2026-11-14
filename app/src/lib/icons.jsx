@@ -39,6 +39,8 @@ import {
   UserPlus, UserMinus,
   // Copy a set's numbers down into the empty sets under it (#93).
   ArrowDownToLine,
+  // A drop set: the set that follows the one above it, lighter.
+  CornerDownRight,
   // Aliased: an unaliased `Infinity` import shadows the global inside this
   // module, which is a trap for whoever next edits it.
   Infinity as InfinityIcon,
@@ -65,6 +67,7 @@ const REGISTRY = {
   Ellipsis, ArrowUp, ArrowDown,
   UserPlus, UserMinus,
   ArrowDownToLine,
+  CornerDownRight,
   Infinity: InfinityIcon,
 }
 

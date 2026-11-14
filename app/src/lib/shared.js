@@ -29,7 +29,7 @@
 
 import { extraEntryId } from './store.js'
 import { localIso } from './dates.js'
-import { blankSet, liftMeasure } from './lifts.js'
+import { blankSet, liftMeasure, isDropSet } from './lifts.js'
 import { reindex, remapRun } from './prescription.js'
 
 /**
@@ -189,6 +189,12 @@ function keyed(pres) {
  */
 const noMode = ({ weightMode: _m, weightLabel: _l, ...rest }) => rest
 
+/** An exercise's own note (`memo`, lib/lifts.js) is its writer's, like a weight: it never crosses. */
+const noMemo = ({ memo: _m, ...rest }) => rest
+
+/** A blank set in their row's shape, a drop where the owner's set at that place is one. */
+const blankLike = (measure, owners) => (isDropSet(owners) ? { ...blankSet(measure), drop: true } : blankSet(measure))
+
 /** A copy of their own last set: its numbers as a start, but not typed (or ticked) until they type into it. */
 const untypedCopy = ({ typed: _t, ticked: _k, ...s }) => ({ ...s, note: '' })
 
@@ -217,7 +223,7 @@ export function crossingSet(kind, s, { logged = true } = {}) {
  * weight, what it meant, or the planner's note on it ("3x10 at 95 was RPE 6
  * last time", written from the owner's log).
  */
-const theirItem = (item, logged) => ({ ...noMode(item), note: '', sets: (item.sets || []).map(x => crossingSet(item.kind, x, { logged })) })
+const theirItem = (item, logged) => ({ ...noMemo(noMode(item)), note: '', sets: (item.sets || []).map(x => crossingSet(item.kind, x, { logged })) })
 
 /**
  * The owner's plan as the start of theirs: the exercises, never the owner's
@@ -371,7 +377,13 @@ function copyPlan(theirs, mine, logged) {
     } else if ((item.sets || []).length > (t.sets || []).length) {
       // More sets of the owner's: copies of their own last set, as adding a set does.
       const sets = [...(t.sets || [])]
-      while (sets.length < item.sets.length) sets.push(sets.length ? untypedCopy(sets.at(-1)) : crossingSet(item.kind, item.sets[sets.length], { logged }))
+      while (sets.length < item.sets.length) {
+        const owners = item.sets[sets.length]
+        if (!sets.length) { sets.push(crossingSet(item.kind, owners, { logged })); continue }
+        // A drop set where the owner's is one, else a copy of their own last set as adding a set does.
+        const { drop: _d, ...like } = untypedCopy([...sets].reverse().find(x => !isDropSet(x)) || sets.at(-1))
+        sets.push(isDropSet(owners) ? { ...like, reps: null, weight: null, drop: true } : like)
+      }
       const b = blocks.find(x => x.items.includes(t))
       b.items = b.items.map(x => (x === t ? { ...t, sets } : x))
       changed = true
@@ -389,10 +401,10 @@ function copyLifts(theirs, mine) {
     const t = out.find(r => r?.uid === m.uid)
     const want = Math.max(1, (m.sets || []).length)
     // A hold arrives as a hold: its blank sets are seconds, read off the owner's row.
-    if (!t) out = [...out, { ...noMode(m), sets: Array.from({ length: want }, () => blankSet(liftMeasure(m))) }]
+    if (!t) out = [...out, { ...noMemo(noMode(m)), sets: Array.from({ length: want }, (_, i) => blankLike(liftMeasure(m), m.sets?.[i])) }]
     else if ((t.sets || []).length < want) {
       const sets = [...(t.sets || [])]
-      while (sets.length < want) sets.push(blankSet(liftMeasure(t)))
+      while (sets.length < want) sets.push(blankLike(liftMeasure(t), m.sets?.[sets.length]))
       out = out.map(r => (r === t ? { ...t, sets } : r))
     }
   }

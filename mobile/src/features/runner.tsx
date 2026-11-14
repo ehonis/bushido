@@ -58,7 +58,7 @@ import { NumInput } from './numinput'
 import { CUES, primeAudio, resumeAudio, acquireWakeLock, releaseWakeLock } from '../lib/cues'
 import { lastLift, liftFieldOf, weightUnit } from '../lib/lifts.js'
 import {
-  isLogged, isSkipped, setLine, itemLine, setFieldsFor, measureOfItem, blockTimer, circuitOnly, circuitTiming,
+  isLogged, isSkipped, setLine, itemLine, setFieldsFor, measureOfItem, blockTimer, circuitOnly, circuitTiming, setName,
 } from '../lib/prescription.js'
 import * as timerLib from '../lib/timer.js'
 import { useRunner, circuitTick } from '../lib/runflow.js'
@@ -471,11 +471,11 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
             from All sets. */}
         <View style={st.where}>
           <T size={font.label} dim tabular numberOfLines={1} style={{ flexShrink: 1 }}>
-            {`${step.blockName} · Set ${step.index + 1} of ${step.of}`}
+            {`${step.blockName} · ${setName(step.item.sets, step.index)}`}
           </T>
           {!logged ? (
             <Press onPress={onSkip} style={st.addSet} accessibilityRole="button"
-              accessibilityLabel={`Skip set ${step.index + 1} of ${item.name}`}>
+              accessibilityLabel={`Skip ${setName(step.item.sets, step.index, { of: false }).toLowerCase()} of ${item.name}`}>
               <Icon name="SkipForward" size={14} color={colors.inkDim} />
               <T size={font.label} dim>Skip</T>
             </Press>
@@ -710,7 +710,7 @@ function HoldScreen({ step, program, timer, now, onFace, onBack, onBump, onPause
       <View style={[st.body, { flex: 1 }]}>
         <View style={[st.where, { justifyContent: 'space-between' }]}>
           <T size={font.label} dim tabular numberOfLines={1} style={{ flexShrink: 1 }}>
-            {`${step.blockName} · Set ${step.index + 1} of ${step.of}`}
+            {`${step.blockName} · ${setName(step.item.sets, step.index)}`}
           </T>
           <Press onPress={onStop} style={st.addSet} accessibilityRole="button" accessibilityLabel="Stop the clock, log nothing">
             <Icon name="X" size={14} color={colors.inkDim} />
@@ -776,7 +776,7 @@ function RestScreen({ seconds, of, next, paused, onBack, onBump, onPause, onSkip
         {next ? (
           <T size={font.label} dim align="center" style={{ marginTop: space[4] }}>
             {'Next: '}<T size={font.label} weight={600}>{next.item.name}</T>
-            {` · Set ${next.index + 1} of ${next.of} · ${setLine(next.set, next.item)}`}
+            {` · ${setName(next.item.sets, next.index)} · ${setLine(next.set, next.item)}`}
           </T>
         ) : (
           <T size={font.label} dim align="center" style={{ marginTop: space[4] }}>That was the last set.</T>
@@ -866,16 +866,16 @@ function SetList({ pres, steps, run, cursor, onJump, onUnmark, onUnskip, onClose
                         {logged && actual ? setLine(actual, s.item) : setLine(s.set, s.item)}
                       </T>
                       <T size={font.label} dim tabular>
-                        {`Set ${s.index + 1}${logged ? ' · Done' : skipped ? ' · Skipped' : here ? ' · Next' : ''}`}
+                        {`${setName(s.item.sets, s.index, { of: false })}${logged ? ' · Done' : skipped ? ' · Skipped' : here ? ' · Next' : ''}`}
                       </T>
                     </View>
                   </Press>
                   {logged ? (
-                    <IconBtn icon="RotateCw" size={17} label={`Undo set ${s.index + 1} of ${s.item.name}`}
+                    <IconBtn icon="RotateCw" size={17} label={`Undo ${setName(s.item.sets, s.index, { of: false }).toLowerCase()} of ${s.item.name}`}
                       onPress={() => onUnmark(s.setId)} />
                   ) : null}
                   {skipped ? (
-                    <IconBtn icon="RotateCw" size={17} label={`Put set ${s.index + 1} of ${s.item.name} back`}
+                    <IconBtn icon="RotateCw" size={17} label={`Put ${setName(s.item.sets, s.index, { of: false }).toLowerCase()} of ${s.item.name} back`}
                       onPress={() => onUnskip(s.setId)} />
                   ) : null}
                 </View>

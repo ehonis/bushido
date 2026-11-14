@@ -109,6 +109,30 @@ test('a shared copy never carries the owner\'s draftId', () => {
   assert.equal(mine.data.plan.draftId, 'd-owner-1', 'the owner\'s own plan lost its draft id')
 })
 
+test('a copy keeps the owner\'s drop sets as drops, blank, and never the owner\'s note on an exercise', () => {
+  // Logged lifts.
+  const mine = gym([{ ...squat([set(5, 110), { reps: 6, weight: 80, drop: true }]), memo: 'belt on' }])
+  const copy = sharedCopy(mine, { session: workoutCard })
+  assert.deepEqual(liftsOf(copy), [squat([B, { ...B, drop: true }])])
+  // A drop the owner adds later arrives as one.
+  const later = gym([{ ...squat([set(5, 110), { reps: 6, weight: 80, drop: true }, { reps: 4, weight: 60, drop: true }]), memo: 'belt on' }])
+  assert.deepEqual(liftsOf(copyExercises(editTheirs(copy, [{ ...squat([set(5, 60), B]), memo: 'hers' }]), later)),
+    [{ ...squat([set(5, 60), B, { ...B, drop: true }]), memo: 'hers' }])
+  // A plan.
+  const pres = { title: 'Arms', blocks: [{ id: 'b0', items: [{ id: 'b0i0', kind: 'lift', name: 'Curl', memo: 'slow', sets: [
+    { id: 'b0i0s0', reps: 10, weight: 30 }, { id: 'b0i0s1', reps: 8, weight: 20, drop: true }] }] }] }
+  const planned = sharedCopy({ ...ride, data: { ...ride.data, optId: 'planned', plan: pres } }, { owner: PEOPLE[0] })
+  const item = planned.data.plan.blocks[0].items[0]
+  assert.equal('memo' in item, false, 'the owner\'s note went into Sam\'s plan')
+  // Another WORKING set of the owner's copies Sam's last working set, never Sam's drop.
+  const theirs = { ...planned, data: { ...planned.data, plan: { ...planned.data.plan, blocks: [{ ...planned.data.plan.blocks[0], items: [{ ...item,
+    sets: [{ id: 'b0i0s0', reps: 10, weight: 50 }, { id: 'b0i0s1', reps: 8, weight: 35, drop: true }] }] }] } } }
+  const more = { ...pres, blocks: [{ ...pres.blocks[0], items: [{ ...pres.blocks[0].items[0], sets: [...pres.blocks[0].items[0].sets, { id: 'b0i0s2', reps: 10, weight: 30 }] }] }] }
+  const grown = copyExercises(theirs, { ...ride, data: { ...ride.data, optId: 'planned', plan: more } }).data.plan.blocks[0].items[0].sets
+  assert.deepEqual(grown.map(x => [x.reps, x.weight, x.drop === true]), [[10, 50, false], [8, 35, true], [10, 50, false]])
+  assert.deepEqual(item.sets.map(x => [x.weight, x.drop === true]), [[null, false], [null, true]])
+})
+
 test('a shared copy never carries the owner\'s planner conversation or reasoning', () => {
   const pres = { title: 'Legs', why: 'your recovery was low', notes: ['yours'], changed: 'swapped', thread: [{ role: 'you', text: 'too much' }],
     blocks: [{ id: 'b0', items: [{ id: 'b0i0', kind: 'lift', name: 'Squat', sets: [{ id: 'b0i0s0', reps: 5, weight: 100 }] }] }] }
