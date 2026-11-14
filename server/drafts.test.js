@@ -141,6 +141,22 @@ const ASK = { picked: [{ key: 'legs', label: 'Legs', prompt: 'a leg day', catego
     eq(r.pres.thread.map(m => [m.role, m.text]), [['you', 'shorter'], ['coach', 'Cut a set.']])
   })
 
+  await step('a revision may write, change or clear a note; one it left out on a kept exercise stays', async () => {
+    const dir = tmp(); const s = createDrafts(); const p = fakePlanner()
+    const lift = (o = {}) => ({ kind: 'lift', name: 'Row', exercise: 'row', implement: 'dumbbell', sets: [{ reps: 8 }], ...o })
+    const d = s.create(dir, ASK, p.fn)
+    await tick(); p.calls[0].resolve(PLAN({ blocks: [{ name: 'Main', items: [lift({ uid: 'A' })] }] })); await tick()
+    const mine = { ...s.read(dir, d.id).pres, blocks: [{ name: 'Main', items: [lift({ uid: 'A', memo: 'seat 4' }), lift({ uid: 'B', memo: 'old' }), lift({ uid: 'C', memo: 'x' })] }] }
+    s.revise(dir, d.id, { message: 'harder', pres: mine }, p.fn)
+    await tick()
+    p.calls[1].resolve(PLAN({ blocks: [{ name: 'Main', items: [lift({ uid: 'A' }), lift({ uid: 'B', memo: 'new' }), lift({ uid: 'C', memo: '' }),
+      lift({ name: 'Curl', exercise: 'curl', memo: 'slow', sets: [{ reps: 10 }, { reps: 8, drop: true }] })] }] }))
+    await tick()
+    const items = s.read(dir, d.id).pres.blocks[0].items
+    eq(items.map(it => it.memo ?? null), ['seat 4', 'new', '', 'slow'])
+    eq(items[3].sets[1].drop, true)
+  })
+
   await step('weight modes (#58): a first draft gets memory; a revision keeps what it kept, a default included', async () => {
     const dir = tmp(); const s = createDrafts(); const p = fakePlanner()
     const lift = (o = {}) => ({ kind: 'lift', name: 'Split squat', exercise: 'split-squat', implement: 'dumbbell', sets: [{ reps: 8 }], ...o })

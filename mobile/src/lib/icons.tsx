@@ -129,6 +129,7 @@ import ArrowLeftRight from 'lucide-react-native/icons/arrow-left-right'
 import UserPlus from 'lucide-react-native/icons/user-plus'
 import UserMinus from 'lucide-react-native/icons/user-minus'
 import ArrowDownToLine from 'lucide-react-native/icons/arrow-down-to-line'
+import CornerDownRight from 'lucide-react-native/icons/corner-down-right'
 
 const REGISTRY: Record<string, React.ComponentType<any>> = {
   CalendarDays, Map, Gauge, NotebookPen, ShoppingBag, FlaskConical, Feather, Shield, Dumbbell, Mountain, Moon, LogOut, Flame, Target, Timer, Check, Circle, ChevronDown, TriangleAlert, CircleCheck, CircleSlash, Info, ExternalLink, Eye, EyeOff, X, Pencil, Footprints, Hand, Sunrise, RotateCw, ClipboardCheck, PersonStanding, Move, Sunset, Umbrella, Repeat, Grid2x2, Sprout, Users, Route, Plus, Layers, Expand, Activity, Bike, Sparkles, Waypoints, MoveHorizontal, ArrowUpDown, Play, Pause, SkipForward, SkipBack, Minus, Flag, Volume2, VolumeX, HeartPulse, House, GitBranch, Bell, BellOff, Send, ThumbsUp, ThumbsDown, Zap, Wind, TrendingUp, Droplets, CalendarRange, MessagesSquare, ListPlus, BatteryLow, Thermometer, Plane, Briefcase, Bandage, Infinity: InfinityIcon,
@@ -142,6 +143,8 @@ const REGISTRY: Record<string, React.ComponentType<any>> = {
   UserPlus, UserMinus,
   // Copy a set's numbers down into the empty sets under it (#93).
   ArrowDownToLine,
+  // A drop set: the set that follows the one above it, lighter.
+  CornerDownRight,
 }
 
 /** Is this a name plan.json may use? */

@@ -375,7 +375,7 @@ export function PrescriptionEditor({
           /* "Use last time" (#93): the numbers as targets, in one write, never ticked. */
           onFill={(id: string, fills: any[]) => onChange(patchItem(pres, id, { sets: withFills(itemOf(id)?.sets, fills) }))}
           growFill={!syncedWith?.length}
-          onAddSet={(id: string) => onChange(addSet(pres, id))}
+          onAddSet={(id: string, opts?: { drop?: boolean }) => onChange(addSet(pres, id, opts))}
           onRemoveSet={dropSet}
           onRemove={dropItem}
           onMove={canReorder ? (id: string, dir: number) => {

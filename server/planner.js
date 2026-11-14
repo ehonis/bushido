@@ -50,6 +50,7 @@ const SET = {
     restSec: { type: 'number', description: 'Rest AFTER this set, in seconds. The runner counts it down.' },
     unit: { type: 'string', description: 'yd, m, mi or km. Use yd for a pool unless they swim metric.' },
     note: { type: 'string', description: 'Short cue for this set only — "last one, leave two in the tank".' },
+    drop: { type: 'boolean', description: 'kind=lift only: true makes this a DROP SET, the weight stripped straight after the set before it and the lift carried on with no rest. Lighter than that set. Leave it out on an ordinary set.' },
   },
   additionalProperties: false,
 }
@@ -64,6 +65,7 @@ const ITEM = {
     implement: { type: 'string', description: 'For kind=lift: an exact implement key from the list below — barbell, dumbbell, cable, machine, bodyweight…' },
     unit: { type: 'string', description: 'Default distance unit for every set in this item.' },
     note: { type: 'string', description: 'One line of technique or intent for this movement.' },
+    memo: { type: 'string', description: 'The athlete\'s OWN note on this exercise (a seat height, a pain to watch, a cue they wrote). On a revision keep it exactly as given unless they ask you to change it; write or change one when they ask you to, or when it is something they will want to see next to this exercise every time.' },
     sets: { type: 'array', items: SET, description: 'One entry per SET they will actually do. Three sets of eight is three entries, not one with reps=8.' },
   },
   required: ['kind', 'name', 'sets'],
@@ -251,7 +253,11 @@ ${many ? `- No set carries a \`weight\`: each of them fills in their own. Choose
 HOW TO WRITE IT
 
 One entry in \`sets\` per set they will actually do — three sets of eight is three
-entries. Put rest on the set it FOLLOWS. Anything without sets (a mobility flow,
+entries. Put rest on the set it FOLLOWS. A DROP SET is its own entry right after the
+set it drops from, with \`drop: true\`, fewer pounds and no rest before it; write one
+when it was asked for or plainly fits (a last set taken past failure, an accessory
+finisher), never on a hold, a piece or in a circuit. An exercise's \`memo\` is the
+athlete's own note on it; its \`note\` is your cue. Anything without sets (a mobility flow,
 "swim easy until you feel loose") belongs in the block's \`note\`, not as an item.
 
 A CIRCUIT is a block whose exercises are done one after another on a clock and
@@ -422,7 +428,8 @@ function revisePrompt({ plan, message, thread = [], name }) {
     'change — including their own edits to the numbers. Every block and exercise that is',
     'still the same one (renamed, moved or with different sets included) keeps its `uid`',
     'exactly as given; a new one has none. Put what you changed and why in',
-    '`changed`, addressed to them, in one or two sentences. If what they asked for is a bad',
+    '`changed`, addressed to them, in one or two sentences. An exercise\'s `memo` is their own',
+    'note: send it back exactly as given unless they asked about it. If what they asked for is a bad',
     'idea say so in `changed` and do it anyway, unless it breaks one of the rules above,',
     'in which case do not do it and say which rule.',
   ].filter(Boolean).join('\n')
@@ -451,17 +458,34 @@ function realKeys(built, plan) {
 /**
  * A plan for several people is shared STRUCTURE (#59): each person logs their
  * own loads, so a weight the model wrote anyway is taken out here rather than
- * landing as someone's target. Both first drafts and revisions.
+ * landing as someone's target. Both first drafts and revisions. An exercise's
+ * own note (`memo`) is one person's, like a load, and goes too.
  */
 function noLoads(built) {
   return {
     ...built,
     blocks: (built.blocks || []).map(b => ({
       ...b,
-      items: (b?.items || []).map(it => ({
+      items: (b?.items || []).map(({ memo: _m, ...it }) => ({
         ...it,
         sets: (it?.sets || []).map(s => { const { weight: _w, ...rest } = s || {}; return rest }),
       })),
+    })),
+  }
+}
+
+/**
+ * A first draft has no note to clear, so an empty `memo` the model filled in
+ * means nothing, and kept it would read as a note cleared, hiding the person's
+ * last note under every exercise (lib/lifts.js `lastMemo`). Only a revision's
+ * '' clears one.
+ */
+function noBlankMemos(built) {
+  return {
+    ...built,
+    blocks: (built.blocks || []).map(b => ({
+      ...b,
+      items: (b?.items || []).map(it => (typeof it?.memo === 'string' && !it.memo.trim() ? (({ memo: _m, ...rest }) => rest)(it) : it)),
     })),
   }
 }
@@ -525,8 +549,9 @@ function planWorkout({
       if (!built || typeof built !== 'object' || !Array.isArray(built.blocks) || !built.blocks.length) {
         return reject(new Error('the planner returned nothing usable'))
       }
+      const shaped = many ? noLoads(realKeys(built, plan)) : realKeys(built, plan)
       resolve({
-        plan: { ...(many ? noLoads(realKeys(built, plan)) : realKeys(built, plan)), createdAt: new Date().toISOString(), model: doc.model || model },
+        plan: { ...(revise ? shaped : noBlankMemos(shaped)), createdAt: new Date().toISOString(), model: doc.model || model },
         cost: doc.total_cost_usd ?? null,
       })
     })
@@ -553,6 +578,6 @@ const readPlanJson = (file) => {
 }
 
 module.exports = {
-  PLAN_SCHEMA, REVISE_SCHEMA, planWorkout, systemPrompt, userPrompt, revisePrompt,
+  PLAN_SCHEMA, REVISE_SCHEMA, planWorkout, noBlankMemos, systemPrompt, userPrompt, revisePrompt,
   liftField, activityField, readPlanJson, realKeys, noLoads,
 }

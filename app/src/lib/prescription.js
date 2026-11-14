@@ -37,6 +37,7 @@
 
 import {
   catalogOf, exerciseOf, implementLabel, implementsFor, weightPatch, rememberedWeightMode, measureFor, defaultImplement,
+  isDropSet, memoText, setNumbers, workingSets,
 } from './lifts.js'
 import {
   normalizeCircuit, circuitConfig, circuitOf, compile, totalSeconds, circuitDone, view, CIRCUIT_DEFAULT, LIMITS,
@@ -219,9 +220,16 @@ function normalizeItem(it, id, liftField, circuit = null) {
   const measure = kind === 'lift' ? itemMeasure(it, sets, known) : 'reps'
   // Seconds win on a hold: a reps count beside them would be read instead.
   if (measure === 'time') sets.forEach(s => { if (s.seconds !== null) s.reps = null })
+  // A drop set is a lift counted in reps (lib/lifts.js `canDrop`): never a hold or a circuit's one set.
+  if (measure === 'time' || circuit) sets.forEach(s => { delete s.drop })
 
+  const memo = memoText(it.memo)
   return {
     id, ...uidOf(it.uid), kind, name, note: str(it.note, 300),
+    // The person's own note on the exercise (lib/lifts.js `memoText`): kept when
+    // there is one, and as '' when one was cleared, so a revision that clears it
+    // is told from one that left it out (`keepMemos`).
+    ...(memo || typeof it.memo === 'string' ? { memo } : {}),
     exercise, group, implement,
     implementLabel: implementLbl, weightLabel: weightLbl,
     ...(weightMode ? { weightMode } : {}),
@@ -282,6 +290,8 @@ function normalizeSet(s, id, unit, kind = 'interval') {
   row.restSec = kind === 'lift' ? null : clamp(num(s.restSec), 0, 3600)
   row.unit = str(s.unit, 12) || unit || null
   row.note = str(s.note, 120)
+  // A drop set (lib/lifts.js `isDropSet`) says so; a working set has no key, as every set before drops.
+  if (kind === 'lift' && s.drop === true) row.drop = true
   const carries = SET_FIELDS.some(f => row[f] !== null && row[f] !== undefined)
   return carries ? row : null
 }
@@ -630,7 +640,7 @@ export function runOutputs(pres, run, out = {}) {
         continue
       }
       const rows = it.sets
-        .map(s => run?.sets?.[s.id])
+        .map(s => (run?.sets?.[s.id] ? { ...run.sets[s.id], ...(isDropSet(s) ? { drop: true } : {}) } : null))
         .filter(Boolean)
       if (!rows.length) continue
 
@@ -644,12 +654,13 @@ export function runOutputs(pres, run, out = {}) {
           implementLabel: it.implementLabel || null,
           // A mode travels with its label, as the lift log stores it (lib/lifts.js).
           ...(it.weightMode ? { weightMode: it.weightMode, weightLabel: it.weightLabel || null } : {}),
+          // Not its `memo`: the note stays the plan item's, one box on the sheet (`lastMemo` reads it there).
           // The same `{reps, weight}` rows the lift log writes (`{seconds,
-          // weight}` for a hold). Strings there, numbers here; `liftVolume`
-          // runs both through `Number()`.
+          // weight}` for a hold), a drop set marked as the plan marks it.
+          // Strings there, numbers here; `liftVolume` runs both through `Number()`.
           sets: rows.map(r => (measureOfItem(it) === 'time'
             ? { seconds: r.seconds ?? '', weight: r.weight ?? '' }
-            : { reps: r.reps ?? '', weight: r.weight ?? '' })),
+            : { reps: r.reps ?? '', weight: r.weight ?? '', ...(r.drop ? { drop: true } : {}) })),
         })
         continue
       }
@@ -1251,10 +1262,28 @@ export const patchSet = (pres, itemId, setId, patch) =>
  * it (`patchSet`), and a copy nobody touched must not read as one filled in
  * (on a shared workout it would outlast a removal from the other side).
  */
-export const addSet = (pres, itemId) =>
-  mapItem(pres, itemId, it => ({ ...it, sets: [...it.sets, untypedSet(it.sets.at(-1))] }))
+export const addSet = (pres, itemId, { drop = false } = {}) =>
+  mapItem(pres, itemId, it => {
+    // A drop set (lib/lifts.js `isDropSet`) starts blank: lighter by definition,
+    // its reps whatever was left, so copying the set before it would be a guess.
+    if (drop) return { ...it, sets: [...it.sets, { ...blankSet('new', it.sets.at(-1)?.unit ?? it.unit ?? null), drop: true }] }
+    // Another working set copies the last WORKING set, never a drop.
+    const last = [...it.sets].reverse().find(x => !isDropSet(x)) || it.sets.at(-1)
+    return { ...it, sets: [...it.sets, undropped(untypedSet(last))] }
+  })
 
 const untypedSet = (s) => unmarked(s)
+const undropped = ({ drop: _d, ...s } = {}) => s
+
+/**
+ * How a set is named on screen: "Set 2 of 3", or "Drop set" for a drop (lib/lifts.js
+ * `setNumbers`: drops have no number, and the count is of working sets).
+ */
+export function setName(sets = [], index = 0, { of = true } = {}) {
+  if (isDropSet(sets[index])) return 'Drop set'
+  const n = setNumbers(sets)[index] ?? index + 1
+  return of ? `Set ${n} of ${workingSets(sets)}` : `Set ${n}`
+}
 
 /**
  * One more set of this, from the RUNNER, copying what the user just did rather than
@@ -1270,7 +1299,9 @@ const untypedSet = (s) => unmarked(s)
  */
 export const addSetLike = (pres, itemId, like = null) =>
   mapItem(pres, itemId, it => {
-    const row = untypedSet(it.sets.at(-1))
+    const row = undropped(untypedSet(it.sets.at(-1)))
+    // "Same as this one": a drop when the set it is like was one.
+    if (isDropSet(like)) row.drop = true
     for (const f of SET_FIELDS) {
       const n = num(like?.[f])
       if (n !== null) row[f] = n
@@ -1513,8 +1544,29 @@ export function keepTyped(before, after) {
  * draft, where it survives the page closing. Sets still as typed stay typed
  * (`keepTyped`).
  */
+/**
+ * An exercise's own note through a model revision: a revision returns the whole
+ * session and the model may write or change any `memo`, or clear one with ''.
+ * An exercise it kept (the same `uid`) and sent back with NO memo keeps the one
+ * it had: optional fields get left out by models, and a note the person wrote
+ * must not go because a reply forgot it. server/drafts.js `keepMemos` is the
+ * same rule on a draft.
+ */
+export function keepMemos(before, after) {
+  if (!after?.blocks) return after
+  const had = new Map((before?.blocks || []).flatMap(b => b.items || []).filter(it => it?.uid && it.memo).map(it => [it.uid, it.memo]))
+  if (!had.size) return after
+  return {
+    ...after,
+    blocks: after.blocks.map(b => ({
+      ...b,
+      items: (b.items || []).map(it => (it?.uid && had.has(it.uid) && !('memo' in it) ? { ...it, memo: had.get(it.uid) } : it)),
+    })),
+  }
+}
+
 export function reviseWeightModes(before, after, liftField, entries = [], { excludeId = null, today } = {}) {
-  after = keepTyped(before, after)
+  after = keepMemos(before, keepTyped(before, after))
   if (!after?.blocks) return after
   const left = (before?.blocks || []).flatMap(b => b.items || []).filter(it => it.kind === 'lift')
   const take = (it) => {

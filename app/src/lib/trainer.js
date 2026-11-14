@@ -272,7 +272,8 @@ export const keepKeyFor = (pres) => String(pres?.draftId || `k${Date.now().toStr
 export const withoutLoads = (pres) => (pres ? {
   ...pres,
   blocks: (pres.blocks || []).map(b => ({
-    ...b, items: (b.items || []).map(it => ({ ...it, sets: (it.sets || []).map(s => ({ ...s, weight: null })) })),
+    // An exercise's own note (`memo`) is one person's, like a load.
+    ...b, items: (b.items || []).map(({ memo: _m, ...it }) => ({ ...it, sets: (it.sets || []).map(s => ({ ...s, weight: null })) })),
   })),
 } : pres)
 

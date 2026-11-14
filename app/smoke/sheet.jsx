@@ -502,7 +502,8 @@ export default [
     html => {
       // Old address: the label under every set's weight. Absent.
       if (/stepper-swap/.test(html)) throw new Error('a set row still carries the meaning switch')
-      const sets = (html.match(/<div class="presc-sets">([\s\S]*?)<div class="presc-itemfoot">/) || [])[1] || ''
+      // The sets, up to the card's foot or the drop set's own line under them, which is not a set row.
+      const sets = (html.match(/<div class="presc-sets">([\s\S]*?)<div class="presc-(?:dropline|itemfoot)">/) || [])[1] || ''
       if (!sets || /<button/.test(sets.replace(/<button class="stepper-btn"/g, ''))) throw new Error('a button other than ± sits in a set row')
       // New address: one switch per exercise, on the card.
       if ((html.match(/class="modeswitch"/g) || []).length !== 1) throw new Error('not one meaning switch per exercise')

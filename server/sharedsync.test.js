@@ -471,6 +471,31 @@ check('logged lifts (no plan) sync by uid the same way', () => {
   eq(gone.out.lifts.map(l => l.uid), ['squat-1', 'bench-1'])
 })
 
+check('a drop set added over there arrives as a drop, blank; an exercise\'s own note never crosses', () => {
+  const before = alex()
+  const after = edit(before, bs => {
+    bs[0].items[1] = { ...bs[0].items[1], memo: 'belt on', sets: [...bs[0].items[1].sets, set({ reps: 6, weight: 100, drop: true })] }
+    bs[0].items.push({ ...lift('RW', 'Row', [set({ reps: 10, weight: 50 }), set({ reps: 8, weight: 35, drop: true })]), memo: 'pause at the top' })
+    return bs
+  })
+  const theirs = carry(sam(), shapeOf(before), after)
+  eq(itemNamed(theirs, 'Deadlift').sets.map(s => [s.reps, s.weight, s.drop === true]), [[5, 60, false], [null, null, true]])
+  eq(itemNamed(theirs, 'Row').sets.map(s => [s.reps, s.weight, s.drop === true]), [[null, null, false], [null, null, true]])
+  ok(!('memo' in itemNamed(theirs, 'Deadlift')) && !('memo' in itemNamed(theirs, 'Row')), 'a note crossed')
+  // Logged lifts the same way.
+  const mine = { out: { lifts: [{ uid: 'sq', key: 'squat', name: 'Squat', sets: [{ reps: '5', weight: '100' }] }] } }
+  const hers = { sharedFrom: { id: 'owner' }, out: { lifts: [{ uid: 'sq', key: 'squat', name: 'Squat', memo: 'mine', sets: [{ reps: '8', weight: '40' }] }] } }
+  const next = { out: { lifts: [
+    { uid: 'sq', key: 'squat', name: 'Squat', memo: 'his', sets: [{ reps: '5', weight: '100' }, { reps: '6', weight: '80', drop: true }] },
+    { uid: 'cu', key: 'curl', name: 'Curl', memo: 'his', sets: [{ reps: '10', weight: '30' }, { reps: '8', weight: '20', drop: true }] },
+  ] } }
+  const got = carry(hers, shapeOf(mine), next)
+  eq(got.out.lifts.map(l => [l.uid, l.memo ?? null, l.sets]), [
+    ['sq', 'mine', [{ reps: '8', weight: '40' }, { reps: '', weight: '', drop: true }]],
+    ['cu', null, [{ reps: '', weight: '' }, { reps: '', weight: '', drop: true }]],
+  ])
+})
+
 check('a side with no plan yet gets the other\'s exercises, never its draftId', () => {
   const owner = { ...alex(), plan: { ...alex().plan, draftId: 'd-owner-1' } }
   const theirs = carry({ sharedFrom: { id: 'owner' }, out: {} }, null, owner)

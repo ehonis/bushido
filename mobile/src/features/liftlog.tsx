@@ -42,6 +42,9 @@ function asItem(field: any, lift: any) {
     group: lift.group || null,
     exercise: lift.key,
     note: '',
+    // The person's own note on it (lib/lifts.js `memo`), as stored: '' is a note
+    // cleared, which also hides the last one (`lastMemo`); no key is none written.
+    memo: lift.memo,
     implement: lift.implement || '',
     implementLabel: chosen?.label || lift.implementLabel || null,
     // What the weight means: the row's own mode, else its implement's default.
@@ -115,7 +118,7 @@ export function LiftLog({ field, out, entries = [], entryId = null, onSave, hint
         onPatchSet={(uid: any, setId: any, patch: any) => write(setLiftSet(list, uid, Number(setId), patch))}
         onFill={(uid: any, fills: any[]) => write(fillLift(list, uid, fills))}
         growFill={grow}
-        onAddSet={(uid: any) => write(addLiftSet(list, uid))}
+        onAddSet={(uid: any, opts?: { drop?: boolean }) => write(addLiftSet(list, uid, opts))}
         onRemoveSet={(uid: any, setId: any) => remove(removeLiftSet(list, uid, Number(setId)),
           removalWords(liftOf(uid), Number(setId), { lastTakesItem: false }))}
         onRemove={(uid: any) => remove(removeLift(list, uid), removalWords(liftOf(uid)))}

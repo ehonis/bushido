@@ -20,7 +20,7 @@ import {
   splitPrescription, moveItem, isLiftOnly,
   blankPrescription, appendPiece, dropEmptyBlocks, patchItem, reviseWeightModes, followWeightModes, patchRunItem,
   measureOfItem, addBlock, renameBlock, noteBlock, removeBlock, moveBlock, tickSet, setTicked, itemTicked, firstUnticked,
-  patchBlock, planProgress, doingMove, setEdited, setLogged, keepTyped, itemProgress,
+  patchBlock, planProgress, doingMove, setEdited, setLogged, keepTyped, itemProgress, setName, keepMemos,
 } from './src/lib/prescription.js'
 import { liftVolume, liftsIn, liftSummary, rememberedWeightMode, liftsDone } from './src/lib/lifts.js'
 import { createRequire } from 'node:module'
@@ -1221,6 +1221,76 @@ t('doingMove: the card just finished folds; the card that just became next is re
   assert.deepEqual(doingMove({ finished: true, focus: false }, { finished: true, focus: false }), { fold: false, reveal: false })
   assert.deepEqual(doingMove({ finished: true, focus: false }, { finished: false, focus: true }), { fold: false, reveal: true })
   assert.deepEqual(doingMove({ finished: false, focus: true }, { finished: false, focus: true }), { fold: false, reveal: false })
+})
+
+/* ------------------------------------------------------------ drop sets and an exercise's own note */
+
+t('a plan keeps a lift\'s drop sets and the person\'s note through normalising; an interval has no drops', () => {
+  const p = normalizePrescription({ title: 'Arms', blocks: [{ name: 'Main', items: [
+    { kind: 'lift', exercise: KNOWN, memo: '  seat at 4 ', sets: [{ reps: 10, weight: 30 }, { reps: 8, weight: 20, drop: true }, { reps: 6, weight: 10, drop: 'yes' }] },
+    { kind: 'interval', name: 'Row', sets: [{ distance: 500, drop: true }] },
+  ] }] }, { liftField })
+  const [lift, piece] = p.blocks[0].items
+  assert.equal(lift.memo, 'seat at 4')
+  assert.deepEqual(lift.sets.map(s => s.drop === true), [false, true, false], 'only drop: true is a drop')
+  assert.ok(!('drop' in lift.sets[0]), 'a working set grew a key')
+  assert.ok(!('drop' in piece.sets[0]))
+  assert.ok(!('memo' in piece), 'no note, no key')
+  // Never a drop on a hold or a circuit's one set, whatever the model wrote.
+  const held = normalizePrescription({ blocks: [
+    { name: 'Core', items: [{ kind: 'lift', exercise: 'plank', measure: 'time', sets: [{ seconds: 45 }, { seconds: 30, drop: true }] }] },
+    { name: 'Circuit', circuit: { work: 40, rest: 20, rounds: 3 }, items: [{ kind: 'lift', exercise: KNOWN, sets: [{ reps: 10, drop: true }] }] },
+  ] }, { liftField })
+  assert.equal(JSON.stringify(held).includes('"drop"'), false, 'a drop on a hold or in a circuit survived')
+})
+
+t('addSet: a drop is blank and marked; another set copies the last working set, never the drop', () => {
+  const p = normalizePrescription({ blocks: [{ name: 'Main', items: [{ kind: 'lift', exercise: KNOWN, sets: [{ reps: 10, weight: 30 }] }] }] }, { liftField })
+  const id = p.blocks[0].items[0].id
+  const d = addSet(p, id, { drop: true })
+  const sets = d.blocks[0].items[0].sets
+  assert.deepEqual(sets.map(s => [s.reps, s.weight, s.drop === true]), [[10, 30, false], [null, null, true]])
+  assert.equal(sets[1].id, `${id}s1`, 'the drop was not given a place')
+  const next = addSet(d, id).blocks[0].items[0].sets.at(-1)
+  assert.deepEqual([next.reps, next.weight, 'drop' in next], [10, 30, false])
+  assert.equal(setName(sets, 0), 'Set 1 of 1')
+  assert.equal(setName(sets, 1), 'Drop set')
+  assert.equal(setName([{}, {}], 1, { of: false }), 'Set 2')
+})
+
+t('a run writes a drop set as a drop; the note stays the plan item\'s alone', () => {
+  const p = normalizePrescription({ blocks: [{ name: 'Main', items: [{ kind: 'lift', exercise: KNOWN, memo: 'slow', sets: [{ reps: 10, weight: 30 }, { reps: 8, weight: 20, drop: true }] }] }] }, { liftField })
+  const [a, b] = p.blocks[0].items[0].sets
+  const steps = prescriptionSteps(p)
+  let run = emptyRun(1)
+  run = markSet(run, steps[0], { reps: 10, weight: 30 }, { at: 1, steps })
+  run = markSet(run, steps[1], { reps: 7, weight: 20 }, { at: 2, steps })
+  const [row] = runOutputs(p, run, {}).lifts
+  assert.ok(!('memo' in row), 'the note was copied into a second box')
+  assert.deepEqual(row.sets, [{ reps: 10, weight: 30 }, { reps: 7, weight: 20, drop: true }])
+  assert.ok(a && b)
+  // The runner's "Add a set" from a drop is another drop, from a working set a working set.
+  const id = p.blocks[0].items[0].id
+  assert.equal(addSetLike(p, id, { ...b, reps: 6 }).blocks[0].items[0].sets.at(-1).drop, true)
+  assert.ok(!('drop' in addSetLike(p, id, a).blocks[0].items[0].sets.at(-1)))
+})
+
+t('a model revision writes, changes or clears a note; one it left out on a kept exercise stays', () => {
+  const before = normalizePrescription({ blocks: [{ name: 'Main', items: [
+    { kind: 'lift', exercise: KNOWN, uid: 'A', memo: 'seat at 4', sets: [{ reps: 5 }] },
+    { kind: 'lift', exercise: KNOWN, uid: 'B', memo: 'left knee', sets: [{ reps: 5 }] },
+    { kind: 'lift', exercise: KNOWN, uid: 'C', memo: 'grip wide', sets: [{ reps: 5 }] },
+  ] }] }, { liftField })
+  const reply = normalizePrescription({ blocks: [{ name: 'Main', items: [
+    { kind: 'lift', exercise: KNOWN, uid: 'A', sets: [{ reps: 6 }] },
+    { kind: 'lift', exercise: KNOWN, uid: 'B', memo: '', sets: [{ reps: 6 }] },
+    { kind: 'lift', exercise: KNOWN, uid: 'C', memo: 'grip narrow now', sets: [{ reps: 6 }] },
+    { kind: 'lift', exercise: KNOWN, memo: 'new one', sets: [{ reps: 8 }, { reps: 6, weight: 20, drop: true }] },
+  ] }] }, { liftField })
+  const got = reviseWeightModes(before, reply, liftField, []).blocks[0].items
+  assert.deepEqual(got.map(it => it.memo), ['seat at 4', '', 'grip narrow now', 'new one'])
+  assert.equal(got[3].sets[1].drop, true, 'the model\'s drop set did not survive')
+  assert.equal(keepMemos(null, reply), reply)
 })
 
 console.log(`prescription: ${pass} checks passed`)

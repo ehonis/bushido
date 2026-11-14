@@ -46,7 +46,7 @@ import { NumInput } from './numinput.jsx'
 import { useModalLayer, Popover } from './modal.jsx'
 import { CUES, primeAudio, resumeAudio, acquireWakeLock, releaseWakeLock } from './lib/cues.js'
 import { lastLift, liftFieldOf, weightUnit } from './lib/lifts.js'
-import { isLogged, isSkipped, setLine, itemLine, setFieldsFor, measureOfItem, blockTimer, circuitOnly, circuitTiming } from './lib/prescription.js'
+import { isLogged, isSkipped, setLine, itemLine, setFieldsFor, measureOfItem, blockTimer, circuitOnly, circuitTiming, setName } from './lib/prescription.js'
 import { compile, startRun, view as timerView, describe, totalSeconds, back, bump, skip as skipSegment, togglePause, isTimedSet } from './lib/timer.js'
 import { useRunner, circuitTick } from './lib/runflow.js'
 import { clock } from './lib/workout.js'
@@ -425,9 +425,9 @@ function SetScreen({ step, steps, run, draft, entries, entryId, briefing = [], o
           the two were 8px apart where the thumb works (#75). A skip is put back
           from All sets. */}
       <div className="run-where">
-        <span>{step.blockName} · Set {step.index + 1} of {step.of}</span>
+        <span>{step.blockName} · {setName(step.item.sets, step.index)}</span>
         {!logged && (
-          <button className="run-addset" onClick={onSkip} aria-label={`Skip set ${step.index + 1} of ${item.name}`}>
+          <button className="run-addset" onClick={onSkip} aria-label={`Skip ${setName(step.item.sets, step.index, { of: false }).toLowerCase()} of ${item.name}`}>
             <Icon name="SkipForward" size={14} /> Skip
           </button>
         )}
@@ -601,7 +601,7 @@ function HoldScreen({ step, program, timer, now, onFace, onBack, onBump, onPause
   return (
     <div className={`run-body run-hold k-${seg.kind}`}>
       <div className="run-where">
-        <span>{step.blockName} · Set {step.index + 1} of {step.of}</span>
+        <span>{step.blockName} · {setName(step.item.sets, step.index)}</span>
         <button className="run-addset" onClick={onStop} aria-label="Stop the clock, log nothing">
           <Icon name="X" size={14} /> Stop the clock
         </button>
@@ -642,7 +642,7 @@ function RestScreen({ seconds, of, next, paused, onBack, onBump, onPause, onSkip
 
       {next ? (
         <p className="rest-next">
-          Next: <strong>{next.item.name}</strong> · Set {next.index + 1} of {next.of}
+          Next: <strong>{next.item.name}</strong> · {setName(next.item.sets, next.index)}
           {' · '}{setLine(next.set, next.item)}
         </p>
       ) : <p className="rest-next">That was the last set.</p>}
@@ -737,17 +737,17 @@ export function SetList({ pres, steps, run, cursor, onJump, onUnmark, onUnskip, 
                             {logged && actual ? setLine(actual, s.item) : setLine(s.set, s.item)}
                           </span>
                           <span className="list-row-meta">
-                            Set {s.index + 1}{logged ? ' · Done' : skipped ? ' · Skipped' : s.setId === cursor ? ' · Next' : ''}
+                            {setName(s.item.sets, s.index, { of: false })}{logged ? ' · Done' : skipped ? ' · Skipped' : s.setId === cursor ? ' · Next' : ''}
                           </span>
                         </span>
                       </button>
                       {logged && (
-                        <button className="iconbtn setlist-undo" onClick={() => onUnmark(s.setId)} aria-label={`Undo set ${s.index + 1} of ${s.item.name}`}>
+                        <button className="iconbtn setlist-undo" onClick={() => onUnmark(s.setId)} aria-label={`Undo ${setName(s.item.sets, s.index, { of: false }).toLowerCase()} of ${s.item.name}`}>
                           <Icon name="RotateCw" size={17} />
                         </button>
                       )}
                       {skipped && (
-                        <button className="iconbtn setlist-undo" onClick={() => onUnskip(s.setId)} aria-label={`Put set ${s.index + 1} of ${s.item.name} back`}>
+                        <button className="iconbtn setlist-undo" onClick={() => onUnskip(s.setId)} aria-label={`Put ${setName(s.item.sets, s.index, { of: false }).toLowerCase()} of ${s.item.name} back`}>
                           <Icon name="RotateCw" size={17} />
                         </button>
                       )}

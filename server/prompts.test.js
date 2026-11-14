@@ -190,6 +190,25 @@ check('a block\'s category or activity the content does not know is dropped, not
   ok(planner.realKeys({ category: 'x', blocks: [] }, {}).category === 'x', 'an unknowable key was dropped')
 })
 
+check('the model can write drop sets and an exercise\'s own note; a plan for several people carries no one\'s note', () => {
+  for (const schema of [planner.PLAN_SCHEMA, planner.REVISE_SCHEMA]) {
+    const item = schema.properties.blocks.items.properties.items.items
+    ok(item.properties.memo?.type === 'string', 'no memo on an exercise in the reply schema')
+    ok(item.properties.sets.items.properties.drop?.type === 'boolean', 'no drop on a set in the reply schema')
+    ok(!item.required.includes('memo'), 'every exercise would need a note')
+  }
+  const text = planner.systemPrompt({ ...ctx, name: '', notes: '' })
+  ok(/A DROP SET is its own entry/.test(text), 'the prompt does not say how to write a drop set')
+  const revise = planner.revisePrompt({ plan: { blocks: [] }, message: 'x', thread: [], name: '' })
+  ok(/`memo` is their own/.test(revise), 'the revision prompt does not say to keep their notes')
+  const stripped = planner.noLoads({ blocks: [{ name: 'Main', items: [{ kind: 'lift', name: 'x', memo: 'mine', sets: [{ reps: 5, drop: true }] }] }] })
+  ok(!('memo' in stripped.blocks[0].items[0]), 'one person\'s note went on a plan for several')
+  ok(stripped.blocks[0].items[0].sets[0].drop === true, 'taking the loads out took the drop')
+  // A first draft's empty memo is nothing (it would read as a note cleared and hide the last one).
+  const first = planner.noBlankMemos({ blocks: [{ name: 'Main', items: [{ kind: 'lift', name: 'x', memo: ' ', sets: [] }, { kind: 'lift', name: 'y', memo: 'belt', sets: [] }] }] })
+  ok(!('memo' in first.blocks[0].items[0]) && first.blocks[0].items[1].memo === 'belt', 'a first draft\'s blank memo was kept, or a real one dropped')
+})
+
 check('a block can be a timed circuit (#68): the schema takes its timing, the prompt says how, loads still go', () => {
   for (const schema of [planner.PLAN_SCHEMA, planner.REVISE_SCHEMA]) {
     const c = schema.properties.blocks.items.properties.circuit

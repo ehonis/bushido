@@ -596,9 +596,10 @@ function itemRow(b, it, typedOnly = false) {
           : num(b.circuit.work) > 0 ? { seconds: num(b.circuit.work), weight: blankOr(s.weight) } : null
     sets = one ? Array.from({ length: Math.max(1, num(b.circuit.rounds) || 1) }, () => ({ ...one })) : []
   } else {
-    sets = (Array.isArray(it.sets) ? it.sets : []).filter(x => numbered(x) && (!typedOnly || x.typed === true)).map(x => (held
-      ? { seconds: blankOr(x.seconds), weight: blankOr(x.weight) }
-      : { reps: blankOr(x.reps), weight: blankOr(x.weight) }))
+    sets = (Array.isArray(it.sets) ? it.sets : []).filter(x => numbered(x) && (!typedOnly || x.typed === true)).map(x => ({
+      ...(held ? { seconds: blankOr(x.seconds), weight: blankOr(x.weight) } : { reps: blankOr(x.reps), weight: blankOr(x.weight) }),
+      ...(isDropSet(x) ? { drop: true } : {}),
+    }))
   }
   if (!sets.length) return null
   return {
@@ -671,6 +672,46 @@ function withWeightMode(field, row, mode) {
 /** One empty set: `{ reps, weight }`, or `{ seconds, weight }` for a movement held for time. */
 export const blankSet = (measure = 'reps') => (measure === 'time' ? { seconds: '', weight: '' } : { reps: '', weight: '' })
 
+/*
+ * DROP SETS. A drop set is the weight stripped straight after a set and the
+ * lift carried on: one more run of reps, lighter, with no rest. It is stored as
+ * an ordinary set marked `drop: true`, in the order it was done, on a logged row
+ * (`out.lifts[].sets`) and on a plan item alike. So every reader that adds sets
+ * up (volume, "last time", the Progress charts, `liftsDone`) reads it as the
+ * reps and weight it was, which is what it was, and an app from before the flag
+ * reads it as one more set. Only a drop carries the key; a set without it is a
+ * working set, which every set before drops existed was. What drops change is
+ * how a set is NAMED: a drop has no number of its own (`setNumbers`), it belongs
+ * to the working set before it.
+ */
+
+/** Is this set a drop set? */
+export const isDropSet = (s) => s?.drop === true
+
+/** Each set's number as the screen says it: working sets 1, 2, 3; a drop set is null (it has none). */
+export function setNumbers(sets = []) {
+  let n = 0
+  return (Array.isArray(sets) ? sets : []).map(s => (isDropSet(s) ? null : ++n))
+}
+
+/** How many working sets (sets that are not drops). */
+export const workingSets = (sets = []) => (Array.isArray(sets) ? sets : []).filter(s => !isDropSet(s)).length
+
+/**
+ * Is a drop set offered on this card: a lift counted in reps (a hold is not
+ * dropped), not in a circuit (one set a round, timed by the circuit).
+ */
+export const canDrop = (item, { circuit = false } = {}) => item?.kind === 'lift' && !circuit && !heldItem(item)
+
+/* An exercise's own note (`memo`): what is worth remembering about it ("seat at
+ * 4", "left shoulder pinched on the last rep"), on a logged row and on a plan
+ * item alike. It is the person's, never the planner's: a plan item's `note` is
+ * the model's cue and stays read-only, and shared sync never carries a memo to
+ * anyone else (lib/shared.js, server/sharedsync.js), as it never carries a
+ * weight. Trimmed and bounded when it is written. */
+export const MEMO_MAX = 500
+export const memoText = (v) => String(v ?? '').trim().slice(0, MEMO_MAX)
+
 const mapLift = (list, uid, fn) => liftsIn({ [LIFT_FIELD]: list }).map(l => (l.uid === uid ? fn(l) : l))
 
 export function removeLift(list, uid) {
@@ -724,11 +765,16 @@ export function patchLift(field, list, uid, patch) {
  * than it is not. Everything stays editable, so a set that dropped off reads as
  * the drop-off it was.
  */
-export function addLiftSet(list, uid) {
+export function addLiftSet(list, uid, { drop = false } = {}) {
   return mapLift(list, uid, l => {
     const rows = Array.isArray(l.sets) ? l.sets : []
-    const last = rows.at(-1)
-    return { ...l, sets: [...rows, last ? { ...last } : blankSet(liftMeasure(l))] }
+    // A drop is lighter by definition and its reps are whatever was left, so
+    // nothing is carried: copying the set before it would be a guess (§6.4).
+    if (drop) return { ...l, sets: [...rows, { ...blankSet(liftMeasure(l)), drop: true }] }
+    // Another working set copies the last working set, never a drop.
+    const last = [...rows].reverse().find(r => !isDropSet(r)) || rows.at(-1)
+    const { drop: _d, ...copy } = last || {}
+    return { ...l, sets: [...rows, last ? copy : blankSet(liftMeasure(l))] }
   })
 }
 
@@ -822,8 +868,17 @@ export function liftSummary(lift, field = null, { mode = true } = {}) {
     if (n === null) return '—'
     return count === 'seconds' ? `${n} s` : `${n}`
   }
-  if (same) return `${rows.length} × ${each(rows[0])}${load(rows[0])}`
-  return rows.map(r => `${each(r)}${load(r)}`).join(', ')
+  const work = rows.filter(r => !isDropSet(r))
+  const drops = rows.filter(r => isDropSet(r))
+  if (!drops.length) {
+    if (same) return `${rows.length} × ${each(rows[0])}${load(rows[0])}`
+    return rows.map(r => `${each(r)}${load(r)}`).join(', ')
+  }
+  // Drop sets after the working sets: "3 × 10 @ 90 lb, drop 8 @ 70 lb".
+  const sameWork = work.length > 1 && work.every(r => String(r[count]) === String(work[0][count]) && String(r.weight) === String(work[0].weight))
+  const head = !work.length ? '' : sameWork ? `${work.length} × ${each(work[0])}${load(work[0])}` : work.map(r => `${each(r)}${load(r)}`).join(', ')
+  const tail = `${drops.length === 1 ? 'drop' : 'drops'} ${drops.map(r => `${each(r)}${load(r)}`).join(', ')}`
+  return [head, tail].filter(Boolean).join(', ')
 }
 
 /** One line for the whole session: "6 exercises · 18 sets · 4,120 lb". `field` as for `liftSummary`. */
@@ -880,6 +935,45 @@ export function lastLift(entries = [], key, excludeId = null, field = null, meas
 }
 
 /**
+ * What an entry says about an exercise's note: the plan item's `memo` (the box
+ * on a planned workout's sheet), else a logged row's, as stored ('' is a note
+ * cleared), or null when neither said anything. Read off the entry as it is,
+ * done or not: a note is not a set lifted.
+ */
+function memoOn(e, key) {
+  for (const b of Array.isArray(e?.data?.plan?.blocks) ? e.data.plan.blocks : []) {
+    for (const it of Array.isArray(b?.items) ? b.items : []) {
+      if (it?.exercise === key && typeof it.memo === 'string') return it.memo
+    }
+  }
+  const row = liftsIn(e?.data?.out).find(l => liftKeyOf(l) === key && typeof l?.memo === 'string')
+  return row ? row.memo : null
+}
+
+/**
+ * The newest note (`memo`) the person left on this exercise, on a session
+ * before the entry being edited (lib/order.js `before`, as `lastLift`) and not
+ * after today, as `{ date, memo }` or null. Not last time's row alone: a
+ * setting written once ("seat at 4") is still there the session after it was
+ * read and not retyped. The newest word decides, so a note CLEARED later
+ * (`memo: ''`, what clearing the box or "Last note"'s Clear stores, on a log
+ * row or a plan item alike) stays gone.
+ */
+export function lastMemo(entries = [], key, excludeId = null, today = localIso()) {
+  let hit = null
+  const me = excludeId ? entries.find(e => e?.id === excludeId) : null
+  for (const e of entries) {
+    if (e?.deleted || e?.kind !== 'daily' || e.id === excludeId) continue
+    if (!(String(e.date || '') <= today)) continue
+    if (me?.date && !before(e, me)) continue
+    if (hit && !before(hit.entry, e)) continue
+    const memo = memoOn(e, key)
+    if (memo !== null) hit = { entry: e, memo: memo.trim() }
+  }
+  return hit?.memo ? { date: hit.entry.date, memo: hit.memo } : null
+}
+
+/**
  * When last time was, in the words every other date on the sheet uses
  * (`dayWords`: "Yesterday", "Fri, Nov 7"), never the raw "2026-11-07" (#93).
  */
@@ -914,8 +1008,16 @@ export function lastTimeFill(field, item, prior, { grow = false } = {}) {
   const count = liftMeasure(row, field) === 'time' ? 'seconds' : 'reps'
   const blank = (v) => v === null || v === undefined || v === ''
   const sets = item.sets || []
+  /* Like with like: a working set takes last time's working set in its place
+     (or its last), a drop set last time's drop in its place; a drop with no
+     drop last time to take is left blank. */
+  const work = rows.filter(r => !isDropSet(r))
+  const drops = rows.filter(r => isDropSet(r))
+  const nth = setNumbers(sets)
   const fills = sets.flatMap((s, i) => {
-    const from = rows[i] || rows.at(-1)
+    const dropAt = sets.slice(0, i).filter(x => isDropSet(x)).length
+    const from = isDropSet(s) ? (drops[dropAt] || drops.at(-1)) : (work[nth[i] - 1] || work.at(-1))
+    if (!from) return []
     const patch = {}
     if (count in s && blank(s[count]) && num(from[count]) !== null) patch[count] = num(from[count])
     if ('weight' in s && blank(s.weight) && sameLoad && num(from.weight) !== null) patch.weight = num(from.weight)
@@ -927,6 +1029,7 @@ export function lastTimeFill(field, item, prior, { grow = false } = {}) {
     const patch = {}
     if (num(from[count]) !== null) patch[count] = num(from[count])
     if (sameLoad && num(from.weight) !== null) patch.weight = num(from.weight)
+    if (Object.keys(patch).length && isDropSet(from)) patch.drop = true
     return Object.keys(patch).length ? [{ setId: null, add: true, patch }] : []
   })
   return [...fills, ...added]
@@ -936,7 +1039,8 @@ export function lastTimeFill(field, item, prior, { grow = false } = {}) {
 export function fillLift(list, uid, fills = []) {
   return fills.reduce((l, f) => {
     if (!f.add) return setLiftSet(l, uid, Number(f.setId), f.patch)
-    const grown = addLiftSet(l, uid)
+    // A drop grows blank (`addLiftSet`), so a weight it is not given is not a copy of the working set's.
+    const grown = addLiftSet(l, uid, { drop: f.patch?.drop === true })
     const n = liftsIn({ [LIFT_FIELD]: grown }).find(x => x.uid === uid)?.sets?.length || 0
     return setLiftSet(grown, uid, n - 1, f.patch)
   }, list)
@@ -957,7 +1061,7 @@ export const withFills = (sets = [], fills = []) => {
     return { ...rest, ...f.patch }
   })
   // Sets "Use" adds (`grow`): the last set's shape, blank as it was, holding the patch; ids are the writer's.
-  const { id: _i, typed: _t, ticked: _k, ...shape } = sets.at(-1) || {}
+  const { id: _i, typed: _t, ticked: _k, drop: _d, ...shape } = sets.at(-1) || {}
   return [...now, ...fills.filter(f => f.add).map(f => ({ ...shape, note: '', ...f.patch }))]
 }
 
@@ -979,11 +1083,13 @@ export function copyDownFills(sets = [], setId) {
   const from = sets[at]
   if (at < 0 || !holdsNumber(from)) return []
   const patch = Object.fromEntries(COPIED.filter(f => num(from[f]) !== null).map(f => [f, num(from[f])]))
-  return sets.slice(at + 1).filter(s => !holdsNumber(s)).map(s => ({ setId: s.id, patch: { ...patch } }))
+  // Like with like: a working set's numbers into working sets, a drop's into drops.
+  return sets.slice(at + 1).filter(s => !holdsNumber(s) && isDropSet(s) === isDropSet(from)).map(s => ({ setId: s.id, patch: { ...patch } }))
 }
 
-/** Is Copy down offered on set `i`: it has a number and the set right under it has none. */
+/** Is Copy down offered on set `i`: it has a number and the set right under it, of the same kind, has none. */
 export const canCopyDown = (sets = [], i) => holdsNumber(sets[i]) && i + 1 < sets.length && !holdsNumber(sets[i + 1])
+  && isDropSet(sets[i]) === isDropSet(sets[i + 1])
 
 /**
  * What Copy down's Undo writes (#93 review): the copied sets put back exactly as
